@@ -1,46 +1,35 @@
 
+## Forgot Password einrichten
 
-## Google OAuth reparieren
+### Was wird gebaut
+Eine vollständige "Passwort vergessen"-Funktion mit zwei Teilen:
+1. **Forgot Password Dialog** auf der Login-Seite — User gibt E-Mail ein und erhält einen Reset-Link
+2. **Reset Password Seite** (`/reset-password`) — User setzt ein neues Passwort
 
-### Problem
-Der Google-Login schlägt fehl mit "provider is not enabled", weil:
-1. Google OAuth nicht uber Lovable Cloud konfiguriert ist
-2. Der Code `supabase.auth.signInWithOAuth()` verwendet statt der Lovable Cloud Methode `lovable.auth.signInWithOAuth()`
+### Änderungen
 
-### Loesung
+**1. Neue Seite: `src/pages/ResetPassword.tsx`**
+- Formular mit zwei Feldern: neues Passwort + Bestätigung
+- Prüft beim Laden, ob ein `type=recovery` Token im URL-Hash vorhanden ist
+- Ruft `supabase.auth.updateUser({ password })` auf
+- Zeigt Erfolgs-/Fehlermeldung und leitet zum Login weiter
+- Gleiches Design wie Login/Signup (DIGITAL WAR ROOM Branding, dunkles Card-Layout)
 
-**Schritt 1: Google OAuth aktivieren**
-- Das "Configure Social Login" Tool verwenden, um Google als OAuth-Provider zu aktivieren
-- Dies generiert automatisch die noetige Integration unter `src/integrations/lovable/`
+**2. Neue Komponente: `src/components/ForgotPasswordDialog.tsx`**
+- Dialog/Modal das sich öffnet wenn "Forgot password?" geklickt wird
+- E-Mail-Eingabefeld
+- Ruft `supabase.auth.resetPasswordForEmail(email, { redirectTo: origin + '/reset-password' })` auf
+- Zeigt Bestätigung: "Falls ein Konto existiert, wurde eine E-Mail gesendet"
 
-**Schritt 2: Login-Seite aktualisieren**
-- In `src/pages/Login.tsx`: Import von `lovable` hinzufuegen und `handleGoogleLogin` aendern zu:
-  ```typescript
-  import { lovable } from "@/integrations/lovable/index";
-  
-  const handleGoogleLogin = async () => {
-    const { error } = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (error) toast.error(error.message);
-  };
-  ```
+**3. Login-Seite aktualisieren: `src/pages/Login.tsx`**
+- Den bestehenden "Forgot password?" Button mit dem neuen Dialog verbinden
 
-**Schritt 3: Signup-Seite aktualisieren**
-- In `src/pages/Signup.tsx`: Gleiche Aenderung fuer `handleGoogleSignup`
-  ```typescript
-  import { lovable } from "@/integrations/lovable/index";
-  
-  const handleGoogleSignup = async () => {
-    const { error } = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (error) toast.error(error.message);
-  };
-  ```
+**4. Route hinzufügen: `src/App.tsx`**
+- Neue Route: `<Route path="/reset-password" element={<ResetPassword />} />`
+- Öffentliche Route (nicht hinter ProtectedRoute)
 
 ### Technische Details
-- Lovable Cloud stellt automatisch verwaltete Google OAuth-Credentials bereit -- kein eigenes Google Cloud-Projekt noetig
-- Die `lovable.auth.signInWithOAuth()` Funktion umgeht die direkte Supabase-Auth und nutzt stattdessen den Lovable Cloud OAuth-Flow
-- Nach erfolgreichem Login wird der User automatisch zur App weitergeleitet
-
+- Verwendet die eingebaute Authentifizierung — keine Datenbankänderungen nötig
+- `resetPasswordForEmail` sendet automatisch eine E-Mail mit Reset-Link
+- Der Reset-Link leitet zurück zur App auf `/reset-password` mit einem Recovery-Token
+- `updateUser({ password })` setzt das neue Passwort
