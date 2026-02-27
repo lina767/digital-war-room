@@ -2,6 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConflictMap } from "@/components/dashboard/ConflictMap";
 import { ChevronDown, Play, LogOut } from "lucide-react";
 
 const agents = [
@@ -87,14 +88,8 @@ const Dashboard = () => {
 
         {/* Center Map */}
         <main className="flex-1 relative overflow-hidden">
-          <div className="absolute inset-0 grid-overlay" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="font-mono text-muted-foreground text-sm border border-border rounded px-4 py-2 bg-card/50">
-                [ Interactive Map — Loading... ]
-              </div>
-            </div>
-          </div>
+          <div className="absolute inset-0 grid-overlay opacity-30" />
+          <ConflictMap />
 
           {/* Bottom Escalation Timeline */}
           <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-background/90 backdrop-blur-sm p-3">
