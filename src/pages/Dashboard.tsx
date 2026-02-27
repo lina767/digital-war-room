@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,23 @@ const Dashboard = () => {
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
+  // Live clock
+  const [utcTime, setUtcTime] = useState(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setUtcTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const formattedTime = utcTime.toISOString().slice(11, 19);
+
+  // Live signal counter
+  const [signalCount, setSignalCount] = useState(847);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSignalCount(prev => prev + Math.floor(Math.random() * 3));
+    }, 4000 + Math.random() * 3000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleSignOut = async () => {
     await signOut();
     navigate("/login");
@@ -68,6 +85,17 @@ const Dashboard = () => {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Live clock */}
+          <div className="hidden md:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse-dot" />
+            <span className="text-foreground">{formattedTime}</span>
+            <span>UTC</span>
+          </div>
+          {/* Signal counter */}
+          <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1">
+            <span className="text-primary">{signalCount.toLocaleString()}</span>
+            <span>signals</span>
+          </div>
           <button className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded px-2 sm:px-3 py-1 hover:bg-secondary transition-colors">
             <span className="hidden sm:inline">US – Iran</span>
             <span className="sm:hidden">US–IR</span>
