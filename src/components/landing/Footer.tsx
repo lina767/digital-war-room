@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 export function Footer() {
+  const { ref, isVisible } = useScrollReveal({ threshold: 0.2 });
+
   return (
-    <footer className="border-t border-border py-12">
+    <footer ref={ref} className={`border-t border-border py-12 transition-all duration-700 ${isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}`}>
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
           <div>
