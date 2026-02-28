@@ -181,7 +181,7 @@ export function ConflictMap({
         >
           <WorldGeographies />
 
-          <ConnectionLines hiddenLinks={allHidden} onToggleLink={toggleLink} animPhase={animPhase} />
+          <ConnectionLines hiddenLinks={allHidden} onToggleLink={toggleLink} animPhase={animPhase} zoom={zoom} />
 
           {/* ── GEOINT Thermal Anomalies ── */}
           {showGeoint &&
