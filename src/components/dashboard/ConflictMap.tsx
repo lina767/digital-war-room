@@ -4,6 +4,7 @@ import {
   Geographies,
   Geography,
   Marker,
+  ZoomableGroup,
 } from "react-simple-maps";
 
 const GEO_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
@@ -61,6 +62,8 @@ WorldGeographies.displayName = "WorldGeographies";
 export function ConflictMap() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [animPhase, setAnimPhase] = useState(0);
+  const [zoom, setZoom] = useState(1);
+  const [center, setCenter] = useState<[number, number]>([10, 20]);
 
   useEffect(() => {
     const interval = setInterval(() => setAnimPhase((p) => (p + 1) % 60), 50);
@@ -92,69 +95,46 @@ export function ConflictMap() {
           ))}
         </defs>
 
-        <WorldGeographies />
+        <ZoomableGroup
+          zoom={zoom}
+          center={center}
+          onMoveEnd={({ coordinates, zoom: z }) => {
+            setCenter(coordinates);
+            setZoom(z);
+          }}
+          minZoom={1}
+          maxZoom={8}
+        >
+          <WorldGeographies />
 
-        {/* Conflict markers */}
-        {conflicts.map((c) => {
-          const color = severityColor[c.severity];
-          const pulseScale = 1 + 0.4 * Math.sin((animPhase + parseInt(c.id, 36)) * 0.15);
-          const isHovered = hoveredId === c.id;
+          {conflicts.map((c) => {
+            const color = severityColor[c.severity];
+            const pulseScale = 1 + 0.4 * Math.sin((animPhase + parseInt(c.id, 36)) * 0.15);
+            const isHovered = hoveredId === c.id;
+            const s = 1 / zoom;
 
-          return (
-            <Marker
-              key={c.id}
-              coordinates={c.coordinates}
-              onMouseEnter={() => setHoveredId(c.id)}
-              onMouseLeave={() => setHoveredId(null)}
-            >
-              <g className="cursor-pointer" filter={`url(#glow-${c.severity})`}>
-                {/* Pulse rings */}
-                <circle
-                  r={8 * pulseScale}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={0.5}
-                  opacity={0.4 / pulseScale}
-                />
-                <circle
-                  r={14 * pulseScale}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={0.3}
-                  opacity={0.2 / pulseScale}
-                />
-                {/* Core dot */}
-                <circle r={isHovered ? 5 : 3.5} fill={color} opacity={0.9} />
-
-                {/* Label on hover */}
-                {isHovered && (
-                  <g>
-                    <rect
-                      x={8}
-                      y={-12}
-                      width={c.label.length * 7.5 + 16}
-                      height={20}
-                      rx={3}
-                      fill="hsl(var(--card))"
-                      stroke={color}
-                      strokeWidth={0.5}
-                      opacity={0.95}
-                    />
-                    <text
-                      x={16}
-                      y={2}
-                      fill="hsl(var(--foreground))"
-                      fontSize={10}
-                      fontFamily="JetBrains Mono, monospace"
-                    >
-                      {c.label}
-                    </text>
-                  </g>
-                )}
-              </g>
-            </Marker>
-          );
-        })}
+            return (
+              <Marker
+                key={c.id}
+                coordinates={c.coordinates}
+                onMouseEnter={() => setHoveredId(c.id)}
+                onMouseLeave={() => setHoveredId(null)}
+              >
+                <g className="cursor-pointer" filter={`url(#glow-${c.severity})`} transform={`scale(${s})`}>
+                  <circle r={8 * pulseScale} fill="none" stroke={color} strokeWidth={0.5} opacity={0.4 / pulseScale} />
+                  <circle r={14 * pulseScale} fill="none" stroke={color} strokeWidth={0.3} opacity={0.2 / pulseScale} />
+                  <circle r={isHovered ? 5 : 3.5} fill={color} opacity={0.9} />
+                  {isHovered && (
+                    <g>
+                      <rect x={8} y={-12} width={c.label.length * 7.5 + 16} height={20} rx={3} fill="hsl(var(--card))" stroke={color} strokeWidth={0.5} opacity={0.95} />
+                      <text x={16} y={2} fill="hsl(var(--foreground))" fontSize={10} fontFamily="JetBrains Mono, monospace">{c.label}</text>
+                    </g>
+                  )}
+                </g>
+              </Marker>
+            );
+          })}
+        </ZoomableGroup>
       </ComposableMap>
 
       {/* Legend */}
