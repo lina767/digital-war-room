@@ -1,4 +1,4 @@
-import { useEffect, useState, memo } from "react";
+import { useEffect, useState, useCallback, memo } from "react";
 import {
   ComposableMap,
   Geographies,
@@ -6,36 +6,11 @@ import {
   Marker,
   ZoomableGroup,
 } from "react-simple-maps";
+import { conflicts, severityColor } from "./conflictData";
+import { ConnectionLines } from "./ConnectionLines";
+import { conflictLinks } from "./conflictData";
 
 const GEO_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
-
-interface ConflictMarker {
-  id: string;
-  label: string;
-  coordinates: [number, number]; // [longitude, latitude]
-  severity: "high" | "medium" | "low";
-}
-
-const conflicts: ConflictMarker[] = [
-  { id: "us-iran", label: "US–Iran", coordinates: [53, 32], severity: "high" },
-  { id: "ukraine", label: "Ukraine", coordinates: [31, 49], severity: "high" },
-  { id: "sudan", label: "Sudan", coordinates: [30, 15], severity: "high" },
-  { id: "myanmar", label: "Myanmar", coordinates: [96, 20], severity: "medium" },
-  { id: "taiwan-strait", label: "Taiwan Strait", coordinates: [120, 24], severity: "medium" },
-  { id: "sahel", label: "Sahel Region", coordinates: [2, 15], severity: "medium" },
-  { id: "ethiopia", label: "Ethiopia", coordinates: [40, 9], severity: "low" },
-  { id: "syria", label: "Syria", coordinates: [38, 35], severity: "medium" },
-  { id: "yemen", label: "Yemen", coordinates: [48, 15], severity: "high" },
-  { id: "drc", label: "DRC", coordinates: [24, -3], severity: "low" },
-  { id: "korea", label: "Korean Peninsula", coordinates: [127, 38], severity: "low" },
-  { id: "israel-palestine", label: "Israel–Palestine", coordinates: [35, 31.5], severity: "high" },
-];
-
-const severityColor = {
-  high: "hsl(var(--threat))",
-  medium: "hsl(var(--warning))",
-  low: "hsl(var(--primary))",
-};
 
 const WorldGeographies = memo(() => (
   <Geographies geography={GEO_URL}>
@@ -64,19 +39,31 @@ export function ConflictMap() {
   const [animPhase, setAnimPhase] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [center, setCenter] = useState<[number, number]>([10, 20]);
+  const [showLinks, setShowLinks] = useState(true);
+  const [hiddenLinks, setHiddenLinks] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const interval = setInterval(() => setAnimPhase((p) => (p + 1) % 60), 50);
     return () => clearInterval(interval);
   }, []);
 
+  const toggleLink = useCallback((id: string) => {
+    setHiddenLinks((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const allHidden = showLinks
+    ? hiddenLinks
+    : new Set(conflictLinks.map((l) => l.id));
+
   return (
     <div className="absolute inset-0">
       <ComposableMap
-        projectionConfig={{
-          rotate: [-10, 0, 0],
-          scale: 160,
-        }}
+        projectionConfig={{ rotate: [-10, 0, 0], scale: 160 }}
         projection="geoNaturalEarth1"
         className="w-full h-full"
         style={{ width: "100%", height: "100%" }}
@@ -106,6 +93,12 @@ export function ConflictMap() {
           maxZoom={8}
         >
           <WorldGeographies />
+
+          <ConnectionLines
+            hiddenLinks={allHidden}
+            onToggleLink={toggleLink}
+            animPhase={animPhase}
+          />
 
           {conflicts.map((c) => {
             const color = severityColor[c.severity];
@@ -137,17 +130,29 @@ export function ConflictMap() {
         </ZoomableGroup>
       </ComposableMap>
 
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 flex gap-4">
+      {/* Legend + Links toggle */}
+      <div className="absolute bottom-4 left-4 flex items-center gap-5">
         {([["high", "HIGH"], ["medium", "MED"], ["low", "LOW"]] as const).map(([s, label]) => (
           <div key={s} className="flex items-center gap-1.5">
-            <div
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ backgroundColor: severityColor[s] }}
-            />
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: severityColor[s] }} />
             <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
           </div>
         ))}
+        <button
+          onClick={() => setShowLinks((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors ml-2"
+        >
+          <div className={`w-2.5 h-0.5 ${showLinks ? "bg-primary" : "bg-muted-foreground/40"}`} style={{ borderTop: "1px dashed" }} />
+          {showLinks ? "LINKS ON" : "LINKS OFF"}
+        </button>
+        {hiddenLinks.size > 0 && showLinks && (
+          <button
+            onClick={() => setHiddenLinks(new Set())}
+            className="text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          >
+            RESET
+          </button>
+        )}
       </div>
     </div>
   );
