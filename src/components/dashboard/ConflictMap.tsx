@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, memo } from "react";
+import { Plus, Minus, RotateCcw } from "lucide-react";
 import {
   ComposableMap,
   Geographies,
@@ -129,6 +130,28 @@ export function ConflictMap() {
           })}
         </ZoomableGroup>
       </ComposableMap>
+
+      {/* Zoom controls */}
+      <div className="absolute top-3 right-3 flex flex-col gap-1">
+        <button
+          onClick={() => setZoom((z) => Math.min(z * 1.5, 8))}
+          className="w-7 h-7 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+        >
+          <Plus size={14} />
+        </button>
+        <button
+          onClick={() => setZoom((z) => Math.max(z / 1.5, 1))}
+          className="w-7 h-7 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          onClick={() => { setZoom(1); setCenter([10, 20]); }}
+          className="w-7 h-7 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+        >
+          <RotateCcw size={12} />
+        </button>
+      </div>
 
       {/* Legend + Links toggle */}
       <div className="absolute bottom-4 left-4 flex items-center gap-5">
