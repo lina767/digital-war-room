@@ -4,6 +4,11 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConflictMap } from "@/components/dashboard/ConflictMap";
+import { LiveTicker } from "@/components/dashboard/LiveTicker";
+import { NewsSentiment } from "@/components/dashboard/NewsSentiment";
+import { InternetConnectivity } from "@/components/dashboard/InternetConnectivity";
+import { FlightRadar } from "@/components/dashboard/FlightRadar";
+import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
 import { ChevronDown, Play, LogOut, Menu, X, Radio, Rss } from "lucide-react";
 
 const agents = [
@@ -69,6 +74,8 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      {/* Live OSINT Ticker */}
+      <LiveTicker />
       {/* Top Navbar */}
       <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2">
         <div className="flex items-center gap-2">
@@ -235,6 +242,7 @@ const Dashboard = () => {
               <X className="h-4 w-4" />
             </button>
           </div>
+          <NewsSentiment />
           <div className="space-y-3">
             {intelFeed.map((item, i) => (
               <div key={i} className="rounded-lg border border-border bg-card p-3 space-y-2">
@@ -248,6 +256,9 @@ const Dashboard = () => {
               </div>
             ))}
           </div>
+          <InternetConnectivity />
+          <FlightRadar />
+          <PredictionMarkets />
         </aside>
       </div>
     </div>
