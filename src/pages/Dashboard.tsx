@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConflictMap } from "@/components/dashboard/ConflictMap";
@@ -25,7 +24,6 @@ import { Input } from "@/components/ui/input";
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
-  const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [conflictDropdownOpen, setConflictDropdownOpen] = useState(false);
   const conflictDropdownRef = useRef<HTMLDivElement>(null);
@@ -108,12 +106,11 @@ const Dashboard = () => {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate("/login");
   };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {accountError && (
+      {user && accountError && (
         <div className="bg-destructive/15 border-b border-destructive/40 px-3 py-2 text-center text-xs text-destructive flex items-center justify-center gap-2 flex-wrap">
           <span>Profil/Settings: {accountError}</span>
           <span className="text-muted-foreground">→ Klick auf deinen Namen für Anleitung.</span>
@@ -214,64 +211,68 @@ const Dashboard = () => {
               )}
             </Button>
           </div>
-          <Popover open={profileEditOpen} onOpenChange={setProfileEditOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground hidden lg:flex items-center gap-1.5 truncate max-w-[160px] hover:text-foreground"
-                title="Profil bearbeiten"
-              >
-                <User className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate">{profile?.display_name || user?.email}</span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72" align="end">
-              <div className="space-y-3">
-                <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Profil</p>
-                {accountError && (
-                  <div className="rounded bg-destructive/10 border border-destructive/30 p-2 text-xs text-destructive space-y-1">
-                    <p className="font-medium">Fehler: {accountError}</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      In Supabase SQL Editor ausführen: <code className="bg-muted px-1 rounded text-[10px]">CREATE POLICY &quot;Users can insert own profile&quot; ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);</code> Dann hier &quot;Profil anlegen&quot; klicken.
-                    </p>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">Anzeigename</label>
-                  <Input
-                    value={profileDisplayName}
-                    onChange={(e) => setProfileDisplayName(e.target.value)}
-                    placeholder={user?.email ?? ""}
-                    className="text-sm h-8"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="text-xs flex-1"
-                    onClick={() => {
-                      updateProfile({ display_name: profileDisplayName.trim() || undefined });
-                      setProfileEditOpen(false);
-                    }}
+          {user && (
+            <>
+              <Popover open={profileEditOpen} onOpenChange={setProfileEditOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hidden lg:flex items-center gap-1.5 truncate max-w-[160px] hover:text-foreground"
+                    title="Profil bearbeiten"
                   >
-                    Speichern
-                  </Button>
-                  <Button size="sm" variant="outline" className="text-xs" onClick={() => setProfileEditOpen(false)}>
-                    Abbrechen
-                  </Button>
-                  {!profile && (
-                    <Button size="sm" variant="secondary" className="text-xs w-full" onClick={() => ensureProfile().then((ok) => ok && setProfileEditOpen(false))}>
-                      Profil anlegen
-                    </Button>
-                  )}
-                </div>
-                <p className="text-[10px] text-muted-foreground truncate">Account: {user?.email}</p>
-              </div>
-            </PopoverContent>
-          </Popover>
-          <button onClick={handleSignOut} className="text-muted-foreground hover:text-foreground transition-colors" title="Sign Out">
-            <LogOut className="h-4 w-4" />
-          </button>
+                    <User className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span className="truncate">{profile?.display_name || user?.email}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72" align="end">
+                  <div className="space-y-3">
+                    <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Profil</p>
+                    {accountError && (
+                      <div className="rounded bg-destructive/10 border border-destructive/30 p-2 text-xs text-destructive space-y-1">
+                        <p className="font-medium">Fehler: {accountError}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          In Supabase SQL Editor ausführen: <code className="bg-muted px-1 rounded text-[10px]">CREATE POLICY &quot;Users can insert own profile&quot; ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);</code> Dann hier &quot;Profil anlegen&quot; klicken.
+                        </p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <label className="text-xs text-muted-foreground">Anzeigename</label>
+                      <Input
+                        value={profileDisplayName}
+                        onChange={(e) => setProfileDisplayName(e.target.value)}
+                        placeholder={user?.email ?? ""}
+                        className="text-sm h-8"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="text-xs flex-1"
+                        onClick={() => {
+                          updateProfile({ display_name: profileDisplayName.trim() || undefined });
+                          setProfileEditOpen(false);
+                        }}
+                      >
+                        Speichern
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs" onClick={() => setProfileEditOpen(false)}>
+                        Abbrechen
+                      </Button>
+                      {!profile && (
+                        <Button size="sm" variant="secondary" className="text-xs w-full" onClick={() => ensureProfile().then((ok) => ok && setProfileEditOpen(false))}>
+                          Profil anlegen
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground truncate">Account: {user?.email}</p>
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <button onClick={handleSignOut} className="text-muted-foreground hover:text-foreground transition-colors" title="Sign Out">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </>
+          )}
         </div>
       </header>
 
