@@ -17,9 +17,9 @@ load_dotenv()
 os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", "true"))
 os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"))
 
-# Konflikt, der alle 10 Minuten automatisch analysiert wird (unabhängig von Aufrufen)
+# Konflikt, der stündlich automatisch analysiert wird (unabhängig von Aufrufen)
 AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "US-Iran")
-AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "600"))  # 10 min
+AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "3600"))  # 1 Stunde
 
 
 @asynccontextmanager
@@ -108,7 +108,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
         else:
             await websocket.send_json({"status": "analyzing", "conflict": conflict})
 
-        # Alle 60 s gecachtes Ergebnis pushen (wird alle 10 min vom Hintergrund-Job aktualisiert)
+        # Alle 60 s gecachtes Ergebnis pushen (wird stündlich vom Hintergrund-Job aktualisiert)
         loop = asyncio.get_running_loop()
         while True:
             await asyncio.sleep(60)

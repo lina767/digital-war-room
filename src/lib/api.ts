@@ -33,25 +33,52 @@ export interface AnalyzeResponse {
 /** Analysis can take 1–2 min (6 agents + LLM). Use long timeout. */
 const ANALYSIS_TIMEOUT_MS = 180_000;
 
-/** GET last cached analysis (from auto-run every 10 min or last POST). No analysis is run. */
-export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+/** Timeout für Abruf der gecachten Analyse (Cold Start z. B. Railway). */
+const LATEST_ANALYSIS_TIMEOUT_MS = 22_000;
+
+/** GET /api/analyze/status – leichtgewichtig, um Backend erreichbar vs. kein Cache zu unterscheiden. */
+export async function getAnalyzeStatus(conflict: string): Promise<{ cached: boolean; at?: number } | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch(`${getApiBase()}/api/analyze/latest?conflict=${encodeURIComponent(conflict)}`, {
-      method: "GET",
-    });
+    const res = await fetch(
+      `${getApiBase()}/api/analyze/status?conflict=${encodeURIComponent(conflict)}`,
+      { method: "GET", signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const raw = (await res.json()) as { cached?: boolean; at?: number };
+    return { cached: raw?.cached ?? false, at: raw?.at };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
+/** GET last cached analysis (from auto-run every hour). No analysis is run. */
+export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), LATEST_ANALYSIS_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${getApiBase()}/api/analyze/latest?conflict=${encodeURIComponent(conflict)}`,
+      { method: "GET", signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
     if (res.status === 404 || res.status === 204) return null;
     if (!res.ok) return null;
     const raw = await res.json();
     if (raw == null) return null;
     return normalizeAnalysisResponse(raw as Record<string, unknown>);
   } catch {
+    clearTimeout(timeoutId);
     return null;
   }
 }
 
 /**
  * Holt die aktuelle Analyse aus dem Cache (keine neue Analyse).
- * Analysen laufen nur alle 10 Min im Backend. Bei 503: noch kein Cache.
+ * Analysen laufen stündlich im Backend. Bei 503: noch kein Cache.
  */
 export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
   try {
@@ -62,7 +89,7 @@ export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
     });
     if (res.status === 503) {
       const body = await res.json().catch(() => ({}));
-      const msg = (body as { error?: string })?.error ?? "No cached analysis yet. Analysis runs automatically every 10 minutes.";
+      const msg = (body as { error?: string })?.error ?? "No cached analysis yet. Analysis runs automatically every hour.";
       throw new Error(msg);
     }
     if (!res.ok) throw new Error(`Analysis failed: ${res.status} ${res.statusText}`);

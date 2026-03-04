@@ -114,7 +114,9 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
-    model = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.1)
+    # Haiku ist günstiger; für höhere Qualität: SUPERVISOR_MODEL=claude-sonnet-4-6 setzen
+    model_name = os.getenv("SUPERVISOR_MODEL", "claude-haiku-4-5-20251001")
+    model = ChatAnthropic(model=model_name, temperature=0.1)
 
     system_prompt = """You are a senior intelligence analyst with access to 6 intelligence streams:
 - FININT: Financial markets and oil price indicators
@@ -133,6 +135,22 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
   "summary": "<2-3 sentence BLUF summary>"
 }"""
 
+    # Reduzierte Payload an Claude = weniger Input-Tokens = geringere Kosten
+    def _trim(obj, list_key: str, max_items: int):
+        if not isinstance(obj, dict) or list_key not in obj:
+            return obj
+        arr = obj.get(list_key)
+        if isinstance(arr, list) and len(arr) > max_items:
+            return {**obj, list_key: arr[:max_items]}
+        return obj
+
+    finint_slim = _trim(finint_result, "polymarket", 5)
+    news_slim = _trim(_trim(news_result, "articles", 8), "key_findings", 5)
+    geoint_slim = _trim(_trim(geoint_result, "anomalies", 15), "hotspots", 5)
+    sigint_slim = _trim(_trim(_trim(sigint_result, "aircraft", 8), "ships", 5), "conflict_reports", 5)
+    socmint_slim = _trim(socmint_result, "top_signals", 8)
+    techint_slim = _trim(_trim(techint_result, "tech_indicators", 5), "ioda_events", 5)
+
     user_payload = {
         "conflict": conflict,
         "composite_score": combined_score,
@@ -144,12 +162,12 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
             "socmint": socmint_score,
             "techint": techint_score,
         },
-        "finint": finint_result,
-        "sigint": sigint_result,
-        "news": news_result,
-        "geoint": geoint_result,
-        "socmint": socmint_result,
-        "techint": techint_result,
+        "finint": finint_slim,
+        "sigint": sigint_slim,
+        "news": news_slim,
+        "geoint": geoint_slim,
+        "socmint": socmint_slim,
+        "techint": techint_slim,
     }
 
     msg = model.invoke([

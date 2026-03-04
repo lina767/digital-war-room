@@ -189,10 +189,8 @@ const Dashboard = () => {
           </Badge>
           <div className="flex flex-col items-end gap-1">
             {analysisError && (
-              <p className="text-[10px] text-destructive max-w-[200px] text-right" title={analysisError}>
-                {analysisError.includes("fetch") || analysisError.includes("Failed") || analysisError.includes("Network")
-                  ? `Backend nicht erreichbar (${apiBase}). Backend starten?`
-                  : analysisError}
+              <p className="text-[10px] text-destructive max-w-[280px] sm:max-w-[320px] text-right" title={analysisError}>
+                {analysisError}
               </p>
             )}
             <Button
@@ -200,7 +198,7 @@ const Dashboard = () => {
               className="text-xs px-2 sm:px-3"
               disabled={isAnalyzing}
               onClick={() => runAnalysis()}
-              title="Letzte Analyse aus dem Cache laden (Automatik alle 10 Min)"
+              title="Letzte Analyse aus dem Cache laden (Automatik stündlich)"
             >
               {isAnalyzing ? (
                 <span className="animate-pulse">Laden…</span>

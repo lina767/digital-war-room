@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getWsUrl, getLatestAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
 
@@ -109,13 +109,24 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     };
   }, [enabled]);
 
-  // Beim Laden gecachtes Ergebnis holen (Backend aktualisiert alle 10 min automatisch)
+  // Beim Laden gecachtes Ergebnis holen; bei keinem Cache klare Meldung setzen
   useEffect(() => {
     let cancelled = false;
+    setAnalysisError(null);
     getLatestAnalysis(conflict).then((cached) => {
-      if (!cancelled && cached) {
+      if (cancelled) return;
+      if (cached) {
         setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as ConflictData);
         setLastUpdated(new Date());
+        setAnalysisError(null);
+      } else {
+        getAnalyzeStatus(conflict).then((status) => {
+          if (cancelled) return;
+          if (status === null) {
+            setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+          }
+          // Bei status.cached === false keine Fehlermeldung – Analyse kommt stündlich automatisch
+        });
       }
     });
     return () => { cancelled = true; };
@@ -160,10 +171,14 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         setData(result as ConflictData);
         setLastUpdated(new Date());
         setStatus("connected");
+        setAnalysisError(null);
         return result;
       }
       setStatus("connected");
-      setAnalysisError(null);
+      const status = await getAnalyzeStatus(conflictRef.current);
+      if (status === null) {
+        setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+      }
       return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

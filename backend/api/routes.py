@@ -51,7 +51,7 @@ async def analyze(request: Request, body: AnalyzeRequest):
     """
     POST /analyze – startet KEINE neue Analyse.
     Gibt nur die gecachte Analyse zurück (wie GET /analyze/latest).
-    Analysen laufen ausschließlich alle 10 Minuten im Hintergrund.
+    Analysen laufen stündlich im Hintergrund.
     """
     cache = _get_cache(request)
     entry = cache.get(body.conflict)
@@ -59,7 +59,7 @@ async def analyze(request: Request, body: AnalyzeRequest):
         return JSONResponse(
             status_code=503,
             content={
-                "error": "No cached analysis yet. Analysis runs automatically every 10 minutes.",
+                "error": "No cached analysis yet. Analysis runs automatically every hour.",
                 "conflict": body.conflict,
             },
         )

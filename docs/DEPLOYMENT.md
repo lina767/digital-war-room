@@ -33,6 +33,9 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
     - `ALPHAVANTAGE_API_KEY` (FININT, optional TECHINT)
   - **Optional:**  
     `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL`, `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
+- **Kosten senken (Claude API):**
+  - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 3600 = stündlich; 600 = alle 10 Min).
+  - `SUPERVISOR_MODEL=claude-haiku-4-5-20251001` (Standard) = günstiger; für bessere Qualität: `claude-sonnet-4-6`.
 - [ ] **Backend-URL notieren**  
   Nach dem Deploy die öffentliche URL kopieren (z. B. `https://dein-service.up.railway.app`). Kein abschließendes `/`.
 
