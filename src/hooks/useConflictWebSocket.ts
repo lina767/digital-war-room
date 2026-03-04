@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getWsUrl, runAnalysis as runAnalysisApi, getLatestAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import { getWsUrl, getLatestAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
 
@@ -149,17 +149,22 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     connect();
   }, [connect]);
 
-  /** Run analysis via REST POST /api/analyze and update data (for "Run Analysis" button). */
+  /** Holt die gecachte Analyse (GET /api/analyze/latest). Wie beim Start – keine neue Analyse, nur Cache. */
   const runAnalysis = useCallback(async (): Promise<AnalyzeResponse | null> => {
     if (!enabled) return null;
     setAnalysisError(null);
     setStatus("analyzing");
     try {
-      const result = await runAnalysisApi(conflictRef.current);
-      setData(result as ConflictData);
-      setLastUpdated(new Date());
+      const result = await getLatestAnalysis(conflictRef.current);
+      if (result) {
+        setData(result as ConflictData);
+        setLastUpdated(new Date());
+        setStatus("connected");
+        return result;
+      }
       setStatus("connected");
-      return result;
+      setAnalysisError(null);
+      return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[Analysis]", err);

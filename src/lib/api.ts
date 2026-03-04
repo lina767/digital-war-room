@@ -49,22 +49,26 @@ export async function getLatestAnalysis(conflict: string): Promise<AnalyzeRespon
   }
 }
 
+/**
+ * Holt die aktuelle Analyse aus dem Cache (keine neue Analyse).
+ * Analysen laufen nur alle 10 Min im Backend. Bei 503: noch kein Cache.
+ */
 export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), ANALYSIS_TIMEOUT_MS);
   try {
     const res = await fetch(`${getApiBase()}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conflict }),
-      signal: controller.signal,
     });
-    clearTimeout(timeoutId);
+    if (res.status === 503) {
+      const body = await res.json().catch(() => ({}));
+      const msg = (body as { error?: string })?.error ?? "No cached analysis yet. Analysis runs automatically every 10 minutes.";
+      throw new Error(msg);
+    }
     if (!res.ok) throw new Error(`Analysis failed: ${res.status} ${res.statusText}`);
     const raw = await res.json();
     return normalizeAnalysisResponse(raw);
   } catch (e) {
-    clearTimeout(timeoutId);
     if (e instanceof Error) throw e;
     throw new Error(String(e));
   }

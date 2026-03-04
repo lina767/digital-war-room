@@ -1,11 +1,6 @@
-import asyncio
-
 from fastapi import APIRouter, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
-
-from agents.supervisor import analyze_conflict
-
 
 router = APIRouter()
 
@@ -22,7 +17,7 @@ def _get_cache(request: Request):
 async def get_latest_analysis(request: Request, conflict: str = "US-Iran"):
     """
     GET /analyze/latest?conflict=US-Iran
-    Returns the last cached analysis for that conflict (from auto-run or last POST).
+    Liefert die letzte gecachte Analyse (nur vom 10-Min-Auto-Run). Startet keine neue Analyse.
     """
     cache = _get_cache(request)
     entry = cache.get(conflict)
@@ -34,13 +29,18 @@ async def get_latest_analysis(request: Request, conflict: str = "US-Iran"):
 @router.post("/analyze")
 async def analyze(request: Request, body: AnalyzeRequest):
     """
-    POST /analyze
-    Body: {"conflict": "US-Iran"}
-    Returns the full supervisor (Claude + agents) analysis response.
-    Also updates the cache so GET /analyze/latest returns this result.
+    POST /analyze – startet KEINE neue Analyse.
+    Gibt nur die gecachte Analyse zurück (wie GET /analyze/latest).
+    Analysen laufen ausschließlich alle 10 Minuten im Hintergrund.
     """
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, lambda: analyze_conflict(body.conflict))
     cache = _get_cache(request)
-    cache[body.conflict] = {"result": result, "at": __import__("time").time()}
-    return result
+    entry = cache.get(body.conflict)
+    if not entry:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "No cached analysis yet. Analysis runs automatically every 10 minutes.",
+                "conflict": body.conflict,
+            },
+        )
+    return entry["result"]
