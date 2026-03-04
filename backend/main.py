@@ -1,6 +1,7 @@
 import os
 import asyncio
-import json
+import time
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -15,7 +16,38 @@ load_dotenv()
 os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", "true"))
 os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"))
 
-app = FastAPI(title="Conflict Analysis Backend")
+# Konflikt, der alle 10 Minuten automatisch analysiert wird (unabhängig von Aufrufen)
+AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "US-Iran")
+AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "600"))  # 10 min
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
+
+    async def run_periodic_analysis():
+        loop = asyncio.get_running_loop()
+        first_delay = 30  # Erste Analyse 30 s nach Start, dann alle AUTO_ANALYZE_INTERVAL_SEC
+        await asyncio.sleep(first_delay)
+        while True:
+            try:
+                result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
+                app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": time.time()}
+                print(f"[periodic] Analysis for {AUTO_ANALYZE_CONFLICT} done.")
+            except Exception as e:
+                print(f"[periodic] Analysis failed: {e}")
+            await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
+
+    task = asyncio.create_task(run_periodic_analysis())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="Conflict Analysis Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,20 +97,26 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
     await manager.connect(websocket)
     print(f"[WS] Client connected – conflict: {conflict}")
     try:
-        # Send initial analysis immediately on connect
-        await websocket.send_json({"status": "analyzing", "conflict": conflict})
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, analyze_conflict, conflict)
-        result["status"] = "ok"
-        await websocket.send_json(result)
+        # Sofort gecachtes Ergebnis senden (von Auto-Run oder letztem POST)
+        cache = getattr(app.state, "analysis_cache", {})
+        entry = cache.get(conflict)
+        if entry:
+            result = {**entry["result"], "status": "ok"}
+            await websocket.send_json(result)
+        else:
+            await websocket.send_json({"status": "analyzing", "conflict": conflict})
 
-        # Then push updates every 60 seconds
+        # Alle 60 s gecachtes Ergebnis pushen (wird alle 10 min vom Hintergrund-Job aktualisiert)
+        loop = asyncio.get_running_loop()
         while True:
             await asyncio.sleep(60)
-            await websocket.send_json({"status": "analyzing", "conflict": conflict})
-            result = await loop.run_in_executor(None, analyze_conflict, conflict)
-            result["status"] = "ok"
-            await websocket.send_json(result)
+            cache = getattr(app.state, "analysis_cache", {})
+            entry = cache.get(conflict)
+            if entry:
+                result = {**entry["result"], "status": "ok"}
+                await websocket.send_json(result)
+            else:
+                await websocket.send_json({"status": "analyzing", "conflict": conflict})
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)

@@ -33,6 +33,22 @@ export interface AnalyzeResponse {
 /** Analysis can take 1–2 min (6 agents + LLM). Use long timeout. */
 const ANALYSIS_TIMEOUT_MS = 180_000;
 
+/** GET last cached analysis (from auto-run every 10 min or last POST). No analysis is run. */
+export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/analyze/latest?conflict=${encodeURIComponent(conflict)}`, {
+      method: "GET",
+    });
+    if (res.status === 404 || res.status === 204) return null;
+    if (!res.ok) return null;
+    const raw = await res.json();
+    if (raw == null) return null;
+    return normalizeAnalysisResponse(raw as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
 export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ANALYSIS_TIMEOUT_MS);

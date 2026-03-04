@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getWsUrl, runAnalysis as runAnalysisApi, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import { getWsUrl, runAnalysis as runAnalysisApi, getLatestAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
 
@@ -108,6 +108,31 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       reconnectTimer.current = setTimeout(connect, 5000);
     };
   }, [enabled]);
+
+  // Beim Laden gecachtes Ergebnis holen (Backend aktualisiert alle 10 min automatisch)
+  useEffect(() => {
+    let cancelled = false;
+    getLatestAnalysis(conflict).then((cached) => {
+      if (!cancelled && cached) {
+        setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as ConflictData);
+        setLastUpdated(new Date());
+      }
+    });
+    return () => { cancelled = true; };
+  }, [conflict]);
+
+  // Alle 2 Min gecachtes Ergebnis abrufen (zeigt Updates vom 10-Min-Auto-Run)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      getLatestAnalysis(conflict).then((cached) => {
+        if (cached) {
+          setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as ConflictData);
+          setLastUpdated(new Date());
+        }
+      });
+    }, 120_000);
+    return () => clearInterval(interval);
+  }, [conflict]);
 
   useEffect(() => {
     connect();
