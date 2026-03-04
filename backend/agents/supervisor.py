@@ -5,6 +5,7 @@ then runs Claude Sonnet as the senior analyst for final assessment.
 """
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, TypedDict
 
@@ -178,15 +179,22 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
     if isinstance(content, list):
         content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
 
+    # JSON ggf. aus Markdown-Codeblock extrahieren (Claude antwortet oft mit ```json ... ```)
+    raw = (content or "").strip()
+    if "```" in raw:
+        m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+        if m:
+            raw = m.group(1).strip()
+
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(raw)
     except json.JSONDecodeError:
         parsed = {
             "escalation_score": combined_score,
             "threat_level": "ELEVATED",
-            "key_findings": ["Failed to parse supervisor output."],
+            "key_findings": ["Synthese-Ausgabe konnte nicht gelesen werden; Agent-Daten unten."],
             "scenarios": [],
-            "summary": "Supervisor synthesis failed; raw agent data available.",
+            "summary": f"Composite score {combined_score:.0f}/100 aus 6 Agenten. Einzelne Streams (News, SIGINT, etc.) unten.",
         }
 
     threat_level = str(parsed.get("threat_level", "MINIMAL"))

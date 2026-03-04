@@ -198,14 +198,14 @@ const Dashboard = () => {
               className="text-xs px-2 sm:px-3"
               disabled={isAnalyzing}
               onClick={() => runAnalysis()}
-              title="Letzte Analyse aus dem Cache laden (Automatik stündlich)"
+              title="Letzte Analyse laden (Cache / stündliche Automatik)"
             >
               {isAnalyzing ? (
                 <span className="animate-pulse">Laden…</span>
               ) : (
                 <>
-                  <span className="hidden sm:inline">Aktualisieren</span>
-                  <span className="sm:hidden">Refresh</span>
+                  <span className="hidden sm:inline">Analyze</span>
+                  <span className="sm:hidden">Analyze</span>
                 </>
               )}
             </Button>
