@@ -405,11 +405,18 @@ export function ConflictMap({
         </button>
       </div>
 
-      {/* ── Legend ── */}
-      <div className="absolute bottom-4 left-4 flex items-center gap-4 flex-wrap">
-        <span className="text-[9px] font-mono text-muted-foreground/90" title="Map stance">
+      {/* Crimea = Ukraine: unter der Antarktis, zentriert */}
+      <div
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-card/95 border border-border/60 shadow-sm pointer-events-none z-10"
+        title="Map stance"
+      >
+        <span className="text-[10px] font-mono text-foreground whitespace-nowrap">
           Crimea = Ukraine (under international law)
         </span>
+      </div>
+
+      {/* ── Legend ── */}
+      <div className="absolute bottom-4 left-4 flex items-center gap-4 flex-wrap">
         {/* Severity */}
         {(
           [
