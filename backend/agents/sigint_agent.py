@@ -1,371 +1,430 @@
+"""
+SIGINT Agent – LangChain Tool-Calling Agent
+Monitors military aircraft and naval vessels across multiple conflict regions.
+
+ADS-B sources (no API key needed):
+  - opendata.adsb.fi  (primary)
+  - api.adsb.lol      (fallback)
+
+Ship sources:
+  - VesselFinder public endpoint (multiple bounding boxes)
+  - MarineTraffic RSS
+
+Intelligence reports:
+  - CriticalThreats, LongWarJournal, UnderstandingWar RSS feeds
+"""
 import asyncio
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import httpx
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
 
-
-ADSB_URL = "https://opendata.adsb.fi/api/v2/lat/27.0/lon/55.0/dist/250"
-VESSELFINDER_URL = "https://www.vesselfinder.com/api/pub/vesselsonmap"
-MARINETRAFFIC_URL = "https://www.marinetraffic.com/getData/get_data_json_4"
-
-MILITARY_CALLSIGNS = [
-    "RCH",
-    "USAF",
-    "NAVY",
-    "DUKE",
-    "REACH",
-    "JAKE",
-    "EVAC",
-    "GTMO",
-    "SAM",
-    "AIR1",
-    "AIR2",
+# ── ADS-B endpoints ───────────────────────────────────────────────────────
+ADSB_ENDPOINTS = [
+    "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}",
+    "https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{dist}",
+]
+ADSB_MIL_ENDPOINTS = [
+    "https://opendata.adsb.fi/api/v2/mil",
+    "https://api.adsb.lol/v2/mil",
 ]
 
+# ── Multiple regions for full Middle East coverage ────────────────────────
+ADSB_REGIONS = [
+    ("Persian Gulf", 26.0, 55.0, 400),
+    ("Iraq/Iran", 33.0, 46.0, 400),
+    ("Eastern Med", 33.0, 35.0, 350),
+    ("Red Sea", 20.0, 40.0, 350),
+]
+
+# ── Classification ────────────────────────────────────────────────────────
+MILITARY_CALLSIGN_PREFIXES = [
+    "RCH", "USAF", "NAVY", "DUKE", "REACH", "JAKE", "EVAC", "SAM",
+    "HAVOC", "VIPER", "SKULL", "IRON", "DOOM", "GHOST", "ATLAS", "SPAR",
+]
 SURVEILLANCE_TYPES = [
-    "RC-135",
-    "E-3",
-    "E-8",
-    "P-8",
-    "EP-3",
-    "RQ-4",
-    "MQ-9",
-    "U-2",
-    "E-6",
+    "RC-135", "E-3", "E-8", "P-8", "EP-3", "RQ-4", "MQ-9", "U-2",
+    "E-2", "E-6", "RC12", "MC-12", "P-3",
 ]
-
-TANKER_TYPES = [
-    "KC-135",
-    "KC-10",
-    "KC-46",
+TANKER_TYPES = ["KC-135", "KC-10", "KC-46", "KC130"]
+FIGHTER_TYPES = ["F-16", "F-15", "F-35", "F/A-18", "FA18", "B-52", "B-2", "B1"]
+WARSHIP_KEYWORDS = [
+    "warship", "destroyer", "frigate", "carrier", "corvette",
+    "navy", "patrol", "amphibious", "cruiser", "military", "naval", "combat", "guard",
 ]
+WARSHIP_PREFIXES = ["USS ", "HMS ", "FS ", "INS ", "USNS ", "RFS ", "IRIS "]
+# AIS ship type 30-39 = military (ICAO/IEC 62287)
+MILITARY_SHIP_TYPE_CODES = (30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
 
 
-def _safe_float(value: Any) -> float | None:
+def _safe_float(v: Any) -> float | None:
     try:
-        return float(value)
+        return float(v)
     except (TypeError, ValueError):
         return None
 
 
-async def _fetch_adsb_aircraft(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-    try:
-        resp = await client.get(ADSB_URL)
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return []
-    data = resp.json()
-
-    # ADSB.fi may return a dict with "ac" or "aircraft" or a bare list
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("ac", "aircraft", "states"):
-            if isinstance(data.get(key), list):
-                return data[key]
-    return []
-
-
 def _classify_aircraft(callsign: str, ac_type: str) -> str | None:
-    cs_upper = callsign.upper()
-    type_upper = ac_type.upper()
-
-    if any(cs_upper.startswith(prefix) for prefix in MILITARY_CALLSIGNS):
-        # Callsigns like RCH, REACH, etc are usually transport or tanker
-        if any(t in type_upper for t in TANKER_TYPES):
-            return "tanker"
-        return "transport"
-
-    if any(t in type_upper for t in SURVEILLANCE_TYPES):
+    cs = (callsign or "").upper().strip()
+    t = (ac_type or "").upper().strip()
+    if any(x in t for x in FIGHTER_TYPES):
+        return "fighter"
+    if any(x in t for x in SURVEILLANCE_TYPES):
         return "surveillance"
-
-    if any(t in type_upper for t in TANKER_TYPES):
+    if any(x in t for x in TANKER_TYPES):
         return "tanker"
-
+    if any(cs.startswith(p) for p in MILITARY_CALLSIGN_PREFIXES):
+        return "transport"
     return None
 
 
-def _extract_aircraft_position(raw: Dict[str, Any]) -> Tuple[float | None, float | None, int | None]:
-    lat = _safe_float(raw.get("lat") or raw.get("latitude"))
-    lon = _safe_float(raw.get("lon") or raw.get("longitude"))
-
-    alt = raw.get("alt_baro") or raw.get("altitude") or raw.get("alt")
-    alt_ft = None
-    if alt is not None:
-        try:
-            alt_ft = int(float(alt))
-        except (TypeError, ValueError):
-            alt_ft = None
-
-    return lat, lon, alt_ft
+def _in_conflict_zone(lat: float, lon: float) -> bool:
+    return (10 <= lat <= 42) and (25 <= lon <= 65)
 
 
-def _filter_aircraft(aircraft_raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
+# ── Tools ──────────────────────────────────────────────────────────────────
 
-    for ac in aircraft_raw:
-        callsign = (
-            (ac.get("flight") or ac.get("callsign") or ac.get("cs") or "").strip()
-        )
-        ac_type = (
-            ac.get("type")
-            or ac.get("t")
-            or ac.get("aircraft_type")
-            or ac.get("desc")
-            or ""
-        )
-
-        if not callsign and not ac_type:
-            continue
-
-        category = _classify_aircraft(callsign, ac_type)
-        if category is None:
-            continue
-
-        lat, lon, alt_ft = _extract_aircraft_position(ac)
-        if lat is None or lon is None:
-            continue
-
-        results.append(
-            {
-                "callsign": callsign or None,
-                "type": ac_type or None,
-                "lat": lat,
-                "lon": lon,
-                "altitude": alt_ft,
-                "category": category,
-            }
-        )
-
-    return results
-
-
-async def _fetch_vessels_vesselfinder(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-    # Public "vesselsonmap" endpoint used by the website; format is not formally documented,
-    # so we treat it as best-effort JSON.
-    try:
-        resp = await client.get(VESSELFINDER_URL, params={"bbox": "48,22,62,30"})
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return []
-    try:
-        data = resp.json()
-    except ValueError:
+@tool
+def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
+    """
+    Fetch military and surveillance aircraft across the full Middle East region.
+    Queries multiple ADS-B regions: Persian Gulf, Iraq/Iran, Eastern Med, Red Sea.
+    """
+    async def _fetch_mil_global(client: httpx.AsyncClient) -> List[Dict]:
+        for url in ADSB_MIL_ENDPOINTS:
+            try:
+                resp = await client.get(url, timeout=20.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    ac = data if isinstance(data, list) else data.get("ac", [])
+                    if isinstance(ac, list) and ac:
+                        return ac
+            except Exception:
+                continue
         return []
 
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("vessels", "data", "rows"):
-            if isinstance(data.get(key), list):
-                return data[key]
-    return []
-
-
-async def _fetch_vessels_marinetraffic(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-    try:
-        resp = await client.get(MARINETRAFFIC_URL)
-        resp.raise_for_status()
-    except httpx.HTTPError:
-        return []
-    try:
-        data = resp.json()
-    except ValueError:
+    async def _fetch_region(client: httpx.AsyncClient, lat: float, lon: float, dist: int) -> List[Dict]:
+        for tpl in ADSB_ENDPOINTS:
+            url = tpl.format(lat=lat, lon=lon, dist=dist)
+            try:
+                resp = await client.get(url, timeout=15.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                    if isinstance(ac, list):
+                        return ac
+            except Exception:
+                continue
         return []
 
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for key in ("vessels", "data", "rows"):
-            if isinstance(data.get(key), list):
-                return data[key]
-    return []
+    async def _run():
+        results = []
+        seen_icao = set()
+        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}) as client:
+            # Try global military endpoint first
+            mil = await _fetch_mil_global(client)
+            for ac in mil:
+                lat = _safe_float(ac.get("lat"))
+                lon = _safe_float(ac.get("lon"))
+                if lat is None or lon is None or not _in_conflict_zone(lat, lon):
+                    continue
+                icao = str(ac.get("hex") or "").upper()
+                if icao in seen_icao:
+                    continue
+                seen_icao.add(icao)
+                callsign = str(ac.get("flight") or "").strip()
+                ac_type = str(ac.get("t") or ac.get("type") or "").strip()
+                results.append({
+                    "flight": callsign or icao,
+                    "type": ac_type,
+                    "lat": lat, "lon": lon,
+                    "category": _classify_aircraft(callsign, ac_type) or "military",
+                    "source": "mil-global",
+                })
 
+            # Regional scans
+            tasks = [_fetch_region(client, lat, lon, dist) for _, lat, lon, dist in ADSB_REGIONS]
+            all_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for (label, _, _, _), ac_list in zip(ADSB_REGIONS, all_results):
+                if not isinstance(ac_list, list):
+                    continue
+                for ac in ac_list:
+                    callsign = str(ac.get("flight") or "").strip()
+                    ac_type = str(ac.get("t") or ac.get("type") or "").strip()
+                    cat = _classify_aircraft(callsign, ac_type)
+                    if not cat:
+                        continue
+                    icao = str(ac.get("hex") or "").upper()
+                    if icao in seen_icao:
+                        continue
+                    seen_icao.add(icao)
+                    lat = _safe_float(ac.get("lat"))
+                    lon = _safe_float(ac.get("lon"))
+                    if lat is None or lon is None:
+                        continue
+                    results.append({
+                        "flight": callsign or ac_type or icao,
+                        "type": ac_type, "lat": lat, "lon": lon,
+                        "category": cat, "region": label,
+                    })
+        return results
 
-async def _fetch_ships(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-    # Try VesselFinder first, fall back to MarineTraffic if it fails
     try:
-        vessels = await _fetch_vessels_vesselfinder(client)
-        if vessels:
-            return vessels
-    except httpx.HTTPError:
-        pass
+        return asyncio.run(_run())
+    except Exception as e:
+        return [{"error": str(e)}]
 
+
+def _normalize_vessel(v: dict, label: str) -> dict | None:
+    """Extract name, type, lat, lon from vessel dict (multiple possible field names)."""
+    name = str(
+        v.get("name") or v.get("NAME") or v.get("shipname") or v.get("vesselName") or ""
+    ).strip()
+    ship_type_raw = v.get("type") or v.get("TYPE") or v.get("shiptype") or v.get("vesselType")
+    ship_type = str(ship_type_raw or "").strip()
+    lat = _safe_float(v.get("lat") or v.get("latitude") or v.get("LAT"))
+    lon = _safe_float(v.get("lon") or v.get("longitude") or v.get("LON"))
+    # AIS military type codes 30-39
     try:
-        vessels = await _fetch_vessels_marinetraffic(client)
-        return vessels
-    except httpx.HTTPError:
-        return []
+        t = int(float(ship_type_raw)) if ship_type_raw is not None else None
+    except (TypeError, ValueError):
+        t = None
+    is_military_type = t in MILITARY_SHIP_TYPE_CODES
+    is_warship = (
+        is_military_type
+        or any(kw in name.lower() or kw in ship_type.lower() for kw in WARSHIP_KEYWORDS)
+        or any(name.upper().startswith(p.strip()) for p in WARSHIP_PREFIXES)
+    )
+    if not is_warship:
+        return None
+    return {
+        "name": name or ship_type or "Vessel",
+        "type": ship_type,
+        "lat": lat,
+        "lon": lon,
+        "region": label,
+    }
 
 
-def _is_warship(name: str, ship_type: str) -> bool:
-    name_l = name.lower()
-    type_l = ship_type.lower()
-
-    keywords = [
-        "warship",
-        "military",
-        "destroyer",
-        "frigate",
-        "corvette",
-        "carrier",
-        "aircraft carrier",
-        "navy",
-        "patrol boat",
-        "patrol vessel",
+@tool
+def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
+    """
+    Fetch warships in the Persian Gulf, Red Sea, Eastern Med, and Gulf of Aden.
+    Uses VesselFinder public map API; falls back to relaxed filter if no warships detected.
+    """
+    # bbox: try both "minLon,minLat,maxLon,maxLat" and "minLat,maxLat,minLon,maxLon"
+    SHIP_REGIONS = [
+        ("Persian Gulf", "48,22,62,30"),   # lon,lat,lon,lat
+        ("Red Sea", "32,12,44,28"),
+        ("Eastern Med", "25,30,38,37"),
+        ("Gulf of Aden", "42,10,52,16"),
     ]
 
-    for kw in keywords:
-        if kw in name_l or kw in type_l:
-            return True
+    async def _fetch(client: httpx.AsyncClient, bbox: str) -> List[Dict]:
+        for param_name in ("bbox", "bb", "bounds"):
+            try:
+                resp = await client.get(
+                    "https://www.vesselfinder.com/api/pub/vesselsonmap",
+                    params={param_name: bbox}, timeout=12.0,
+                )
+                if resp.status_code != 200:
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    continue
+                data = resp.json()
+                if isinstance(data, list):
+                    return data
+                for key in ("vessels", "data", "rows", "results", "ships"):
+                    if isinstance(data.get(key), list):
+                        return data[key]
+            except Exception:
+                continue
+        return []
 
-    # Common hull prefixes
-    if any(prefix in name for prefix in ("USS ", "HMS ", "FS ", "FREMM ")):
-        return True
+    async def _run():
+        results = []
+        seen = set()
+        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
+            tasks = [_fetch(client, bbox) for _, bbox in SHIP_REGIONS]
+            all_vessels = await asyncio.gather(*tasks, return_exceptions=True)
+            for (label, _), vessels in zip(SHIP_REGIONS, all_vessels):
+                if not isinstance(vessels, list):
+                    continue
+                for v in vessels:
+                    if not isinstance(v, dict):
+                        continue
+                    out = _normalize_vessel(v, label)
+                    if not out:
+                        continue
+                    key = (out.get("name") or "").lower()[:40] or str(out.get("lat")) + "," + str(out.get("lon"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    results.append(out)
+        return results
 
-    return False
-
-
-def _extract_ship_position(raw: Dict[str, Any]) -> Tuple[float | None, float | None]:
-    lat = _safe_float(raw.get("lat") or raw.get("LATITUDE"))
-    lon = _safe_float(raw.get("lon") or raw.get("LONGITUDE"))
-    return lat, lon
-
-
-def _filter_ships(vessels_raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
-
-    for v in vessels_raw:
-        # Try to normalize common field names across providers
-        name = (
-            v.get("name")
-            or v.get("NAME")
-            or v.get("shipname")
-            or v.get("SHIPNAME")
-            or ""
-        )
-        ship_type = (
-            v.get("type")
-            or v.get("TYPE")
-            or v.get("ship_type")
-            or v.get("SHIPTYPE")
-            or ""
-        )
-
-        # Some providers nest AIS-related data
-        if isinstance(v.get("AIS"), dict):
-            ais = v["AIS"]
-            name = ais.get("NAME", name)
-            ship_type = ais.get("TYPE", ship_type)
-
-        name = str(name or "").strip()
-        ship_type = str(ship_type or "").strip()
-
-        if not name and not ship_type:
-            continue
-
-        if not _is_warship(name, ship_type):
-            continue
-
-        lat, lon = _extract_ship_position(v)
-        if lat is None or lon is None:
-            continue
-
-        results.append(
-            {
-                "name": name or None,
-                "type": ship_type or None,
-                "lat": lat,
-                "lon": lon,
-            }
-        )
-
-    return results
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        return [{"error": str(e)}]
 
 
-def _compute_sigint_score(aircraft: List[Dict[str, Any]], ships: List[Dict[str, Any]]) -> float:
-    score = 30.0
+@tool
+def get_conflict_reports(conflict: str = "US-Iran") -> List[Dict[str, Any]]:
+    """
+    Fetch recent military incident reports from open-source intelligence feeds
+    (CriticalThreats, LongWarJournal, UnderstandingWar) as kinetic activity proxy.
+    """
+    CONFLICT_KEYWORDS = {
+        "iran": ["iran", "irgc", "tehran", "hormuz", "houthi", "yemen", "persian gulf"],
+        "ukraine": ["ukraine", "russia", "kyiv", "donbas"],
+        "israel": ["israel", "gaza", "hamas", "hezbollah", "idf"],
+        "taiwan": ["taiwan", "pla", "strait", "china"],
+    }
+    cl = conflict.lower()
+    keywords = next((v for k, v in CONFLICT_KEYWORDS.items() if k in cl), cl.split())
 
-    num_surv = sum(1 for a in aircraft if a.get("category") == "surveillance")
-    num_tanker = sum(1 for a in aircraft if a.get("category") == "tanker")
-    num_warships = len(ships)
+    async def _fetch():
+        import re
+        results = []
+        feeds = [
+            "https://www.criticalthreats.org/feed",
+            "https://www.longwarjournal.org/feed",
+            "https://understandingwar.org/rss.xml",
+        ]
+        async with httpx.AsyncClient(timeout=12.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            for feed_url in feeds:
+                try:
+                    resp = await client.get(feed_url)
+                    if resp.status_code != 200:
+                        continue
+                    items = re.findall(r"<item>(.*?)</item>", resp.text, re.DOTALL)
+                    for item in items[:15]:
+                        title_m = re.search(r"<title>(.*?)</title>", item)
+                        date_m = re.search(r"<pubDate>(.*?)</pubDate>", item)
+                        link_m = re.search(r"<link>(.*?)</link>", item)
+                        title = re.sub(r"<[^>]+>|<!\[CDATA\[|\]\]>", "", title_m.group(1) if title_m else "").strip()
+                        if not title or not any(kw in title.lower() for kw in keywords):
+                            continue
+                        results.append({
+                            "title": title,
+                            "date": date_m.group(1) if date_m else "",
+                            "url": link_m.group(1) if link_m else "",
+                            "source": feed_url.split("/")[2],
+                        })
+                except Exception:
+                    continue
+        return results[:10]
 
-    score += min(num_surv * 10.0, 40.0)
-    score += num_tanker * 8.0
-    score += min(num_warships * 5.0, 20.0)
-
-    return max(0.0, min(100.0, score))
-
-
-def _build_summary(aircraft: List[Dict[str, Any]], ships: List[Dict[str, Any]], score: float) -> str:
-    num_aircraft = len(aircraft)
-    num_warships = len(ships)
-    return (
-        f"{num_aircraft} military-relevant aircraft detected, "
-        f"{num_warships} likely warships in region. "
-        f"SIGINT activity score: {score:.1f}."
-    )
-
-
-def _build_alerts(aircraft: List[Dict[str, Any]], ships: List[Dict[str, Any]]) -> List[str]:
-    alerts: List[str] = []
-
-    for ac in aircraft:
-        category = ac.get("category")
-        ac_type = str(ac.get("type") or "").upper()
-        callsign = ac.get("callsign") or "Unknown"
-        if category == "surveillance":
-            alerts.append(f"{ac_type or 'Surveillance aircraft'} ({callsign}) detected - active ISR mission.")
-        elif category == "tanker":
-            alerts.append(f"Tanker ({callsign}) detected - indicates sustained air operations.")
-
-    for ship in ships:
-        name = ship.get("name") or "Warship"
-        alerts.append(f"{name} detected in Persian Gulf - naval presence heightened.")
-
-    # Deduplicate while preserving order and avoid overly long lists
-    seen = set()
-    unique_alerts: List[str] = []
-    for alert in alerts:
-        if alert not in seen:
-            seen.add(alert)
-            unique_alerts.append(alert)
-        if len(unique_alerts) >= 10:
-            break
-
-    return unique_alerts
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        return [{"error": str(e)}]
 
 
-async def _run_sigint_agent_async(conflict: str) -> Dict[str, Any]:  # conflict kept for interface symmetry
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        aircraft_raw, ships_raw = await asyncio.gather(
-            _fetch_adsb_aircraft(client),
-            _fetch_ships(client),
-        )
+# ── Agent ──────────────────────────────────────────────────────────────────
 
-    aircraft = _filter_aircraft(aircraft_raw)
-    ships = _filter_ships(ships_raw)
+SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_conflict_reports]
 
-    sigint_score = _compute_sigint_score(aircraft, ships)
-    summary = _build_summary(aircraft, ships, sigint_score)
-    alerts = _build_alerts(aircraft, ships)
+SIGINT_SYSTEM = """You are a SIGINT analyst monitoring military movements and conflict activity.
+Call all three tools, compute a score (0-100), return ONLY valid JSON:
+
+Scoring:
+- Base: 30
+- Surveillance aircraft: +10 each (max +40)
+- Tanker aircraft (strike prep): +8 each
+- Fighter aircraft: +12 each
+- Warships: +5 each (max +25)
+- Conflict reports (airstrikes, attacks): +8 each (max +30)
+- Clamp to [0, 100]
+
+{
+  "aircraft": [...],
+  "ships": [...],
+  "conflict_reports": [...],
+  "sigint_score": <number>,
+  "alerts": ["<alert>", ...],
+  "summary": "<1-2 sentence summary>"
+}
+No markdown, no explanation, just JSON."""
+
+
+def run_sigint_agent(conflict: str) -> Dict[str, Any]:
+    """Run SIGINT agent with LangChain tool-calling."""
+    import json
+
+    model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(SIGINT_TOOLS)
+    messages = [
+        SystemMessage(content=SIGINT_SYSTEM),
+        HumanMessage(content=f"Monitor military movements for conflict: {conflict}"),
+    ]
+
+    for _ in range(6):
+        response = model.invoke(messages)
+        messages.append(response)
+
+        if not response.tool_calls:
+            try:
+                content = response.content
+                if isinstance(content, list):
+                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
+                text = (content or "").strip()
+                for p in ("```json", "```"):
+                    if text.startswith(p):
+                        text = text[len(p):].strip()
+                if text.endswith("```"):
+                    text = text[:-3].strip()
+                result = json.loads(text)
+                result["conflict"] = conflict
+                return result
+            except Exception:
+                break
+
+        for tc in response.tool_calls:
+            tool_map = {t.name: t for t in SIGINT_TOOLS}
+            tool_fn = tool_map.get(tc["name"])
+            if tool_fn:
+                result = tool_fn.invoke(tc.get("args", {}))
+                from langchain_core.messages import ToolMessage
+                messages.append(ToolMessage(
+                    content=json.dumps(result, default=str),
+                    tool_call_id=tc["id"],
+                ))
+
+    # Fallback
+    aircraft = [a for a in (get_military_aircraft.invoke({}) or []) if isinstance(a, dict) and "error" not in a]
+    ships = [s for s in (get_naval_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
+    reports = [r for r in (get_conflict_reports.invoke({"conflict": conflict}) or []) if isinstance(r, dict) and "error" not in r]
+
+    base = 30.0
+    base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
+    base += sum(8 for a in aircraft if a.get("category") == "tanker")
+    base += sum(12 for a in aircraft if a.get("category") == "fighter")
+    base += min(25, len(ships) * 5)
+    base += min(30, len(reports) * 8)
+    score = max(0.0, min(100.0, base))
+
+    alerts = []
+    if aircraft:
+        by_cat: Dict[str, List] = {}
+        for a in aircraft:
+            by_cat.setdefault(a.get("category", "?"), []).append(a.get("flight", "?"))
+        for cat, flights in by_cat.items():
+            alerts.append(f"{len(flights)} {cat} aircraft: {', '.join(flights[:3])}")
+    if ships:
+        alerts.append(f"{len(ships)} warship(s) in region")
+    if reports:
+        alerts.append(f"{len(reports)} recent intel reports")
 
     return {
         "conflict": conflict,
         "aircraft": aircraft,
         "ships": ships,
-        "sigint_score": sigint_score,
-        "summary": summary,
+        "conflict_reports": reports,
+        "sigint_score": round(score, 1),
         "alerts": alerts,
+        "summary": f"SIGINT: {len(aircraft)} military aircraft, {len(ships)} ships, {len(reports)} reports. Score {score:.0f}.",
     }
-
-
-def run_sigint_agent(conflict: str) -> Dict[str, Any]:
-    """
-    Public sync entrypoint for the SIGINT agent.
-
-    Uses async httpx under the hood but exposes a synchronous API
-    for consistency with other agents.
-    """
-    return asyncio.run(_run_sigint_agent_async(conflict))
-

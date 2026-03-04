@@ -1,26 +1,53 @@
 """
 GEOINT Agent – LangChain Tool-Calling Agent
 Detects thermal anomalies via NASA FIRMS in conflict regions.
+Uses area-specific API (no world download). Supplemented by ReliefWeb/ACLED event reports.
 """
 import asyncio
 import csv
 import io
 import os
-from typing import Any, Dict, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Tuple
 
 import httpx
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
-FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
+# Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
+FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
 
-# Region bounding boxes
-REGIONS = {
-    "middle_east": {"lat_min": 20, "lat_max": 40, "lon_min": 35, "lon_max": 65},
-    "eastern_europe": {"lat_min": 44, "lat_max": 55, "lon_min": 22, "lon_max": 40},
-    "east_asia": {"lat_min": 20, "lat_max": 45, "lon_min": 100, "lon_max": 130},
-    "africa": {"lat_min": -5, "lat_max": 25, "lon_min": 20, "lon_max": 45},
+# Bounding boxes for FIRMS area API (W,S,E,N = lon_min, lat_min, lon_max, lat_max)
+REGION_BBOX = {
+    "middle_east": "35,20,65,40",
+    "eastern_europe": "22,44,40,55",
+    "east_asia": "100,20,130,45",
+    "africa": "20,-5,45,25",
+    "gaza_israel": "34,29,36,34",
+    "iran": "44,24,64,40",
+    "yemen": "42,12,56,20",
+}
+
+# For in-memory bbox filter (lat_min, lat_max, lon_min, lon_max) derived from REGION_BBOX
+def _bbox_to_region(area: str) -> Dict[str, float]:
+    parts = [float(x.strip()) for x in area.split(",")]
+    if len(parts) != 4:
+        return {"lat_min": 20, "lat_max": 40, "lon_min": 35, "lon_max": 65}
+    lon_min, lat_min, lon_max, lat_max = parts
+    return {"lat_min": lat_min, "lat_max": lat_max, "lon_min": lon_min, "lon_max": lon_max}
+
+REGIONS = {k: _bbox_to_region(v) for k, v in REGION_BBOX.items()}
+
+# When querying middle_east, also fetch these sub-regions and combine
+SUB_REGIONS_FOR_REGION = {
+    "middle_east": ["middle_east", "gaza_israel", "iran", "yemen"],
+    "eastern_europe": ["eastern_europe"],
+    "east_asia": ["east_asia"],
+    "africa": ["africa"],
+    "gaza_israel": ["gaza_israel"],
+    "iran": ["iran"],
+    "yemen": ["yemen"],
 }
 
 
@@ -49,60 +76,113 @@ def _confidence(raw: Any) -> str:
 def _classify(frp: float) -> str:
     if frp > 1000:
         return "explosion"
+    if frp > 500:
+        return "explosion"  # military explosions typically > 500 MW, wildfires 50-200 MW
     if frp >= 100:
         return "fire"
     return "unknown"
 
 
+def _is_explosion_cluster(anomalies: List[Dict[str, Any]], radius_deg: float = 0.5) -> List[Dict[str, Any]]:
+    """Detect clusters of anomalies (within radius_deg) indicating possible military activity."""
+    clusters = []
+    used = set()
+    for a in anomalies:
+        lat = _safe_float(a.get("lat"), 0)
+        lon = _safe_float(a.get("lon"), 0)
+        key = (round(lat, 2), round(lon, 2))
+        if key in used:
+            continue
+        nearby = [
+            b for b in anomalies
+            if abs(_safe_float(b.get("lat"), 0) - lat) <= radius_deg
+            and abs(_safe_float(b.get("lon"), 0) - lon) <= radius_deg
+        ]
+        if len(nearby) >= 3:
+            used.add(key)
+            clusters.append({
+                "center_lat": round(lat, 4),
+                "center_lon": round(lon, 4),
+                "count": len(nearby),
+            })
+    return clusters
+
+
+def _parse_firms_row(row: dict, bbox: dict) -> dict | None:
+    """Parse one FIRMS CSV row into anomaly dict; return None if outside bbox."""
+    lat = _safe_float(row.get("latitude") or row.get("lat"))
+    lon = _safe_float(row.get("longitude") or row.get("lon"))
+    if not (bbox["lat_min"] <= lat <= bbox["lat_max"]):
+        return None
+    if not (bbox["lon_min"] <= lon <= bbox["lon_max"]):
+        return None
+    frp = _safe_float(row.get("frp"))
+    conf = _confidence(row.get("confidence"))
+    acq_date = row.get("acq_date", "")
+    acq_time = row.get("acq_time", "")
+    t = str(acq_time).strip()
+    if len(t) == 4 and t.isdigit():
+        t = f"{t[:2]}:{t[2:]}"
+    acquired = f"{acq_date}T{t}Z" if acq_date else ""
+    return {
+        "lat": lat, "lon": lon,
+        "frp": frp,
+        "confidence": conf,
+        "type": _classify(frp),
+        "acquired": acquired,
+    }
+
+
 # ── Tools ──────────────────────────────────────────────────────────────────
 
 @tool
-def get_thermal_anomalies(region: str = "middle_east", days: int = 1) -> List[Dict[str, Any]]:
+def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Dict[str, Any]]:
     """
-    Fetch NASA FIRMS thermal anomalies for a region.
-    Region options: middle_east, eastern_europe, east_asia, africa.
-    Days: 1-10.
+    Fetch NASA FIRMS thermal anomalies for a region (area API, no world download).
+    Region options: middle_east, eastern_europe, east_asia, africa, gaza_israel, iran, yemen.
+    For middle_east, also queries gaza_israel, iran, yemen and combines (deduped by lat,lon).
+    Days: 1-5 (default 3 for better coverage despite cloud cover).
     """
     api_key = os.getenv("NASA_FIRMS_KEY")
     if not api_key:
         return [{"error": "NASA_FIRMS_KEY not set"}]
 
-    bbox = REGIONS.get(region, REGIONS["middle_east"])
+    days = max(1, min(5, int(days)))
+    areas_to_fetch = SUB_REGIONS_FOR_REGION.get(region, [region])
+    # Ensure we have bbox for each area
+    areas_to_fetch = [a for a in areas_to_fetch if a in REGION_BBOX]
 
-    async def _fetch():
-        url = f"{FIRMS_BASE}/{api_key}/VIIRS_SNPP_NRT/world/{days}"
+    async def _fetch_one(area: str) -> str:
+        bbox_str = REGION_BBOX[area]
+        url = FIRMS_AREA_URL.format(key=api_key, area=bbox_str, days=days)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             return resp.text
 
     try:
-        csv_text = asyncio.run(_fetch())
-        anomalies = []
-        reader = csv.DictReader(io.StringIO(csv_text))
-        for row in reader:
-            lat = _safe_float(row.get("latitude") or row.get("lat"))
-            lon = _safe_float(row.get("longitude") or row.get("lon"))
-            if not (bbox["lat_min"] <= lat <= bbox["lat_max"]):
+        all_anomalies = []
+        for area in areas_to_fetch:
+            try:
+                csv_text = asyncio.run(_fetch_one(area))
+                bbox = REGIONS.get(area, REGIONS["middle_east"])
+                reader = csv.DictReader(io.StringIO(csv_text))
+                for row in reader:
+                    a = _parse_firms_row(row, bbox)
+                    if a:
+                        all_anomalies.append(a)
+            except Exception:
                 continue
-            if not (bbox["lon_min"] <= lon <= bbox["lon_max"]):
+        # Deduplicate by (lat, lon) rounded to 2 decimals
+        seen = set()
+        deduped = []
+        for a in all_anomalies:
+            key = (round(_safe_float(a.get("lat"), 0), 2), round(_safe_float(a.get("lon"), 0), 2))
+            if key in seen:
                 continue
-            frp = _safe_float(row.get("frp"))
-            conf = _confidence(row.get("confidence"))
-            acq_date = row.get("acq_date", "")
-            acq_time = row.get("acq_time", "")
-            t = str(acq_time).strip()
-            if len(t) == 4 and t.isdigit():
-                t = f"{t[:2]}:{t[2:]}"
-            acquired = f"{acq_date}T{t}Z" if acq_date else ""
-            anomalies.append({
-                "lat": lat, "lon": lon,
-                "frp": frp,
-                "confidence": conf,
-                "type": _classify(frp),
-                "acquired": acquired,
-            })
-        return anomalies
+            seen.add(key)
+            deduped.append(a)
+        return deduped
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -122,22 +202,165 @@ def get_conflict_region(conflict: str) -> str:
     return "middle_east"
 
 
+# ReliefWeb API v2: filter by country name (e.g. "Iran", "Ukraine"). appname required.
+RELIEFWEB_APPNAME = "digital-war-room"
+RELIEFWEB_COUNTRY_NAMES = {
+    "iran": ["Iran"],
+    "israel": ["Israel"],
+    "gaza": ["State of Palestine", "Israel"],
+    "yemen": ["Yemen"],
+    "syria": ["Syria"],
+    "iraq": ["Iraq"],
+    "ukraine": ["Ukraine"],
+    "russia": ["Russian Federation"],
+    "default": ["Iran", "Syria", "Yemen", "State of Palestine", "Israel"],
+}
+
+# ACLED API: filter by country name (e.g. "Iran", "Ukraine"). Requires ACLED_API_KEY (+ optional ACLED_EMAIL).
+ACLED_COUNTRY_NAMES = {
+    "iran": "Iran",
+    "israel": "Israel",
+    "gaza": "Palestine",
+    "yemen": "Yemen",
+    "syria": "Syria",
+    "iraq": "Iraq",
+    "ukraine": "Ukraine",
+    "russia": "Russia",
+    "default": "Iran",
+}
+
+
+@tool
+def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
+    """
+    Fetch recent geospatial event reports from ReliefWeb API v2 (free, no key) and optionally ACLED.
+    ReliefWeb: filter by country name; returns title, date, body excerpt, source.
+    ACLED: optional, uses country name; requires ACLED_API_KEY (and ACLED_EMAIL if needed).
+    """
+    cl = conflict.lower()
+    rw_countries = next(
+        (v for k, v in RELIEFWEB_COUNTRY_NAMES.items() if k != "default" and k in cl),
+        RELIEFWEB_COUNTRY_NAMES["default"],
+    )
+    acled_country = next(
+        (v for k, v in ACLED_COUNTRY_NAMES.items() if k != "default" and k in cl),
+        ACLED_COUNTRY_NAMES["default"],
+    )
+
+    async def _reliefweb() -> List[Dict[str, Any]]:
+        reports = []
+        # ReliefWeb v2: filter[field]=country&filter[value]=CountryName; multiple with filter[value][]=A&filter[value][]=B&filter[operator]=OR
+        for country_name in rw_countries[:3]:
+            try:
+                url = "https://api.reliefweb.int/v2/reports"
+                params = {
+                    "appname": RELIEFWEB_APPNAME,
+                    "limit": 10,
+                    "filter[field]": "country",
+                    "filter[value]": country_name,
+                    "preset": "latest",
+                    "fields[include][]": ["title", "date", "body", "source.name", "country.name"],
+                }
+                async with httpx.AsyncClient(timeout=14.0) as client:
+                    resp = await client.get(url, params=params)
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                items = data.get("data", [])
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    fields = item.get("fields", {})
+                    if not isinstance(fields, dict):
+                        continue
+                    title = (fields.get("title") or "")[:300]
+                    date_obj = fields.get("date") or {}
+                    if isinstance(date_obj, dict):
+                        date_created = date_obj.get("created") or date_obj.get("changed") or ""
+                    else:
+                        date_created = str(date_obj)[:30]
+                    body_raw = fields.get("body") or ""
+                    if isinstance(body_raw, str):
+                        body_excerpt = body_raw[:200]
+                    else:
+                        body_excerpt = ""
+                    src_list = fields.get("source") or []
+                    if src_list and isinstance(src_list[0], dict):
+                        source = src_list[0].get("name", "")
+                    else:
+                        source = "ReliefWeb"
+                    country_list = fields.get("country") or []
+                    country_display = country_list[0].get("name", country_name) if country_list and isinstance(country_list[0], dict) else country_name
+                    reports.append({
+                        "title": title,
+                        "date": date_created,
+                        "body_excerpt": body_excerpt,
+                        "source": source,
+                        "country": country_display,
+                    })
+            except Exception:
+                continue
+        return reports[:15]
+
+    try:
+        reports = asyncio.run(_reliefweb())
+    except Exception as e:
+        reports = [{"error": str(e)}]
+
+    acled_key = os.getenv("ACLED_API_KEY")
+    if acled_key and isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+        try:
+            url = "https://api.acleddata.com/acled/read"
+            params = {
+                "key": acled_key,
+                "limit": 10,
+                "country": acled_country,
+            }
+            email = os.getenv("ACLED_EMAIL")
+            if email:
+                params["email"] = email
+            async def _acled():
+                async with httpx.AsyncClient(timeout=14.0) as client:
+                    resp = await client.get(url, params=params)
+                    if resp.status_code != 200:
+                        return
+                    data = resp.json()
+                    for rec in (data.get("data") or [])[:10]:
+                        if isinstance(rec, dict):
+                            reports.append({
+                                "title": (rec.get("event") or rec.get("title") or "")[:300],
+                                "date": rec.get("event_date", ""),
+                                "body_excerpt": (rec.get("notes") or "")[:200],
+                                "source": "ACLED",
+                                "country": rec.get("country", acled_country),
+                            })
+            asyncio.run(_acled())
+        except Exception:
+            pass
+    return reports if isinstance(reports, list) else [{"error": "unknown"}]
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies]
+GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies, get_conflict_hotspot_news]
 
-GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS satellite data.
-Your job: determine the conflict region, fetch thermal anomalies, compute a GEOINT score (0-100).
+GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS and event reports.
+Your job: get conflict region, fetch thermal anomalies (days=3) and conflict hotspot news, compute score.
 
 Steps:
-1. Call get_conflict_region to determine which region to monitor
-2. Call get_thermal_anomalies with that region
-3. Compute score and return JSON
+1. Call get_conflict_region(conflict)
+2. Call get_thermal_anomalies(region=..., days=3)
+3. Call get_conflict_hotspot_news(conflict)
+4. Compute score and return JSON
 
-Scoring rules:
+Scoring:
 - Base: 20
-- Each high-confidence anomaly: +5 (max +40)
-- Each explosion-type anomaly: +15
+- High-confidence anomaly: +5 each (max +40)
+- Explosion-type (FRP>500): +15 each (max +45)
+- Cluster (3+ anomalies within 0.5°): +20
+- Recent (acquired within last 6h): +5 per anomaly
 - More than 10 anomalies: +10
 - Clamp to [0, 100]
 
@@ -146,11 +369,51 @@ Return ONLY valid JSON:
   "anomalies": [...],
   "anomaly_count": <number>,
   "high_confidence_count": <number>,
+  "explosion_count": <number>,
+  "clusters": [{"center_lat": ..., "center_lon": ..., "count": N}],
   "geoint_score": <number>,
-  "hotspots": [top 3 by FRP],
+  "hotspots": [top 5 by FRP],
+  "reliefweb_reports": [...],
   "summary": "<1-2 sentence summary>"
 }
 No markdown, no explanation, just JSON."""
+
+
+def _recent_within_hours(acquired_str: str, hours: float = 6.0) -> bool:
+    """True if acquired_str (e.g. 2024-01-15T12:30Z or 2024-01-15T1230Z) is within last hours."""
+    if not acquired_str or not isinstance(acquired_str, str):
+        return False
+    try:
+        s = acquired_str.strip().replace("Z", "+00:00")
+        if "T" in s:
+            date_part, time_part = s.split("T", 1)
+            time_part = time_part.replace("+00:00", "").replace("-", "").replace(":", "").strip()[:6]
+            if len(time_part) >= 4 and ":" not in time_part:
+                time_part = f"{time_part[:2]}:{time_part[2:4]}:00"
+            s = f"{date_part}T{time_part}+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds() <= hours * 3600
+    except Exception:
+        return False
+
+
+def _compute_geoint_score(anomalies: List[Dict[str, Any]]) -> Tuple[float, int, List[Dict], int]:
+    """Returns (score, explosion_count, clusters, recent_count)."""
+    high = sum(1 for a in anomalies if a.get("confidence") == "high")
+    explosion_count = sum(1 for a in anomalies if a.get("type") == "explosion" or _safe_float(a.get("frp"), 0) > 500)
+    clusters = _is_explosion_cluster(anomalies, radius_deg=0.5)
+    recent = sum(1 for a in anomalies if _recent_within_hours(a.get("acquired", ""), 6.0))
+    base = 20.0
+    base += min(40, high * 5)
+    base += min(45, explosion_count * 15)
+    if clusters:
+        base += 20
+    base += recent * 5
+    if len(anomalies) > 10:
+        base += 10
+    return (max(0.0, min(100.0, base)), explosion_count, clusters, recent)
 
 
 def _empty_result(conflict: str) -> Dict[str, Any]:
@@ -159,8 +422,11 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
         "anomalies": [],
         "anomaly_count": 0,
         "high_confidence_count": 0,
+        "explosion_count": 0,
+        "clusters": [],
         "geoint_score": 20.0,
         "hotspots": [],
+        "reliefweb_reports": [],
         "summary": "No thermal anomaly data available.",
     }
 
@@ -194,11 +460,40 @@ def run_geoint_agent(conflict: str) -> Dict[str, Any]:
             tool_map = {t.name: t for t in GEOINT_TOOLS}
             tool_fn = tool_map.get(tc["name"])
             if tool_fn:
-                result = tool_fn.invoke(tc.get("args", {}))
+                args = dict(tc.get("args", {}))
+                if "conflict" not in args and tool_fn.name in ("get_conflict_region", "get_conflict_hotspot_news"):
+                    args["conflict"] = conflict
+                result = tool_fn.invoke(args)
                 from langchain_core.messages import ToolMessage
                 messages.append(ToolMessage(
                     content=json.dumps(result, default=str),
                     tool_call_id=tc["id"],
                 ))
 
+    # Fallback: call tools directly (region + thermal anomalies days=3 + hotspot news)
+    try:
+        region = get_conflict_region.invoke({"conflict": conflict})
+        if not isinstance(region, str):
+            region = "middle_east"
+        raw = get_thermal_anomalies.invoke({"region": region, "days": 3})
+        anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
+        reliefweb_raw = get_conflict_hotspot_news.invoke({"conflict": conflict})
+        reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
+        score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
+        high = sum(1 for a in anomalies if a.get("confidence") == "high")
+        hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
+        return {
+            "conflict": conflict,
+            "anomalies": anomalies,
+            "anomaly_count": len(anomalies),
+            "high_confidence_count": high,
+            "explosion_count": explosion_count,
+            "clusters": clusters,
+            "geoint_score": round(score, 1),
+            "hotspots": hotspots,
+            "reliefweb_reports": reliefweb_reports,
+            "summary": f"GEOINT: {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s). Score {score:.0f}.",
+        }
+    except Exception:
+        pass
     return _empty_result(conflict)

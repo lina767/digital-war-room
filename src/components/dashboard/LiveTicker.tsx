@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
+import type { ConflictData } from "@/hooks/useConflictWebSocket";
 
-const tickerItems = [
+const FALLBACK_ITEMS = [
   "● RC-135 Rivet Joint detected over Persian Gulf — 3rd pass in 6 hours",
   "● Brent crude +4.2% — highest single-day move in 3 weeks",
   "● Polymarket: US-Iran conflict 34%",
@@ -11,8 +12,19 @@ const tickerItems = [
   "● NOTAM issued for Tehran FIR — airspace restrictions expanding",
 ];
 
-export function LiveTicker() {
+interface LiveTickerProps {
+  /** When provided, headlines from latest analysis are shown in the ticker */
+  conflictData?: ConflictData | null;
+}
+
+export function LiveTicker({ conflictData }: LiveTickerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const fromData =
+    (conflictData?.news?.articles?.length ?? 0) > 0
+      ? conflictData!.news!.articles!.slice(0, 12).map((a) => `● ${a.title || ""}`).filter(Boolean)
+      : [];
+  const tickerItems = fromData.length > 0 ? (fromData as string[]) : FALLBACK_ITEMS;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -29,7 +41,7 @@ export function LiveTicker() {
     };
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, []);
+  }, [conflictData?.news?.articles?.length ?? 0]);
 
   const content = tickerItems.join("     ");
 

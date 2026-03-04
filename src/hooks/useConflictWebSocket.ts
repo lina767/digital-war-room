@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { getWsUrl, runAnalysis as runAnalysisApi, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
+
+export interface NewsArticle {
+  title?: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
+  sentiment_label?: string;
+  sentiment_score?: number;
+}
 
 export interface ConflictData {
   conflict: string;
@@ -9,8 +19,15 @@ export interface ConflictData {
   key_findings: string[];
   scenarios: { description: string; probability: number }[];
   summary: string | null;
+  news?: {
+    articles?: NewsArticle[];
+    news_score?: number;
+    summary?: string;
+    source_breakdown?: { newsapi?: number; gdelt?: number; rss?: number };
+  };
   finint?: {
     brent?: { price: string; change_pct: string; as_of: string } | null;
+    polymarket?: Array<{ question?: string; probability?: number; url?: string }>;
   };
   geoint?: {
     anomalies: any[];
@@ -19,6 +36,7 @@ export interface ConflictData {
   sigint?: {
     aircraft: any[];
     ships: any[];
+    conflict_reports?: { title: string; date?: string; url?: string; source?: string }[];
     sigint_score: number;
   };
 }
@@ -32,6 +50,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   const [data, setData] = useState<ConflictData | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conflictRef = useRef(conflict);
@@ -45,7 +64,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       wsRef.current.close();
     }
 
-    const wsUrl = `ws://localhost:8000/ws/${encodeURIComponent(conflictRef.current)}`;
+    const wsUrl = getWsUrl(`/ws/${encodeURIComponent(conflictRef.current)}`);
     console.log("[WS] Connecting to", wsUrl);
     setStatus("connecting");
 
@@ -67,7 +86,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         if (msg.status === "analyzing") {
           setStatus("analyzing");
         } else if (msg.status === "ok") {
-          setData(msg);
+          setData(normalizeAnalysisResponse(msg) as ConflictData);
           setLastUpdated(new Date());
           setStatus("connected");
         } else if (msg.status === "error") {
@@ -105,5 +124,25 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     connect();
   }, [connect]);
 
-  return { data, status, lastUpdated, refresh, setData };
+  /** Run analysis via REST POST /api/analyze and update data (for "Run Analysis" button). */
+  const runAnalysis = useCallback(async (): Promise<AnalyzeResponse | null> => {
+    if (!enabled) return null;
+    setAnalysisError(null);
+    setStatus("analyzing");
+    try {
+      const result = await runAnalysisApi(conflictRef.current);
+      setData(result as ConflictData);
+      setLastUpdated(new Date());
+      setStatus("connected");
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[Analysis]", err);
+      setAnalysisError(message);
+      setStatus("error");
+      return null;
+    }
+  }, [enabled]);
+
+  return { data, status, lastUpdated, analysisError, refresh, runAnalysis, setData };
 }

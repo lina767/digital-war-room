@@ -1,0 +1,21 @@
+---
+description: Backend Python – Agents, API-Calls, Env
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend & Agents (Python)
+
+## Agents
+- Jeder Agent: `run_*_agent(conflict: str) -> Dict[str, Any]`; synchroner Einstieg, intern `asyncio.run()` für HTTP.
+- Tools mit `@tool`; Aufruf `tool.invoke(args)`.
+- API-Keys über `os.getenv("...")`; fehlende Keys führen zu leeren/Fehler-Ergebnissen, kein Abbruch.
+- Bei LLM-Tool-Calling: JSON-Antwort robuster parsen (z. B. `` ```json `` / `` ``` `` entfernen); bei Parse-Fehler Fallback: Tools direkt aufrufen und Ergebnis aus Rohdaten bauen.
+
+## HTTP
+- `httpx.AsyncClient` für alle externen Requests; Timeouts setzen (z. B. 15–20 s).
+- Fehler abfangen (`try/except`), bei Fehlern leere Liste oder Dict mit `"error": str(e)` zurückgeben, damit der Agent nicht crasht.
+
+## Rückgabe-Format
+- Einheitlich Dict mit mindestens: Score-Feld (z. B. `escalation_score`, `sigint_score`), `summary`, und fachliche Listen (z. B. `aircraft`, `ships`, `polymarket`).
+- Supervisor erwartet benannte Scores und hängt Agent-Ergebnisse an `key_findings` an.

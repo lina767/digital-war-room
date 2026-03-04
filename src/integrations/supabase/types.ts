@@ -7,14 +7,89 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          id: string
+          created_at: string
+          updated_at: string
+          display_name: string | null
+          role: "user" | "admin"
+          organization: string | null
+        }
+        Insert: {
+          id: string
+          created_at?: string
+          updated_at?: string
+          display_name?: string | null
+          role?: "user" | "admin"
+          organization?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          display_name?: string | null
+          role?: "user" | "admin"
+          organization?: string | null
+        }
+      }
+      user_settings: {
+        Row: {
+          user_id: string
+          updated_at: string
+          default_conflict: string
+          favorite_conflicts: Json
+          ui_state: Json
+        }
+        Insert: {
+          user_id: string
+          updated_at?: string
+          default_conflict?: string
+          favorite_conflicts?: Json
+          ui_state?: Json
+        }
+        Update: {
+          user_id?: string
+          updated_at?: string
+          default_conflict?: string
+          favorite_conflicts?: Json
+          ui_state?: Json
+        }
+      }
+      saved_analyses: {
+        Row: {
+          id: string
+          user_id: string
+          created_at: string
+          conflict: string
+          label: string | null
+          note: string | null
+          payload: Json
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          created_at?: string
+          conflict: string
+          label?: string | null
+          note?: string | null
+          payload: Json
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          created_at?: string
+          conflict?: string
+          label?: string | null
+          note?: string | null
+          payload?: Json
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +98,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      user_role: "user" | "admin"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +225,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      user_role: ["user", "admin"],
+    },
   },
 } as const

@@ -1,0 +1,21 @@
+---
+description: Digital War Room – Projekt-Überblick und Konventionen
+alwaysApply: true
+---
+
+# Digital War Room – Projekt-Überblick
+
+## Stack
+- **Backend:** Python 3, FastAPI, LangChain/LangGraph, Agents (FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT)
+- **Frontend:** React, TypeScript, Vite, Tailwind, Supabase (Auth)
+- **API:** REST unter `/api/*`, optional WebSocket
+
+## Struktur
+- `backend/` – FastAPI-App, `main.py`, `agents/`, `api/`
+- `src/` – React-App, `pages/`, `components/`, `hooks/`
+- API-Keys und Secrets in `backend/.env` (nicht committen); Frontend-Env in Projektroot `.env` (z. B. `VITE_API_URL`)
+
+## Konventionen
+- Backend-Agents liefern einheitlich ein Dict mit Score, Summary und fachlichen Listen (z. B. `aircraft`, `ships`, `key_findings`).
+- Bei fehlgeschlagener LLM-Antwort: Fallback mit direkten Tool-Aufrufen und berechnetem Score, damit nie leere Daten zurückgegeben werden.
+- Kommentare und Nutzer-Texte dürfen Deutsch oder Englisch sein.

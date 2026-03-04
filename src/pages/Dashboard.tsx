@@ -1,54 +1,93 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConflictMap } from "@/components/dashboard/ConflictMap";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
+import { DailyBriefing } from "@/components/dashboard/DailyBriefing";
+import { LatestHeadlines } from "@/components/dashboard/LatestHeadlines";
+import { EventsTimeline } from "@/components/dashboard/EventsTimeline";
 import { NewsSentiment } from "@/components/dashboard/NewsSentiment";
 import { InternetConnectivity } from "@/components/dashboard/InternetConnectivity";
 import { FlightRadar } from "@/components/dashboard/FlightRadar";
 import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
-import { ChevronDown, Play, LogOut, Menu, X, Radio, Rss } from "lucide-react";
-
-const agents = [
-  { name: "GEOINT", status: "Active", updated: "2m ago", active: true },
-  { name: "SIGINT", status: "Active", updated: "5m ago", active: true },
-  { name: "SOCMINT", status: "Idle", updated: "18m ago", active: false },
-  { name: "FININT", status: "Active", updated: "1m ago", active: true },
-  { name: "TECHINT", status: "Idle", updated: "32m ago", active: false },
-];
-
-const intelFeed = [
-  {
-    type: "SIGINT",
-    confidence: 87,
-    time: "14:32 UTC",
-    text: "RC-135 Rivet Joint detected over Persian Gulf – 3rd pass in 6 hours",
-    source: "ADSB-Exchange",
-  },
-  {
-    type: "FININT",
-    confidence: 91,
-    time: "14:28 UTC",
-    text: "Brent crude +4.2% — highest single-day move in 3 weeks",
-    source: "Alpha Vantage",
-  },
-  {
-    type: "SOCMINT",
-    confidence: 61,
-    time: "14:15 UTC",
-    text: "IRGC mobilization reports on 3 Telegram channels",
-    source: "Telegram Monitor",
-  },
-];
+import { AGENTS_WITH_SOURCES } from "@/components/dashboard/agentsConfig";
+import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
+import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
+import { getApiBase } from "@/lib/api";
+import { useUserSettings } from "@/hooks/useUserSettings";
+import { useUserProfile } from "@/hooks/useUserProfile";
+import { useSavedAnalyses } from "@/hooks/useSavedAnalyses";
+import { ChevronDown, Play, LogOut, Menu, X, Radio, Rss, ChevronRight, Star, Save, Trash2, User } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [conflictDropdownOpen, setConflictDropdownOpen] = useState(false);
+  const conflictDropdownRef = useRef<HTMLDivElement>(null);
+
+  const { settings, setDefaultConflict, toggleFavorite, setUiState, error: settingsError } = useUserSettings();
+  const { profile, updateProfile, error: profileError, ensureProfile } = useUserProfile();
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const accountError = profileError || settingsError;
+  const selectedConflict = settings.default_conflict;
+  const setSelectedConflict = useCallback(
+    (value: string) => {
+      setDefaultConflict(value);
+    },
+    [setDefaultConflict]
+  );
+
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [agentExpanded, setAgentExpanded] = useState<string | null>(null);
+  const uiRestored = useRef(false);
+  useEffect(() => {
+    if (uiRestored.current || !settings.ui_state || typeof settings.ui_state !== "object") return;
+    const u = settings.ui_state as { leftPanelOpen?: boolean; rightPanelOpen?: boolean; agentExpanded?: string };
+    if (typeof u.leftPanelOpen === "boolean") setLeftPanelOpen(u.leftPanelOpen);
+    if (typeof u.rightPanelOpen === "boolean") setRightPanelOpen(u.rightPanelOpen);
+    if (u.agentExpanded != null) setAgentExpanded(u.agentExpanded);
+    uiRestored.current = true;
+  }, [settings.ui_state]);
+  const uiStateRef = useRef({ leftPanelOpen, rightPanelOpen, agentExpanded });
+  uiStateRef.current = { leftPanelOpen, rightPanelOpen, agentExpanded };
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setUiState({ ...uiStateRef.current });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [leftPanelOpen, rightPanelOpen, agentExpanded, setUiState]);
+
+  const { data: conflictData, status: analysisStatus, runAnalysis, lastUpdated, analysisError } = useConflictWebSocket({
+    conflict: selectedConflict,
+    enabled: true,
+  });
+  const isAnalyzing = analysisStatus === "analyzing";
+  const apiBase = getApiBase();
+
+  const { list: savedList, saveAnalysis, deleteSaved } = useSavedAnalyses();
+  const currentOption = CONFLICT_OPTIONS.find((o) => o.apiValue === selectedConflict);
+  const displayConflictLabel = currentOption?.label ?? selectedConflict;
+
+  useEffect(() => {
+    const onOutside = (e: MouseEvent) => {
+      if (conflictDropdownRef.current && !conflictDropdownRef.current.contains(e.target as Node)) setConflictDropdownOpen(false);
+    };
+    document.addEventListener("click", onOutside);
+    return () => document.removeEventListener("click", onOutside);
+  }, []);
+
+  useEffect(() => {
+    if (profileEditOpen && (profile?.display_name != null || user?.email)) {
+      setProfileDisplayName(profile?.display_name ?? user?.email ?? "");
+    }
+  }, [profileEditOpen, profile?.display_name, user?.email]);
 
   // Live clock
   const [utcTime, setUtcTime] = useState(() => new Date());
@@ -74,8 +113,21 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      {/* Live OSINT Ticker */}
-      <LiveTicker />
+      {accountError && (
+        <div className="bg-destructive/15 border-b border-destructive/40 px-3 py-2 text-center text-xs text-destructive flex items-center justify-center gap-2 flex-wrap">
+          <span>Profil/Settings: {accountError}</span>
+          <span className="text-muted-foreground">→ Klick auf deinen Namen für Anleitung.</span>
+        </div>
+      )}
+      {/* Live ticker – Iran Monitor style: BREAKING headlines from analysis when available */}
+      <div className="flex items-center border-b border-border bg-card/50">
+        <div className="flex-shrink-0 px-3 py-1.5 bg-destructive/20 text-destructive font-mono text-[10px] font-bold tracking-wider border-r border-border">
+          LIVE
+        </div>
+        <div className="flex-1 min-w-0">
+          <LiveTicker conflictData={conflictData} />
+        </div>
+      </div>
       {/* Top Navbar */}
       <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2">
         <div className="flex items-center gap-2">
@@ -103,17 +155,120 @@ const Dashboard = () => {
             <span className="text-primary">{signalCount.toLocaleString()}</span>
             <span>signals</span>
           </div>
-          <button className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded px-2 sm:px-3 py-1 hover:bg-secondary transition-colors">
-            <span className="hidden sm:inline">US – Iran</span>
-            <span className="sm:hidden">US–IR</span>
-            <ChevronDown className="h-3 w-3" />
-          </button>
-          <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-[10px] sm:text-xs hidden sm:flex">ELEVATED</Badge>
-          <Button size="sm" className="text-xs px-2 sm:px-3">
-            <span className="hidden sm:inline">Run Analysis</span>
-            <span className="sm:hidden">Run</span>
-          </Button>
-          <span className="text-xs text-muted-foreground hidden lg:inline truncate max-w-[160px]">{user?.email}</span>
+          <div className="relative" ref={conflictDropdownRef}>
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded px-2 sm:px-3 py-1 hover:bg-secondary transition-colors"
+              onClick={() => setConflictDropdownOpen((o) => !o)}
+            >
+              <span className="hidden sm:inline">{displayConflictLabel}</span>
+              <span className="sm:hidden">{currentOption?.id ?? selectedConflict}</span>
+              <ChevronDown className={`h-3 w-3 transition-transform ${conflictDropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+            {conflictDropdownOpen && (
+              <div className="absolute top-full right-0 mt-1 w-48 max-h-64 overflow-y-auto rounded border border-border bg-background shadow-lg z-50 py-1">
+                {CONFLICT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono hover:bg-muted"
+                    onClick={() => {
+                      setSelectedConflict(opt.apiValue);
+                      setConflictDropdownOpen(false);
+                    }}
+                  >
+                    <Star
+                      className={`h-3.5 w-3.5 flex-shrink-0 ${settings.favorite_conflicts.includes(opt.apiValue) ? "fill-amber-400 text-amber-500" : "text-muted-foreground"}`}
+                      onClick={(e) => { e.stopPropagation(); toggleFavorite(opt.apiValue); }}
+                    />
+                    <span className={selectedConflict === opt.apiValue ? "text-primary font-medium" : ""}>{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-[10px] sm:text-xs hidden sm:flex">
+            {conflictData?.threat_level ?? "ELEVATED"}
+          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            {analysisError && (
+              <p className="text-[10px] text-destructive max-w-[200px] text-right" title={analysisError}>
+                {analysisError.includes("fetch") || analysisError.includes("Failed") || analysisError.includes("Network")
+                  ? `Backend nicht erreichbar (${apiBase}). Backend starten?`
+                  : analysisError}
+              </p>
+            )}
+            <Button
+              size="sm"
+              className="text-xs px-2 sm:px-3"
+              disabled={isAnalyzing}
+              onClick={() => runAnalysis()}
+            >
+              {isAnalyzing ? (
+                <span className="animate-pulse">Analyzing…</span>
+              ) : (
+                <>
+                  <span className="hidden sm:inline">Run Analysis</span>
+                  <span className="sm:hidden">Run</span>
+                </>
+              )}
+            </Button>
+          </div>
+          <Popover open={profileEditOpen} onOpenChange={setProfileEditOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hidden lg:flex items-center gap-1.5 truncate max-w-[160px] hover:text-foreground"
+                title="Profil bearbeiten"
+              >
+                <User className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate">{profile?.display_name || user?.email}</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="end">
+              <div className="space-y-3">
+                <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Profil</p>
+                {accountError && (
+                  <div className="rounded bg-destructive/10 border border-destructive/30 p-2 text-xs text-destructive space-y-1">
+                    <p className="font-medium">Fehler: {accountError}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      In Supabase SQL Editor ausführen: <code className="bg-muted px-1 rounded text-[10px]">CREATE POLICY &quot;Users can insert own profile&quot; ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);</code> Dann hier &quot;Profil anlegen&quot; klicken.
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Anzeigename</label>
+                  <Input
+                    value={profileDisplayName}
+                    onChange={(e) => setProfileDisplayName(e.target.value)}
+                    placeholder={user?.email ?? ""}
+                    className="text-sm h-8"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="text-xs flex-1"
+                    onClick={() => {
+                      updateProfile({ display_name: profileDisplayName.trim() || undefined });
+                      setProfileEditOpen(false);
+                    }}
+                  >
+                    Speichern
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs" onClick={() => setProfileEditOpen(false)}>
+                    Abbrechen
+                  </Button>
+                  {!profile && (
+                    <Button size="sm" variant="secondary" className="text-xs w-full" onClick={() => ensureProfile().then((ok) => ok && setProfileEditOpen(false))}>
+                      Profil anlegen
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground truncate">Account: {user?.email}</p>
+              </div>
+            </PopoverContent>
+          </Popover>
           <button onClick={handleSignOut} className="text-muted-foreground hover:text-foreground transition-colors" title="Sign Out">
             <LogOut className="h-4 w-4" />
           </button>
@@ -125,7 +280,9 @@ const Dashboard = () => {
         <div className="lg:hidden border-b border-border bg-card p-4 space-y-4 animate-fade-in-up">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground truncate">{user?.email}</span>
-            <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-[10px] sm:hidden">ELEVATED</Badge>
+            <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-[10px] sm:hidden">
+              {conflictData?.threat_level ?? "ELEVATED"}
+            </Badge>
           </div>
           <div className="flex gap-2">
             <Button
@@ -148,7 +305,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
         {/* Left Sidebar - Desktop always visible, mobile as overlay */}
         <aside className={`
           ${leftPanelOpen ? "translate-x-0" : "-translate-x-full"}
@@ -163,17 +320,35 @@ const Dashboard = () => {
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="space-y-3">
-            {agents.map(agent => (
-              <div key={agent.name} className="group flex items-center gap-3 text-sm">
-                <span className={`h-2 w-2 rounded-full flex-shrink-0 ${agent.active ? "bg-primary animate-pulse-dot" : "bg-muted-foreground"}`} />
-                <div className="flex-1 min-w-0">
-                  <div className="font-mono text-xs font-medium">{agent.name}</div>
-                  <div className="text-xs text-muted-foreground">{agent.status} · {agent.updated}</div>
-                </div>
-                <button className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary">
-                  <Play className="h-3 w-3" />
+          <div className="space-y-1">
+            {AGENTS_WITH_SOURCES.map((agent) => (
+              <div key={agent.name} className="rounded border border-border/60 bg-card/50 overflow-hidden">
+                <button
+                  className="w-full flex items-center gap-2 p-2 text-left hover:bg-muted/50 transition-colors"
+                  onClick={() => setAgentExpanded(agentExpanded === agent.name ? null : agent.name)}
+                >
+                  <span className="h-2 w-2 rounded-full flex-shrink-0 bg-primary animate-pulse-dot" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-xs font-medium">{agent.name}</div>
+                    <div className="text-[10px] text-muted-foreground">{agent.fullName}</div>
+                  </div>
+                  <ChevronRight
+                    className={`h-3 w-3 flex-shrink-0 text-muted-foreground transition-transform ${agentExpanded === agent.name ? "rotate-90" : ""}`}
+                  />
                 </button>
+                {agentExpanded === agent.name && (
+                  <div className="border-t border-border/60 px-2 py-2 space-y-1.5 bg-background/50">
+                    <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Data sources</div>
+                    {agent.sources.map((src, i) => (
+                      <div key={i} className="text-xs">
+                        <span className="font-medium text-foreground">{src.name}</span>
+                        {src.description && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{src.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -187,8 +362,8 @@ const Dashboard = () => {
           />
         )}
 
-        {/* Center Map */}
-        <main className="flex-1 relative overflow-hidden">
+        {/* Center Map – minimum height so it stays visible and doesn’t shrink down */}
+        <main className="flex-1 min-h-[50vh] flex-shrink-0 relative overflow-hidden">
           <div className="absolute inset-0 grid-overlay opacity-30" />
           <ConflictMap />
 
@@ -228,7 +403,7 @@ const Dashboard = () => {
           </div>
         </main>
 
-        {/* Right Panel - Intel Feed */}
+        {/* Right Panel – Iran Monitor style: Daily Briefing, Headlines, Events, Activity, Saved */}
         <aside className={`
           ${rightPanelOpen ? "translate-x-0" : "translate-x-full"}
           md:translate-x-0
@@ -236,29 +411,80 @@ const Dashboard = () => {
           absolute md:relative inset-y-0 right-0 z-20
           transition-transform duration-300 ease-in-out
         `}>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="font-mono text-xs text-muted-foreground tracking-wider">INTELLIGENCE FEED</h2>
             <button className="md:hidden text-muted-foreground hover:text-foreground" onClick={() => setRightPanelOpen(false)}>
               <X className="h-4 w-4" />
             </button>
           </div>
-          <NewsSentiment />
-          <div className="space-y-3">
-            {intelFeed.map((item, i) => (
-              <div key={i} className="rounded-lg border border-border bg-card p-3 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline" className="font-mono text-[10px] border-primary/40 text-primary">{item.type}</Badge>
-                  <Badge variant="outline" className="font-mono text-[10px]">{item.confidence}% confidence</Badge>
-                  <span className="text-[10px] text-muted-foreground ml-auto">{item.time}</span>
-                </div>
-                <p className="text-sm leading-relaxed">{item.text}</p>
-                <p className="text-[10px] text-muted-foreground">Source: {item.source}</p>
-              </div>
-            ))}
+
+          <div className="space-y-4">
+            <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} />
+            <LatestHeadlines data={conflictData} maxItems={15} />
+            <EventsTimeline data={conflictData} />
           </div>
-          <InternetConnectivity />
-          <FlightRadar />
-          <PredictionMarkets />
+
+          {/* Activity & Connectivity (Iran Monitor style) */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider mb-3">ACTIVITY & CONNECTIVITY</h3>
+            <div className="space-y-3">
+              <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
+              <InternetConnectivity />
+              <FlightRadar />
+              <PredictionMarkets polymarket={conflictData?.finint?.polymarket} />
+            </div>
+          </div>
+
+          {/* Saved analyses (B) */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-mono text-xs text-muted-foreground tracking-wider">SAVED ANALYSES</h3>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7 gap-1"
+                disabled={!conflictData || isAnalyzing}
+                onClick={() =>
+                  conflictData &&
+                  saveAnalysis({
+                    conflict: selectedConflict,
+                    payload: conflictData as unknown as Record<string, unknown>,
+                    label: `${displayConflictLabel} – ${new Date().toLocaleDateString()}`,
+                  })
+                }
+              >
+                <Save className="h-3 w-3" />
+                Save current
+              </Button>
+            </div>
+            <ul className="space-y-2 max-h-48 overflow-y-auto">
+              {savedList.length === 0 && (
+                <li className="text-xs text-muted-foreground py-2">No saved analyses yet.</li>
+              )}
+              {savedList.map((s) => (
+                <li key={s.id} className="rounded border border-border bg-card/50 p-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-xs truncate">{s.label || s.conflict}</div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {new Date(s.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive flex-shrink-0"
+                    onClick={() => deleteSaved(s.id)}
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <p className="mt-4 pt-3 border-t border-border text-[10px] text-muted-foreground">
+            Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA
+          </p>
         </aside>
       </div>
     </div>

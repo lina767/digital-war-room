@@ -1,27 +1,53 @@
+"""
+FININT Agent – LangChain Tool-Calling Agent
+Fetches Brent/WTI oil prices, Polymarket conflict odds, and tracked wallet positions.
+- Gamma API: https://gamma-api.polymarket.com (events, markets)
+- Data API:  https://data-api.polymarket.com (positions, activity)
+Optional: set POLYMARKET_BUILDER_API_KEY in .env (your personal builder API key) for authenticated requests.
+"""
 import asyncio
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import httpx
-
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
-POLYMARKET_MARKETS_URL = "https://gamma-api.polymarket.com/markets"
+GAMMA_API_BASE = "https://gamma-api.polymarket.com"
+DATA_API_BASE = "https://data-api.polymarket.com"
+
+# Optional: POLYMARKET_BUILDER_API_KEY in .env for authenticated requests (e.g. higher rate limits).
+def _polymarket_headers() -> Dict[str, str]:
+    """Optional headers when POLYMARKET_BUILDER_API_KEY is set (your personal builder API key)."""
+    key = os.getenv("POLYMARKET_BUILDER_API_KEY")
+    if not key or not key.strip():
+        return {}
+    return {"Authorization": f"Bearer {key.strip()}"}
+
+# Tracked wallets: (label, proxy wallet address). Use proxy address from profile URL.
+TRACKED_WALLETS: List[tuple[str, str]] = [
+    ("rundeep", "0x0afc7ce56285bde1fbe3a75efaffdfc86d6530b2"),
+]
+
+# Explicit Polymarket markets to always track (FININT) – fetched by slug via Gamma API
+TRACKED_POLYMARKET_SLUGS = [
+    "usisrael-strikes-iran-on",           # US/Israel strikes Iran on...?
+    "us-x-iran-ceasefire-by",              # US x Iran ceasefire by...?
+    "will-the-iranian-regime-fall-by-the-end-of-2026",  # Will the Iranian regime fall before 2027?
+]
 
 POLYMARKET_KEYWORDS = [
-    "iran",
-    "israel",
-    "gaza",
-    "hezbollah",
-    "hamas",
-    "nuclear deal",
-    "middle east war",
-    "us attack",
-    "airstrike",
-    "irgc",
-    "oil embargo",
-    "strait of hormuz",
-    "persian gulf conflict",
+    # Iran/Middle East
+    "iran", "iranian", "irgc", "tehran", "nuclear", "khamenei",
+    "israel", "israeli", "gaza", "hezbollah", "hamas",
+    "persian gulf", "strait of hormuz", "airstrike", "strike on",
+    # Military/War
+    "war", "attack", "military", "missile", "troops", "invasion",
+    "conflict", "escalat", "ceasefire",
+    # US foreign policy
+    "sanctions", "us-iran", "middle east",
 ]
 
 
@@ -38,228 +64,375 @@ def _format_pct(change: float | None) -> str:
     return f"{change:+.1f}%"
 
 
-async def _fetch_alpha_series(client: httpx.AsyncClient, function: str, api_key: str) -> Dict[str, Any]:
-    params = {
-        "function": function,
-        "interval": "daily",
-        "apikey": api_key,
+def _normalize_polymarket_item(m: dict, slug: str = "") -> dict | None:
+    """Build {question, probability, volume, url} from Gamma API event or market object."""
+    question = str(m.get("question") or m.get("title") or m.get("name") or "").strip()
+    if not question:
+        return None
+    prices = m.get("outcomePrices") or []
+    prob = 0.0
+    if prices:
+        prob = max((_safe_float(p) or 0) for p in prices)
+    for token in m.get("tokens") or []:
+        p = _safe_float(token.get("price"))
+        if p and p > prob:
+            prob = p
+    volume = _safe_float(m.get("volume") or m.get("volumeNum") or m.get("liquidity") or 0) or 0
+    url_slug = slug or m.get("slug") or ""
+    return {
+        "question": question,
+        "probability": round(prob, 3),
+        "volume": round(volume, 0),
+        "url": f"https://polymarket.com/event/{url_slug}" if url_slug else "",
     }
-    resp = await client.get(ALPHAVANTAGE_URL, params=params)
-    resp.raise_for_status()
-    return resp.json()
 
 
-def _parse_alpha_series(data: Dict[str, Any]) -> Tuple[str, float | None, float | None]:
-    """
-    Parse Alpha Vantage commodities payload.
+# ── Tools ──────────────────────────────────────────────────────────────────
 
-    Returns (as_of_date, latest_price, pct_change_vs_prev_day).
-    """
-    series = data.get("data")
-    if not isinstance(series, list) or len(series) == 0:
-        return "", None, None
-
-    latest = series[0]
-    prev = series[1] if len(series) > 1 else None
-
-    as_of = str(latest.get("date") or latest.get("timestamp") or "")
-    latest_price = _safe_float(latest.get("value") or latest.get("price"))
-    prev_price = _safe_float(prev.get("value") or prev.get("price")) if prev else None
-
-    change_pct: float | None = None
-    if latest_price is not None and prev_price not in (None, 0):
-        change_pct = (latest_price - prev_price) / prev_price * 100.0
-
-    return as_of, latest_price, change_pct
-
-
-async def _fetch_polymarket_markets(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
-    resp = await client.get(POLYMARKET_MARKETS_URL, params={"limit": 100})
-    resp.raise_for_status()
-    data = resp.json()
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and isinstance(data.get("markets"), list):
-        return data["markets"]
-    return []
-
-
-def _market_matches_keywords(question: str) -> bool:
-    q_lower = question.lower()
-    return any(keyword in q_lower for keyword in POLYMARKET_KEYWORDS)
-
-
-def _extract_probability(market: Dict[str, Any]) -> float:
-    prices = market.get("outcomePrices") or market.get("prices") or []
-    if not isinstance(prices, list):
-        prices = [prices]
-
-    probs: List[float] = []
-    for p in prices:
-        val = _safe_float(p)
-        if val is not None:
-            probs.append(val)
-
-    if not probs:
-        return 0.0
-
-    # Use the highest outcome price as the implied conflict probability
-    return max(probs)
-
-
-def _extract_volume(market: Dict[str, Any]) -> float:
-    for key in ("volume", "volume24hr", "volume24h", "liquidity"):
-        if key in market:
-            val = _safe_float(market[key])
-            if val is not None:
-                return val
-    return 0.0
-
-
-def _prepare_polymarket(markets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    relevant: List[Dict[str, Any]] = []
-    for m in markets:
-        question = m.get("question") or m.get("title") or m.get("name")
-        if not isinstance(question, str):
-            continue
-        if not _market_matches_keywords(question):
-            continue
-
-        probability = _extract_probability(m)
-        if probability == 0.0:
-            continue
-        volume = _extract_volume(m)
-
-        relevant.append(
-            {
-                "question": question,
-                "probability": probability,
-                "volume": volume,
-            }
-        )
-
-    # Sort by volume descending, then probability descending, and take top 5
-    relevant.sort(key=lambda x: (x["volume"], x["probability"]), reverse=True)
-    return relevant[:5]
-
-
-def _compute_escalation_score(
-    brent_change_pct: float | None,
-    polymarket_markets: List[Dict[str, Any]],
-) -> float:
-    score = 50.0
-
-    # Brent move rules
-    if brent_change_pct is not None:
-        if brent_change_pct >= 5.0:
-            score += 15.0
-        elif 2.0 <= brent_change_pct < 5.0:
-            score += 8.0
-        elif brent_change_pct < 0.0:
-            score -= 10.0
-
-    # Polymarket conflict odds rules
-    max_prob = max((m.get("probability", 0.0) for m in polymarket_markets), default=0.0)
-
-    if max_prob > 0.50:
-        score += 20.0
-    elif 0.30 <= max_prob <= 0.50:
-        score += 10.0
-
-    # Israel-related markets (Israel / Gaza / Netanyahu) > 40%
-    for m in polymarket_markets:
-        question = str(m.get("question", "")).lower()
-        prob = float(m.get("probability", 0.0))
-        if prob > 0.40 and any(k in question for k in ["israel", "gaza", "netanyahu"]):
-            score += 8.0
-            break
-
-    # Clamp between 0 and 100
-    score = max(0.0, min(100.0, score))
-    return score
-
-
-def _build_summary(
-    brent: Dict[str, Any],
-    wti: Dict[str, Any],
-    polymarket_markets: List[Dict[str, Any]],
-    escalation_score: float,
-) -> str:
-    brent_part = (
-        f"Brent crude is {brent.get('change_pct', '0.0%')} at {brent.get('price', '?')} "
-        f"as of {brent.get('as_of', 'unknown')}."
-    )
-    wti_part = (
-        f"WTI crude is {wti.get('change_pct', '0.0%')} at {wti.get('price', '?')} "
-        f"as of {wti.get('as_of', 'unknown')}."
-    )
-
-    if polymarket_markets:
-        max_prob = max((m["probability"] for m in polymarket_markets), default=0.0)
-        markets_part = (
-            f" Polymarket conflict-related markets imply up to {max_prob * 100:.0f}% "
-            f"probability on key scenarios."
-        )
-    else:
-        markets_part = " No highly relevant Polymarket conflict markets were detected."
-
-    score_part = f" Composite escalation score: {escalation_score:.1f}."
-    return " ".join([brent_part, wti_part, markets_part, score_part])
-
-
-async def _run_finint_agent_async(conflict: str) -> Dict[str, Any]:  # conflict kept for compatibility
+@tool
+def get_brent_price() -> Dict[str, Any]:
+    """Fetch current Brent crude oil price and daily change from Alpha Vantage."""
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
     if not api_key:
-        raise RuntimeError("ALPHAVANTAGE_API_KEY is not set")
+        return {"error": "ALPHAVANTAGE_API_KEY not set"}
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        brent_data, wti_data, polymarket_raw = await asyncio.gather(
-            _fetch_alpha_series(client, "BRENT", api_key),
-            _fetch_alpha_series(client, "WTI", api_key),
-            _fetch_polymarket_markets(client),
-        )
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(ALPHAVANTAGE_URL, params={
+                "function": "BRENT", "interval": "daily", "apikey": api_key
+            })
+            resp.raise_for_status()
+            return resp.json()
 
-    # Parse Brent
-    brent_as_of, brent_price, brent_change_pct = _parse_alpha_series(brent_data)
-    brent_struct = {
-        "price": f"{brent_price:.2f}" if brent_price is not None else None,
-        "change_pct": _format_pct(brent_change_pct),
-        "as_of": brent_as_of,
-    }
+    try:
+        data = asyncio.run(_fetch())
+        series = data.get("data", [])
+        if len(series) < 2:
+            return {"error": "Insufficient data"}
+        latest = series[0]
+        prev = series[1]
+        price = _safe_float(latest.get("value"))
+        prev_price = _safe_float(prev.get("value"))
+        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+        return {
+            "price": f"{price:.2f}" if price else None,
+            "change_pct": _format_pct(change_pct),
+            "as_of": latest.get("date", ""),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
-    # Parse WTI
-    wti_as_of, wti_price, wti_change_pct = _parse_alpha_series(wti_data)
-    wti_struct = {
-        "price": f"{wti_price:.2f}" if wti_price is not None else None,
-        "change_pct": _format_pct(wti_change_pct),
-        "as_of": wti_as_of,
-    }
 
-    # Polymarket
-    polymarket_struct = _prepare_polymarket(polymarket_raw)
+@tool
+def get_wti_price() -> Dict[str, Any]:
+    """Fetch current WTI crude oil price and daily change from Alpha Vantage."""
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY not set"}
 
-    # Escalation score
-    escalation_score = _compute_escalation_score(brent_change_pct, polymarket_struct)
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(ALPHAVANTAGE_URL, params={
+                "function": "WTI", "interval": "daily", "apikey": api_key
+            })
+            resp.raise_for_status()
+            return resp.json()
 
-    # Summary
-    summary = _build_summary(brent_struct, wti_struct, polymarket_struct, escalation_score)
+    try:
+        data = asyncio.run(_fetch())
+        series = data.get("data", [])
+        if len(series) < 2:
+            return {"error": "Insufficient data"}
+        latest = series[0]
+        prev = series[1]
+        price = _safe_float(latest.get("value"))
+        prev_price = _safe_float(prev.get("value"))
+        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+        return {
+            "price": f"{price:.2f}" if price else None,
+            "change_pct": _format_pct(change_pct),
+            "as_of": latest.get("date", ""),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
-    return {
-        "brent": brent_struct,
-        "wti": wti_struct,
-        "polymarket": polymarket_struct,
-        "escalation_score": escalation_score,
-        "summary": summary,
-    }
+
+@tool
+def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
+    """Fetch Polymarket prediction market odds: tracked Iran markets first, then keyword-matched events."""
+    async def _fetch_tracked():
+        """Fetch TRACKED_POLYMARKET_SLUGS via Gamma API GET /events/slug/{slug}. One row per event."""
+        headers = _polymarket_headers()
+        out = []
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for slug in TRACKED_POLYMARKET_SLUGS:
+                try:
+                    resp = await client.get(
+                        f"{GAMMA_API_BASE}/events/slug/{slug}",
+                        headers=headers,
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    event = resp.json()
+                    if not isinstance(event, dict):
+                        continue
+                    question = (
+                        event.get("title") or event.get("question") or event.get("name") or ""
+                    ).strip()
+                    if not question:
+                        continue
+                    # Max probability: top-level outcomePrices or across markets
+                    prob = 0.0
+                    for p in event.get("outcomePrices") or []:
+                        v = _safe_float(p)
+                        if v and v > prob:
+                            prob = v
+                    for market in event.get("markets") or []:
+                        if not isinstance(market, dict):
+                            continue
+                        for p in market.get("outcomePrices") or []:
+                            v = _safe_float(p)
+                            if v and v > prob:
+                                prob = v
+                        for token in market.get("tokens") or []:
+                            v = _safe_float(token.get("price"))
+                            if v and v > prob:
+                                prob = v
+                    volume = _safe_float(
+                        event.get("volume") or event.get("volumeNum") or event.get("liquidity") or 0
+                    ) or 0
+                    out.append({
+                        "question": question,
+                        "probability": round(prob, 3),
+                        "volume": round(volume, 0),
+                        "url": f"https://polymarket.com/event/{slug}",
+                    })
+                except Exception:
+                    continue
+        return out
+
+    async def _fetch_all():
+        headers = _polymarket_headers()
+        results = []
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            try:
+                resp = await client.get(
+                    f"{GAMMA_API_BASE}/events",
+                    params={"limit": 200, "active": "true", "closed": "false"},
+                    headers=headers,
+                )
+                if resp.status_code == 200:
+                    events = resp.json()
+                    if isinstance(events, list):
+                        results.extend(events)
+            except Exception:
+                pass
+            try:
+                resp2 = await client.get(
+                    f"{GAMMA_API_BASE}/markets",
+                    params={"limit": 200, "active": "true", "closed": "false"},
+                    headers=headers,
+                )
+                if resp2.status_code == 200:
+                    markets = resp2.json()
+                    if isinstance(markets, list):
+                        results.extend(markets)
+            except Exception:
+                pass
+        return results
+
+    try:
+        tracked = asyncio.run(_fetch_tracked())
+        tracked_questions = {str(t.get("question", ""))[:80] for t in tracked if t.get("question")}
+
+        data = asyncio.run(_fetch_all())
+        relevant = []
+        seen = set()
+
+        for m in data:
+            question = str(m.get("question") or m.get("title") or m.get("name") or "").strip()
+            if not question:
+                continue
+            key = question[:60]
+            if key in seen:
+                continue
+            description = str(m.get("description") or "").lower()
+            combined = f"{question.lower()} {description}"
+            if not any(kw in combined for kw in POLYMARKET_KEYWORDS):
+                continue
+            if question[:80] in tracked_questions:
+                continue
+            seen.add(key)
+            item = _normalize_polymarket_item(m)
+            if item:
+                item["url"] = f"https://polymarket.com/event/{m.get('slug', '')}"
+                relevant.append(item)
+
+        relevant.sort(key=lambda x: x.get("volume") or 0, reverse=True)
+        # Tracked first (order as in TRACKED_POLYMARKET_SLUGS), then up to 10 keyword matches
+        return tracked + relevant[:10]
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+@tool
+def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
+    """Fetch current Polymarket positions for tracked wallets (e.g. rundeep) via Data API."""
+    if not TRACKED_WALLETS:
+        return []
+    async def _fetch():
+        out = []
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for label, address in TRACKED_WALLETS:
+                try:
+                    resp = await client.get(
+                        f"{DATA_API_BASE}/positions",
+                        params={"user": address, "limit": 50, "sortBy": "TOKENS", "sortDirection": "DESC"},
+                        headers=_polymarket_headers(),
+                    )
+                    if resp.status_code != 200:
+                        out.append({"wallet": label, "address": address[:10] + "...", "error": resp.status_code})
+                        continue
+                    data = resp.json()
+                    positions = data if isinstance(data, list) else data.get("data", data.get("positions", []))
+                    if not isinstance(positions, list):
+                        positions = []
+                    # Keep fields useful for conflict relevance
+                    items = []
+                    for p in positions[:20]:
+                        title = p.get("title") or p.get("market") or p.get("question") or ""
+                        size = _safe_float(p.get("size") or p.get("tokens") or 0)
+                        avg_price = _safe_float(p.get("avgPrice") or p.get("price"))
+                        items.append({
+                            "title": title[:120] if title else "",
+                            "size": round(size, 2) if size else 0,
+                            "avgPrice": round(avg_price, 4) if avg_price else None,
+                        })
+                    out.append({
+                        "wallet": label,
+                        "address": address[:10] + "...",
+                        "position_count": len(positions),
+                        "positions": items,
+                    })
+                except Exception as e:
+                    out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
+        return out
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+# ── Agent ──────────────────────────────────────────────────────────────────
+
+FININT_TOOLS = [get_brent_price, get_wti_price, get_polymarket_conflict_odds, get_tracked_wallet_positions]
+
+FININT_SYSTEM = """You are a FININT (Financial Intelligence) analyst.
+Your job: fetch oil prices, Polymarket conflict odds, and tracked wallet positions, then compute an escalation score (0-100).
+
+Scoring rules:
+- Base: 50
+- Brent > +5%: +15, Brent +2-5%: +8, Brent negative: -10
+- Polymarket conflict odds > 50%: +20, 30-50%: +10
+- Tracked wallets with large conflict-related positions: consider in summary
+- Clamp to [0, 100]
+
+Always call all four tools, then return ONLY valid JSON:
+{
+  "brent": {"price": "...", "change_pct": "...", "as_of": "..."},
+  "wti": {"price": "...", "change_pct": "...", "as_of": "..."},
+  "polymarket": [...],
+  "tracked_wallets": [{"wallet": "...", "position_count": N, "positions": [...]}],
+  "escalation_score": <number>,
+  "summary": "<1-2 sentence summary; mention if tracked wallets have conflict exposure>"
+}
+No markdown, no explanation, just JSON."""
 
 
 def run_finint_agent(conflict: str) -> Dict[str, Any]:
-    """
-    Public sync entrypoint for the FININT agent.
+    """Run FININT agent with LangChain tool-calling."""
+    model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(FININT_TOOLS)
 
-    Uses async httpx under the hood but exposes a synchronous API
-    for compatibility with existing supervisor code.
-    """
-    return asyncio.run(_run_finint_agent_async(conflict))
+    messages = [
+        SystemMessage(content=FININT_SYSTEM),
+        HumanMessage(content=f"Analyze financial indicators for conflict: {conflict}"),
+    ]
+
+    import json
+    # Agentic loop
+    for _ in range(5):
+        response = model.invoke(messages)
+        messages.append(response)
+
+        if not response.tool_calls:
+            # Final answer: parse JSON (strip optional markdown code fence)
+            try:
+                content = response.content
+                if isinstance(content, list):
+                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
+                text = (content or "").strip()
+                for prefix in ("```json", "```"):
+                    if text.startswith(prefix):
+                        text = text[len(prefix):].strip()
+                    if text.endswith("```"):
+                        text = text[:-3].strip()
+                return json.loads(text)
+            except Exception:
+                break
+
+        # Execute tool calls
+        for tc in response.tool_calls:
+            tool_map = {t.name: t for t in FININT_TOOLS}
+            tool_fn = tool_map.get(tc["name"])
+            if tool_fn:
+                args = tc.get("args", {})
+                result = tool_fn.invoke(args)
+                from langchain_core.messages import ToolMessage
+                messages.append(ToolMessage(
+                    content=json.dumps(result, default=str),
+                    tool_call_id=tc["id"],
+                ))
+
+    # Fallback: run tools directly and build result (no LLM synthesis)
+    brent = get_brent_price.invoke({})
+    wti = get_wti_price.invoke({})
+    polymarket = get_polymarket_conflict_odds.invoke({"conflict": conflict})
+    tracked_wallets = get_tracked_wallet_positions.invoke({})
+    if not isinstance(polymarket, list):
+        polymarket = []
+    if not isinstance(tracked_wallets, list):
+        tracked_wallets = []
+
+    # Simple score from data
+    base = 50.0
+    if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
+        cp = brent.get("change_pct") or "0%"
+        if "+" in cp and "%" in cp:
+            try:
+                v = float(cp.replace("%", "").strip())
+                if v > 5:
+                    base += 15
+                elif v > 2:
+                    base += 8
+            except ValueError:
+                pass
+        if "-" in cp:
+            base -= 10
+    if polymarket:
+        max_prob = max((_safe_float(p.get("probability")) or 0) for p in polymarket if isinstance(p, dict) and "error" not in p)
+        if max_prob and max_prob > 0.5:
+            base += 20
+        elif max_prob and max_prob > 0.3:
+            base += 10
+    score = max(0.0, min(100.0, base))
+
+    return {
+        "brent": brent if isinstance(brent, dict) and "error" not in brent else {"price": None, "change_pct": "0.0%", "as_of": ""},
+        "wti": wti if isinstance(wti, dict) and "error" not in wti else {"price": None, "change_pct": "0.0%", "as_of": ""},
+        "polymarket": [p for p in polymarket if isinstance(p, dict) and "error" not in p],
+        "tracked_wallets": [w for w in tracked_wallets if isinstance(w, dict)],
+        "escalation_score": round(score, 1),
+        "summary": "FININT (fallback): oil and Polymarket data; LLM synthesis did not return valid JSON.",
+    }
 
 

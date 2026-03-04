@@ -12,6 +12,22 @@ export interface ConflictLink {
   label: string;
 }
 
+/** For dropdown: id (storage), label (display), apiValue (backend analyze) */
+export const CONFLICT_OPTIONS = [
+  { id: "us-iran", label: "US–Iran", apiValue: "US-Iran" },
+  { id: "ukraine", label: "Ukraine", apiValue: "Ukraine" },
+  { id: "israel-palestine", label: "Israel–Palestine", apiValue: "Israel-Gaza" },
+  { id: "yemen", label: "Yemen", apiValue: "Yemen" },
+  { id: "syria", label: "Syria", apiValue: "Syria" },
+  { id: "taiwan-strait", label: "Taiwan Strait", apiValue: "Taiwan" },
+  { id: "sudan", label: "Sudan", apiValue: "Sudan" },
+  { id: "sahel", label: "Sahel Region", apiValue: "Sahel" },
+  { id: "myanmar", label: "Myanmar", apiValue: "Myanmar" },
+  { id: "korea", label: "Korean Peninsula", apiValue: "Korea" },
+  { id: "ethiopia", label: "Ethiopia", apiValue: "Ethiopia" },
+  { id: "drc", label: "DRC", apiValue: "DRC" },
+] as const;
+
 export const conflicts: ConflictMarker[] = [
   { id: "us-iran", label: "US–Iran", coordinates: [53, 32], severity: "high" },
   { id: "ukraine", label: "Ukraine", coordinates: [31, 49], severity: "high" },
