@@ -407,6 +407,9 @@ export function ConflictMap({
 
       {/* ── Legend ── */}
       <div className="absolute bottom-4 left-4 flex items-center gap-4 flex-wrap">
+        <span className="text-[9px] font-mono text-muted-foreground/90" title="Map stance">
+          Crimea = Ukraine (under international law)
+        </span>
         {/* Severity */}
         {(
           [
