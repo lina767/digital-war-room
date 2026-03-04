@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -12,11 +14,13 @@ class AnalyzeRequest(BaseModel):
 
 
 @router.post("/analyze")
-def analyze(request: AnalyzeRequest):
+async def analyze(request: AnalyzeRequest):
     """
     POST /analyze
     Body: {"conflict": "US-Iran"}
-    Returns the full supervisor (Claude + FININT) analysis response.
+    Returns the full supervisor (Claude + agents) analysis response.
+    Runs in thread pool so the server stays responsive.
     """
-    result = analyze_conflict(request.conflict)
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, lambda: analyze_conflict(request.conflict))
     return result

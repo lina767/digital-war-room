@@ -39,8 +39,20 @@ class AnalysisState(TypedDict, total=False):
 
 # ── Intelligence Collection Node (all 6 agents in parallel) ─────────────────
 
+# Per-agent timeout (seconds). Prevents one slow API from blocking the whole run.
+_AGENT_TIMEOUT = 75
+
+
+def _result_or_fallback(future, agent_name: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
+    """Get future.result() with timeout; return fallback on timeout or error."""
+    try:
+        return future.result(timeout=_AGENT_TIMEOUT)
+    except Exception as e:
+        return {**fallback, "error": str(e), "timeout_or_error": True}
+
+
 def collection_node(state: AnalysisState) -> AnalysisState:
-    """Run all 6 intelligence agents in parallel."""
+    """Run all 6 intelligence agents in parallel with per-agent timeout."""
     conflict = state.get("conflict") or ""
 
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -51,18 +63,18 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         socmint_f  = executor.submit(run_socmint_agent, conflict)
         techint_f  = executor.submit(run_techint_agent, conflict)
 
-        finint_result   = finint_f.result()
-        sigint_result   = sigint_f.result()
-        news_result     = news_f.result()
-        geoint_result   = geoint_f.result()
-        socmint_result  = socmint_f.result()
-        techint_result  = techint_f.result()
+        finint_result   = _result_or_fallback(finint_f, "finint", {"escalation_score": 0.0, "brent": None, "polymarket": []})
+        sigint_result   = _result_or_fallback(sigint_f, "sigint", {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []})
+        news_result     = _result_or_fallback(news_f, "news", {"news_score": 0.0, "articles": [], "summary": ""})
+        geoint_result   = _result_or_fallback(geoint_f, "geoint", {"geoint_score": 0.0, "anomalies": [], "hotspots": []})
+        socmint_result  = _result_or_fallback(socmint_f, "socmint", {"socmint_score": 0.0, "top_signals": []})
+        techint_result  = _result_or_fallback(techint_f, "techint", {"techint_score": 0.0, "tech_indicators": [], "ioda_events": []})
 
     return {
         "finint_result":   finint_result,
         "sigint_result":   sigint_result,
         "news_result":     news_result,
-        "geoint_result":    geoint_result,
+        "geoint_result":   geoint_result,
         "socmint_result":  socmint_result,
         "techint_result":  techint_result,
     }
