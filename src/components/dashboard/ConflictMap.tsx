@@ -405,9 +405,9 @@ export function ConflictMap({
         </button>
       </div>
 
-      {/* Crimea = Ukraine: unter der Antarktis, zentriert */}
+      {/* Crimea = Ukraine: über der unteren Leiste, damit nicht verdeckt */}
       <div
-        className="absolute bottom-4 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-card/95 border border-border/60 shadow-sm pointer-events-none z-10"
+        className="absolute bottom-14 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-card/95 border border-border/60 shadow-sm pointer-events-none z-10"
         title="Map stance"
       >
         <span className="text-[10px] font-mono text-foreground whitespace-nowrap">
