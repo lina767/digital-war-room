@@ -362,8 +362,8 @@ const Dashboard = () => {
           />
         )}
 
-        {/* Center Map – minimum height so it stays visible and doesn’t shrink down */}
-        <main className="flex-1 min-h-[50vh] flex-shrink-0 relative overflow-hidden">
+        {/* Center Map – large min-height so it sits high and stays visible */}
+        <main className="flex-1 min-h-[70vh] flex-shrink-0 relative overflow-hidden">
           <div className="absolute inset-0 grid-overlay opacity-30" />
           <ConflictMap />
 
