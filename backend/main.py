@@ -7,6 +7,7 @@ load_dotenv()
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from agents.supervisor import analyze_conflict
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI):
 
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
-        first_delay = 30  # Erste Analyse 30 s nach Start, dann alle AUTO_ANALYZE_INTERVAL_SEC
+        first_delay = 15  # Erste Analyse 15 s nach Start, dann alle AUTO_ANALYZE_INTERVAL_SEC
         await asyncio.sleep(first_delay)
         while True:
             try:
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Conflict Analysis Backend", lifespan=lifespan)
 
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

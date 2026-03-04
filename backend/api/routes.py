@@ -1,6 +1,12 @@
-from fastapi import APIRouter, Request
+import os
+import asyncio
+import time
+
+from fastapi import APIRouter, Request, Header
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
+
+from agents.supervisor import analyze_conflict
 
 router = APIRouter()
 
@@ -11,6 +17,20 @@ class AnalyzeRequest(BaseModel):
 
 def _get_cache(request: Request):
     return getattr(request.app.state, "analysis_cache", {})
+
+
+@router.get("/analyze/status")
+async def analyze_status(request: Request, conflict: str = "US-Iran"):
+    """
+    GET /analyze/status?conflict=US-Iran
+    Leichtgewichtige Antwort: ob Cache existiert und wann zuletzt aktualisiert.
+    Hilft dem Frontend zu unterscheiden: Backend down vs. noch keine Analyse.
+    """
+    cache = _get_cache(request)
+    entry = cache.get(conflict)
+    if not entry:
+        return {"cached": False, "conflict": conflict}
+    return {"cached": True, "conflict": conflict, "at": entry.get("at")}
 
 
 @router.get("/analyze/latest")
@@ -44,3 +64,26 @@ async def analyze(request: Request, body: AnalyzeRequest):
             },
         )
     return entry["result"]
+
+
+@router.post("/analyze/trigger")
+async def trigger_analysis(
+    request: Request,
+    conflict: str = "US-Iran",
+    x_trigger_secret: str | None = Header(default=None, alias="X-Trigger-Secret"),
+):
+    """
+    Führt einmalig eine Analyse aus und füllt den Cache (z. B. nach Neustart oder Limit-Reset).
+    Optional: ANALYZE_TRIGGER_SECRET in Railway setzen, dann Header X-Trigger-Secret mitschicken.
+    """
+    secret = os.getenv("ANALYZE_TRIGGER_SECRET", "").strip()
+    if secret and x_trigger_secret != secret:
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Trigger-Secret"})
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+        cache = _get_cache(request)
+        cache[conflict] = {"result": result, "at": time.time()}
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})

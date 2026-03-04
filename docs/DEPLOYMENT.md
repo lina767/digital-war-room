@@ -75,6 +75,9 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
 
 - **Eigene Domain:** In Vercel Domain hinzufügen; in Supabase die neue Domain als Redirect/Site URL eintragen.
 - **Backend-Health:** `GET https://deine-railway-url/health` sollte `{"status":"ok"}` liefern.
+- **Analyse sofort auslösen (z. B. nach Neustart):**  
+  `POST https://deine-railway-url/api/analyze/trigger?conflict=US-Iran`  
+  Optional in Railway Variable `ANALYZE_TRIGGER_SECRET` setzen; dann Header `X-Trigger-Secret: <Wert>` mitschicken. Dauert 1–2 Min, danach Cache gefüllt.
 - **Sensible Keys:** `.env` und `backend/.env` nicht committen; nur in Vercel/Railway/Supabase setzen.
 
 ---
