@@ -109,7 +109,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden">
       {user && accountError && (
         <div className="bg-destructive/15 border-b border-destructive/40 px-3 py-2 text-center text-xs text-destructive flex items-center justify-center gap-2 flex-wrap">
           <span>Profil/Settings: {accountError}</span>
@@ -363,8 +363,8 @@ const Dashboard = () => {
           />
         )}
 
-        {/* Center Map – large min-height so it sits high and stays visible */}
-        <main className="flex-1 min-h-[70vh] flex-shrink-0 relative overflow-hidden">
+        {/* Center Map – bleibt oben, nimmt verfügbaren Platz; rechte Spalte scrollt separat */}
+        <main className="flex-1 min-h-0 min-w-0 relative overflow-hidden flex flex-col">
           <div className="absolute inset-0 grid-overlay opacity-30" />
           <ConflictMap />
 

@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
@@ -20,6 +20,10 @@ const App = () => (
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/app/dashboard" element={<Dashboard />} />
+            {/* Alte Login/Signup-URLs direkt auf Dashboard umleiten */}
+            <Route path="/login" element={<Navigate to="/app/dashboard" replace />} />
+            <Route path="/signup" element={<Navigate to="/app/dashboard" replace />} />
+            <Route path="/reset-password" element={<Navigate to="/app/dashboard" replace />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
