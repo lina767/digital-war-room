@@ -273,7 +273,7 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
 
 
 @tool
-def get_conflict_reports(conflict: str = "US-Iran") -> List[Dict[str, Any]]:
+def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """
     Fetch recent military/conflict reports from diverse OSINT and media feeds:
     BBC, DW, Al Jazeera, RFE/RL, plus think tanks (CriticalThreats, LongWarJournal, UnderstandingWar).

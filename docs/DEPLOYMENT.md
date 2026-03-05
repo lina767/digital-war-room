@@ -32,7 +32,7 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
     - `NASA_FIRMS_KEY` (GEOINT)
     - `ALPHAVANTAGE_API_KEY` (FININT, optional TECHINT)
   - **Optional:**  
-    `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL`, `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
+    `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL`, `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LIVEUAMAP_API_KEY` (GEOINT: Liveuamap Lebanon/Iran, kostenpflichtige API), `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
 - **Kosten senken (Claude API):**
   - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 3600 = stündlich; 600 = alle 10 Min).
   - `SUPERVISOR_MODEL` (Standard: `claude-sonnet-4-6`). Optional `claude-haiku-4-5-20251001` für geringere Kosten.
@@ -84,6 +84,7 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
   `POST https://deine-railway-url/api/analyze/trigger?conflict=US-Iran`  
   Optional in Railway Variable `ANALYZE_TRIGGER_SECRET` setzen; dann Header `X-Trigger-Secret: <Wert>` mitschicken. Dauert 1–2 Min, danach Cache gefüllt.
 - **Sensible Keys:** `.env` und `backend/.env` nicht committen; nur in Vercel/Railway/Supabase setzen.
+- **IAEA/OE-III Tracker:** `GET /api/iaea-tracker` – trackt das IAEO-Flugzeug (OE-III) via ADS-B, NOTAMs (Autorouter.aero), IAEA-Press (Grossi). **NOTAM:** Standard `NOTAM_API_URL=https://api.autorouter.aero/v1.0/notam` (GET mit `itemas=["EDDS","LOWW","OIIE"]`, `offset`, `limit`). Optional `NOTAM_API_KEY` falls Endpunkt Auth verlangt. Direktabfrage: `GET /api/notam?locations=EDDS,LOWW&limit=10&offset=0`.
 
 ---
 

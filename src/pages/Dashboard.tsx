@@ -16,7 +16,7 @@ const Dashboard = () => {
   const [conflictDropdownOpen, setConflictDropdownOpen] = useState(false);
   const conflictDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [selectedConflict, setSelectedConflict] = useState<string>(CONFLICT_OPTIONS[0]?.apiValue ?? "US-Iran");
+  const [selectedConflict, setSelectedConflict] = useState<string>(CONFLICT_OPTIONS[0]?.apiValue ?? "Iran");
 
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);

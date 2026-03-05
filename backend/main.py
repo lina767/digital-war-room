@@ -20,7 +20,8 @@ os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", 
 os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"))
 
 # Konflikt, der stündlich automatisch analysiert wird (unabhängig von Aufrufen)
-AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "US-Iran")
+# Standard: nur "Iran"
+AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "Iran")
 AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "3600"))  # 1 Stunde
 
 

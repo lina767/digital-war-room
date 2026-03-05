@@ -34,7 +34,7 @@ interface ConflictMapProps {
   geointAnomalies?: GeointAnomaly[];
   sigintAircraft?: SigintAircraft[];
   sigintShips?: SigintShip[];
-  activeConflict?: string | null; // e.g. "US-Iran" → auto-zoom
+  activeConflict?: string | null; // e.g. "Iran" → auto-zoom
 }
 
 // ── Conflict region centers for auto-zoom ─────────────────────────────────
@@ -53,7 +53,7 @@ const CONFLICT_CENTERS: Record<string, { center: [number, number]; zoom: number 
   ethiopia: { center: [40, 9], zoom: 4 },
 };
 
-// Fuzzy match: "US-Iran" → "us-iran"
+// Fuzzy match: "Iran" → "iran"
 function matchConflict(name: string): string | null {
   if (!name) return null;
   const normalized = name

@@ -14,22 +14,11 @@ export interface ConflictLink {
 
 /** For dropdown: id (storage), label (display), apiValue (backend analyze) */
 export const CONFLICT_OPTIONS = [
-  { id: "us-iran", label: "US–Iran", apiValue: "US-Iran" },
-  { id: "ukraine", label: "Ukraine", apiValue: "Ukraine" },
-  { id: "israel-palestine", label: "Israel–Palestine", apiValue: "Israel-Gaza" },
-  { id: "yemen", label: "Yemen", apiValue: "Yemen" },
-  { id: "syria", label: "Syria", apiValue: "Syria" },
-  { id: "taiwan-strait", label: "Taiwan Strait", apiValue: "Taiwan" },
-  { id: "sudan", label: "Sudan", apiValue: "Sudan" },
-  { id: "sahel", label: "Sahel Region", apiValue: "Sahel" },
-  { id: "myanmar", label: "Myanmar", apiValue: "Myanmar" },
-  { id: "korea", label: "Korean Peninsula", apiValue: "Korea" },
-  { id: "ethiopia", label: "Ethiopia", apiValue: "Ethiopia" },
-  { id: "drc", label: "DRC", apiValue: "DRC" },
+  { id: "iran", label: "Iran", apiValue: "Iran" },
 ] as const;
 
 export const conflicts: ConflictMarker[] = [
-  { id: "us-iran", label: "US–Iran", coordinates: [53, 32], severity: "high" },
+  { id: "iran", label: "Iran", coordinates: [53, 32], severity: "high" },
   { id: "ukraine", label: "Ukraine", coordinates: [31, 49], severity: "high" },
   { id: "sudan", label: "Sudan", coordinates: [30, 15], severity: "high" },
   { id: "myanmar", label: "Myanmar", coordinates: [96, 20], severity: "medium" },
@@ -44,10 +33,10 @@ export const conflicts: ConflictMarker[] = [
 ];
 
 export const conflictLinks: ConflictLink[] = [
-  { id: "link-1", from: "us-iran", to: "israel-palestine", label: "Proxy conflict" },
+  { id: "link-1", from: "iran", to: "israel-palestine", label: "Proxy conflict" },
   { id: "link-2", from: "israel-palestine", to: "syria", label: "Border tensions" },
-  { id: "link-3", from: "syria", to: "us-iran", label: "Iranian influence" },
-  { id: "link-4", from: "us-iran", to: "yemen", label: "Houthi support" },
+  { id: "link-3", from: "syria", to: "iran", label: "Iranian influence" },
+  { id: "link-4", from: "iran", to: "yemen", label: "Houthi support" },
   { id: "link-5", from: "yemen", to: "israel-palestine", label: "Houthi strikes" },
   { id: "link-6", from: "sudan", to: "ethiopia", label: "Border dispute" },
   { id: "link-7", from: "ethiopia", to: "drc", label: "Regional instability" },

@@ -4,7 +4,7 @@ import type { ConflictData } from "@/hooks/useConflictWebSocket";
 const FALLBACK_ITEMS = [
   "● RC-135 Rivet Joint detected over Persian Gulf — 3rd pass in 6 hours",
   "● Brent crude +4.2% — highest single-day move in 3 weeks",
-  "● Polymarket: US-Iran conflict 34%",
+  "● Polymarket: Iran conflict 34%",
   "● IRGC mobilization reports on 3 Telegram channels",
   "● NetBlocks: Iran internet connectivity degraded 12%",
   "● IDF reserves called up — Channel 12 reports",

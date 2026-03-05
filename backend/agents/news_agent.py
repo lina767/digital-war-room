@@ -337,42 +337,145 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     return results
 
 
-# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+# ── Rule-based NEWS multi-agent building blocks ─────────────────────────────
+
+def _run_newsapi_source_agent(conflict: str, hours_back: int = 48) -> Dict[str, Any]:
+    """Source agent: NewsAPI-only view of the conflict."""
+    raw = search_conflict_news.invoke({"conflict": conflict, "hours_back": hours_back})
+    articles = [
+        a for a in (raw if isinstance(raw, list) else [])
+        if isinstance(a, dict) and "error" not in a
+    ]
+    return {
+        "source": "newsapi",
+        "articles": articles,
+        "count": len(articles),
+    }
+
+
+def _run_gdelt_source_agent(conflict: str) -> Dict[str, Any]:
+    """Source agent: GDELT-only view of the conflict."""
+    raw = search_gdelt_news.invoke({"conflict": conflict})
+    articles = [
+        a for a in (raw if isinstance(raw, list) else [])
+        if isinstance(a, dict) and "error" not in a
+    ]
+    return {
+        "source": "gdelt",
+        "articles": articles,
+        "count": len(articles),
+    }
+
+
+def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
+    """Source agent: curated RSS/think-tank/OSINT feeds."""
+    raw = search_rss_feeds.invoke({"conflict": conflict})
+    articles = [
+        a for a in (raw if isinstance(raw, list) else [])
+        if isinstance(a, dict) and "error" not in a
+    ]
+    return {
+        "source": "rss",
+        "articles": articles,
+        "count": len(articles),
+    }
+
+
+def _run_news_fusion_agent(
+    newsapi_res: Dict[str, Any],
+    gdelt_res: Dict[str, Any],
+    rss_res: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Fusion agent: dedupe + global sentiment/score across all sources."""
+    merged = _merge_news_results(
+        newsapi_list=newsapi_res.get("articles", []),
+        gdelt_list=gdelt_res.get("articles", []),
+        rss_list=rss_res.get("articles", []),
+    )
+    articles = merged.get("articles", [])
+    overall = merged.get("overall_sentiment", 0.0)
+    label = merged.get("sentiment_label", "NEUTRAL")
+    breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0})
+
+    score = 50.0
+    if overall > 0.5:
+        score += 20
+    elif overall > 0.2:
+        score += 10
+    elif overall < -0.2:
+        score -= 15
+    if len(articles) > 10:
+        score += 10
+    score = max(0, min(100, score))
+
+    top_sources = list(
+        dict.fromkeys(a.get("source") or "" for a in articles[:10] if a.get("source"))
+    )
+
+    return {
+        "articles": articles,
+        "overall_sentiment": overall,
+        "sentiment_label": label,
+        "source_breakdown": breakdown,
+        "news_score": score,
+        "top_sources": top_sources,
+    }
+
+
+def _run_escalation_headline_agent(articles: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Meta-agent: focuses on clearly escalatory headlines to provide an explicit escalation signal.
+    Uses the existing sentiment labels as discrete triggers.
+    """
+    escalatory = [a for a in articles if (a.get("sentiment_label") or "").upper() == "ESCALATORY"]
+    # Simple heuristic: 0–1 score based on number of escalatory headlines (saturates at 10)
+    escalation_score = min(1.0, len(escalatory) / 10.0) if escalatory else 0.0
+    return {
+        "escalation_headlines": escalatory[:10],
+        "escalation_score": escalation_score,
+    }
+
+
+# ── Rule-based tool chain orchestrator (fixed order; no LLM) ────────────────
 
 def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
-    """Execute NEWS tool chain in fixed order: search_conflict_news → search_gdelt_news → search_rss_feeds. No LLM."""
+    """
+    Execute NEWS as a small, rule-based multi-agent system:
+
+    1. Three source agents (NewsAPI, GDELT, RSS) fetch their respective views.
+    2. A fusion agent deduplicates and computes global sentiment/score.
+    3. A meta-agent focuses on escalatory headlines for an explicit escalation signal.
+
+    The overall return format remains compatible with existing callers of run_news_agent.
+    """
     try:
-        newsapi_list = search_conflict_news.invoke({"conflict": conflict, "hours_back": 48})
-        gdelt_list = search_gdelt_news.invoke({"conflict": conflict})
-        rss_list = search_rss_feeds.invoke({"conflict": conflict})
-        newsapi_ok = [a for a in (newsapi_list if isinstance(newsapi_list, list) else []) if isinstance(a, dict) and "error" not in a]
-        gdelt_ok = [a for a in (gdelt_list if isinstance(gdelt_list, list) else []) if isinstance(a, dict) and "error" not in a]
-        rss_ok = [a for a in (rss_list if isinstance(rss_list, list) else []) if isinstance(a, dict) and "error" not in a]
-        merged = _merge_news_results(newsapi_ok, gdelt_ok, rss_ok)
-        articles = merged.get("articles", [])
-        overall = merged.get("overall_sentiment", 0.0)
-        label = merged.get("sentiment_label", "NEUTRAL")
-        breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0})
-        score = 50.0
-        if overall > 0.5:
-            score += 20
-        elif overall > 0.2:
-            score += 10
-        elif overall < -0.2:
-            score -= 15
-        if len(articles) > 10:
-            score += 10
-        score = max(0, min(100, score))
-        top_sources = list(dict.fromkeys(a.get("source") or "" for a in articles[:10] if a.get("source")))
+        newsapi_res = _run_newsapi_source_agent(conflict)
+        gdelt_res = _run_gdelt_source_agent(conflict)
+        rss_res = _run_rss_source_agent(conflict)
+
+        fusion = _run_news_fusion_agent(newsapi_res, gdelt_res, rss_res)
+        articles = fusion.get("articles", [])
+
+        escalation_meta = _run_escalation_headline_agent(articles)
+
         return {
             "conflict": conflict,
-            "articles": articles,
-            "overall_sentiment": overall,
-            "sentiment_label": label,
-            "top_sources": top_sources,
-            "news_score": score,
-            "summary": f"News (rule-based): {breakdown.get('newsapi', 0)} NewsAPI, {breakdown.get('gdelt', 0)} GDELT, {breakdown.get('rss', 0)} RSS. Sentiment: {label}.",
-            "source_breakdown": breakdown,
+            "articles": fusion.get("articles", []),
+            "overall_sentiment": fusion.get("overall_sentiment", 0.0),
+            "sentiment_label": fusion.get("sentiment_label", "NEUTRAL"),
+            "top_sources": fusion.get("top_sources", []),
+            "news_score": fusion.get("news_score", 50.0),
+            "summary": (
+                "News (rule-based multi-agent): "
+                f"{fusion.get('source_breakdown', {}).get('newsapi', 0)} NewsAPI, "
+                f"{fusion.get('source_breakdown', {}).get('gdelt', 0)} GDELT, "
+                f"{fusion.get('source_breakdown', {}).get('rss', 0)} RSS. "
+                f"Sentiment: {fusion.get('sentiment_label', 'NEUTRAL')}. "
+                f"Escalation score: {escalation_meta.get('escalation_score', 0.0):.2f}."
+            ),
+            "source_breakdown": fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0}),
+            "escalation_headlines": escalation_meta.get("escalation_headlines", []),
+            "escalation_score": escalation_meta.get("escalation_score", 0.0),
         }
     except Exception:
         pass

@@ -30,7 +30,7 @@ AGENT_ENV = {
     "techint": [],  # Alpha Vantage, News, Cloudflare, Shodan are optional; agent runs without
 }
 
-CONFLICT = "US-Iran"
+CONFLICT = "Iran"
 
 
 def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:

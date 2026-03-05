@@ -18,7 +18,7 @@ CREATE TABLE public.profiles (
 CREATE TABLE public.user_settings (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  default_conflict TEXT NOT NULL DEFAULT 'US-Iran',
+  default_conflict TEXT NOT NULL DEFAULT 'Iran',
   favorite_conflicts JSONB NOT NULL DEFAULT '[]'::jsonb,
   ui_state JSONB NOT NULL DEFAULT '{}'::jsonb
 );

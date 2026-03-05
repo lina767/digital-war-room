@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from agents.supervisor import analyze_conflict
 from agents.geoint_agent import get_thermal_anomalies
+from agents.iaea_tracker import run_iaea_tracker, fetch_notams
 from api.proximity_correlation import run_correlation_for_events
 from services.http_client import get_http_client
 from services.job_queue import JobQueue, Job
@@ -26,9 +27,9 @@ def _get_cache(request: Request):
 
 
 @router.get("/analyze/status")
-async def analyze_status(request: Request, conflict: str = "US-Iran"):
+async def analyze_status(request: Request, conflict: str = "Iran"):
     """
-    GET /analyze/status?conflict=US-Iran
+    GET /analyze/status?conflict=Iran
     Leichtgewichtige Antwort: ob Cache existiert und wann zuletzt aktualisiert.
     Hilft dem Frontend zu unterscheiden: Backend down vs. noch keine Analyse.
     """
@@ -40,9 +41,9 @@ async def analyze_status(request: Request, conflict: str = "US-Iran"):
 
 
 @router.get("/analyze/latest")
-async def get_latest_analysis(request: Request, conflict: str = "US-Iran"):
+async def get_latest_analysis(request: Request, conflict: str = "Iran"):
     """
-    GET /analyze/latest?conflict=US-Iran
+    GET /analyze/latest?conflict=Iran
     Liefert die letzte gecachte Analyse (nur vom 10-Min-Auto-Run). Startet keine neue Analyse.
     """
     cache = _get_cache(request)
@@ -115,6 +116,47 @@ async def get_proximity_strikes(region: str = "middle_east", days: int = 3):
             if isinstance(a, dict) and "error" not in a and "lat" in a and "lon" in a
         ]
         return {"strikes": anomalies, "region": region, "days": days}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ── IAEA / OE-III Tracker (ADS-B, NOTAMs, IAEA Press – Rafael Grossi) ───────────
+
+@router.get("/iaea-tracker")
+async def get_iaea_tracker():
+    """
+    GET /api/iaea-tracker
+    Trackt die IAEO bzw. das Flugzeug von Rafael Grossi (OE-III):
+    - ADS-B: Filter auf OE-III (opendata.adsb.fi / api.adsb.lol).
+    - NOTAMs: Autorouter.aero (NOTAM_API_URL), itemas=[EDDS,LOWW,OIIE].
+    - IAEA-Pressemitteilungen: Erwähnungen Grossi/Director General; Korrelation mit Flugdaten.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, run_iaea_tracker)
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/notam")
+async def get_notam(
+    locations: str = "EDDS,LOWW,OIIE",
+    limit: int = 10,
+    offset: int = 0,
+):
+    """
+    GET /api/notam?locations=EDDS,LOWW,OIIE&limit=10&offset=0
+    NOTAMs für ICAO-Plätze (Autorouter.aero: itemas=["EDDS",...], offset, limit).
+    """
+    icao_list = [s.strip().upper() for s in locations.split(",") if s.strip()][:20]
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: fetch_notams(icao_locations=icao_list or None, limit=limit, offset=offset),
+        )
+        return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
