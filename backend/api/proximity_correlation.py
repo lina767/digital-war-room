@@ -6,7 +6,7 @@ import math
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
-import httpx
+from services.http_client import get_http_client
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 RADIUS_M = 300
@@ -41,14 +41,12 @@ out body center;
 async def fetch_overpass_context(lat: float, lon: float) -> List[Dict[str, Any]]:
     """Return list of {id, name, lat, lon, amenity?, office?} for civilian facilities in radius."""
     query = _overpass_query(lat, lon, RADIUS_M)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(
-            OVERPASS_URL,
-            content=f"data={quote(query)}",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        r.raise_for_status()
-        data = r.json()
+    client = get_http_client()
+    data = await client.post_json(
+        OVERPASS_URL,
+        content=f"data={quote(query)}",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
     elements = data.get("elements") or []
     facilities = []
     seen = set()

@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from agents.supervisor import analyze_conflict
 from agents.geoint_agent import get_thermal_anomalies
 from api.proximity_correlation import run_correlation_for_events
+from services.http_client import get_http_client
+from services.job_queue import JobQueue, Job
 
 router = APIRouter()
 
@@ -131,10 +133,8 @@ async def get_tunnel_sites():
     if not url:
         return {"type": "FeatureCollection", "features": []}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            data = r.json()
+        client = get_http_client()
+        data = await client.get_json(url)
         if isinstance(data, dict) and data.get("type") == "FeatureCollection":
             return data
         return {"type": "FeatureCollection", "features": []}
@@ -158,7 +158,7 @@ class ProximityWebhookBody(BaseModel):
 
 
 @router.post("/webhooks/proximity-events")
-async def webhook_proximity_events(body: ProximityWebhookBody):
+async def webhook_proximity_events(request: Request, body: ProximityWebhookBody):
     """
     POST /api/webhooks/proximity-events
     Accepts a list of events (lat, lon, optional source/description). For each event, queries Overpass
@@ -171,14 +171,54 @@ async def webhook_proximity_events(body: ProximityWebhookBody):
     tunnel_geojson = body.tunnel_sites
     if not tunnel_geojson and body.tunnel_sites_geojson_url:
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(body.tunnel_sites_geojson_url)
-                r.raise_for_status()
-                tunnel_geojson = r.json()
+            client = get_http_client()
+            tunnel_geojson = await client.get_json(body.tunnel_sites_geojson_url, timeout=10.0)
         except Exception:
             tunnel_geojson = None
-    try:
-        evidence = await run_correlation_for_events(events, tunnel_sites_geojson=tunnel_geojson)
+
+    queue: JobQueue | None = getattr(request.app.state, "job_queue", None)
+
+    async def _handle_proximity_job(payload: Dict[str, Any]) -> Dict[str, Any]:
+        evts = payload.get("events") or []
+        geojson = payload.get("tunnel_geojson")
+        evidence = await run_correlation_for_events(evts, tunnel_sites_geojson=geojson)
         return {"evidence": evidence, "count": len(evidence)}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+
+    # Fallback: falls JobQueue nicht verfügbar ist, weiterhin synchron ausführen (Backwards-Compatibility)
+    if queue is None:
+        try:
+            result = await _handle_proximity_job({"events": events, "tunnel_geojson": tunnel_geojson})
+            return result
+        except Exception as e:
+            return JSONResponse(status_code=500, content={"error": str(e)})
+
+    job = await queue.enqueue(
+        "proximity_correlation",
+        {"events": events, "tunnel_geojson": tunnel_geojson},
+        handler=_handle_proximity_job,
+    )
+    return {"job_id": job.id, "status": job.status}
+
+
+@router.get("/webhooks/proximity-events/{job_id}")
+async def get_proximity_job_status(request: Request, job_id: str):
+    """
+    GET /api/webhooks/proximity-events/{job_id}
+    Returns status and (when finished) result for a previously enqueued proximity correlation job.
+    """
+    queue: JobQueue | None = getattr(request.app.state, "job_queue", None)
+    if queue is None:
+        return JSONResponse(status_code=503, content={"error": "Job queue not available"})
+    job: Job | None = await queue.get_job(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": "Job not found"})
+    return {
+        "id": job.id,
+        "type": job.type,
+        "status": job.status,
+        "result": job.result,
+        "error": job.error,
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+    }

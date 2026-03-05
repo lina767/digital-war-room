@@ -11,6 +11,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from agents.supervisor import analyze_conflict
+from services.job_queue import JobQueue
+from services.http_client import get_http_client, close_http_client
 
 load_dotenv()
 
@@ -25,6 +27,7 @@ AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "3600")) 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
+    app.state.job_queue = JobQueue()
 
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
@@ -39,13 +42,22 @@ async def lifespan(app: FastAPI):
                 print(f"[periodic] Analysis failed: {e}")
             await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
 
-    task = asyncio.create_task(run_periodic_analysis())
+    analysis_task = asyncio.create_task(run_periodic_analysis())
+    worker_task = asyncio.create_task(app.state.job_queue.worker())
+
+    # Ensure shared HTTP client is created early (so DNS pools etc. warm up)
+    get_http_client()
+
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+
+    for task in (analysis_task, worker_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    await close_http_client()
 
 
 app = FastAPI(title="Conflict Analysis Backend", lifespan=lifespan)
