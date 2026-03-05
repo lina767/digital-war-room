@@ -2,7 +2,7 @@ import { Satellite, Radio, MessageSquare, DollarSign, Shield } from "lucide-reac
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const features = [
-  { icon: Satellite, title: "GEOINT", description: "Satellite imagery analysis, thermal anomalies, base change detection via NASA FIRMS & Sentinel Hub." },
+  { icon: Satellite, title: "GEOINT", description: "Thermal anomalies (NASA FIRMS), EO Browser links (Sentinel Hub), ReliefWeb/ACLED." },
   { icon: Radio, title: "SIGINT", description: "Military aircraft tracking, warship movements, surveillance drones via ADSB-Exchange & MarineTraffic." },
   { icon: MessageSquare, title: "SOCMINT", description: "Telegram channels, social media signals, early warning from eyewitness reports." },
   { icon: DollarSign, title: "FININT", description: "Oil price spikes, prediction market odds, crypto movements by sanctioned actors." },

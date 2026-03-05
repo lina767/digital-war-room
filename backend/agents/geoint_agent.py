@@ -342,18 +342,73 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     return reports if isinstance(reports, list) else [{"error": "unknown"}]
 
 
+# ── EO Browser / Sentinel Hub (links; optional Process API when credentials set) ─
+
+# EO Browser: center (lat, lon), zoom. No API key required – returns URLs for manual inspection.
+EO_BROWSER_VIEWS = {
+    "iran": (32.5, 53.0, 5),
+    "lebanon": (33.9, 35.5, 8),
+    "gaza_israel": (31.5, 34.5, 8),
+    "middle_east": (30.0, 50.0, 4),
+    "yemen": (15.5, 48.0, 6),
+    "syria": (35.0, 38.5, 6),
+    "ukraine": (49.0, 32.0, 5),
+    "eastern_europe": (49.0, 32.0, 5),
+}
+
+
+def _region_from_conflict(conflict: str) -> str:
+    """Region slug for EO Browser / Liveuamap (iran, lebanon, middle_east, etc.)."""
+    cl = conflict.lower()
+    if "lebanon" in cl:
+        return "lebanon"
+    if "iran" in cl:
+        return "iran"
+    if any(k in cl for k in ["gaza", "israel"]):
+        return "gaza_israel"
+    if any(k in cl for k in ["yemen", "syria", "iraq"]):
+        return "middle_east"
+    if any(k in cl for k in ["ukraine", "russia", "donbas", "belarus"]):
+        return "eastern_europe"
+    if any(k in cl for k in ["taiwan", "china", "korea", "myanmar"]):
+        return "east_asia"
+    if any(k in cl for k in ["sudan", "ethiopia", "drc", "sahel", "mali"]):
+        return "africa"
+    return "middle_east"
+
+
+@tool
+def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
+    """
+    Return direct links to Sentinel Hub EO Browser for the conflict region (Lebanon, Iran, etc.).
+    No API key required. Use for manual satellite imagery inspection (Sentinel-2, etc.).
+    """
+    region = _region_from_conflict(conflict)
+    # Prefer region-specific view if available
+    view = EO_BROWSER_VIEWS.get(region) or EO_BROWSER_VIEWS["middle_east"]
+    lat, lon, zoom = view
+    base = "https://apps.sentinel-hub.com/eo-browser"
+    url = f"{base}/?lat={lat}&lng={lon}&zoom={zoom}"
+    return {
+        "region": region,
+        "eo_browser_url": url,
+        "description": "Open in EO Browser for Sentinel-2 and other satellite imagery. Sentinel Hub Process API can be enabled with SENTINELHUB_CLIENT_ID and SENTINELHUB_CLIENT_SECRET.",
+    }
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies, get_conflict_hotspot_news]
+GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies, get_conflict_hotspot_news, get_eo_browser_links]
 
-GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS and event reports.
-Your job: get conflict region, fetch thermal anomalies (days=3) and conflict hotspot news, compute score.
+GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS, ReliefWeb/ACLED, and EO Browser links.
+Your job: get conflict region, fetch thermal anomalies (days=3), conflict hotspot news, and EO Browser links for the region (Lebanon, Iran, etc.); then compute score.
 
 Steps:
 1. Call get_conflict_region(conflict)
 2. Call get_thermal_anomalies(region=..., days=3)
 3. Call get_conflict_hotspot_news(conflict)
-4. Compute score and return JSON
+4. Call get_eo_browser_links(conflict) for Sentinel Hub EO Browser URLs
+5. Compute score and return JSON
 
 Scoring:
 - Base: 20
@@ -374,6 +429,7 @@ Return ONLY valid JSON:
   "geoint_score": <number>,
   "hotspots": [top 5 by FRP],
   "reliefweb_reports": [...],
+  "eo_browser_links": {"region": "...", "eo_browser_url": "...", "description": "..."},
   "summary": "<1-2 sentence summary>"
 }
 No markdown, no explanation, just JSON."""
@@ -427,6 +483,7 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
         "geoint_score": 20.0,
         "hotspots": [],
         "reliefweb_reports": [],
+        "eo_browser_links": {},
         "summary": "No thermal anomaly data available.",
     }
 
@@ -434,7 +491,7 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
-    """Execute GEOINT tool chain in fixed order: get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news. No LLM."""
+    """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → eo_browser_links. No LLM."""
     try:
         region = get_conflict_region.invoke({"conflict": conflict})
         if not isinstance(region, str):
@@ -443,6 +500,9 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
         reliefweb_raw = get_conflict_hotspot_news.invoke({"conflict": conflict})
         reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
+        eo_links = get_eo_browser_links.invoke({"conflict": conflict})
+        if not isinstance(eo_links, dict):
+            eo_links = {}
         score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
         high = sum(1 for a in anomalies if a.get("confidence") == "high")
         hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
@@ -456,7 +516,8 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             "geoint_score": round(score, 1),
             "hotspots": hotspots,
             "reliefweb_reports": reliefweb_reports,
-            "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s). Score {score:.0f}.",
+            "eo_browser_links": eo_links,
+            "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s). EO Browser links included. Score {score:.0f}.",
         }
     except Exception:
         pass

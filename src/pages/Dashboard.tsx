@@ -11,6 +11,9 @@ import { NewsSentiment } from "@/components/dashboard/NewsSentiment";
 import { InternetConnectivity } from "@/components/dashboard/InternetConnectivity";
 import { FlightRadar } from "@/components/dashboard/FlightRadar";
 import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
+import { EvidenceCard } from "@/components/dashboard/EvidenceCard";
+import { runProximityAnalysis, fetchTunnelSites } from "@/lib/proximityAnalyzerService";
+import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { AGENTS_WITH_SOURCES } from "@/components/dashboard/agentsConfig";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
@@ -18,7 +21,7 @@ import { getApiBase } from "@/lib/api";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useSavedAnalyses } from "@/hooks/useSavedAnalyses";
-import { ChevronDown, Play, LogOut, Menu, X, Radio, Rss, ChevronRight, Star, Save, Trash2, User } from "lucide-react";
+import { ChevronDown, Play, LogOut, Menu, X, Radio, Rss, ChevronRight, Star, Save, Trash2, User, Target } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 
@@ -103,6 +106,36 @@ const Dashboard = () => {
     }, 4000 + Math.random() * 3000);
     return () => clearInterval(interval);
   }, []);
+
+  // Proximity Analyzer: strike–civilian correlation
+  const [proximityEvidence, setProximityEvidence] = useState<ProximityEvidence[]>([]);
+  const [proximityLoading, setProximityLoading] = useState(false);
+  const [proximityError, setProximityError] = useState<string | null>(null);
+  const conflictToRegion = (c: string): string => {
+    const lower = c.toLowerCase();
+    if (lower.includes("iran") || lower.includes("israel") || lower.includes("gaza") || lower.includes("yemen") || lower.includes("syria") || lower.includes("iraq")) return "middle_east";
+    if (lower.includes("ukraine") || lower.includes("russia")) return "eastern_europe";
+    if (lower.includes("taiwan") || lower.includes("korea") || lower.includes("myanmar")) return "east_asia";
+    if (lower.includes("sudan") || lower.includes("ethiopia") || lower.includes("sahel") || lower.includes("drc")) return "africa";
+    return "middle_east";
+  };
+  const runProximity = useCallback(async () => {
+    setProximityLoading(true);
+    setProximityError(null);
+    try {
+      const region = conflictToRegion(selectedConflict);
+      // For Iran: load tunnel/sites GeoJSON to flag PROBABLE_HUMAN_SHIELD (IRGC tunnels vs. schools/hospitals)
+      const useTunnelSites = selectedConflict.toLowerCase().includes("iran");
+      const tunnelSites = useTunnelSites ? await fetchTunnelSites() : null;
+      const evidence = await runProximityAnalysis(region, 3, tunnelSites ?? undefined);
+      setProximityEvidence(evidence);
+    } catch (e) {
+      setProximityError(e instanceof Error ? e.message : String(e));
+      setProximityEvidence([]);
+    } finally {
+      setProximityLoading(false);
+    }
+  }, [selectedConflict]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -422,6 +455,37 @@ const Dashboard = () => {
             <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} />
             <LatestHeadlines data={conflictData} maxItems={15} />
             <EventsTimeline data={conflictData} />
+          </div>
+
+          {/* Proximity Analyzer: strike–civilian correlation */}
+          <div className="pt-4 border-t border-border">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5">
+                <Target className="h-3.5 w-3.5" />
+                PROXIMITY ANALYZER
+              </h3>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-7"
+                disabled={proximityLoading}
+                onClick={runProximity}
+                title="Correlate FIRMS strikes with civilian infrastructure (Overpass)"
+              >
+                {proximityLoading ? "Running…" : "Run"}
+              </Button>
+            </div>
+            {proximityError && (
+              <p className="text-xs text-destructive mb-2">{proximityError}</p>
+            )}
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {proximityEvidence.length === 0 && !proximityLoading && !proximityError && (
+                <p className="text-xs text-muted-foreground py-2">Click Run to correlate thermal anomalies with schools, hospitals, etc.</p>
+              )}
+              {proximityEvidence.map((e, i) => (
+                <EvidenceCard key={`${e.strikeLat}-${e.strikeLon}-${e.facilityName}-${i}`} evidence={e} />
+              ))}
+            </div>
           </div>
 
           {/* Activity & Connectivity (Iran Monitor style) */}
