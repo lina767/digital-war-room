@@ -8,12 +8,14 @@ ADS-B sources (no API key needed):
 
 Ship sources:
   - VesselFinder public endpoint (multiple bounding boxes)
+  - Spire Maritime (subagent; optional SPIRE_MARITIME_API_KEY) – AIS/vessels in Persian Gulf, Red Sea, etc.
   - MarineTraffic RSS
 
 Intelligence reports:
   - CriticalThreats, LongWarJournal, UnderstandingWar RSS feeds
 """
 import asyncio
+import os
 from typing import Any, Dict, List
 
 import httpx
@@ -57,6 +59,15 @@ WARSHIP_KEYWORDS = [
 WARSHIP_PREFIXES = ["USS ", "HMS ", "FS ", "INS ", "USNS ", "RFS ", "IRIS "]
 # AIS ship type 30-39 = military (ICAO/IEC 62287)
 MILITARY_SHIP_TYPE_CODES = (30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
+
+# Spire Maritime (optional): legacy Vessels API – https://api.sense.spire.com/ (short token) or https://ais.spire.com/ (long token)
+SPIRE_VESSELS_URL = "https://api.sense.spire.com/vessels"
+SPIRE_REGIONS = [
+    ("Persian Gulf", 22, 30, 48, 62),
+    ("Red Sea", 12, 28, 32, 44),
+    ("Eastern Med", 30, 37, 25, 38),
+    ("Gulf of Aden", 10, 16, 42, 52),
+]  # (label, lat_lo, lat_hi, lon_lo, lon_hi)
 
 
 def _safe_float(v: Any) -> float | None:
@@ -273,6 +284,67 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
 
 
 @tool
+def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
+    """
+    Fetch vessel positions from Spire Maritime AIS (subagent). Requires SPIRE_MARITIME_API_KEY.
+    Returns vessels in Persian Gulf, Red Sea, Eastern Med, Gulf of Aden. Filter client-side by bbox if API has no bbox param.
+    """
+    token = (os.getenv("SPIRE_MARITIME_API_KEY") or os.getenv("SPIRE_API_KEY") or "").strip()
+    if not token:
+        return []
+
+    base_url = os.getenv("SPIRE_MARITIME_BASE_URL", "https://api.sense.spire.com").rstrip("/")
+    url = f"{base_url}/vessels"
+
+    async def _fetch():
+        out = []
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # Legacy API: limit; some versions support bbox. Fetch and filter by our regions.
+                resp = await client.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                    params={"limit": 200},
+                )
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                vessels = data if isinstance(data, list) else data.get("data", data.get("vessels", []))
+                if not isinstance(vessels, list):
+                    return []
+                for v in vessels:
+                    lat = _safe_float(v.get("latitude") or v.get("lat"))
+                    lon = _safe_float(v.get("longitude") or v.get("lon"))
+                    if lat is None or lon is None:
+                        continue
+                    for label, lat_lo, lat_hi, lon_lo, lon_hi in SPIRE_REGIONS:
+                        if lat_lo <= lat <= lat_hi and lon_lo <= lon <= lon_hi:
+                            name = v.get("name") or v.get("vessel_name") or "Vessel"
+                            ship_type = v.get("type") or v.get("ship_type") or v.get("vessel_type") or ""
+                            is_mil = any(
+                                kw in (name or "").lower() or kw in (ship_type or "").lower()
+                                for kw in WARSHIP_KEYWORDS
+                            ) or (isinstance(v.get("type_of_ship"), int) and 30 <= v.get("type_of_ship", 0) <= 39)
+                            out.append({
+                                "name": name,
+                                "type": ship_type or "unknown",
+                                "lat": lat,
+                                "lon": lon,
+                                "region": label,
+                                "source": "spire",
+                            })
+                            break
+        except Exception:
+            pass
+        return out[:80]
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception:
+        return []
+
+
+@tool
 def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """
     Fetch recent military/conflict reports from diverse OSINT and media feeds:
@@ -332,9 +404,16 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
-    """Execute SIGINT tool chain in fixed order: aircraft → vessels → conflict_reports. No LLM."""
+    """Execute SIGINT tool chain in fixed order: aircraft → vessels → spire_vessels (subagent) → conflict_reports. No LLM."""
     aircraft = [a for a in (get_military_aircraft.invoke({}) or []) if isinstance(a, dict) and "error" not in a]
     ships = [s for s in (get_naval_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
+    spire_ships = [s for s in (get_spire_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
+    seen_ship = {(s.get("name") or "").lower()[:40] or str(s.get("lat")) + "," + str(s.get("lon")) for s in ships}
+    for s in spire_ships:
+        key = (s.get("name") or "").lower()[:40] or str(s.get("lat")) + "," + str(s.get("lon"))
+        if key not in seen_ship:
+            seen_ship.add(key)
+            ships.append(s)
     reports = [r for r in (get_conflict_reports.invoke({"conflict": conflict}) or []) if isinstance(r, dict) and "error" not in r]
 
     base = 30.0
@@ -370,7 +449,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_conflict_reports]
+SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_spire_vessels, get_conflict_reports]
 
 SIGINT_SYSTEM = """You are a SIGINT analyst monitoring military movements and conflict activity.
 Call all three tools, compute a score (0-100), return ONLY valid JSON:

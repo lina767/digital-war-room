@@ -23,7 +23,7 @@ NEWS_DOMAINS = (
     "middleeasteye.net,thehill.com"
 )
 
-# Vielfältige Quellen: internationale & regionale Medien, Think-Tanks ergänzend (nicht nur FDD/Long War Journal)
+# Vielfältige Quellen: internationale & regionale Medien, Think-Tanks (FDD/LWJ, CSIS, Crisis Group, ECFR, ISW, Bellingcat)
 RSS_FEEDS = {
     "iran": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
@@ -34,6 +34,12 @@ RSS_FEEDS = {
         "https://www.middleeasteye.net/rss",
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
+        "https://understandingwar.org/rss.xml",  # ISW – Iran Update
+        "https://www.bellingcat.com/feed/",  # Bellingcat OSINT
+        "https://www.crisisgroup.org/rss/85",  # Crisis Group – Iran
+        "https://ecfr.eu/feed/",  # European Council on Foreign Relations
+        "https://www.csis.org/rss.xml",  # CSIS (Middle East / Iran analysis)
+        "https://www.fdd.org/feed/",  # FDD – Iran reports (if available)
     ],
     "ukraine": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",

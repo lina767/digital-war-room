@@ -56,12 +56,13 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ### SIGINT
 
-- **Tools:** `SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_conflict_reports]`
+- **Tools:** `SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_spire_vessels, get_conflict_reports]`
 - **Fallback-Reihenfolge (fest):**
   1. `get_military_aircraft.invoke({})`  // region default "Middle East"
   2. `get_naval_vessels.invoke({})`
-  3. `get_conflict_reports.invoke({"conflict": conflict})`
-- Danach: Score aus aircraft/ships/reports, Alerts bauen.
+  3. `get_spire_vessels.invoke({})`  // Subagent: Spire Maritime AIS (optional SPIRE_MARITIME_API_KEY)
+  4. `get_conflict_reports.invoke({"conflict": conflict})`
+- Danach: Score aus aircraft/ships (inkl. Spire)/reports, Alerts bauen.
 
 ---
 
@@ -78,13 +79,15 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ### GEOINT
 
-- **Tools:** `GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies, get_conflict_hotspot_news, get_eo_browser_links]`
+- **Tools:** `GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies, get_conflict_hotspot_news, get_ucdp_events, get_eo_browser_links]`
 - **Fallback-Reihenfolge (fest):**
   1. `get_conflict_region.invoke({"conflict": conflict})` → Region-String (z. B. `"middle_east"`)
   2. `get_thermal_anomalies.invoke({"region": region, "days": 3})`
   3. `get_conflict_hotspot_news.invoke({"conflict": conflict})`
-  4. `get_eo_browser_links.invoke({"conflict": conflict})` → Sentinel Hub EO Browser URLs (Lebanon, Iran, …); kein API-Key nötig
-- Danach: `_compute_geoint_score`, Hotspots, ReliefWeb-Reports, `eo_browser_links`.
+  4. `get_ucdp_events.invoke({"conflict": conflict})` → UCDP GED (Uppsala); optional `UCDP_API_TOKEN`
+  5. `get_eo_browser_links.invoke({"conflict": conflict})` → Sentinel Hub EO Browser URLs (Lebanon, Iran, …); kein API-Key nötig
+- Danach: `_compute_geoint_score`, Hotspots, ReliefWeb-Reports, `ucdp_events`, `eo_browser_links`.
+- **UCDP:** https://ucdpapi.pcr.uu.se/api/gedevents/25.1 – Token bei API-Maintainer anfragen (x-ucdp-access-token).
 - **Sentinel Hub:** EO Browser-Links sind integriert; voller Process API-Zugriff optional über `SENTINELHUB_CLIENT_ID` / `SENTINELHUB_CLIENT_SECRET` (siehe Doku).
 
 ---
@@ -120,9 +123,9 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 | Agent  | Anzahl Tools | Feste Reihenfolge (Fallback) |
 |--------|----------------|-------------------------------|
 | FININT | 4             | get_brent_price → get_wti_price → get_polymarket_conflict_odds → get_tracked_wallet_positions |
-| SIGINT | 3             | get_military_aircraft → get_naval_vessels → get_conflict_reports |
+| SIGINT | 4             | get_military_aircraft → get_naval_vessels → get_spire_vessels → get_conflict_reports |
 | NEWS   | 3             | search_conflict_news → search_gdelt_news → search_rss_feeds |
-| GEOINT | 4             | get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news → get_eo_browser_links |
+| GEOINT | 5             | get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news → get_ucdp_events → get_eo_browser_links |
 | SOCMINT| 5             | scrape_telegram_channels → scrape_twitter_nitter → search_reddit → fetch_rss_feeds → fetch_reliefweb_reports |
 | TECHINT| 6 (intern)    | _fetch_tech_indicators → _fetch_export_control_news → _fetch_ioda_events → _fetch_ooni_measurements → _fetch_cloudflare_outages → _fetch_shodan_activity |
 

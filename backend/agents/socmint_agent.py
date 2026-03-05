@@ -85,9 +85,14 @@ RSS_FEEDS = {
         "https://iranintl.com/en/rss",
         "https://www.rferl.org/api/zpqoyhrhkhrut",
         "https://www.middleeasteye.net/rss",
-        "https://understandingwar.org/rss.xml",
+        "https://understandingwar.org/rss.xml",  # ISW – Iran Update
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
+        "https://www.bellingcat.com/feed/",  # Bellingcat OSINT
+        "https://www.crisisgroup.org/rss/85",  # Crisis Group – Iran
+        "https://ecfr.eu/feed/",  # ECFR – Middle East / global
+        "https://www.csis.org/rss.xml",  # CSIS
+        "https://www.fdd.org/feed/",  # FDD – Iran (if available)
     ],
     "eastern_europe": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",

@@ -31,23 +31,26 @@ TRACKED_WALLETS: List[tuple[str, str]] = [
     ("rundeep", "0x0afc7ce56285bde1fbe3a75efaffdfc86d6530b2"),
 ]
 
-# Explicit Polymarket markets to always track (FININT) – fetched by slug via Gamma API
+# Explicit Polymarket markets to always track (FININT) – fetched by slug via Gamma API.
+# Focus: US–Iran, Trump military/foreign policy (no Oscars, Hungary PM, domestic elections).
 TRACKED_POLYMARKET_SLUGS = [
-    "usisrael-strikes-iran-on",           # US/Israel strikes Iran on...?
-    "us-x-iran-ceasefire-by",              # US x Iran ceasefire by...?
-    "will-the-iranian-regime-fall-by-the-end-of-2026",  # Will the Iranian regime fall before 2027?
+    "us-strikes-iran-by",
+    "us-forces-in-iran-in-2025",
+    "congress-authorizes-military-force-against-iran-in-2025",
+    "will-trump-announce-military-actions-against-iran-by-friday",
+    "trump-announces-end-of-military-operations-against-iran-by",
+    "trump-invokes-war-powers-against-iran-by",
+    "will-trump-visit-china-by",
+    "us-x-iran-ceasefire-by",
+    "will-the-iranian-regime-fall-by-the-end-of-2026",
 ]
 
+# Keywords for /events and /markets search: only geopolitics/conflict (avoids Oscars, Hungary PM, Warnock).
 POLYMARKET_KEYWORDS = [
-    # Iran/Middle East
-    "iran", "iranian", "irgc", "tehran", "nuclear", "khamenei",
-    "israel", "israeli", "gaza", "hezbollah", "hamas",
-    "persian gulf", "strait of hormuz", "airstrike", "strike on",
-    # Military/War
-    "war", "attack", "military", "missile", "troops", "invasion",
-    "conflict", "escalat", "ceasefire",
-    # US foreign policy
-    "sanctions", "us-iran", "middle east",
+    "us forces", "enter iran", "strikes iran", "military operations", "military action",
+    "trump", "iran", "ceasefire", "war powers", "congress authorizes",
+    "visit china", "trade with", "cut off trade", "tariff", "sanctions",
+    "middle east", "persian gulf", "strait of hormuz", "spain", "military base",
 ]
 
 
@@ -159,7 +162,7 @@ def get_wti_price() -> Dict[str, Any]:
 
 @tool
 def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
-    """Fetch Polymarket prediction market odds: tracked Iran markets first, then keyword-matched events."""
+    """Fetch Polymarket odds: tracked US–Iran/Trump/military/trade slugs first, then geopolitics keyword-matched events (excludes Oscars, Hungary PM, etc.)."""
     async def _fetch_tracked():
         """Fetch TRACKED_POLYMARKET_SLUGS via Gamma API GET /events/slug/{slug}. One row per event."""
         headers = _polymarket_headers()

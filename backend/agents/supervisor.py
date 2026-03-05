@@ -151,9 +151,11 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
             "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}). Key findings below from agents.",
         }
     else:
-        # Mit LLM: Haiku standardmäßig; bei widersprüchlichen Agent-Scores Sonnet (bessere Abwägung)
+        # Mit LLM: Haiku standardmäßig; bei widersprüchlichen Agent-Scores optional Sonnet (bessere Abwägung).
+        # USE_SUPERVISOR_FALLBACK_MODEL=false → immer Haiku (keine Sonnet-Kosten).
+        use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "true").strip().lower() in ("1", "true", "yes")
         agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score]
-        complex_case = _agents_seem_contradictory(agent_scores_list)
+        complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
         model = get_supervisor_model(complex_case=complex_case)
         system_prompt = """You are a senior intelligence analyst with access to 6 intelligence streams:
 - FININT: Financial markets and oil price indicators

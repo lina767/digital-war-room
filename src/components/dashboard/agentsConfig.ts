@@ -29,6 +29,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "ADSB", description: "opendata.adsb.fi, api.adsb.lol – military aircraft (v2/mil + regions)" },
       { name: "VesselFinder", description: "Naval vessels, bounding boxes (Persian Gulf, Red Sea, Med, Gulf of Aden)" },
+      { name: "Spire Maritime", description: "AIS/vessels (subagent; optional SPIRE_MARITIME_API_KEY)" },
       { name: "RSS", description: "CriticalThreats, LongWarJournal, UnderstandingWar – conflict reports" },
     ],
   },
@@ -38,7 +39,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "NewsAPI", description: "Trusted domains, conflict queries" },
       { name: "GDELT", description: "api.gdeltproject.org – 100+ languages, 65k+ sources" },
-      { name: "RSS", description: "Conflict-specific (CriticalThreats, LongWarJournal, Iran International, RFE/RL, BBC, Al Jazeera)" },
+      { name: "RSS", description: "Iran/MENA: CriticalThreats, LongWarJournal, ISW, Bellingcat, Crisis Group, ECFR, CSIS, FDD; Iran International, RFE/RL, BBC, Al Jazeera" },
     ],
   },
   {
@@ -47,6 +48,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "NASA FIRMS", description: "Thermal anomalies, area API (middle_east, gaza_israel, iran, yemen, etc.)" },
       { name: "ReliefWeb", description: "api.reliefweb.int/v2 – humanitarian/conflict reports by country" },
+      { name: "UCDP", description: "Uppsala Conflict Data Program – GED events (optional UCDP_API_TOKEN)" },
       { name: "ACLED", description: "Optional – conflict events (ACLED_API_KEY)" },
     ],
   },
