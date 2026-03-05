@@ -1,7 +1,7 @@
 """
 Supervisor – LangGraph Multi-Agent Orchestrator
 Coordinates FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT agents in parallel,
-then runs Claude Sonnet as the senior analyst for final assessment.
+then runs an LLM (default: Haiku; Sonnet when agent scores disagree) for final assessment.
 """
 import json
 import os
@@ -9,8 +9,9 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, TypedDict
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
+
+from .llm_factory import get_supervisor_model, require_supervisor_api_key
 from langgraph.graph import END, StateGraph
 
 from .finint_agent import run_finint_agent
@@ -82,10 +83,22 @@ def collection_node(state: AnalysisState) -> AnalysisState:
     }
 
 
-# ── Supervisor Node (Claude Sonnet as senior analyst) ─────────────────────
+# ── Supervisor Node ───────────────────────────────────────────────────────
+
+def _agents_seem_contradictory(scores: List[float]) -> bool:
+    """
+    True if agent scores disagree strongly (e.g. one stream high, another low).
+    Then we use the fallback model (e.g. Sonnet) for better reasoning.
+    """
+    if len(scores) < 2:
+        return False
+    threshold = float(os.getenv("SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD", "40"))
+    score_range = max(scores) - min(scores)
+    return score_range >= threshold
+
 
 def supervisor_node(state: AnalysisState) -> AnalysisState:
-    """Claude Sonnet synthesizes all 6 intelligence streams into a final assessment."""
+    """Synthesizes all 6 intelligence streams (Haiku by default; Sonnet when agents disagree)."""
     conflict        = state.get("conflict") or ""
     finint_result   = state.get("finint_result") or {}
     sigint_result   = state.get("sigint_result") or {}
@@ -113,10 +126,9 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
         techint_score  * 0.12
     )
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    require_supervisor_api_key()
 
-    # Regelbasiert = kein Claude-Aufruf (günstig); sonst Claude für Synthese
+    # Regelbasiert = kein LLM-Aufruf (günstig); sonst LLM für Synthese
     use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
 
     if use_rule_based:
@@ -139,11 +151,10 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
             "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}). Key findings below from agents.",
         }
     else:
-        # Mit Claude (Sonnet oder per SUPERVISOR_MODEL)
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            raise RuntimeError("ANTHROPIC_API_KEY is not set")
-        model_name = os.getenv("SUPERVISOR_MODEL", "claude-sonnet-4-6")
-        model = ChatAnthropic(model=model_name, temperature=0.1)
+        # Mit LLM: Haiku standardmäßig; bei widersprüchlichen Agent-Scores Sonnet (bessere Abwägung)
+        agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score]
+        complex_case = _agents_seem_contradictory(agent_scores_list)
+        model = get_supervisor_model(complex_case=complex_case)
         system_prompt = """You are a senior intelligence analyst with access to 6 intelligence streams:
 - FININT: Financial markets and oil price indicators
 - SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)

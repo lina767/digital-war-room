@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import feedparser
 import httpx
-from langchain_anthropic import ChatAnthropic
+from .llm_factory import get_agent_model
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
@@ -532,7 +532,7 @@ def run_news_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_news(conflict)
 
-    model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(NEWS_TOOLS)
+    model = get_agent_model(NEWS_TOOLS)
 
     messages = [
         SystemMessage(content=NEWS_SYSTEM),

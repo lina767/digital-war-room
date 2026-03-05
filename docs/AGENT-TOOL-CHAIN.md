@@ -6,7 +6,7 @@
 
 ## Regelbasierten Modus aktivieren
 
-- **Umgebungsvariable:** `USE_RULE_BASED_AGENTS=true` (oder `1` / `yes`).
+- **Umgebungsvariable:** `USE_RULE_BASED_AGENTS` ist standardmäßig `true`. Zum Deaktivieren: `USE_RULE_BASED_AGENTS=false`.
 - **Wirkung:** Jeder Agent (FININT, SIGINT, NEWS, GEOINT, SOCMINT) führt seine **feste Tool-Kette** in der unten dokumentierten Reihenfolge aus – **ohne** LLM-Aufruf (Haiku). TECHINT ist ohnehin regelbasiert.
 - **Supervisor:** Bleibt unverändert: **ein** Claude-Sonnet-Aufruf nach den 6 Agent-Ergebnissen. Der Supervisor ist darauf vorbereitet, dass die Agent-Daten aus regelbasierten Ketten stammen; er synthetisiert wie bisher aus Scores und Rohdaten (articles, aircraft, anomalies, etc.) zu key_findings, scenarios und summary.
 - **Ausgabeformat:** Unverändert; Frontend und API-Contract bleiben gleich.

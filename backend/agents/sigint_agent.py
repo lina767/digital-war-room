@@ -17,7 +17,7 @@ import asyncio
 from typing import Any, Dict, List
 
 import httpx
-from langchain_anthropic import ChatAnthropic
+from .llm_factory import get_agent_model
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 
@@ -402,7 +402,7 @@ def run_sigint_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_sigint(conflict)
 
-    model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(SIGINT_TOOLS)
+    model = get_agent_model(SIGINT_TOOLS)
     messages = [
         SystemMessage(content=SIGINT_SYSTEM),
         HumanMessage(content=f"Monitor military movements for conflict: {conflict}"),

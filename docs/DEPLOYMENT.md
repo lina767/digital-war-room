@@ -25,19 +25,25 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
   `uvicorn main:app --host 0.0.0.0 --port $PORT`  
   (Railway setzt `PORT` oft automatisch.)
 - [ ] **Umgebungsvariablen in Railway setzen** (unter Variables):
-  - **Pflicht für Analyse:**  
-    `ANTHROPIC_API_KEY` (Supervisor/Claude)
+  - **Pflicht für Analyse (LLM):**  
+    Entweder `ANTHROPIC_API_KEY` (Standard) **oder** `LLM_PROVIDER=openai` + `OPENAI_API_KEY` (günstigere Alternative, z. B. GPT-4o-mini).
   - **Pro Agent (siehe `backend/scripts/check_agents.py`):**
     - `NEWS_API_KEY` (News-Agent)
     - `NASA_FIRMS_KEY` (GEOINT)
     - `ALPHAVANTAGE_API_KEY` (FININT, optional TECHINT)
   - **Optional:**  
     `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL`, `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LIVEUAMAP_API_KEY` (GEOINT: Liveuamap Lebanon/Iran, kostenpflichtige API), `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
-- **Kosten senken (Claude API):**
+- **Kosten senken (LLM-API):**
+  - **OpenAI statt Claude:** `LLM_PROVIDER=openai`, `OPENAI_API_KEY=sk-…`. Agents und Supervisor nutzen dann z. B. `gpt-4o-mini` (Standard); optional `OPENAI_AGENT_MODEL` / `OPENAI_SUPERVISOR_MODEL` setzen.
   - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 3600 = stündlich; 600 = alle 10 Min).
-  - `SUPERVISOR_MODEL` (Standard: `claude-sonnet-4-6`). Optional `claude-haiku-4-5-20251001` für geringere Kosten.
-  - **`USE_RULE_BASED_AGENTS=true`** – Agents ohne Haiku: jede Intelligence-Unit läuft mit fester Tool-Kette (siehe `docs/AGENT-TOOL-CHAIN.md`). Der **Supervisor (Claude Sonnet)** bleibt aktiv und synthetisiert wie gewohnt. Spart 6 Haiku-Aufrufe pro Analyse.
-  - **`USE_RULE_BASED_SUPERVISOR=true`** – Zusätzlich Supervisor ohne Claude: nur gewichteter Score, Threat-Stufen, Key Findings aus Agent-Daten. Kein LLM im Supervisor (noch geringere Kosten).
+  - **Supervisor standardmäßig Haiku, bei Widersprüchen Sonnet:** Default ist `SUPERVISOR_MODEL=claude-haiku-4-5-20251001`; wenn die Agent-Scores stark auseinanderliegen (Spannweite ≥ 40, z. B. ein Stream 80, ein anderer 35), wird automatisch `SUPERVISOR_FALLBACK_MODEL` (Standard: `claude-sonnet-4-6`) genutzt. Schwellwert optional: `SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD=40`.
+  - **`USE_RULE_BASED_AGENTS`** – Standard ist `true`: FININT, GEOINT, NEWS, SOCMINT, SIGINT laufen mit fester Tool-Kette (siehe `docs/AGENT-TOOL-CHAIN.md`), kein LLM in den Agents. Nur der Supervisor nutzt ein LLM. Zum Aktivieren von LLM pro Agent: `USE_RULE_BASED_AGENTS=false`.
+  - **`USE_RULE_BASED_SUPERVISOR=true`** – Zusätzlich Supervisor ohne LLM: nur gewichteter Score, Threat-Stufen, Key Findings aus Agent-Daten. Kein LLM-Aufruf im Supervisor (minimale Kosten).
+- **Grobe LLM-Kosten pro Analyse** (Stand grob 2025/26, nur Supervisor – Agents laufen standardmäßig regelbasiert; ca. 25k Input-, 1k Output-Tokens):
+  - **Haiku + Fallback Sonnet bei Widersprüchen** (Standard): meist ~**0,03 USD** (Haiku), bei stark abweichenden Agent-Scores ~**0,10 USD** (Sonnet).
+  - **Nur Claude Sonnet:** ~**0,08–0,12 USD** pro Lauf (z. B. `SUPERVISOR_MODEL=claude-sonnet-4-6`).
+  - **OpenAI gpt-4o-mini** (`LLM_PROVIDER=openai`): ~**0,005 USD** (ca. 0,5 Cent) pro Lauf; bei Widersprüchen optional `OPENAI_SUPERVISOR_FALLBACK_MODEL=gpt-4o`.
+  - **`USE_RULE_BASED_SUPERVISOR=true`:** **0 USD** (kein LLM)
 - [ ] **Backend-URL notieren**  
   Nach dem Deploy die öffentliche URL kopieren (z. B. `https://dein-service.up.railway.app`). Kein abschließendes `/`.
 
@@ -93,6 +99,6 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
 | Komponente   | Wo              | Wichtig |
 |-------------|-----------------|--------|
 | Frontend    | Vercel          | `VITE_API_URL` = Railway-URL, Supabase-Keys |
-| Backend     | Railway         | `ANTHROPIC_API_KEY`, optional Agent-Keys   |
+| Backend     | Railway         | `ANTHROPIC_API_KEY` oder `OPENAI_API_KEY` (bei `LLM_PROVIDER=openai`), optional Agent-Keys |
 | Auth/DB     | Supabase        | Migrationen, Redirect/Site URL             |
 | SPA-Routing | Repo (`vercel.json`) | Bereits eingerichtet                 |
