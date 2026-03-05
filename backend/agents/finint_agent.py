@@ -323,6 +323,51 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+
+def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
+    """Execute FININT tool chain in fixed order: brent → wti → polymarket → tracked_wallets. No LLM."""
+    brent = get_brent_price.invoke({})
+    wti = get_wti_price.invoke({})
+    polymarket = get_polymarket_conflict_odds.invoke({"conflict": conflict})
+    tracked_wallets = get_tracked_wallet_positions.invoke({})
+    if not isinstance(polymarket, list):
+        polymarket = []
+    if not isinstance(tracked_wallets, list):
+        tracked_wallets = []
+
+    base = 50.0
+    if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
+        cp = brent.get("change_pct") or "0%"
+        if "+" in cp and "%" in cp:
+            try:
+                v = float(cp.replace("%", "").strip())
+                if v > 5:
+                    base += 15
+                elif v > 2:
+                    base += 8
+            except ValueError:
+                pass
+        if "-" in cp:
+            base -= 10
+    if polymarket:
+        max_prob = max((_safe_float(p.get("probability")) or 0) for p in polymarket if isinstance(p, dict) and "error" not in p)
+        if max_prob and max_prob > 0.5:
+            base += 20
+        elif max_prob and max_prob > 0.3:
+            base += 10
+    score = max(0.0, min(100.0, base))
+
+    return {
+        "brent": brent if isinstance(brent, dict) and "error" not in brent else {"price": None, "change_pct": "0.0%", "as_of": ""},
+        "wti": wti if isinstance(wti, dict) and "error" not in wti else {"price": None, "change_pct": "0.0%", "as_of": ""},
+        "polymarket": [p for p in polymarket if isinstance(p, dict) and "error" not in p],
+        "tracked_wallets": [w for w in tracked_wallets if isinstance(w, dict)],
+        "escalation_score": round(score, 1),
+        "summary": "FININT (rule-based): oil and Polymarket data from fixed tool chain.",
+    }
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 FININT_TOOLS = [get_brent_price, get_wti_price, get_polymarket_conflict_odds, get_tracked_wallet_positions]
@@ -350,7 +395,11 @@ No markdown, no explanation, just JSON."""
 
 
 def run_finint_agent(conflict: str) -> Dict[str, Any]:
-    """Run FININT agent with LangChain tool-calling."""
+    """Run FININT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
+    from .config import USE_RULE_BASED_AGENTS
+    if USE_RULE_BASED_AGENTS:
+        return _run_rule_based_finint(conflict)
+
     model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(FININT_TOOLS)
 
     messages = [
@@ -393,46 +442,7 @@ def run_finint_agent(conflict: str) -> Dict[str, Any]:
                     tool_call_id=tc["id"],
                 ))
 
-    # Fallback: run tools directly and build result (no LLM synthesis)
-    brent = get_brent_price.invoke({})
-    wti = get_wti_price.invoke({})
-    polymarket = get_polymarket_conflict_odds.invoke({"conflict": conflict})
-    tracked_wallets = get_tracked_wallet_positions.invoke({})
-    if not isinstance(polymarket, list):
-        polymarket = []
-    if not isinstance(tracked_wallets, list):
-        tracked_wallets = []
-
-    # Simple score from data
-    base = 50.0
-    if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
-        cp = brent.get("change_pct") or "0%"
-        if "+" in cp and "%" in cp:
-            try:
-                v = float(cp.replace("%", "").strip())
-                if v > 5:
-                    base += 15
-                elif v > 2:
-                    base += 8
-            except ValueError:
-                pass
-        if "-" in cp:
-            base -= 10
-    if polymarket:
-        max_prob = max((_safe_float(p.get("probability")) or 0) for p in polymarket if isinstance(p, dict) and "error" not in p)
-        if max_prob and max_prob > 0.5:
-            base += 20
-        elif max_prob and max_prob > 0.3:
-            base += 10
-    score = max(0.0, min(100.0, base))
-
-    return {
-        "brent": brent if isinstance(brent, dict) and "error" not in brent else {"price": None, "change_pct": "0.0%", "as_of": ""},
-        "wti": wti if isinstance(wti, dict) and "error" not in wti else {"price": None, "change_pct": "0.0%", "as_of": ""},
-        "polymarket": [p for p in polymarket if isinstance(p, dict) and "error" not in p],
-        "tracked_wallets": [w for w in tracked_wallets if isinstance(w, dict)],
-        "escalation_score": round(score, 1),
-        "summary": "FININT (fallback): oil and Polymarket data; LLM synthesis did not return valid JSON.",
-    }
+    # Fallback: same fixed tool chain as rule-based mode
+    return _run_rule_based_finint(conflict)
 
 

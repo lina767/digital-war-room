@@ -23,23 +23,35 @@ NEWS_DOMAINS = (
     "middleeasteye.net,thehill.com"
 )
 
+# Vielfältige Quellen: internationale & regionale Medien, Think-Tanks ergänzend (nicht nur FDD/Long War Journal)
 RSS_FEEDS = {
     "iran": [
-        "https://www.criticalthreats.org/feed",
-        "https://www.longwarjournal.org/feed",
-        "https://iranintl.com/en/rss",
-        "https://www.rferl.org/api/zpqoyhrhkhrut",  # RFE/RL Iran
-    ],
-    "ukraine": [
-        "https://www.criticalthreats.org/feed",
-        "https://www.longwarjournal.org/feed",
-        "https://www.rferl.org/api/ztqppqhrpmqio",  # RFE/RL Ukraine
         "https://feeds.bbci.co.uk/news/world/rss.xml",
         "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://rss.dw.com/rdf/rss-en-world",
+        "https://iranintl.com/en/rss",
+        "https://www.rferl.org/api/zpqoyhrhkhrut",  # RFE/RL Iran
+        "https://www.middleeasteye.net/rss",
+        "https://www.criticalthreats.org/feed",
+        "https://www.longwarjournal.org/feed",
+    ],
+    "ukraine": [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://rss.dw.com/rdf/rss-en-world",
+        "https://www.rferl.org/api/ztqppqhrpmqio",  # RFE/RL Ukraine
+        "https://www.kyivpost.com/rss",
+        "https://www.middleeasteye.net/rss",
+        "https://understandingwar.org/rss.xml",
+        "https://www.criticalthreats.org/feed",
+        "https://www.longwarjournal.org/feed",
     ],
     "default": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
         "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://rss.dw.com/rdf/rss-en-world",
+        "https://www.france24.com/en/rss",
+        "https://www.theguardian.com/world/rss",
     ],
 }
 
@@ -325,6 +337,57 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     return results
 
 
+# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+
+def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
+    """Execute NEWS tool chain in fixed order: search_conflict_news → search_gdelt_news → search_rss_feeds. No LLM."""
+    try:
+        newsapi_list = search_conflict_news.invoke({"conflict": conflict, "hours_back": 48})
+        gdelt_list = search_gdelt_news.invoke({"conflict": conflict})
+        rss_list = search_rss_feeds.invoke({"conflict": conflict})
+        newsapi_ok = [a for a in (newsapi_list if isinstance(newsapi_list, list) else []) if isinstance(a, dict) and "error" not in a]
+        gdelt_ok = [a for a in (gdelt_list if isinstance(gdelt_list, list) else []) if isinstance(a, dict) and "error" not in a]
+        rss_ok = [a for a in (rss_list if isinstance(rss_list, list) else []) if isinstance(a, dict) and "error" not in a]
+        merged = _merge_news_results(newsapi_ok, gdelt_ok, rss_ok)
+        articles = merged.get("articles", [])
+        overall = merged.get("overall_sentiment", 0.0)
+        label = merged.get("sentiment_label", "NEUTRAL")
+        breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0})
+        score = 50.0
+        if overall > 0.5:
+            score += 20
+        elif overall > 0.2:
+            score += 10
+        elif overall < -0.2:
+            score -= 15
+        if len(articles) > 10:
+            score += 10
+        score = max(0, min(100, score))
+        top_sources = list(dict.fromkeys(a.get("source") or "" for a in articles[:10] if a.get("source")))
+        return {
+            "conflict": conflict,
+            "articles": articles,
+            "overall_sentiment": overall,
+            "sentiment_label": label,
+            "top_sources": top_sources,
+            "news_score": score,
+            "summary": f"News (rule-based): {breakdown.get('newsapi', 0)} NewsAPI, {breakdown.get('gdelt', 0)} GDELT, {breakdown.get('rss', 0)} RSS. Sentiment: {label}.",
+            "source_breakdown": breakdown,
+        }
+    except Exception:
+        pass
+    return {
+        "conflict": conflict,
+        "articles": [],
+        "overall_sentiment": 0.0,
+        "sentiment_label": "NEUTRAL",
+        "top_sources": [],
+        "news_score": 50.0,
+        "summary": "NEWS data unavailable.",
+        "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0},
+    }
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 NEWS_TOOLS = [search_conflict_news, search_gdelt_news, search_rss_feeds]
@@ -360,8 +423,12 @@ Return ONLY valid JSON (no markdown, no explanation):
 
 
 def run_news_agent(conflict: str) -> Dict[str, Any]:
-    """Run NEWS agent with LangChain tool-calling."""
+    """Run NEWS: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
     import json
+    from .config import USE_RULE_BASED_AGENTS
+    if USE_RULE_BASED_AGENTS:
+        return _run_rule_based_news(conflict)
+
     model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(NEWS_TOOLS)
 
     messages = [
@@ -397,50 +464,6 @@ def run_news_agent(conflict: str) -> Dict[str, Any]:
                     tool_call_id=tc["id"],
                 ))
 
-    # Fallback: call all three tools directly and merge
-    try:
-        newsapi_list = search_conflict_news.invoke({"conflict": conflict, "hours_back": 48})
-        gdelt_list = search_gdelt_news.invoke({"conflict": conflict})
-        rss_list = search_rss_feeds.invoke({"conflict": conflict})
-        newsapi_ok = [a for a in (newsapi_list if isinstance(newsapi_list, list) else []) if isinstance(a, dict) and "error" not in a]
-        gdelt_ok = [a for a in (gdelt_list if isinstance(gdelt_list, list) else []) if isinstance(a, dict) and "error" not in a]
-        rss_ok = [a for a in (rss_list if isinstance(rss_list, list) else []) if isinstance(a, dict) and "error" not in a]
-        merged = _merge_news_results(newsapi_ok, gdelt_ok, rss_ok)
-        articles = merged.get("articles", [])
-        overall = merged.get("overall_sentiment", 0.0)
-        label = merged.get("sentiment_label", "NEUTRAL")
-        breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0})
-        score = 50.0
-        if overall > 0.5:
-            score += 20
-        elif overall > 0.2:
-            score += 10
-        elif overall < -0.2:
-            score -= 15
-        if len(articles) > 10:
-            score += 10
-        score = max(0, min(100, score))
-        top_sources = list(dict.fromkeys(a.get("source") or "" for a in articles[:10] if a.get("source")))
-        return {
-            "conflict": conflict,
-            "articles": articles,
-            "overall_sentiment": overall,
-            "sentiment_label": label,
-            "top_sources": top_sources,
-            "news_score": score,
-            "summary": f"News from {breakdown.get('newsapi', 0)} NewsAPI, {breakdown.get('gdelt', 0)} GDELT, {breakdown.get('rss', 0)} RSS. Sentiment: {label}.",
-            "source_breakdown": breakdown,
-        }
-    except Exception:
-        pass
-    return {
-        "conflict": conflict,
-        "articles": [],
-        "overall_sentiment": 0.0,
-        "sentiment_label": "NEUTRAL",
-        "top_sources": [],
-        "news_score": 50.0,
-        "summary": "NEWS data unavailable.",
-        "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0},
-    }
+    # Fallback: same fixed tool chain as rule-based mode
+    return _run_rule_based_news(conflict)
 

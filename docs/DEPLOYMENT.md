@@ -36,6 +36,8 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
 - **Kosten senken (Claude API):**
   - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 3600 = stündlich; 600 = alle 10 Min).
   - `SUPERVISOR_MODEL` (Standard: `claude-sonnet-4-6`). Optional `claude-haiku-4-5-20251001` für geringere Kosten.
+  - **`USE_RULE_BASED_AGENTS=true`** – Agents ohne Haiku: jede Intelligence-Unit läuft mit fester Tool-Kette (siehe `docs/AGENT-TOOL-CHAIN.md`). Der **Supervisor (Claude Sonnet)** bleibt aktiv und synthetisiert wie gewohnt. Spart 6 Haiku-Aufrufe pro Analyse.
+  - **`USE_RULE_BASED_SUPERVISOR=true`** – Zusätzlich Supervisor ohne Claude: nur gewichteter Score, Threat-Stufen, Key Findings aus Agent-Daten. Kein LLM im Supervisor (noch geringere Kosten).
 - [ ] **Backend-URL notieren**  
   Nach dem Deploy die öffentliche URL kopieren (z. B. `https://dein-service.up.railway.app`). Kein abschließendes `/`.
 

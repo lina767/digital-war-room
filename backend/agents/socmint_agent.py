@@ -79,20 +79,22 @@ REDDIT_SUBREDDITS = {
 
 RSS_FEEDS = {
     "middle_east": [
-        "https://www.criticalthreats.org/feed",
-        "https://www.longwarjournal.org/feed",
-        "https://iranintl.com/en/rss",
-        "https://www.rferl.org/api/zpqoyhrhkhrut",
         "https://feeds.bbci.co.uk/news/world/rss.xml",
         "https://www.aljazeera.com/xml/rss/all.xml",
         "https://rss.dw.com/rdf/rss-en-world",
+        "https://iranintl.com/en/rss",
+        "https://www.rferl.org/api/zpqoyhrhkhrut",
+        "https://www.middleeasteye.net/rss",
         "https://understandingwar.org/rss.xml",
+        "https://www.criticalthreats.org/feed",
+        "https://www.longwarjournal.org/feed",
     ],
     "eastern_europe": [
-        "https://understandingwar.org/rss.xml",
-        "https://www.rferl.org/api/epruslt",
         "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://rss.dw.com/rdf/rss-en-world",
+        "https://www.rferl.org/api/epruslt",
         "https://www.kyivpost.com/rss",
+        "https://understandingwar.org/rss.xml",
     ],
     "east_asia": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
@@ -490,6 +492,75 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+
+def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
+    """Execute SOCMINT tool chain in fixed order: telegram → twitter → reddit → rss → reliefweb. No LLM."""
+    try:
+        telegram = [p for p in (scrape_telegram_channels.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
+        twitter = [p for p in (scrape_twitter_nitter.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
+        reddit = [p for p in (search_reddit.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
+        rss = [p for p in (fetch_rss_feeds.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
+        reliefweb = [p for p in (fetch_reliefweb_reports.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
+
+        all_posts = telegram + twitter + reddit + rss + reliefweb
+        escalatory = sum(1 for p in all_posts if p.get("sentiment_label") == "ESCALATORY")
+        de_esc = sum(1 for p in all_posts if p.get("sentiment_label") == "DE-ESCALATORY")
+        sent_sum = sum(p.get("sentiment_score", 0) for p in all_posts)
+        overall_sentiment = (sent_sum / len(all_posts)) if all_posts else 0.0
+
+        base = 30.0
+        twitter_esc = sum(1 for p in twitter if p.get("sentiment_label") == "ESCALATORY" and p.get("account") in ("sentdefcon", "OSINTdefender"))
+        base += min(50, twitter_esc * 8)
+        base += min(20, len(reliefweb) * 10)
+        telegram_channels_with_esc = len(set(p.get("source", "") for p in telegram if p.get("sentiment_label") == "ESCALATORY"))
+        base += min(24, telegram_channels_with_esc * 6)
+        base += min(30, max(0, escalatory - twitter_esc) * 3)
+        base -= de_esc * 2
+        reddit_high = sum(1 for p in reddit if p.get("upvotes", 0) > 1000)
+        base += min(15, reddit_high * 5)
+        score = max(0.0, min(100.0, base))
+
+        top_signals = []
+        for p in sorted(all_posts, key=lambda x: (x.get("sentiment_score", 0), x.get("upvotes", 0)), reverse=True)[:5]:
+            t = p.get("text") or p.get("title") or p.get("body_excerpt") or ""
+            if t:
+                top_signals.append(t[:120] + ("..." if len(t) > 120 else ""))
+
+        return {
+            "conflict": conflict,
+            "telegram_posts": telegram,
+            "twitter_posts": twitter,
+            "reddit_posts": reddit,
+            "rss_articles": rss,
+            "reliefweb_reports": reliefweb,
+            "total_signals": len(all_posts),
+            "escalatory_count": escalatory,
+            "de_escalatory_count": de_esc,
+            "overall_sentiment": round(overall_sentiment, 4),
+            "socmint_score": round(score, 1),
+            "top_signals": top_signals,
+            "summary": f"SOCMINT (rule-based): {len(all_posts)} signals ({escalatory} escalatory, {de_esc} de-escalatory). Score {score:.0f}.",
+        }
+    except Exception:
+        pass
+    return {
+        "conflict": conflict,
+        "telegram_posts": [],
+        "twitter_posts": [],
+        "reddit_posts": [],
+        "rss_articles": [],
+        "reliefweb_reports": [],
+        "total_signals": 0,
+        "escalatory_count": 0,
+        "de_escalatory_count": 0,
+        "overall_sentiment": 0.0,
+        "socmint_score": 30.0,
+        "top_signals": [],
+        "summary": "SOCMINT data unavailable.",
+    }
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 SOCMINT_TOOLS = [
@@ -534,8 +605,12 @@ No markdown, no explanation, just JSON."""
 
 
 def run_socmint_agent(conflict: str) -> Dict[str, Any]:
-    """Run SOCMINT agent with LangChain tool-calling."""
+    """Run SOCMINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
     import json
+    from .config import USE_RULE_BASED_AGENTS
+    if USE_RULE_BASED_AGENTS:
+        return _run_rule_based_socmint(conflict)
+
     model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(SOCMINT_TOOLS)
 
     messages = [
@@ -572,71 +647,5 @@ def run_socmint_agent(conflict: str) -> Dict[str, Any]:
                     tool_call_id=tc["id"],
                 ))
 
-    # Fallback: call all 5 tools directly and aggregate
-    try:
-        telegram = [p for p in (scrape_telegram_channels.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        twitter = [p for p in (scrape_twitter_nitter.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        reddit = [p for p in (search_reddit.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        rss = [p for p in (fetch_rss_feeds.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        reliefweb = [p for p in (fetch_reliefweb_reports.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-
-        all_posts = telegram + twitter + reddit + rss + reliefweb
-        escalatory = sum(1 for p in all_posts if p.get("sentiment_label") == "ESCALATORY")
-        de_esc = sum(1 for p in all_posts if p.get("sentiment_label") == "DE-ESCALATORY")
-        sent_sum = sum(p.get("sentiment_score", 0) for p in all_posts)
-        overall_sentiment = (sent_sum / len(all_posts)) if all_posts else 0.0
-
-        base = 30.0
-        # Verified OSINT Twitter: +8 per escalatory post
-        twitter_esc = sum(1 for p in twitter if p.get("sentiment_label") == "ESCALATORY" and p.get("account") in ("sentdefcon", "OSINTdefender"))
-        base += min(50, twitter_esc * 8)
-        # ReliefWeb: +10 each (max +20)
-        base += min(20, len(reliefweb) * 10)
-        # Telegram escalatory channels: +6 per channel with escalatory content (max +24)
-        telegram_channels_with_esc = len(set(p.get("source", "") for p in telegram if p.get("sentiment_label") == "ESCALATORY"))
-        base += min(24, telegram_channels_with_esc * 6)
-        # Other escalatory: +3 each (cap)
-        base += min(30, (escalatory - twitter_esc) * 3)
-        base -= de_esc * 2
-        reddit_high = sum(1 for p in reddit if p.get("upvotes", 0) > 1000)
-        base += min(15, reddit_high * 5)
-        score = max(0.0, min(100.0, base))
-
-        top_signals = []
-        for p in sorted(all_posts, key=lambda x: (x.get("sentiment_score", 0), x.get("upvotes", 0)), reverse=True)[:5]:
-            t = p.get("text") or p.get("title") or p.get("body_excerpt") or ""
-            if t:
-                top_signals.append(t[:120] + ("..." if len(t) > 120 else ""))
-
-        return {
-            "conflict": conflict,
-            "telegram_posts": telegram,
-            "twitter_posts": twitter,
-            "reddit_posts": reddit,
-            "rss_articles": rss,
-            "reliefweb_reports": reliefweb,
-            "total_signals": len(all_posts),
-            "escalatory_count": escalatory,
-            "de_escalatory_count": de_esc,
-            "overall_sentiment": round(overall_sentiment, 4),
-            "socmint_score": round(score, 1),
-            "top_signals": top_signals,
-            "summary": f"SOCMINT: {len(all_posts)} signals ({escalatory} escalatory, {de_esc} de-escalatory). Score {score:.0f}.",
-        }
-    except Exception:
-        pass
-    return {
-        "conflict": conflict,
-        "telegram_posts": [],
-        "twitter_posts": [],
-        "reddit_posts": [],
-        "rss_articles": [],
-        "reliefweb_reports": [],
-        "total_signals": 0,
-        "escalatory_count": 0,
-        "de_escalatory_count": 0,
-        "overall_sentiment": 0.0,
-        "socmint_score": 30.0,
-        "top_signals": [],
-        "summary": "SOCMINT data unavailable.",
-    }
+    # Fallback: same fixed tool chain as rule-based mode
+    return _run_rule_based_socmint(conflict)

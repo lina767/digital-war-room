@@ -431,9 +431,45 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
     }
 
 
+# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+
+def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
+    """Execute GEOINT tool chain in fixed order: get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news. No LLM."""
+    try:
+        region = get_conflict_region.invoke({"conflict": conflict})
+        if not isinstance(region, str):
+            region = "middle_east"
+        raw = get_thermal_anomalies.invoke({"region": region, "days": 3})
+        anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
+        reliefweb_raw = get_conflict_hotspot_news.invoke({"conflict": conflict})
+        reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
+        score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
+        high = sum(1 for a in anomalies if a.get("confidence") == "high")
+        hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
+        return {
+            "conflict": conflict,
+            "anomalies": anomalies,
+            "anomaly_count": len(anomalies),
+            "high_confidence_count": high,
+            "explosion_count": explosion_count,
+            "clusters": clusters,
+            "geoint_score": round(score, 1),
+            "hotspots": hotspots,
+            "reliefweb_reports": reliefweb_reports,
+            "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s). Score {score:.0f}.",
+        }
+    except Exception:
+        pass
+    return _empty_result(conflict)
+
+
 def run_geoint_agent(conflict: str) -> Dict[str, Any]:
-    """Run GEOINT agent with LangChain tool-calling."""
+    """Run GEOINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
     import json
+    from .config import USE_RULE_BASED_AGENTS
+    if USE_RULE_BASED_AGENTS:
+        return _run_rule_based_geoint(conflict)
+
     model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(GEOINT_TOOLS)
 
     messages = [
@@ -470,30 +506,5 @@ def run_geoint_agent(conflict: str) -> Dict[str, Any]:
                     tool_call_id=tc["id"],
                 ))
 
-    # Fallback: call tools directly (region + thermal anomalies days=3 + hotspot news)
-    try:
-        region = get_conflict_region.invoke({"conflict": conflict})
-        if not isinstance(region, str):
-            region = "middle_east"
-        raw = get_thermal_anomalies.invoke({"region": region, "days": 3})
-        anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
-        reliefweb_raw = get_conflict_hotspot_news.invoke({"conflict": conflict})
-        reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
-        score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
-        high = sum(1 for a in anomalies if a.get("confidence") == "high")
-        hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
-        return {
-            "conflict": conflict,
-            "anomalies": anomalies,
-            "anomaly_count": len(anomalies),
-            "high_confidence_count": high,
-            "explosion_count": explosion_count,
-            "clusters": clusters,
-            "geoint_score": round(score, 1),
-            "hotspots": hotspots,
-            "reliefweb_reports": reliefweb_reports,
-            "summary": f"GEOINT: {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s). Score {score:.0f}.",
-        }
-    except Exception:
-        pass
-    return _empty_result(conflict)
+    # Fallback: same fixed tool chain as rule-based mode
+    return _run_rule_based_geoint(conflict)

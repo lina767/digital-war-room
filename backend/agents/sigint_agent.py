@@ -275,8 +275,8 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
 @tool
 def get_conflict_reports(conflict: str = "US-Iran") -> List[Dict[str, Any]]:
     """
-    Fetch recent military incident reports from open-source intelligence feeds
-    (CriticalThreats, LongWarJournal, UnderstandingWar) as kinetic activity proxy.
+    Fetch recent military/conflict reports from diverse OSINT and media feeds:
+    BBC, DW, Al Jazeera, RFE/RL, plus think tanks (CriticalThreats, LongWarJournal, UnderstandingWar).
     """
     CONFLICT_KEYWORDS = {
         "iran": ["iran", "irgc", "tehran", "hormuz", "houthi", "yemen", "persian gulf"],
@@ -290,7 +290,11 @@ def get_conflict_reports(conflict: str = "US-Iran") -> List[Dict[str, Any]]:
     async def _fetch():
         import re
         results = []
+        # Gemischte Quellen: internationale Medien zuerst, dann Think-Tanks
         feeds = [
+            "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "https://rss.dw.com/rdf/rss-en-world",
+            "https://www.aljazeera.com/xml/rss/all.xml",
             "https://www.criticalthreats.org/feed",
             "https://www.longwarjournal.org/feed",
             "https://understandingwar.org/rss.xml",
@@ -325,6 +329,45 @@ def get_conflict_reports(conflict: str = "US-Iran") -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+
+def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
+    """Execute SIGINT tool chain in fixed order: aircraft → vessels → conflict_reports. No LLM."""
+    aircraft = [a for a in (get_military_aircraft.invoke({}) or []) if isinstance(a, dict) and "error" not in a]
+    ships = [s for s in (get_naval_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
+    reports = [r for r in (get_conflict_reports.invoke({"conflict": conflict}) or []) if isinstance(r, dict) and "error" not in r]
+
+    base = 30.0
+    base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
+    base += sum(8 for a in aircraft if a.get("category") == "tanker")
+    base += sum(12 for a in aircraft if a.get("category") == "fighter")
+    base += min(25, len(ships) * 5)
+    base += min(30, len(reports) * 8)
+    score = max(0.0, min(100.0, base))
+
+    alerts = []
+    if aircraft:
+        by_cat: Dict[str, List] = {}
+        for a in aircraft:
+            by_cat.setdefault(a.get("category", "?"), []).append(a.get("flight", "?"))
+        for cat, flights in by_cat.items():
+            alerts.append(f"{len(flights)} {cat} aircraft: {', '.join(flights[:3])}")
+    if ships:
+        alerts.append(f"{len(ships)} warship(s) in region")
+    if reports:
+        alerts.append(f"{len(reports)} recent intel reports")
+
+    return {
+        "conflict": conflict,
+        "aircraft": aircraft,
+        "ships": ships,
+        "conflict_reports": reports,
+        "sigint_score": round(score, 1),
+        "alerts": alerts,
+        "summary": f"SIGINT (rule-based): {len(aircraft)} aircraft, {len(ships)} ships, {len(reports)} reports. Score {score:.0f}.",
+    }
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_conflict_reports]
@@ -353,8 +396,11 @@ No markdown, no explanation, just JSON."""
 
 
 def run_sigint_agent(conflict: str) -> Dict[str, Any]:
-    """Run SIGINT agent with LangChain tool-calling."""
+    """Run SIGINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
     import json
+    from .config import USE_RULE_BASED_AGENTS
+    if USE_RULE_BASED_AGENTS:
+        return _run_rule_based_sigint(conflict)
 
     model = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0).bind_tools(SIGINT_TOOLS)
     messages = [
@@ -394,37 +440,5 @@ def run_sigint_agent(conflict: str) -> Dict[str, Any]:
                     tool_call_id=tc["id"],
                 ))
 
-    # Fallback
-    aircraft = [a for a in (get_military_aircraft.invoke({}) or []) if isinstance(a, dict) and "error" not in a]
-    ships = [s for s in (get_naval_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
-    reports = [r for r in (get_conflict_reports.invoke({"conflict": conflict}) or []) if isinstance(r, dict) and "error" not in r]
-
-    base = 30.0
-    base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
-    base += sum(8 for a in aircraft if a.get("category") == "tanker")
-    base += sum(12 for a in aircraft if a.get("category") == "fighter")
-    base += min(25, len(ships) * 5)
-    base += min(30, len(reports) * 8)
-    score = max(0.0, min(100.0, base))
-
-    alerts = []
-    if aircraft:
-        by_cat: Dict[str, List] = {}
-        for a in aircraft:
-            by_cat.setdefault(a.get("category", "?"), []).append(a.get("flight", "?"))
-        for cat, flights in by_cat.items():
-            alerts.append(f"{len(flights)} {cat} aircraft: {', '.join(flights[:3])}")
-    if ships:
-        alerts.append(f"{len(ships)} warship(s) in region")
-    if reports:
-        alerts.append(f"{len(reports)} recent intel reports")
-
-    return {
-        "conflict": conflict,
-        "aircraft": aircraft,
-        "ships": ships,
-        "conflict_reports": reports,
-        "sigint_score": round(score, 1),
-        "alerts": alerts,
-        "summary": f"SIGINT: {len(aircraft)} military aircraft, {len(ships)} ships, {len(reports)} reports. Score {score:.0f}.",
-    }
+    # Fallback: same fixed tool chain as rule-based mode
+    return _run_rule_based_sigint(conflict)

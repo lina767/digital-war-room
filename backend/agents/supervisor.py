@@ -53,7 +53,8 @@ def _result_or_fallback(future, agent_name: str, fallback: Dict[str, Any]) -> Di
 
 
 def collection_node(state: AnalysisState) -> AnalysisState:
-    """Run all 6 intelligence agents in parallel with per-agent timeout."""
+    """Run all 6 intelligence agents in parallel with per-agent timeout.
+    When USE_RULE_BASED_AGENTS is set, each agent uses its fixed tool chain (no LLM); output shape is unchanged."""
     conflict = state.get("conflict") or ""
 
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -115,17 +116,43 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
-    # Wie zuvor: Sonnet für zuverlässige JSON-Synthese; optional: SUPERVISOR_MODEL=claude-haiku-4-5-20251001 für Kosten
-    model_name = os.getenv("SUPERVISOR_MODEL", "claude-sonnet-4-6")
-    model = ChatAnthropic(model=model_name, temperature=0.1)
+    # Regelbasiert = kein Claude-Aufruf (günstig); sonst Claude für Synthese
+    use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
 
-    system_prompt = """You are a senior intelligence analyst with access to 6 intelligence streams:
+    if use_rule_based:
+        # Ohne LLM: Score aus Gewichtung, Threat aus Schwellen, Summary kurz aus Scores
+        if combined_score >= 80:
+            threat_level = "CRITICAL"
+        elif combined_score >= 60:
+            threat_level = "HIGH"
+        elif combined_score >= 40:
+            threat_level = "ELEVATED"
+        elif combined_score >= 20:
+            threat_level = "LOW"
+        else:
+            threat_level = "MINIMAL"
+        parsed = {
+            "escalation_score": combined_score,
+            "threat_level": threat_level,
+            "key_findings": [],
+            "scenarios": [],
+            "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}). Key findings below from agents.",
+        }
+    else:
+        # Mit Claude (Sonnet oder per SUPERVISOR_MODEL)
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            raise RuntimeError("ANTHROPIC_API_KEY is not set")
+        model_name = os.getenv("SUPERVISOR_MODEL", "claude-sonnet-4-6")
+        model = ChatAnthropic(model=model_name, temperature=0.1)
+        system_prompt = """You are a senior intelligence analyst with access to 6 intelligence streams:
 - FININT: Financial markets and oil price indicators
-- SIGINT: Military aircraft, naval vessels, and conflict intel reports (CriticalThreats, LongWarJournal, UnderstandingWar)  
+- SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)
 - NEWS: Open-source media sentiment analysis
 - GEOINT: Satellite thermal anomaly detection
 - SOCMINT: Social media signals from Telegram, Reddit, and RSS
 - TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
+
+Agent results may be produced by rule-based tool chains (fixed tool order, no per-agent LLM). Treat the payload as authoritative: use the composite_score and per-stream scores, and derive key_findings, scenarios, and summary from the raw data (articles, aircraft, anomalies, signals, etc.) and the stream summaries provided. Your output format and quality standards are unchanged.
 
 Analyze all streams holistically and return ONLY valid JSON with no markdown:
 {
@@ -135,52 +162,46 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
   "scenarios": [{"description": <string>, "probability": <0-1>}],
   "summary": "<2-3 sentence BLUF summary>"
 }"""
-
-    # Volle Agent-Ergebnisse an Claude (wie zuvor) für beste Synthese
-    user_payload = {
-        "conflict": conflict,
-        "composite_score": combined_score,
-        "agent_scores": {
-            "finint": finint_score,
-            "sigint": sigint_score,
-            "news": news_score,
-            "geoint": geoint_score,
-            "socmint": socmint_score,
-            "techint": techint_score,
-        },
-        "finint": finint_result,
-        "sigint": sigint_result,
-        "news": news_result,
-        "geoint": geoint_result,
-        "socmint": socmint_result,
-        "techint": techint_result,
-    }
-
-    msg = model.invoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=json.dumps(user_payload, default=str)),
-    ])
-    content = msg.content if hasattr(msg, "content") else str(msg)
-    if isinstance(content, list):
-        content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
-
-    # JSON ggf. aus Markdown-Codeblock extrahieren (Claude antwortet oft mit ```json ... ```)
-    raw = (content or "").strip()
-    if "```" in raw:
-        m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
-        if m:
-            raw = m.group(1).strip()
-
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        parsed = {
-            "escalation_score": combined_score,
-            "threat_level": "ELEVATED",
-            "key_findings": ["Synthese-Ausgabe konnte nicht gelesen werden; Agent-Daten unten."],
-            "scenarios": [],
-            "summary": f"Composite score {combined_score:.0f}/100 aus 6 Agenten. Einzelne Streams (News, SIGINT, etc.) unten.",
+        user_payload = {
+            "conflict": conflict,
+            "composite_score": combined_score,
+            "agent_scores": {
+                "finint": finint_score,
+                "sigint": sigint_score,
+                "news": news_score,
+                "geoint": geoint_score,
+                "socmint": socmint_score,
+                "techint": techint_score,
+            },
+            "finint": finint_result,
+            "sigint": sigint_result,
+            "news": news_result,
+            "geoint": geoint_result,
+            "socmint": socmint_result,
+            "techint": techint_result,
         }
+        msg = model.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=json.dumps(user_payload, default=str)),
+        ])
+        content = msg.content if hasattr(msg, "content") else str(msg)
+        if isinstance(content, list):
+            content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
+        raw = (content or "").strip()
+        if "```" in raw:
+            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+            if m:
+                raw = m.group(1).strip()
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = {
+                "escalation_score": combined_score,
+                "threat_level": "ELEVATED",
+                "key_findings": ["Synthese-Ausgabe konnte nicht gelesen werden; Agent-Daten unten."],
+                "scenarios": [],
+                "summary": f"Composite score {combined_score:.0f}/100 aus 6 Agenten. Einzelne Streams (News, SIGINT, etc.) unten.",
+            }
 
     threat_level = str(parsed.get("threat_level", "MINIMAL"))
     key_findings = list(parsed.get("key_findings") or [])
