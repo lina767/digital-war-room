@@ -38,7 +38,7 @@ export function DashboardRightPanel({
       className={`
           ${rightPanelOpen ? "translate-x-0" : "translate-x-full"}
           md:translate-x-0
-          w-[min(18rem,90vw)] sm:w-72 md:w-80 border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto bg-background
+          w-[min(18rem,90vw)] sm:w-72 md:min-w-[320px] md:flex-[1_1_56%] md:max-w-[520px] border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto bg-background
           absolute md:relative inset-y-0 right-0 z-20
           transition-transform duration-300 ease-in-out
         `}

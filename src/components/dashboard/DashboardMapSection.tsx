@@ -7,6 +7,8 @@ interface DashboardMapSectionProps {
   setLeftPanelOpen: (open: boolean) => void;
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
+  /** Current conflict for map zoom and heatmap data (ACLED). */
+  activeConflict?: string | null;
 }
 
 export function DashboardMapSection({
@@ -14,11 +16,12 @@ export function DashboardMapSection({
   setLeftPanelOpen,
   rightPanelOpen,
   setRightPanelOpen,
+  activeConflict = null,
 }: DashboardMapSectionProps) {
   return (
-    <main className="flex-1 min-h-0 min-w-0 relative overflow-hidden flex flex-col">
+    <main className="flex-[0_1_44%] min-h-0 min-w-[280px] relative overflow-hidden flex flex-col">
       <div className="absolute inset-0 grid-overlay opacity-30" />
-      <ConflictMap />
+      <ConflictMap activeConflict={activeConflict} />
 
       {/* Mobile floating panel toggles – 44px tap targets */}
       <div className="absolute top-3 left-3 flex gap-2 lg:hidden z-10">

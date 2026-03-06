@@ -210,7 +210,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden relative min-w-0">
         <DashboardLeftPanel
           leftPanelOpen={leftPanelOpen}
           setLeftPanelOpen={setLeftPanelOpen}
@@ -231,6 +231,7 @@ const Dashboard = () => {
           setLeftPanelOpen={setLeftPanelOpen}
           rightPanelOpen={rightPanelOpen}
           setRightPanelOpen={setRightPanelOpen}
+          activeConflict={selectedConflict}
         />
 
         <DashboardRightPanel

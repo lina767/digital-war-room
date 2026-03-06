@@ -135,3 +135,36 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   if (typeof raw.summary === "string") out.summary = raw.summary;
   return out;
 }
+
+/** Conflict event for heatmap (ACLED lat/lon + intensity). */
+export interface ConflictEventForHeatmap {
+  lat: number;
+  lon: number;
+  intensity: number;
+  source?: string;
+  event_type?: string | null;
+  fatalities?: number;
+}
+
+/** GET /api/conflict-events – events with lat, lon, intensity for heatmap layer (ACLED). */
+export async function getConflictEvents(
+  conflict: string,
+  limit = 200
+): Promise<{ events: ConflictEventForHeatmap[]; conflict: string } | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(
+      `${getApiBase()}/api/conflict-events?conflict=${encodeURIComponent(conflict)}&limit=${limit}`,
+      { method: "GET", signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const raw = (await res.json()) as { events?: ConflictEventForHeatmap[]; conflict?: string };
+    const events = Array.isArray(raw?.events) ? raw.events : [];
+    return { events, conflict: raw?.conflict ?? conflict };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}

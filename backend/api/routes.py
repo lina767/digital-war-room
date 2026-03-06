@@ -9,7 +9,7 @@ from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
 from agents.supervisor import analyze_conflict
-from agents.geoint_agent import get_thermal_anomalies
+from agents.geoint_agent import get_thermal_anomalies, get_conflict_events_for_heatmap
 from agents.iaea_tracker import run_iaea_tracker, fetch_notams
 from api.proximity_correlation import run_correlation_for_events
 from services.http_client import get_http_client
@@ -157,6 +157,26 @@ async def get_notam(
             lambda: fetch_notams(icao_locations=icao_list or None, limit=limit, offset=offset),
         )
         return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ── Conflict events for heatmap (ACLED lat/lon + intensity) ────────────────────
+
+@router.get("/conflict-events")
+async def get_conflict_events(conflict: str = "Iran", limit: int = 200):
+    """
+    GET /api/conflict-events?conflict=Iran&limit=200
+    Returns conflict events with lat, lon, intensity for heatmap layer (ACLED).
+    Requires ACLED_API_KEY in env. Intensity derived from fatalities and event type.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        events = await loop.run_in_executor(
+            None,
+            lambda: get_conflict_events_for_heatmap(conflict, limit=max(50, min(500, limit))),
+        )
+        return {"events": events, "conflict": conflict}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 

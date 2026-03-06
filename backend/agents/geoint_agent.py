@@ -342,6 +342,87 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     return reports if isinstance(reports, list) else [{"error": "unknown"}]
 
 
+def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dict[str, Any]]:
+    """
+    Fetch conflict events with lat/lon for heatmap visualization (ACLED).
+    Returns list of { "lat", "lon", "intensity", "source", "event_type", "fatalities" }.
+    Intensity is derived from fatalities (capped) and event type (violence = higher).
+    """
+    cl = conflict.lower()
+    acled_country = next(
+        (v for k, v in ACLED_COUNTRY_NAMES.items() if k != "default" and k in cl),
+        ACLED_COUNTRY_NAMES["default"],
+    )
+    events: List[Dict[str, Any]] = []
+    acled_key = os.getenv("ACLED_API_KEY")
+    if not acled_key:
+        return events
+
+    try:
+        url = "https://api.acleddata.com/acled/read"
+        params = {
+            "key": acled_key,
+            "limit": min(500, max(50, limit)),
+            "country": acled_country,
+        }
+        email = os.getenv("ACLED_EMAIL")
+        if email:
+            params["email"] = email
+
+        async def _fetch() -> List[Dict[str, Any]]:
+            out: List[Dict[str, Any]] = []
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    return out
+                data = resp.json()
+                for rec in (data.get("data") or [])[:limit]:
+                    if not isinstance(rec, dict):
+                        continue
+                    lat_val = rec.get("latitude")
+                    lon_val = rec.get("longitude")
+                    if lat_val is None or lon_val is None:
+                        continue
+                    try:
+                        lat = float(lat_val)
+                        lon = float(lon_val)
+                    except (TypeError, ValueError):
+                        continue
+                    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                        continue
+                    fatalities = 0
+                    try:
+                        f = rec.get("fatalities")
+                        if f is not None:
+                            fatalities = int(f) if isinstance(f, (int, float)) else int(float(str(f).strip() or 0))
+                    except (ValueError, TypeError):
+                        pass
+                    event_type = (rec.get("event_type") or rec.get("sub_event_type") or "")[:80]
+                    # Intensity 0–1: base 0.3 + fatalities cap 0.5 + violence types
+                    intensity = 0.3
+                    if fatalities > 0:
+                        intensity = min(0.95, intensity + min(fatalities / 50, 0.5))
+                    if any(
+                        x in (event_type or "").lower()
+                        for x in ("battle", "violence", "explosion", "attack", "armed", "riot")
+                    ):
+                        intensity = min(0.95, intensity + 0.2)
+                    out.append({
+                        "lat": round(lat, 5),
+                        "lon": round(lon, 5),
+                        "intensity": round(intensity, 2),
+                        "source": "ACLED",
+                        "event_type": event_type or None,
+                        "fatalities": fatalities,
+                    })
+            return out
+
+        events = asyncio.run(_fetch())
+    except Exception:
+        pass
+    return events
+
+
 # ── EO Browser / Sentinel Hub (links; optional Process API when credentials set) ─
 
 # EO Browser: center (lat, lon), zoom. No API key required – returns URLs for manual inspection.

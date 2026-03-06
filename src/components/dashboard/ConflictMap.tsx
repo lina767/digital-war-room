@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, memo } from "react";
 import { Plus, Minus, RotateCcw } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
+import { getConflictEvents, type ConflictEventForHeatmap } from "@/lib/api";
 import { conflicts, severityColor } from "./conflictData";
 import { ConnectionLines } from "./ConnectionLines";
 import { conflictLinks } from "./conflictData";
@@ -106,6 +107,25 @@ export function ConflictMap({
   const [hiddenLinks, setHiddenLinks] = useState<Set<string>>(new Set());
   const [showGeoint, setShowGeoint] = useState(true);
   const [showSigint, setShowSigint] = useState(true);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapEvents, setHeatmapEvents] = useState<ConflictEventForHeatmap[]>([]);
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
+
+  // Fetch conflict events for heatmap when layer is enabled
+  useEffect(() => {
+    if (!showHeatmap || !activeConflict) {
+      setHeatmapEvents([]);
+      return;
+    }
+    setHeatmapLoading(true);
+    getConflictEvents(activeConflict, 200)
+      .then((data) => {
+        if (data?.events) setHeatmapEvents(data.events);
+        else setHeatmapEvents([]);
+      })
+      .catch(() => setHeatmapEvents([]))
+      .finally(() => setHeatmapLoading(false));
+  }, [showHeatmap, activeConflict]);
 
   // Pulse animation
   useEffect(() => {
@@ -180,6 +200,27 @@ export function ConflictMap({
           maxZoom={8}
         >
           <WorldGeographies />
+
+          {/* Heatmap layer: conflict intensity (ACLED) – optional */}
+          {showHeatmap &&
+            !heatmapLoading &&
+            heatmapEvents.map((evt, i) => {
+              const r = (2 + evt.intensity * 5) * s;
+              const opacity = 0.15 + evt.intensity * 0.35;
+              return (
+                <Marker key={`heat-${i}`} coordinates={[evt.lon, evt.lat]}>
+                  <g pointerEvents="none">
+                    <circle
+                      r={r}
+                      fill="#dc2626"
+                      fillOpacity={opacity}
+                      stroke="rgba(220,38,38,0.4)"
+                      strokeWidth={0.2 * s}
+                    />
+                  </g>
+                </Marker>
+              );
+            })}
 
           <ConnectionLines hiddenLinks={allHidden} onToggleLink={toggleLink} animPhase={animPhase} zoom={zoom} />
 
@@ -448,6 +489,19 @@ export function ConflictMap({
           <span style={{ color: showSigint ? "#60a5fa" : undefined }}>✈</span>
           <span style={{ color: showSigint ? "#34d399" : undefined }}>⚓</span>
           SIGINT
+        </button>
+
+        {/* Heatmap toggle (ACLED conflict intensity) */}
+        <button
+          onClick={() => setShowHeatmap((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="Conflict intensity from ACLED (requires ACLED_API_KEY)"
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-full border ${showHeatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
+          />
+          HEATMAP
+          {heatmapLoading && showHeatmap && <span className="animate-pulse">…</span>}
         </button>
 
         {/* Links toggle */}
