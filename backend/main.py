@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
+from api.stripe_checkout import router as stripe_router
 from agents.supervisor import analyze_conflict
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
@@ -75,6 +76,7 @@ app.add_middleware(
 
 app.include_router(api_router, prefix="/api")
 app.include_router(pdf_router, prefix="/api")
+app.include_router(stripe_router, prefix="/api")
 
 
 @app.get("/health")

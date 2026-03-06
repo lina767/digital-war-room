@@ -7,7 +7,7 @@ import { runProximityAnalysis, fetchTunnelSites } from "@/lib/proximityAnalyzerS
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -246,15 +246,24 @@ const Dashboard = () => {
         />
       </div>
 
-      {/* Footer: How it works (prominent), Impressum & Privacy (subtle) */}
+      {/* Footer: How it works, Support (prominent), Impressum & Privacy (subtle) */}
       <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
-        <Link
-          to="/how-it-works"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
-        >
-          <BookOpen className="h-3.5 w-3.5" aria-hidden />
-          <span>How it works</span>
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            to="/how-it-works"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+          >
+            <BookOpen className="h-3.5 w-3.5" aria-hidden />
+            <span>How it works</span>
+          </Link>
+          <Link
+            to="/support"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+          >
+            <Heart className="h-3.5 w-3.5" aria-hidden />
+            <span>Support me</span>
+          </Link>
+        </div>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
           <Link
             to="/impressum"

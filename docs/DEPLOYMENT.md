@@ -45,6 +45,9 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
   - **Nur Claude Sonnet:** ~**0,08–0,12 USD** pro Lauf (z. B. `SUPERVISOR_MODEL=claude-sonnet-4-6`).
   - **OpenAI gpt-4o-mini** (`LLM_PROVIDER=openai`): ~**0,005 USD** (ca. 0,5 Cent) pro Lauf; bei Widersprüchen optional `OPENAI_SUPERVISOR_FALLBACK_MODEL=gpt-4o`.
   - **`USE_RULE_BASED_SUPERVISOR=true`:** **0 USD** (kein LLM)
+- **Support me (Stripe Embedded Checkout):**
+  - **Backend (Railway):** `STRIPE_SECRET_KEY` (Secret Key aus [Stripe Dashboard](https://dashboard.stripe.com/apikeys)). Preis entweder per **`STRIPE_PRICE_ID`** (Price-ID, z. B. `price_…`) oder **`STRIPE_PRODUCT_ID`** (Product-ID, z. B. `prod_…` – es wird der Standard-Preis bzw. erster Preis des Produkts verwendet). Optional: `FRONTEND_URL` für die Return-URL (Standard: `http://localhost:5173`; in Produktion z. B. `https://digital-war-room.vercel.app`).
+  - **Frontend (Vercel):** `VITE_STRIPE_PUBLISHABLE_KEY` (Publishable Key aus dem Stripe Dashboard). Ohne diese Variable ist die Support-Seite deaktiviert (Hinweistext).
 - [ ] **Backend-URL notieren**  
   Nach dem Deploy die öffentliche URL kopieren (z. B. `https://dein-service.up.railway.app`). Kein abschließendes `/`.
 
@@ -59,6 +62,7 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
   - `VITE_SUPABASE_URL` = `https://nzhmnprqjldtoddabulu.supabase.co` (exakt, zu deinem Supabase-Projekt)
   - `VITE_SUPABASE_ANON_KEY` = **Anon Key (public)** aus Supabase: Project Settings → API → `anon` `public`
   - `VITE_SUPABASE_PUBLISHABLE_KEY` = **denselben Wert** wie `VITE_SUPABASE_ANON_KEY`
+  - **Support me (Stripe):** `VITE_STRIPE_PUBLISHABLE_KEY` = Publishable Key aus [Stripe Dashboard](https://dashboard.stripe.com/apikeys). Ohne diesen Key zeigt die Support-Seite einen Hinweis statt des Checkout-Formulars.
   - **Wichtig:** Werte 1:1 aus der lokalen `.env` übernehmen, **keine Anführungszeichen** um den Key, **keine Leerzeichen** am Anfang/Ende.
 - [ ] **Nach dem ersten Deploy:** Neudeploy auslösen (Redeploy), damit die neuen Env-Vars im Build genutzt werden (Vite baut sie zur Build-Zeit ein).
 

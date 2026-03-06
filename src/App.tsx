@@ -10,6 +10,8 @@ import NotFound from "./pages/NotFound";
 import HowItWorks from "./pages/HowItWorks";
 import Impressum from "./pages/Impressum";
 import Privacy from "./pages/Privacy";
+import Support from "./pages/Support";
+import SupportReturn from "./pages/SupportReturn";
 
 const queryClient = new QueryClient();
 
@@ -27,6 +29,8 @@ const App = () => (
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/impressum" element={<Impressum />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/support" element={<Support />} />
+            <Route path="/support/return" element={<SupportReturn />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
