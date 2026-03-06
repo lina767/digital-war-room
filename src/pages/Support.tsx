@@ -1,48 +1,41 @@
-import { useCallback } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { loadStripe } from "@stripe/stripe-js";
-import { EmbeddedCheckoutProvider, EmbeddedCheckout } from "@stripe/react-stripe-js";
 import { ArrowLeft, Heart } from "lucide-react";
 import { getApiBase } from "@/lib/api";
-
-const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
-
-const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+import { Button } from "@/components/ui/button";
 
 const Support = () => {
-  const fetchClientSecret = useCallback(async () => {
-    const base = getApiBase();
-    const res = await fetch(`${base}/api/create-checkout-session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        return_url_origin: typeof window !== "undefined" ? window.location.origin : undefined,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { detail?: string })?.detail ?? res.statusText);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCheckout = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const base = getApiBase();
+      const res = await fetch(`${base}/api/create-checkout-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          return_url_origin: typeof window !== "undefined" ? window.location.origin : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data as { detail?: string }).detail ?? res.statusText ?? "Checkout could not be started.");
+      }
+      const url = (data as { url?: string }).url;
+      if (url) {
+        window.location.href = url;
+        return;
+      }
+      throw new Error("No checkout URL returned.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
     }
-    const data = (await res.json()) as { clientSecret: string };
-    return data.clientSecret;
-  }, []);
-
-  if (!stripePublishableKey) {
-    return (
-      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
-        <p className="text-muted-foreground text-sm mb-4">Stripe is not configured (VITE_STRIPE_PUBLISHABLE_KEY).</p>
-        <Link to="/" className="text-primary hover:underline text-sm">Back to dashboard</Link>
-      </div>
-    );
-  }
-
-  if (!stripePromise) {
-    return (
-      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
-        <p className="text-muted-foreground text-sm">Loading…</p>
-      </div>
-    );
-  }
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -63,20 +56,26 @@ const Support = () => {
           </p>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
             <Heart className="h-5 w-5 text-primary" aria-hidden />
-            Support me
+            Support the Mission
           </h1>
           <p className="text-sm text-muted-foreground mt-2">
-            One-time donation via Stripe. Complete the form below to pay securely.
+            One-time donation via Stripe. You will be redirected to Stripe’s secure checkout page.
           </p>
         </header>
 
-        <div className="rounded-lg border border-border bg-card/40 overflow-hidden">
-          <EmbeddedCheckoutProvider
-            stripe={stripePromise}
-            options={{ fetchClientSecret }}
+        <div className="rounded-lg border border-border bg-card/40 p-6 sm:p-8">
+          {error && (
+            <p className="text-sm text-destructive mb-4" role="alert">
+              {error}
+            </p>
+          )}
+          <Button
+            onClick={handleCheckout}
+            disabled={loading}
+            className="w-full sm:w-auto"
           >
-            <EmbeddedCheckout />
-          </EmbeddedCheckoutProvider>
+            {loading ? "Redirecting…" : "Support the Mission"}
+          </Button>
         </div>
       </div>
     </div>

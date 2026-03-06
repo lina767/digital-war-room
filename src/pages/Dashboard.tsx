@@ -261,7 +261,7 @@ const Dashboard = () => {
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
           >
             <Heart className="h-3.5 w-3.5" aria-hidden />
-            <span>Support me</span>
+            <span>Support the Mission</span>
           </Link>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground">

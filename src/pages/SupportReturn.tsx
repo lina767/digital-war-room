@@ -18,8 +18,12 @@ const SupportReturn = () => {
     }
     const base = getApiBase();
     fetch(`${base}/api/session-status?session_id=${encodeURIComponent(sessionId)}`)
-      .then((res) => res.json())
-      .then((data: { status?: string; customer_email?: string }) => {
+      .then((res) => res.json().then((data: { status?: string; customer_email?: string }) => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setStatus("error");
+          return;
+        }
         if (data.status === "complete") {
           setStatus("complete");
           setCustomerEmail(data.customer_email ?? "");
@@ -36,7 +40,7 @@ const SupportReturn = () => {
     return (
       <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
         <p className="text-muted-foreground text-sm mb-4">Payment was not completed. You can try again.</p>
-        <Link to="/support" className="text-primary hover:underline text-sm">Back to Support</Link>
+        <Link to="/support" className="text-primary hover:underline text-sm">Back to Support the Mission</Link>
       </div>
     );
   }
@@ -44,8 +48,8 @@ const SupportReturn = () => {
   if (status === "error") {
     return (
       <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center p-6">
-        <p className="text-muted-foreground text-sm mb-4">Something went wrong. Please try again from the Support page.</p>
-        <Link to="/support" className="text-primary hover:underline text-sm">Back to Support</Link>
+        <p className="text-muted-foreground text-sm mb-4">Something went wrong. Please try again from Support the Mission.</p>
+        <Link to="/support" className="text-primary hover:underline text-sm">Back to Support the Mission</Link>
       </div>
     );
   }

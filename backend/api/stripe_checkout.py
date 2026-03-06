@@ -1,7 +1,9 @@
 """
-Stripe Embedded Checkout for "Support me" one-time payments.
+Stripe-hosted Checkout for "Support the Mission" one-time payments.
+Redirects customer to Stripe's payment page, then back to success/cancel URLs.
 Requires: STRIPE_SECRET_KEY, and either STRIPE_PRICE_ID or STRIPE_PRODUCT_ID.
-Optional: FRONTEND_URL for return_url.
+Optional: FRONTEND_URL for success_url/cancel_url.
+See: https://docs.stripe.com/checkout/quickstart
 """
 import os
 from typing import Optional
@@ -48,8 +50,7 @@ def _get_price_id() -> str:
 @router.post("/create-checkout-session")
 async def create_checkout_session(body: CreateCheckoutSessionBody | None = Body(None)):
     """
-    Create a Stripe Checkout Session for embedded checkout (Support / Donate).
-    Returns { clientSecret } for the frontend to mount Embedded Checkout.
+    Create a Stripe Checkout Session (hosted page). Returns { url } to redirect the customer.
     """
     if not stripe.api_key:
         raise HTTPException(status_code=503, detail="Stripe is not configured (STRIPE_SECRET_KEY)")
@@ -59,14 +60,15 @@ async def create_checkout_session(body: CreateCheckoutSessionBody | None = Body(
         raise HTTPException(status_code=503, detail=str(e))
 
     origin = _get_return_url_origin(body.return_url_origin if body else None)
-    return_url = f"{origin}/support/return?session_id={{CHECKOUT_SESSION_ID}}"
+    success_url = f"{origin}/support/return?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/support"
 
     try:
         session = stripe.checkout.Session.create(
-            ui_mode="embedded",
             submit_type="donate",
             mode="payment",
-            return_url=return_url,
+            success_url=success_url,
+            cancel_url=cancel_url,
             line_items=[
                 {
                     "price": price_id,
@@ -74,7 +76,7 @@ async def create_checkout_session(body: CreateCheckoutSessionBody | None = Body(
                 }
             ],
         )
-        return {"clientSecret": session.client_secret}
+        return {"url": session.url}
     except stripe.StripeError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
