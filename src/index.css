@@ -63,6 +63,9 @@
 }
 
 @layer utilities {
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
   .font-mono-terminal {
     font-family: 'JetBrains Mono', monospace;
   }

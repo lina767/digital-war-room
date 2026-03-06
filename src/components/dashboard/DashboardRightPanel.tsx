@@ -38,14 +38,19 @@ export function DashboardRightPanel({
       className={`
           ${rightPanelOpen ? "translate-x-0" : "translate-x-full"}
           md:translate-x-0
-          w-72 sm:w-80 border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto bg-background
+          w-[min(18rem,90vw)] sm:w-72 md:w-80 border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto bg-background
           absolute md:relative inset-y-0 right-0 z-20
           transition-transform duration-300 ease-in-out
         `}
     >
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-mono text-xs text-muted-foreground tracking-wider">INTELLIGENCE FEED</h2>
-        <button className="md:hidden text-muted-foreground hover:text-foreground" onClick={() => setRightPanelOpen(false)}>
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">INTELLIGENCE FEED</h2>
+        <button
+          type="button"
+          aria-label="Close panel"
+          className="md:hidden min-h-11 min-w-11 flex items-center justify-center -m-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 active:bg-muted touch-manipulation"
+          onClick={() => setRightPanelOpen(false)}
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -66,7 +71,7 @@ export function DashboardRightPanel({
           <Button
             size="sm"
             variant="outline"
-            className="text-xs h-7"
+            className="text-xs min-h-9 sm:min-h-7 touch-manipulation"
             disabled={proximityLoading}
             onClick={runProximity}
             title="Correlate FIRMS strikes with civilian infrastructure (Overpass)"

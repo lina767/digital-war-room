@@ -7,6 +7,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { Analytics } from "@vercel/analytics/react";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
+import HowItWorks from "./pages/HowItWorks";
+import Impressum from "./pages/Impressum";
 
 const queryClient = new QueryClient();
 
@@ -21,6 +23,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/app/dashboard" element={<Dashboard />} />
+            <Route path="/how-it-works" element={<HowItWorks />} />
+            <Route path="/impressum" element={<Impressum />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

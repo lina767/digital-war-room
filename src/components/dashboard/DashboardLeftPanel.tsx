@@ -20,22 +20,28 @@ export function DashboardLeftPanel({
       className={`
           ${leftPanelOpen ? "translate-x-0" : "-translate-x-full"}
           lg:translate-x-0
-          w-56 border-r border-border flex-shrink-0 p-4 overflow-y-auto bg-background
+          w-[min(14rem,85vw)] sm:w-56 border-r border-border flex-shrink-0 p-4 overflow-y-auto bg-background
           absolute lg:relative inset-y-0 left-0 z-20
           transition-transform duration-300 ease-in-out
         `}
     >
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-mono text-xs text-muted-foreground tracking-wider">AGENT STATUS</h2>
-        <button className="lg:hidden text-muted-foreground hover:text-foreground" onClick={() => setLeftPanelOpen(false)}>
+      <div className="flex items-center justify-between mb-4 gap-2">
+        <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">AGENT STATUS</h2>
+        <button
+          type="button"
+          aria-label="Close panel"
+          className="lg:hidden min-h-11 min-w-11 flex items-center justify-center -m-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 active:bg-muted touch-manipulation"
+          onClick={() => setLeftPanelOpen(false)}
+        >
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-2">
         {AGENTS_WITH_SOURCES.map((agent) => (
-          <div key={agent.name} className="rounded border border-border/60 bg-card/50 overflow-hidden">
+          <div key={agent.name} className="rounded-md border border-border/60 bg-card/50 overflow-hidden">
             <button
-              className="w-full flex items-center gap-2 p-2 text-left hover:bg-muted/50 transition-colors"
+              type="button"
+              className="w-full flex items-center gap-2 p-3 sm:p-2 text-left hover:bg-muted/50 active:bg-muted/50 transition-colors touch-manipulation min-h-11 sm:min-h-0"
               onClick={() => setAgentExpanded(agentExpanded === agent.name ? null : agent.name)}
             >
               <span className="h-2 w-2 rounded-full flex-shrink-0 bg-primary animate-pulse-dot" />

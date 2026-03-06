@@ -86,60 +86,62 @@ const Dashboard = () => {
   }, [selectedConflict]);
 
   return (
-    <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden">
+    <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
       {/* Live ticker – Iran Monitor style: BREAKING headlines from analysis when available */}
-      <div className="flex items-center border-b border-border bg-card/50">
-        <div className="flex-shrink-0 px-3 py-1.5 bg-destructive/20 text-destructive font-mono text-[10px] font-bold tracking-wider border-r border-border">
+      <div className="flex items-center border-b border-border bg-card/50 min-h-9 sm:min-h-10">
+        <div className="flex-shrink-0 px-3 py-2 sm:py-1.5 bg-destructive/20 text-destructive font-mono text-[10px] sm:text-[10px] font-bold tracking-wider border-r border-border">
           LIVE
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           <LiveTicker conflictData={conflictData} />
         </div>
       </div>
-      {/* Top Navbar */}
-      <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2">
-        <div className="flex items-center gap-2">
-          {/* Mobile hamburger */}
+      {/* Top Navbar – touch-friendly min 44px height on mobile */}
+      <header className="min-h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2 py-2 sm:py-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Mobile hamburger – 44px tap target */}
           <button
-            className="lg:hidden text-muted-foreground hover:text-foreground transition-colors"
+            type="button"
+            aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+            className="lg:hidden min-h-11 min-w-11 flex items-center justify-center -m-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 active:bg-muted transition-colors touch-manipulation"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <div className="font-mono font-bold text-primary text-glow text-xs sm:text-sm tracking-wider">
+          <div className="font-mono font-bold text-primary text-glow text-xs sm:text-sm tracking-wider truncate">
             DIGITAL WAR ROOM
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Live clock */}
-          <div className="hidden md:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1">
+        <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
+          {/* Live clock – desktop */}
+          <div className="hidden md:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse-dot" />
             <span className="text-foreground">{formattedTime}</span>
             <span>UTC</span>
           </div>
           {/* Signal counter */}
-          <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1">
+          <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
             <span className="text-primary">{signalCount.toLocaleString()}</span>
             <span>signals</span>
           </div>
           <div className="relative" ref={conflictDropdownRef}>
             <button
               type="button"
-              className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded px-2 sm:px-3 py-1 hover:bg-secondary transition-colors"
+              className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded-md px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-11 sm:min-h-0 hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors touch-manipulation"
               onClick={() => setConflictDropdownOpen((o) => !o)}
             >
-              <span className="hidden sm:inline">{displayConflictLabel}</span>
-              <span className="sm:hidden">{currentOption?.id ?? selectedConflict}</span>
-              <ChevronDown className={`h-3 w-3 transition-transform ${conflictDropdownOpen ? "rotate-180" : ""}`} />
+              <span className="hidden sm:inline truncate max-w-[120px]">{displayConflictLabel}</span>
+              <span className="sm:hidden truncate max-w-[80px]">{currentOption?.id ?? selectedConflict}</span>
+              <ChevronDown className={`h-3 w-3 flex-shrink-0 transition-transform ${conflictDropdownOpen ? "rotate-180" : ""}`} />
             </button>
             {conflictDropdownOpen && (
-              <div className="absolute top-full right-0 mt-1 w-48 max-h-64 overflow-y-auto rounded border border-border bg-background shadow-lg z-50 py-1">
+              <div className="absolute top-full right-0 mt-1 w-52 sm:w-48 max-h-[70vh] overflow-y-auto rounded-md border border-border bg-background shadow-lg z-50 py-1">
                 {CONFLICT_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-mono hover:bg-muted"
+                    className="w-full flex items-center gap-2 px-3 py-3 sm:py-2 text-left text-xs font-mono hover:bg-muted active:bg-muted min-h-11 sm:min-h-0 touch-manipulation"
                     onClick={() => {
                       setSelectedConflict(opt.apiValue);
                       setConflictDropdownOpen(false);
@@ -156,13 +158,13 @@ const Dashboard = () => {
           </Badge>
           <div className="flex flex-col items-end gap-1">
             {analysisError && (
-              <p className="text-[10px] text-destructive max-w-[280px] sm:max-w-[320px] text-right" title={analysisError}>
+              <p className="text-[10px] text-destructive max-w-[200px] sm:max-w-[320px] text-right truncate" title={analysisError}>
                 {analysisError}
               </p>
             )}
             <Button
               size="sm"
-              className="text-xs px-2 sm:px-3"
+              className="text-xs px-3 sm:px-3 min-h-11 sm:min-h-9 touch-manipulation"
               disabled={isAnalyzing}
               onClick={() => runAnalysis()}
               title="Load latest analysis (cache / periodic auto-run)"
@@ -170,18 +172,14 @@ const Dashboard = () => {
               {isAnalyzing ? (
                 <span className="animate-pulse">Loading…</span>
               ) : (
-                <>
-                  <span className="hidden sm:inline">Analyze</span>
-                  <span className="sm:hidden">Analyze</span>
-                </>
+                "Analyze"
               )}
             </Button>
           </div>
-          {/* Auth/Profile UI entfernt – Dashboard ist vollständig öffentlich */}
         </div>
       </header>
 
-      {/* Mobile menu dropdown */}
+      {/* Mobile menu dropdown – large tap targets */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-b border-border bg-card p-4 space-y-4 animate-fade-in-up">
           <div className="flex items-center justify-between">
@@ -190,22 +188,22 @@ const Dashboard = () => {
               {conflictData?.threat_level ?? "ELEVATED"}
             </Badge>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-3">
             <Button
               variant={leftPanelOpen ? "default" : "outline"}
               size="sm"
-              className="flex-1 text-xs"
+              className="flex-1 min-h-11 text-xs touch-manipulation"
               onClick={() => { setLeftPanelOpen(!leftPanelOpen); setRightPanelOpen(false); setMobileMenuOpen(false); }}
             >
-              <Radio className="h-3 w-3 mr-1" /> Agents
+              <Radio className="h-4 w-4 mr-2" aria-hidden /> Agents
             </Button>
             <Button
               variant={rightPanelOpen ? "default" : "outline"}
               size="sm"
-              className="flex-1 text-xs"
+              className="flex-1 min-h-11 text-xs touch-manipulation"
               onClick={() => { setRightPanelOpen(!rightPanelOpen); setLeftPanelOpen(false); setMobileMenuOpen(false); }}
             >
-              <Rss className="h-3 w-3 mr-1" /> Intel Feed
+              <Rss className="h-4 w-4 mr-2" aria-hidden /> Intel Feed
             </Button>
           </div>
         </div>
