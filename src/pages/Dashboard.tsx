@@ -165,10 +165,10 @@ const Dashboard = () => {
               className="text-xs px-2 sm:px-3"
               disabled={isAnalyzing}
               onClick={() => runAnalysis()}
-              title="Letzte Analyse laden (Cache / stündliche Automatik)"
+              title="Load latest analysis (cache / periodic auto-run)"
             >
               {isAnalyzing ? (
-                <span className="animate-pulse">Laden…</span>
+                <span className="animate-pulse">Loading…</span>
               ) : (
                 <>
                   <span className="hidden sm:inline">Analyze</span>
