@@ -88,11 +88,11 @@ def collection_node(state: AnalysisState) -> AnalysisState:
 def _agents_seem_contradictory(scores: List[float]) -> bool:
     """
     True if agent scores disagree strongly (e.g. one stream high, another low).
-    Then we use the fallback model (e.g. Sonnet) for better reasoning.
+    Only used when USE_SUPERVISOR_FALLBACK_MODEL=true; then we use the fallback model (e.g. Sonnet).
     """
     if len(scores) < 2:
         return False
-    threshold = float(os.getenv("SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD", "40"))
+    threshold = float(os.getenv("SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD", "50"))
     score_range = max(scores) - min(scores)
     return score_range >= threshold
 
@@ -151,9 +151,9 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
             "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}). Key findings below from agents.",
         }
     else:
-        # Mit LLM: Haiku standardmäßig; bei widersprüchlichen Agent-Scores optional Sonnet (bessere Abwägung).
-        # USE_SUPERVISOR_FALLBACK_MODEL=false → immer Haiku (keine Sonnet-Kosten).
-        use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "true").strip().lower() in ("1", "true", "yes")
+        # Mit LLM: Haiku standardmäßig; bei Widerspruch optional Sonnet (USE_SUPERVISOR_FALLBACK_MODEL=true).
+        # Default: Fallback aus → immer Haiku. Schwellwert: SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD (default 50).
+        use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
         agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score]
         complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
         model = get_supervisor_model(complex_case=complex_case)

@@ -22,7 +22,8 @@ os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGCHAIN_ENDPOINT", "htt
 # Konflikt, der stündlich automatisch analysiert wird (unabhängig von Aufrufen)
 # Standard: nur "Iran"
 AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "Iran")
-AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "3600"))  # 1 Stunde
+# Default: alle 6 Stunden (21600s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
+AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "21600"))  # 6 Stunden
 
 
 @asynccontextmanager

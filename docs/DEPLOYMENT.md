@@ -36,12 +36,12 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
 - **Kosten senken (LLM-API):**
   - **OpenAI statt Claude:** `LLM_PROVIDER=openai`, `OPENAI_API_KEY=sk-…`. Agents und Supervisor nutzen dann z. B. `gpt-4o-mini` (Standard); optional `OPENAI_AGENT_MODEL` / `OPENAI_SUPERVISOR_MODEL` setzen.
   - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 3600 = stündlich; 600 = alle 10 Min).
-  - **Supervisor standardmäßig Haiku, bei Widersprüchen optional Sonnet:** Default ist `SUPERVISOR_MODEL=claude-haiku-4-5-20251001`. Wenn `USE_SUPERVISOR_FALLBACK_MODEL=true` (Standard) und die Agent-Scores stark auseinanderliegen (Spannweite ≥ 40), wird Sonnet genutzt – **dadurch können Sonnet-Kosten entstehen.** Um **nur Haiku** zu nutzen (kein Sonnet): **`USE_SUPERVISOR_FALLBACK_MODEL=false`** setzen. Schwellwert optional: `SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD=40`.
+  - **Supervisor standardmäßig nur Haiku:** Default ist `SUPERVISOR_MODEL=claude-haiku-4-5-20251001` und **`USE_SUPERVISOR_FALLBACK_MODEL=false`** (kein Sonnet-Fallback). Optional: `USE_SUPERVISOR_FALLBACK_MODEL=true` setzen – dann wird bei stark auseinanderliegenden Agent-Scores (Spannweite ≥ 50) Sonnet genutzt. Schwellwert: `SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD=50` (default).
   - **`USE_RULE_BASED_AGENTS`** – Standard ist `true`: FININT, GEOINT, NEWS, SOCMINT, SIGINT laufen mit fester Tool-Kette (siehe `docs/AGENT-TOOL-CHAIN.md`), kein LLM in den Agents. Nur der Supervisor nutzt ein LLM. Zum Aktivieren von LLM pro Agent: `USE_RULE_BASED_AGENTS=false`.
   - **`USE_RULE_BASED_SUPERVISOR=true`** – Zusätzlich Supervisor ohne LLM: nur gewichteter Score, Threat-Stufen, Key Findings aus Agent-Daten. Kein LLM-Aufruf im Supervisor (minimale Kosten).
 - **Grobe LLM-Kosten pro Analyse** (Stand grob 2025/26, nur Supervisor – Agents laufen standardmäßig regelbasiert; ca. 25k Input-, 1k Output-Tokens):
-  - **Nur Haiku** (kein Sonnet): **`USE_SUPERVISOR_FALLBACK_MODEL=false`** → ~**0,03 USD** pro Lauf.
-  - **Haiku + Fallback Sonnet bei Widersprüchen** (Standard): meist ~**0,03 USD** (Haiku), bei stark abweichenden Agent-Scores ~**0,10 USD** (Sonnet) – wenn Sonnet-Kosten steigen, Fallback abschalten (siehe oben).
+  - **Nur Haiku** (Standard, kein Sonnet): Default `USE_SUPERVISOR_FALLBACK_MODEL=false` → ~**0,03 USD** pro Lauf.
+  - **Haiku + Fallback Sonnet bei Widersprüchen:** `USE_SUPERVISOR_FALLBACK_MODEL=true` – dann bei Score-Spannweite ≥ 50 Sonnet (~0,10 USD), sonst Haiku.
   - **Nur Claude Sonnet:** ~**0,08–0,12 USD** pro Lauf (z. B. `SUPERVISOR_MODEL=claude-sonnet-4-6`).
   - **OpenAI gpt-4o-mini** (`LLM_PROVIDER=openai`): ~**0,005 USD** (ca. 0,5 Cent) pro Lauf; bei Widersprüchen optional `OPENAI_SUPERVISOR_FALLBACK_MODEL=gpt-4o`.
   - **`USE_RULE_BASED_SUPERVISOR=true`:** **0 USD** (kein LLM)
