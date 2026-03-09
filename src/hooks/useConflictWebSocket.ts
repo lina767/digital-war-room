@@ -66,6 +66,17 @@ export interface ConflictData {
     un_icj_news?: Array<{ title?: string; url?: string; source?: string }>;
     summary?: string;
   };
+  proximity?: {
+    proximity_score?: number;
+    evidence?: Array<{
+      facilityName?: string;
+      facilityType?: string;
+      distanceMeters?: number;
+      riskLabel?: string;
+      summary?: string;
+    }>;
+    summary?: string;
+  };
 }
 
 interface UseConflictWebSocketOptions {

@@ -8,18 +8,18 @@
 
 - **Umgebungsvariable:** `USE_RULE_BASED_AGENTS` ist standardmäßig `true`. Zum Deaktivieren: `USE_RULE_BASED_AGENTS=false`.
 - **Wirkung:** Jeder Agent (FININT, SIGINT, NEWS, GEOINT, SOCMINT) führt seine **feste Tool-Kette** in der unten dokumentierten Reihenfolge aus – **ohne** LLM-Aufruf (Haiku). TECHINT, CYBER, ENERGY, PROTEST, DIPLO sind ohnehin regelbasiert.
-- **Supervisor:** **Ein** LLM-Aufruf (Haiku/Sonnet) nach den **10** Agent-Ergebnissen. Der Supervisor ist darauf vorbereitet, dass die Agent-Daten aus regelbasierten Ketten stammen; er synthetisiert aus Scores und Rohdaten (articles, aircraft, anomalies, sanctions, protests, etc.) zu key_findings, scenarios und summary.
-- **Ausgabeformat:** Frontend und API liefern zusätzlich `cyber`, `energy`, `protest`, `diplo` im Analyse-Ergebnis.
+- **Supervisor:** **Ein** LLM-Aufruf (Haiku/Sonnet) nach den **11** Agent-Ergebnissen. Der Supervisor ist darauf vorbereitet, dass die Agent-Daten aus regelbasierten Ketten stammen; er synthetisiert aus Scores und Rohdaten (articles, aircraft, anomalies, sanctions, protests, proximity evidence, etc.) zu key_findings, scenarios und summary.
+- **Ausgabeformat:** Frontend und API liefern zusätzlich `cyber`, `energy`, `protest`, `diplo`, `proximity` im Analyse-Ergebnis.
 
 ---
 
 ## 1. Pipeline-Ebene (Supervisor)
 
-**Ablauf:** `collection_node` → alle **10** Agents **parallel** (ThreadPoolExecutor) → `supervisor_node` (Claude Haiku/Sonnet).
+**Ablauf:** `collection_node` → alle **11** Agents **parallel** (ThreadPoolExecutor) → `supervisor_node` (Claude Haiku/Sonnet).
 
 | Schritt | Reihenfolge | Beschreibung |
 |--------|--------------|--------------|
-| 1 | **Parallel** | Alle 10 Agents werden gleichzeitig gestartet (Reihenfolge der Submission ist fest, Ausführung parallel): |
+| 1 | **Parallel** | Alle 11 Agents werden gleichzeitig gestartet (Reihenfolge der Submission ist fest, Ausführung parallel): |
 |   | 1. FININT  | `run_finint_agent(conflict)` |
 |   | 2. SIGINT  | `run_sigint_agent(conflict)` |
 |   | 3. NEWS    | `run_news_agent(conflict)` |
@@ -30,9 +30,10 @@
 |   | 8. ENERGY | `run_energy_agent(conflict)` |
 |   | 9. PROTEST| `run_protest_agent(conflict)` |
 |   | 10. DIPLO | `run_diplo_agent(conflict)` |
-| 2 | **Sequentiell** | Sobald alle 10 Ergebnisse da sind: `supervisor_node` (Claude Haiku/Sonnet) synthetisiert. |
+|   | 11. PROXIMITY | `run_proximity_agent(conflict)` |
+| 2 | **Sequentiell** | Sobald alle 11 Ergebnisse da sind: `supervisor_node` (Claude Haiku/Sonnet) synthetisiert. |
 
-Die **Reihenfolge der Agent-Ausführung** ist also: FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO (Submission); sie laufen parallel. Danach genau **ein** Supervisor-Aufruf.
+Die **Reihenfolge der Agent-Ausführung** ist also: FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY (Submission); sie laufen parallel. Danach genau **ein** Supervisor-Aufruf.
 
 ---
 
@@ -160,6 +161,14 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ---
 
+### PROXIMITY (Strike–Civilian / Human-Shield, regelbasiert, kein LLM)
+
+- **Ablauf:** Konflikt → Region (z. B. Iran → iran); NASA FIRMS Thermal-Anomalien (GEOINT-Tool `get_thermal_anomalies`), optional Tunnel/Militär-GeoJSON (`TUNNEL_SITES_GEOJSON_URL`), dann `run_correlation_for_events` (Overpass: Schulen/Krankenhäuser/Regierung in 300 m; Human-Shield-Flag wenn Militärstandort nahe).
+- **Shared Service:** `services.proximity_correlation` (von API-Route `/api/proximity/analyze` und PROXIMITY-Agent genutzt).
+- Ausgabe: `proximity_score`, `evidence` (Liste mit riskLabel, facilityName, distanceMeters, summary), `summary`.
+
+---
+
 ## 3. Kurzüberblick für feste Tool-Kette
 
 | Agent  | Anzahl/Quellen | Feste Reihenfolge (Fallback) |
@@ -174,7 +183,8 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 | ENERGY | 2 (intern) | _fetch_agsi_storage → _fetch_commodity_prices |
 | PROTEST| 2 (intern) | _fetch_acled_protests → _fetch_gdelt_protest |
 | DIPLO  | 3 (intern) | _fetch_ofac_sdn → _fetch_eu_sanctions → _fetch_un_icj_news |
+| PROXIMITY | 3 (intern) | get_thermal_anomalies(region) → optional tunnel GeoJSON → run_correlation_for_events (Overpass) |
 
-**Supervisor:** 1× Claude Haiku/Sonnet nach den 10 Agent-Ergebnissen.
+**Supervisor:** 1× Claude Haiku/Sonnet nach den 11 Agent-Ergebnissen.
 
 Um ein **regelbasiertes System** zu bauen: Pro Agent den **Fallback-Pfad** als Standard nutzen (Tools in dieser Reihenfolge aufrufen, dann die bestehende Score-/Aggregationslogik). So kannst du jeden Agent fest in die Tool-Kette verdrahten und die Haiku-Aufrufe in den Agents weglassen.

@@ -275,60 +275,21 @@ function buildSummary(
 // ── Main analysis pipeline ──────────────────────────────────────────────────
 
 /**
- * Runs the full Proximity Analysis: fetch strikes, for each strike query Overpass,
- * correlate with Turf.js, and return evidence list. Rate-limits Overpass requests.
+ * Runs the full Proximity Analysis via backend: strikes (NASA FIRMS), Overpass
+ * (schools/hospitals/government), and optional tunnel/military sites for
+ * PROBABLE_HUMAN_SHIELD. Server-side correlation; no client-side Overpass calls.
+ * @param militarySites – ignored (backend fetches tunnel sites when region is middle_east/iran)
  */
 export async function runProximityAnalysis(
   region: string = "middle_east",
   days: number = 3,
-  militarySites?: MilitarySitesGeoJSON | null
+  _militarySites?: MilitarySitesGeoJSON | null
 ): Promise<ProximityEvidence[]> {
-  const allStrikes = await fetchStrikeData(region, days);
-  const strikes = allStrikes.slice(0, MAX_STRIKES_TO_PROCESS);
-  const evidence: ProximityEvidence[] = [];
-  const seenKeys = new Set<string>();
-
-  for (let i = 0; i < strikes.length; i++) {
-    const strike = strikes[i];
-    if (i > 0) await delay(REQUEST_DELAY_MS);
-
-    let facilities: CivilianFacility[];
-    try {
-      facilities = await fetchOverpassContext(strike.lat, strike.lon);
-    } catch (e) {
-      console.warn("Overpass request failed for strike", strike.lat, strike.lon, e);
-      continue;
-    }
-
-    const result = nearestFacilityAndDistance(
-      strike.lat,
-      strike.lon,
-      facilities,
-      militarySites ?? undefined
-    );
-    if (!result) continue;
-
-    const { facility, distanceMeters, riskLabel } = result;
-    const key = `${strike.lat.toFixed(4)}-${strike.lon.toFixed(4)}-${facility.id}`;
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
-
-    const facilityType =
-      facility.amenity ?? facility.office ?? "civilian infrastructure";
-
-    evidence.push({
-      facilityName: facility.name,
-      facilityType,
-      distanceMeters,
-      riskLabel,
-      strikeLat: strike.lat,
-      strikeLon: strike.lon,
-      facilityLat: facility.lat,
-      facilityLon: facility.lon,
-      strikeAcquired: strike.acquired,
-      summary: buildSummary(facility.name, distanceMeters, riskLabel),
-    });
-  }
-
+  const d = Math.max(1, Math.min(5, days));
+  const url = `${getApiBase()}/api/proximity/analyze?region=${encodeURIComponent(region)}&days=${d}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(90_000) });
+  if (!res.ok) throw new Error(`Proximity analyze failed: ${res.status}`);
+  const data = (await res.json()) as { evidence?: ProximityEvidence[] };
+  const evidence = data.evidence ?? [];
   return evidence.sort((a, b) => a.distanceMeters - b.distanceMeters);
 }

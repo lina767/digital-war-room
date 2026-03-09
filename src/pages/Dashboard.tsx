@@ -7,7 +7,7 @@ import { runProximityAnalysis, fetchTunnelSites } from "@/lib/proximityAnalyzerS
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -66,6 +66,7 @@ const Dashboard = () => {
     n += (conflictData.energy?.agsi_storage?.full?.length ?? 0) + (conflictData.energy?.commodities?.length ?? 0);
     n += (conflictData.protest?.protest_events?.length ?? 0) + (conflictData.protest?.protest_articles?.length ?? 0);
     n += (conflictData.diplo?.ofac_sdn?.total_matches ?? 0) + (conflictData.diplo?.un_icj_news?.length ?? 0);
+    n += (conflictData.proximity?.evidence?.length ?? 0);
     return n;
   }, [conflictData]);
 
@@ -269,6 +270,13 @@ const Dashboard = () => {
           >
             <BookOpen className="h-3.5 w-3.5" aria-hidden />
             <span>How it works</span>
+          </Link>
+          <Link
+            to="/sources"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+          >
+            <Database className="h-3.5 w-3.5" aria-hidden />
+            <span>Source Directory</span>
           </Link>
           <Link
             to="/support"

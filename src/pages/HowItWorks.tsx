@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft, Info } from "lucide-react";
+import { ArrowLeft, Info, Database } from "lucide-react";
 
 const HowItWorks = () => {
   return (
@@ -43,6 +43,13 @@ const HowItWorks = () => {
             <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
               The platform combines several open-source intelligence (OSINT) streams. Each stream is handled by a
               dedicated agent that calls external APIs, normalises the results, and computes a stream-specific score.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <Link to="/sources" className="inline-flex items-center gap-1.5 text-primary hover:underline">
+                <Database className="h-3.5 w-3.5" />
+                <span>Source Directory</span>
+              </Link>
+              {" "}– transparent, searchable list of all data sources with reliability ratings.
             </p>
             <div className="grid gap-4 sm:gap-5 md:grid-cols-2">
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">

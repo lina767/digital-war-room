@@ -31,6 +31,7 @@ export interface AnalyzeResponse {
   energy?: Record<string, unknown>;
   protest?: Record<string, unknown>;
   diplo?: Record<string, unknown>;
+  proximity?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

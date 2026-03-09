@@ -120,6 +120,56 @@ async def get_proximity_strikes(region: str = "middle_east", days: int = 3):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+# Max strikes to correlate (Overpass rate limit ~1 req/s; keeps response time reasonable)
+_PROXIMITY_ANALYZE_MAX_STRIKES = 15
+
+
+@router.get("/proximity/analyze")
+async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
+    """
+    GET /api/proximity/analyze?region=...&days=3
+    Full proximity analysis server-side: fetches NASA FIRMS strikes, queries Overpass for
+    schools/hospitals/government within 300m, optionally checks tunnel/military sites for
+    PROBABLE_HUMAN_SHIELD. Returns { evidence: [...] } (camelCase for frontend).
+    Replaces client-side Overpass loop; use this for the Dashboard "Run" button.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        raw = await loop.run_in_executor(
+            None,
+            lambda: get_thermal_anomalies.invoke({"region": region, "days": max(1, min(5, int(days)))}),
+        )
+        anomalies = [
+            a for a in (raw if isinstance(raw, list) else [])
+            if isinstance(a, dict) and "error" not in a and "lat" in a and "lon" in a
+        ]
+        events = [
+            {
+                "lat": float(a["lat"]),
+                "lon": float(a["lon"]),
+                "source": "FIRMS",
+                "description": a.get("type") or "thermal anomaly",
+                "acquired": a.get("acquired"),
+            }
+            for a in anomalies[: _PROXIMITY_ANALYZE_MAX_STRIKES]
+        ]
+        tunnel_geojson = None
+        if region in ("middle_east", "iran"):
+            url = (os.getenv("TUNNEL_SITES_GEOJSON_URL") or "").strip()
+            if url:
+                try:
+                    client = get_http_client()
+                    tunnel_geojson = await client.get_json(url)
+                    if not isinstance(tunnel_geojson, dict) or tunnel_geojson.get("type") != "FeatureCollection":
+                        tunnel_geojson = None
+                except Exception:
+                    tunnel_geojson = None
+        evidence = await run_correlation_for_events(events, tunnel_sites_geojson=tunnel_geojson)
+        return {"evidence": evidence, "region": region, "days": days}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 # ── IAEA / OE-III Tracker (ADS-B, NOTAMs, IAEA Press – Rafael Grossi) ───────────
 
 @router.get("/iaea-tracker")

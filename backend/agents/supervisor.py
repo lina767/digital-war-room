@@ -24,6 +24,7 @@ from .cyber_agent import run_cyber_agent
 from .energy_agent import run_energy_agent
 from .protest_agent import run_protest_agent
 from .diplo_agent import run_diplo_agent
+from .proximity_agent import run_proximity_agent
 from .acled_reference import fetch_acled_reference_analyses_sync
 
 
@@ -42,6 +43,7 @@ class AnalysisState(TypedDict, total=False):
     energy_result: Dict[str, Any]
     protest_result: Dict[str, Any]
     diplo_result: Dict[str, Any]
+    proximity_result: Dict[str, Any]
     escalation_score: float
     threat_level: str
     key_findings: List[str]
@@ -68,7 +70,7 @@ def collection_node(state: AnalysisState) -> AnalysisState:
     When USE_RULE_BASED_AGENTS is set, each agent uses its fixed tool chain (no LLM); output shape is unchanged."""
     conflict = state.get("conflict") or ""
 
-    with ThreadPoolExecutor(max_workers=11) as executor:
+    with ThreadPoolExecutor(max_workers=12) as executor:
         finint_f   = executor.submit(run_finint_agent, conflict)
         sigint_f   = executor.submit(run_sigint_agent, conflict)
         news_f     = executor.submit(run_news_agent, conflict)
@@ -79,6 +81,7 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         energy_f   = executor.submit(run_energy_agent, conflict)
         protest_f  = executor.submit(run_protest_agent, conflict)
         diplo_f    = executor.submit(run_diplo_agent, conflict)
+        proximity_f = executor.submit(run_proximity_agent, conflict)
         acled_ref_f = executor.submit(fetch_acled_reference_analyses_sync, conflict)
 
         finint_result   = _result_or_fallback(finint_f, "finint", {"escalation_score": 0.0, "brent": None, "polymarket": []})
@@ -91,6 +94,7 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         energy_result   = _result_or_fallback(energy_f, "energy", {"energy_score": 0.0, "agsi_storage": {}, "commodities": []})
         protest_result  = _result_or_fallback(protest_f, "protest", {"protest_score": 0.0, "protest_events": [], "protest_articles": []})
         diplo_result    = _result_or_fallback(diplo_f, "diplo", {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []})
+        proximity_result = _result_or_fallback(proximity_f, "proximity", {"proximity_score": 0.0, "evidence": [], "summary": ""})
         acled_reference_result = _result_or_fallback(acled_ref_f, "acled_reference", [])
 
     return {
@@ -105,6 +109,7 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         "energy_result":   energy_result,
         "protest_result":  protest_result,
         "diplo_result":    diplo_result,
+        "proximity_result": proximity_result,
     }
 
 
@@ -123,7 +128,7 @@ def _agents_seem_contradictory(scores: List[float]) -> bool:
 
 
 def supervisor_node(state: AnalysisState) -> AnalysisState:
-    """Synthesizes all 10 intelligence streams (Haiku by default; Sonnet when agents disagree)."""
+    """Synthesizes all 11 intelligence streams (Haiku by default; Sonnet when agents disagree)."""
     conflict        = state.get("conflict") or ""
     acled_refs      = state.get("acled_reference_result") or []
     if not isinstance(acled_refs, list):
@@ -138,6 +143,7 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
     energy_result   = state.get("energy_result") or {}
     protest_result  = state.get("protest_result") or {}
     diplo_result    = state.get("diplo_result") or {}
+    proximity_result = state.get("proximity_result") or {}
 
     # Extract scores
     finint_score   = float(finint_result.get("escalation_score", 0.0))
@@ -150,20 +156,22 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
     energy_score   = float(energy_result.get("energy_score", 0.0))
     protest_score  = float(protest_result.get("protest_score", 0.0))
     diplo_score    = float(diplo_result.get("diplo_score", 0.0))
+    proximity_score = float(proximity_result.get("proximity_score", 0.0))
 
-    # Weighted composite score (10 agents)
-    # FININT 11% | SIGINT 14% | NEWS 11% | GEOINT 9% | SOCMINT 11% | TECHINT 9% | CYBER 9% | ENERGY 9% | PROTEST 9% | DIPLO 8%
+    # Weighted composite score (11 agents: FININT … DIPLO + PROXIMITY)
+    # Weights sum to 1.0; PROXIMITY 8%, rest scaled proportionally
     combined_score = (
-        finint_score   * 0.11 +
-        sigint_score   * 0.14 +
-        news_score     * 0.11 +
-        geoint_score   * 0.09 +
-        socmint_score  * 0.11 +
-        techint_score  * 0.09 +
-        cyber_score    * 0.09 +
-        energy_score   * 0.09 +
-        protest_score  * 0.09 +
-        diplo_score    * 0.08
+        finint_score   * 0.10 +
+        sigint_score   * 0.13 +
+        news_score     * 0.10 +
+        geoint_score   * 0.08 +
+        socmint_score  * 0.10 +
+        techint_score  * 0.08 +
+        cyber_score    * 0.08 +
+        energy_score   * 0.08 +
+        protest_score  * 0.08 +
+        diplo_score    * 0.07 +
+        proximity_score * 0.10
     )
 
     require_supervisor_api_key()
@@ -188,13 +196,13 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
             "threat_level": threat_level,
             "key_findings": [],
             "scenarios": [],
-            "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}, CYBER {cyber_score:.0f}, ENERGY {energy_score:.0f}, PROTEST {protest_score:.0f}, DIPLO {diplo_score:.0f}). Key findings below from agents.",
+            "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}, CYBER {cyber_score:.0f}, ENERGY {energy_score:.0f}, PROTEST {protest_score:.0f}, DIPLO {diplo_score:.0f}, PROXIMITY {proximity_score:.0f}). Key findings below from agents.",
         }
     else:
         # Mit LLM: Haiku standardmäßig; bei Widerspruch optional Sonnet (USE_SUPERVISOR_FALLBACK_MODEL=true).
         # Default: Fallback aus → immer Haiku. Schwellwert: SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD (default 50).
         use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
-        agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score, cyber_score, energy_score, protest_score, diplo_score]
+        agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score, cyber_score, energy_score, protest_score, diplo_score, proximity_score]
         complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
         model = get_supervisor_model(complex_case=complex_case)
         system_prompt = """You are a senior intelligence analyst with access to 10 intelligence streams:
@@ -208,6 +216,7 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
 - ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI)
 - PROTEST: ACLED protests/riots, GDELT protest coverage (civil society unrest)
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
+- PROXIMITY: Strike–civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
 
 When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages (Middle East / Iran updates, expert comments, reports) whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary—e.g. ACLED assessments on Kurdish dynamics, Hezbollah, Gulf states, ground invasion risks—not as mere links but as substantive context.
 
@@ -236,6 +245,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
                 "energy": energy_score,
                 "protest": protest_score,
                 "diplo": diplo_score,
+                "proximity": proximity_score,
             },
             "finint": finint_result,
             "sigint": sigint_result,
@@ -247,6 +257,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
             "energy": energy_result,
             "protest": protest_result,
             "diplo": diplo_result,
+            "proximity": proximity_result,
         }
         msg = model.invoke([
             SystemMessage(content=system_prompt),
@@ -359,6 +370,12 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
         if isinstance(n, dict) and n.get("title") and "error" not in n:
             key_findings.append(f"DIPLO ({n.get('source', 'UN/ICJ')}) – {n.get('title', '')[:55]}")
 
+    # PROXIMITY: strike–civilian / human-shield evidence
+    for ev in (proximity_result.get("evidence") or [])[:3]:
+        if isinstance(ev, dict) and ev.get("summary"):
+            risk = ev.get("riskLabel", "")
+            key_findings.append(f"PROXIMITY ({risk}) – {ev.get('summary', '')[:75]}")
+
     # ACLED reference analyses (curated Middle East / Iran pages – context for synthesis)
     for ref in acled_refs[:3]:
         if isinstance(ref, dict) and ref.get("title") and "error" not in str(ref.get("excerpt", ""))[:50]:
@@ -403,6 +420,7 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "energy":   result.get("energy_result", {}),
         "protest":  result.get("protest_result", {}),
         "diplo":    result.get("diplo_result", {}),
+        "proximity": result.get("proximity_result", {}),
         "escalation_score": result.get("escalation_score", 0.0),
         "threat_level":     result.get("threat_level", "MINIMAL"),
         "key_findings":     result.get("key_findings", []),

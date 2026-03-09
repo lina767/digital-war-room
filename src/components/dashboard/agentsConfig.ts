@@ -109,4 +109,13 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "UN / ICJ", description: "Press RSS – resolutions, court updates" },
     ],
   },
+  {
+    name: "PROXIMITY",
+    fullName: "Strike–Civilian / Human-Shield",
+    sources: [
+      { name: "NASA FIRMS", description: "Thermal anomalies as strike triggers (VIIRS_SNPP_NRT)" },
+      { name: "Overpass (OSM)", description: "Schools, hospitals, government within 300 m" },
+      { name: "Tunnel / military sites", description: "Optional GeoJSON (TUNNEL_SITES_GEOJSON_URL) for human-shield flag" },
+    ],
+  },
 ];
