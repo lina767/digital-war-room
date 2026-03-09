@@ -75,4 +75,38 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "Shodan", description: "Host counts by country, port breakdown (502/22/443), vuln count" },
     ],
   },
+  {
+    name: "CYBER",
+    fullName: "Threat Intelligence",
+    sources: [
+      { name: "CISA KEV", description: "Known Exploited Vulnerabilities catalog (free)" },
+      { name: "Threat RSS", description: "Mandiant, CrowdStrike – conflict-related APT reports" },
+      { name: "AlienVault OTX", description: "Pulses/IoCs (optional OTX_API_KEY)" },
+    ],
+  },
+  {
+    name: "ENERGY",
+    fullName: "Energy / Commodities",
+    sources: [
+      { name: "AGSI+", description: "EU gas storage (optional AGSI_API_KEY)" },
+      { name: "Alpha Vantage", description: "Brent, WTI commodity prices" },
+    ],
+  },
+  {
+    name: "PROTEST",
+    fullName: "Civil Society / Protest",
+    sources: [
+      { name: "ACLED", description: "Protests, riots (optional ACLED_API_KEY). Iran: acleddata.com/iran-crisis-live" },
+      { name: "GDELT", description: "Protest-related articles (free)" },
+    ],
+  },
+  {
+    name: "DIPLO",
+    fullName: "Diplomacy / Legal",
+    sources: [
+      { name: "OFAC SDN", description: "US sanctions list (bulk CSV, free)" },
+      { name: "EU Consolidated List", description: "EU sanctions (open data)" },
+      { name: "UN / ICJ", description: "Press RSS – resolutions, court updates" },
+    ],
+  },
 ];
