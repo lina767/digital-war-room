@@ -200,7 +200,7 @@ def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Di
 def get_conflict_region(conflict: str) -> str:
     """Map a conflict name to its geographic region for thermal anomaly detection."""
     cl = conflict.lower()
-    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "iraq"]):
+    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "iraq", "lebanon"]):
         return "middle_east"
     if any(k in cl for k in ["ukraine", "russia", "donbas", "belarus"]):
         return "eastern_europe"
@@ -218,6 +218,7 @@ RELIEFWEB_COUNTRY_NAMES = {
     "israel": ["Israel"],
     "gaza": ["State of Palestine", "Israel"],
     "yemen": ["Yemen"],
+    "lebanon": ["Lebanon"],
     "syria": ["Syria"],
     "iraq": ["Iraq"],
     "ukraine": ["Ukraine"],
@@ -235,6 +236,7 @@ ACLED_COUNTRY_NAMES = {
     "israel": "Israel",
     "gaza": "Palestine",
     "yemen": "Yemen",
+    "lebanon": "Lebanon",
     "syria": "Syria",
     "iraq": "Iraq",
     "ukraine": "Ukraine",

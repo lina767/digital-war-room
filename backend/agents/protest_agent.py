@@ -26,6 +26,7 @@ ACLED_COUNTRY_NAMES = {
     "russia": "Russia",
     "syria": "Syria",
     "yemen": "Yemen",
+    "lebanon": "Lebanon",
     "iraq": "Iraq",
     "default": "Iran",
 }

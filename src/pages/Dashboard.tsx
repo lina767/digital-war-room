@@ -76,7 +76,7 @@ const Dashboard = () => {
   const [proximityError, setProximityError] = useState<string | null>(null);
   const conflictToRegion = (c: string): string => {
     const lower = c.toLowerCase();
-    if (lower.includes("iran") || lower.includes("israel") || lower.includes("gaza") || lower.includes("yemen") || lower.includes("syria") || lower.includes("iraq")) return "middle_east";
+    if (lower.includes("iran") || lower.includes("israel") || lower.includes("gaza") || lower.includes("yemen") || lower.includes("syria") || lower.includes("iraq") || lower.includes("lebanon")) return "middle_east";
     if (lower.includes("ukraine") || lower.includes("russia")) return "eastern_europe";
     if (lower.includes("taiwan") || lower.includes("korea") || lower.includes("myanmar")) return "east_asia";
     if (lower.includes("sudan") || lower.includes("ethiopia") || lower.includes("sahel") || lower.includes("drc")) return "africa";

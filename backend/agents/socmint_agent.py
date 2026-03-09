@@ -123,7 +123,7 @@ DE_ESCALATION_KW = ["ceasefire", "talks", "diplomatic", "deal", "agreement", "pe
 
 def _conflict_to_region(conflict: str) -> str:
     cl = conflict.lower()
-    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria"]):
+    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "lebanon"]):
         return "middle_east"
     if any(k in cl for k in ["ukraine", "russia", "donbas"]):
         return "eastern_europe"
@@ -146,11 +146,19 @@ def _sentiment(text: str) -> float:
 def _conflict_keywords(conflict: str) -> List[str]:
     cl = conflict.lower()
     if "iran" in cl:
-        return ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf"]
+        return [
+            "iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf",
+            "houthi", "houthis", "ansar allah", "yemen", "red sea",
+            "hezbollah", "idf", "lebanon", "nasrallah",
+        ]
     if "ukraine" in cl:
         return ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky"]
+    if "yemen" in cl:
+        return ["yemen", "houthi", "houthis", "sanaa", "red sea", "ansar allah"]
+    if "lebanon" in cl:
+        return ["lebanon", "hezbollah", "nasrallah", "beirut", "south lebanon", "litani"]
     if "israel" in cl or "gaza" in cl:
-        return ["israel", "gaza", "hamas", "idf", "netanyahu", "west bank"]
+        return ["israel", "gaza", "hamas", "idf", "netanyahu", "west bank", "hezbollah"]
     if "taiwan" in cl:
         return ["taiwan", "china", "pla", "strait", "beijing", "taipei"]
     words = cl.split()

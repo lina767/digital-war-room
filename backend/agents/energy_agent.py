@@ -117,7 +117,13 @@ def _compute_energy_score(agsi: Dict[str, Any], commodities: List[Dict[str, Any]
     return min(100.0, max(0.0, base))
 
 
-def _build_summary(agsi: Dict[str, Any], commodities: List[Dict[str, Any]], score: float) -> str:
+# Threshold for "significant" oil move when linking to Iran/Hormuz global impact (percent)
+GLOBAL_IMPACT_OIL_THRESHOLD_PCT = 2.0
+
+
+def _build_summary(
+    agsi: Dict[str, Any], commodities: List[Dict[str, Any]], score: float, conflict: str = ""
+) -> str:
     parts = []
     if agsi.get("full"):
         parts.append(f"AGSI+: {len(agsi['full'])} storage record(s).")
@@ -128,7 +134,16 @@ def _build_summary(agsi: Dict[str, Any], commodities: List[Dict[str, Any]], scor
         parts.append("Commodities: " + ", ".join(f"{c.get('symbol', '')} {c.get('change_pct', '')}" for c in valid_c[:3]))
     if not parts:
         return "ENERGY: No AGSI or commodity data (set AGSI_API_KEY and/or ALPHAVANTAGE_API_KEY)."
-    return "ENERGY: " + " ".join(parts)
+    out = "ENERGY: " + " ".join(parts)
+    # Global impact (Iran): link oil move to Strait of Hormuz / chokepoint risk when relevant
+    if conflict and "iran" in conflict.lower():
+        max_up = max(
+            (c.get("change_pct_raw") for c in valid_c if c.get("change_pct_raw") is not None),
+            default=None,
+        )
+        if max_up is not None and max_up >= GLOBAL_IMPACT_OIL_THRESHOLD_PCT:
+            out += " Global impact (Iran): Oil move may reflect Strait of Hormuz / chokepoint risk."
+    return out
 
 
 def run_energy_agent(conflict: str) -> Dict[str, Any]:
@@ -140,12 +155,20 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         agsi = await _fetch_agsi_storage(agsi_key or "")
         commodities = await _fetch_commodity_prices(av_key) if av_key else []
         energy_score = _compute_energy_score(agsi, commodities)
-        summary = _build_summary(agsi, commodities, energy_score)
+        summary = _build_summary(agsi, commodities, energy_score, conflict=conflict)
+        global_impact_note = None
+        if conflict and "iran" in conflict.lower():
+            valid_c = [c for c in commodities if c.get("price") and "error" not in c and c.get("change_pct_raw") is not None]
+            max_up = max((c.get("change_pct_raw") for c in valid_c), default=None)
+            if max_up is not None and max_up >= GLOBAL_IMPACT_OIL_THRESHOLD_PCT:
+                pct_str = f"{max_up:+.1f}%"
+                global_impact_note = f"Brent/WTI {pct_str} – potential Hormuz chokepoint risk premium"
         return {
             "energy_score": round(energy_score, 1),
             "agsi_storage": agsi,
             "commodities": commodities,
             "summary": summary,
+            "global_impact_note": global_impact_note,
         }
 
     try:
@@ -156,4 +179,5 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             "agsi_storage": {"full": [], "error": str(e)},
             "commodities": [],
             "summary": f"ENERGY error: {e}",
+            "global_impact_note": None,
         }

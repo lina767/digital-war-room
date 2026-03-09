@@ -12,7 +12,7 @@ export interface ConflictLink {
   label: string;
 }
 
-/** For dropdown: id (storage), label (display), apiValue (backend analyze) */
+/** For dropdown: id (storage), label (display), apiValue (backend analyze). Yemen/Hezbollah nur im Iran-Kontext (Kartenlinks, Keywords). */
 export const CONFLICT_OPTIONS = [
   { id: "iran", label: "Iran", apiValue: "Iran" },
 ] as const;
@@ -30,6 +30,7 @@ export const conflicts: ConflictMarker[] = [
   { id: "drc", label: "DRC", coordinates: [24, -3], severity: "low" },
   { id: "korea", label: "Korean Peninsula", coordinates: [127, 38], severity: "low" },
   { id: "israel-palestine", label: "Israel–Palestine", coordinates: [35, 31.5], severity: "high" },
+  { id: "lebanon", label: "Lebanon", coordinates: [35.9, 33.9], severity: "high" },
 ];
 
 export const conflictLinks: ConflictLink[] = [
@@ -38,6 +39,7 @@ export const conflictLinks: ConflictLink[] = [
   { id: "link-3", from: "syria", to: "iran", label: "Iranian influence" },
   { id: "link-4", from: "iran", to: "yemen", label: "Houthi support" },
   { id: "link-5", from: "yemen", to: "israel-palestine", label: "Houthi strikes" },
+  { id: "link-5b", from: "israel-palestine", to: "lebanon", label: "Hezbollah" },
   { id: "link-6", from: "sudan", to: "ethiopia", label: "Border dispute" },
   { id: "link-7", from: "ethiopia", to: "drc", label: "Regional instability" },
   { id: "link-8", from: "sahel", to: "sudan", label: "Arms flow" },

@@ -40,6 +40,7 @@ CONFLICT_COUNTRY_CODES: Dict[str, List[str]] = {
     "ukraine": ["UA"],
     "israel": ["IL"],
     "gaza": ["PS"],
+    "lebanon": ["LB"],
     "china": ["CN"],
     "taiwan": ["TW"],
     "syria": ["SY"],

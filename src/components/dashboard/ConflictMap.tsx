@@ -44,6 +44,7 @@ const CONFLICT_CENTERS: Record<string, { center: [number, number]; zoom: number 
   "us-iran": { center: [53, 28], zoom: 3.5 },
   ukraine: { center: [32, 48], zoom: 4 },
   "israel-palestine": { center: [35, 31], zoom: 5 },
+  lebanon: { center: [35.8, 33.9], zoom: 5.5 },
   "taiwan-strait": { center: [120, 24], zoom: 4 },
   sudan: { center: [30, 15], zoom: 3.5 },
   yemen: { center: [46, 15], zoom: 4 },

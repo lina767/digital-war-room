@@ -218,7 +218,7 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 - PROXIMITY: Strike–civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
 
-When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages (Middle East / Iran updates, expert comments, reports) whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary—e.g. ACLED assessments on Kurdish dynamics, Hezbollah, Gulf states, ground invasion risks—not as mere links but as substantive context.
+When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages (Middle East / Iran updates, expert comments, reports) whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary—e.g. ACLED assessments on Kurdish dynamics, Hezbollah, Gulf states, ground invasion risks—not as mere links but as substantive context. For conflict Iran/Middle East, include Hezbollah–IDF and Houthi dynamics in key_findings and summary when the agent data supports it. For conflict Iran/Middle East, explicitly address global impacts in key_findings and summary when data supports it: oil price moves (Brent/WTI), Strait of Hormuz / chokepoint risk, EU gas storage, and supply chain implications.
 
 Agent results may be produced by rule-based tool chains (fixed tool order, no per-agent LLM). Treat the payload as authoritative: use the composite_score and per-stream scores, and derive key_findings, scenarios, and summary from the raw data (articles, aircraft, anomalies, signals, sanctions, protests, etc.) and the stream summaries provided. Your output format and quality standards are unchanged.
 
@@ -359,6 +359,28 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
     for c in (energy_result.get("commodities") or [])[:2]:
         if c.get("symbol") and "error" not in c and c.get("price"):
             key_findings.append(f"ENERGY – {c.get('symbol')} {c.get('price')} ({c.get('change_pct', '')})")
+    # Global impact (Iran): oil move vs Strait of Hormuz / chokepoint
+    if conflict and "iran" in conflict.lower():
+        note = energy_result.get("global_impact_note")
+        if note:
+            key_findings.append(f"Global impact – {note}")
+        else:
+            commodities = energy_result.get("commodities") or []
+            valid_c = [c for c in commodities if isinstance(c, dict) and c.get("change_pct_raw") is not None and "error" not in c]
+            max_up = max((c.get("change_pct_raw") for c in valid_c), default=None)
+            if max_up is not None and max_up >= 2.0:
+                key_findings.append(f"Global impact – Oil (Brent/WTI) {max_up:+.1f}% – potential Strait of Hormuz / chokepoint risk premium")
+    # Global impact (News): one headline re Hormuz/oil/chokepoint when conflict is Iran
+    if conflict and "iran" in conflict.lower():
+        global_kw = ("hormuz", "hormus", "oil", "chokepoint", "strait")
+        for art in (news_result.get("articles") or []):
+            if not isinstance(art, dict) or "error" in art:
+                continue
+            title = (art.get("title") or "").lower()
+            if any(kw in title for kw in global_kw):
+                src = art.get("source") or "News"
+                key_findings.append(f"Global impact (News) – {art.get('title', '')[:70]} [{src}]")
+                break
 
     # Append PROTEST: ACLED events, GDELT articles
     protest_events = protest_result.get("protest_events") or []

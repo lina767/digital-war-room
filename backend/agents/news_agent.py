@@ -72,7 +72,8 @@ def _build_query(conflict: str) -> str:
     if "iran" in cl:
         return (
             '(Iran OR IRGC OR "Persian Gulf" OR Khamenei OR Rouhani OR "nuclear deal" '
-            'OR "Iranian military" OR "US Iran" OR "Israel Iran" OR Hormuz OR "Iranian strike") '
+            'OR "Iranian military" OR "US Iran" OR "Israel Iran" OR Hormuz OR "Iranian strike" '
+            'OR Hezbollah OR Houthi OR Houthis OR IDF OR Yemen OR Lebanon) '
             "AND (attack OR military OR nuclear OR sanctions OR war OR strike OR missile OR deal)"
         )
     if "ukraine" in cl:
@@ -307,7 +308,7 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     keywords = []
     cl = conflict.lower()
     if "iran" in cl:
-        keywords = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian"]
+        keywords = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian", "houthi", "hezbollah", "idf", "yemen", "lebanon"]
     elif "ukraine" in cl or "russia" in cl:
         keywords = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
     else:

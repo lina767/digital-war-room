@@ -53,6 +53,8 @@ export interface ConflictData {
     agsi_storage?: { full?: Array<{ country?: string; full_pct?: number }> };
     commodities?: Array<{ symbol?: string; price?: string; change_pct?: string }>;
     summary?: string;
+    /** Set when conflict is Iran and oil move exceeds threshold (Hormuz/chokepoint risk). */
+    global_impact_note?: string | null;
   };
   protest?: {
     protest_score?: number;

@@ -351,7 +351,7 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     BBC, DW, Al Jazeera, RFE/RL, plus think tanks (CriticalThreats, LongWarJournal, UnderstandingWar).
     """
     CONFLICT_KEYWORDS = {
-        "iran": ["iran", "irgc", "tehran", "hormuz", "houthi", "yemen", "persian gulf"],
+        "iran": ["iran", "irgc", "tehran", "hormuz", "houthi", "yemen", "persian gulf", "hezbollah", "idf", "lebanon"],
         "ukraine": ["ukraine", "russia", "kyiv", "donbas"],
         "israel": ["israel", "gaza", "hamas", "hezbollah", "idf"],
         "taiwan": ["taiwan", "pla", "strait", "china"],

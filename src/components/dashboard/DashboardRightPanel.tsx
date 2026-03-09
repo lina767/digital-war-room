@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing";
+import { GlobalImpactPanel } from "@/components/dashboard/GlobalImpactPanel";
 import { LatestHeadlines } from "@/components/dashboard/LatestHeadlines";
 import { EventsTimeline } from "@/components/dashboard/EventsTimeline";
 import { EvidenceCard } from "@/components/dashboard/EvidenceCard";
@@ -57,6 +58,7 @@ export function DashboardRightPanel({
 
       <div className="space-y-4">
         <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} />
+        <GlobalImpactPanel data={conflictData} />
         <LatestHeadlines data={conflictData} maxItems={15} />
         <EventsTimeline data={conflictData} />
       </div>
