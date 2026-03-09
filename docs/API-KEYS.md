@@ -21,8 +21,9 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 |-----|---------------------|--------------|
 | **OTX_API_KEY** | `backend/agents/cyber_agent.py` – AlienVault OTX (Threat Intel) | [otx.alienvault.com](https://otx.alienvault.com/) → Sign Up → Einstellungen (Avatar) → API Key. Kostenlos. |
 | **AGSI_API_KEY** | `backend/agents/energy_agent.py` – EU-Gasspeicher (AGSI+) | [agsi.gie.eu/account](https://agsi.gie.eu/account) – Registrierung (kostenlos). Key nach Login in der API-Doku. |
-| **ACLED_API_KEY** | `backend/agents/protest_agent.py`, `geoint_agent.py`, `api/routes.py` (Conflict-Events/Heatmap) | [acleddata.com/user/register](https://acleddata.com/user/register) – myACLED Account. API-Zugang über [developer.acleddata.com](https://developer.acleddata.com/). |
-| **ACLED_EMAIL** | `backend/agents/protest_agent.py`, `geoint_agent.py` – wird teils von ACLED API verlangt | Deine bei ACLED registrierte E-Mail (gleiche wie beim ACLED-Account). |
+| **ACLED_EMAIL** | `backend/agents/protest_agent.py`, `geoint_agent.py`, `services/acled_auth.py` | Deine myACLED-Registrierungs-E-Mail. **OAuth (empfohlen):** zusammen mit `ACLED_PASSWORD` für Token-Auth. |
+| **ACLED_PASSWORD** | `backend/services/acled_auth.py` – OAuth Token-Abruf | Dein myACLED-Passwort. Mit `ACLED_EMAIL` erhält die App ein Zugangs-Token (24h gültig) gemäß [ACLED API Getting started](https://acleddata.com/api-documentation/getting-started). |
+| **ACLED_API_KEY** | (Legacy) Falls ACLED noch einen API-Key anbietet | Optional; primär wird **OAuth (ACLED_EMAIL + ACLED_PASSWORD)** genutzt. |
 
 **Ohne ACLED-API:** Auf der ACLED-Webseite gibt es öffentlich einsehbare Crisis-Live-Daten, z. B. **[Iran Crisis Live](https://acleddata.com/iran-crisis-live)** – tägliche Updates, Karten und Analysen zum Iran-Konflikt (täglich 10:30 EST / 15:30 CET). Für die Plattform-Heatmap und PROTEST-Events wird weiterhin ein API-Key benötigt; die Webseite eignet sich als manuelle Ergänzung.
 
@@ -64,8 +65,9 @@ ALPHAVANTAGE_API_KEY=...
 # Optional – neue Agents
 OTX_API_KEY=...
 AGSI_API_KEY=...
-ACLED_API_KEY=...
+# ACLED (OAuth – siehe acleddata.com/api-documentation/getting-started)
 ACLED_EMAIL=deine@email.de
+ACLED_PASSWORD=dein_myACLED_passwort
 ```
 
 Alle Key-Namen findest du auch per Suche im Repo: `os.getenv("KEY_NAME")` bzw. in `backend/scripts/check_agents.py` und `docs/DEPLOYMENT.md`.

@@ -168,7 +168,7 @@ async def get_conflict_events(conflict: str = "Iran", limit: int = 200):
     """
     GET /api/conflict-events?conflict=Iran&limit=200
     Returns conflict events with lat, lon, intensity for heatmap layer (ACLED).
-    Requires ACLED_API_KEY in env. Intensity derived from fatalities and event type.
+    Requires ACLED_EMAIL + ACLED_PASSWORD (OAuth) or legacy ACLED_API_KEY. Intensity derived from fatalities and event type.
     """
     try:
         loop = asyncio.get_running_loop()

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
 import httpx
+from services.acled_auth import get_acled_token_async, has_acled_oauth
 from .llm_factory import get_agent_model
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
@@ -224,7 +225,11 @@ RELIEFWEB_COUNTRY_NAMES = {
     "default": ["Iran", "Syria", "Yemen", "State of Palestine", "Israel"],
 }
 
-# ACLED API: filter by country name (e.g. "Iran", "Ukraine"). Requires ACLED_API_KEY (+ optional ACLED_EMAIL).
+# ACLED API: OAuth (ACLED_EMAIL + ACLED_PASSWORD) at acleddata.com/api; legacy key at api.acleddata.com
+ACLED_API_URL = "https://acleddata.com/api/acled/read"
+ACLED_LEGACY_URL = "https://api.acleddata.com/acled/read"
+
+# ACLED API: filter by country name (e.g. "Iran", "Ukraine"). OAuth or legacy ACLED_API_KEY.
 ACLED_COUNTRY_NAMES = {
     "iran": "Iran",
     "israel": "Israel",
@@ -317,21 +322,25 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     except Exception as e:
         reports = [{"error": str(e)}]
 
-    acled_key = os.getenv("ACLED_API_KEY")
-    if acled_key and isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+    acled_ok = has_acled_oauth() or os.getenv("ACLED_API_KEY")
+    if acled_ok and isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
         try:
-            url = "https://api.acleddata.com/acled/read"
-            params = {
-                "key": acled_key,
-                "limit": 10,
-                "country": acled_country,
-            }
-            email = os.getenv("ACLED_EMAIL")
-            if email:
-                params["email"] = email
             async def _acled():
+                token = await get_acled_token_async() if has_acled_oauth() else None
+                if has_acled_oauth() and not token:
+                    return
+                params = {"_format": "json", "limit": 10, "country": acled_country}
+                if token:
+                    url = ACLED_API_URL
+                    headers = {"Authorization": f"Bearer {token}"}
+                else:
+                    url = ACLED_LEGACY_URL
+                    headers = {}
+                    params["key"] = os.getenv("ACLED_API_KEY", "")
+                    if os.getenv("ACLED_EMAIL"):
+                        params["email"] = os.getenv("ACLED_EMAIL", "")
                 async with httpx.AsyncClient(timeout=14.0) as client:
-                    resp = await client.get(url, params=params)
+                    resp = await client.get(url, params=params, headers=headers)
                     if resp.status_code != 200:
                         return
                     data = resp.json()
@@ -362,25 +371,28 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
         ACLED_COUNTRY_NAMES["default"],
     )
     events: List[Dict[str, Any]] = []
-    acled_key = os.getenv("ACLED_API_KEY")
-    if not acled_key:
+    use_oauth = has_acled_oauth()
+    if not use_oauth and not os.getenv("ACLED_API_KEY"):
         return events
 
     try:
-        url = "https://api.acleddata.com/acled/read"
-        params = {
-            "key": acled_key,
-            "limit": min(500, max(50, limit)),
-            "country": acled_country,
-        }
-        email = os.getenv("ACLED_EMAIL")
-        if email:
-            params["email"] = email
-
         async def _fetch() -> List[Dict[str, Any]]:
             out: List[Dict[str, Any]] = []
+            token = await get_acled_token_async() if use_oauth else None
+            if use_oauth and not token:
+                return out
+            params = {"_format": "json", "limit": min(500, max(50, limit)), "country": acled_country}
+            if token:
+                url = ACLED_API_URL
+                headers = {"Authorization": f"Bearer {token}"}
+            else:
+                url = ACLED_LEGACY_URL
+                headers = {}
+                params["key"] = os.getenv("ACLED_API_KEY", "")
+                if os.getenv("ACLED_EMAIL"):
+                    params["email"] = os.getenv("ACLED_EMAIL", "")
             async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(url, params=params)
+                resp = await client.get(url, params=params, headers=headers)
                 if resp.status_code != 200:
                     return out
                 data = resp.json()

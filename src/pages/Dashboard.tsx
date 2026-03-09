@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -47,14 +47,27 @@ const Dashboard = () => {
   }, []);
   const formattedTime = utcTime.toISOString().slice(11, 19);
 
-  // Live signal counter
-  const [signalCount, setSignalCount] = useState(847);
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSignalCount(prev => prev + Math.floor(Math.random() * 3));
-    }, 4000 + Math.random() * 3000);
-    return () => clearInterval(interval);
-  }, []);
+  // Live signal counter: real count from analysis (articles, aircraft, reports, findings, etc.)
+  const signalCount = useMemo(() => {
+    if (!conflictData) return null;
+    let n = 0;
+    n += (conflictData.news?.articles?.length ?? 0);
+    n += (conflictData.sigint?.aircraft?.filter((a): a is object => typeof a === "object" && a !== null && !("error" in a)).length ?? 0);
+    n += (conflictData.sigint?.ships?.length ?? 0);
+    n += (conflictData.sigint?.conflict_reports?.length ?? 0);
+    n += (conflictData.key_findings?.length ?? 0);
+    const socmint = conflictData as { socmint?: { top_signals?: unknown[] } };
+    n += (socmint.socmint?.top_signals?.length ?? 0);
+    const geoint = conflictData.geoint as { anomalies?: unknown[]; hotspots?: unknown[] } | undefined;
+    n += (geoint?.anomalies?.length ?? 0) + (geoint?.hotspots?.length ?? 0);
+    const techint = conflictData.techint as { tech_indicators?: unknown[]; export_controls?: unknown[]; ioda_events?: unknown[] } | undefined;
+    n += (techint?.tech_indicators?.length ?? 0) + (techint?.export_controls?.length ?? 0) + (techint?.ioda_events?.length ?? 0);
+    n += (conflictData.cyber?.cisa_kev?.total ?? 0) + (conflictData.cyber?.threat_reports?.length ?? 0) + (conflictData.cyber?.otx_pulses?.length ?? 0);
+    n += (conflictData.energy?.agsi_storage?.full?.length ?? 0) + (conflictData.energy?.commodities?.length ?? 0);
+    n += (conflictData.protest?.protest_events?.length ?? 0) + (conflictData.protest?.protest_articles?.length ?? 0);
+    n += (conflictData.diplo?.ofac_sdn?.total_matches ?? 0) + (conflictData.diplo?.un_icj_news?.length ?? 0);
+    return n;
+  }, [conflictData]);
 
   // Proximity Analyzer: strike–civilian correlation
   const [proximityEvidence, setProximityEvidence] = useState<ProximityEvidence[]>([]);
@@ -121,9 +134,9 @@ const Dashboard = () => {
             <span className="text-foreground">{formattedTime}</span>
             <span>UTC</span>
           </div>
-          {/* Signal counter */}
+          {/* Signal counter (from current analysis data) */}
           <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
-            <span className="text-primary">{signalCount.toLocaleString()}</span>
+            <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "—"}</span>
             <span>signals</span>
           </div>
           <div className="relative" ref={conflictDropdownRef}>

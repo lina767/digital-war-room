@@ -2,6 +2,7 @@
 PROTEST / Civil Society Agent – ACLED protests & riots, GDELT protest events, protest-related RSS.
 Fetches: ACLED events filtered by event_type (Protests, Riots), GDELT protest themes,
 optional protest/unrest RSS. Rule-based score from event count and severity. No LLM.
+ACLED: OAuth (ACLED_EMAIL + ACLED_PASSWORD) at acleddata.com/api; see acleddata.com/api-documentation/getting-started.
 """
 import asyncio
 import os
@@ -9,7 +10,11 @@ from typing import Any, Dict, List
 
 import httpx
 
-ACLED_URL = "https://api.acleddata.com/acled/read"
+from services.acled_auth import get_acled_token_async, has_acled_oauth
+
+# ACLED API: OAuth uses acleddata.com; legacy key used api.acleddata.com
+ACLED_API_URL = "https://acleddata.com/api/acled/read"
+ACLED_LEGACY_URL = "https://api.acleddata.com/acled/read"
 GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 ACLED_COUNTRY_NAMES = {
@@ -37,41 +42,53 @@ def _conflict_to_country(conflict: str) -> str:
     )
 
 
+def _parse_acled_records(data: Any) -> List[Dict[str, Any]]:
+    """Parse ACLED API response (data array) into list of event dicts."""
+    events: List[Dict[str, Any]] = []
+    for rec in (data.get("data") or [])[:50]:
+        if not isinstance(rec, dict):
+            continue
+        events.append({
+            "event_type": rec.get("event_type"),
+            "sub_event_type": rec.get("sub_event_type"),
+            "date": rec.get("event_date"),
+            "location": rec.get("location"),
+            "fatalities": rec.get("fatalities"),
+            "country": rec.get("country"),
+            "notes": (rec.get("notes") or "")[:200],
+        })
+    return events
+
+
 async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 100) -> List[Dict[str, Any]]:
-    """Fetch ACLED events filtered by protest-related event types."""
-    if not api_key or not api_key.strip():
-        return []
+    """Fetch ACLED events filtered by protest-related event types. Uses OAuth (ACLED_EMAIL+PASSWORD) or legacy key."""
     country = _conflict_to_country(conflict)
     events: List[Dict[str, Any]] = []
+    use_oauth = has_acled_oauth()
+    token = await get_acled_token_async() if use_oauth else None
+    if use_oauth and not token:
+        return []
+    if not use_oauth and (not api_key or not api_key.strip()):
+        return []
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            params = {
-                "key": api_key.strip(),
-                "limit": limit,
-                "country": country,
-            }
-            email = os.getenv("ACLED_EMAIL")
-            if email:
-                params["email"] = email
-            # ACLED allows event_type filter (e.g. "Protests")
             for event_type in PROTEST_EVENT_TYPES[:2]:  # Protests, Riots
-                params["event_type"] = event_type
-                resp = await client.get(ACLED_URL, params=params)
+                params = {"_format": "json", "limit": limit, "country": country, "event_type": event_type}
+                if use_oauth and token:
+                    resp = await client.get(
+                        ACLED_API_URL,
+                        params=params,
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                else:
+                    params["key"] = api_key.strip()
+                    if os.getenv("ACLED_EMAIL"):
+                        params["email"] = os.getenv("ACLED_EMAIL", "")
+                    resp = await client.get(ACLED_LEGACY_URL, params=params)
                 if resp.status_code != 200:
                     continue
                 data = resp.json()
-                for rec in (data.get("data") or [])[:50]:
-                    if not isinstance(rec, dict):
-                        continue
-                    events.append({
-                        "event_type": rec.get("event_type"),
-                        "sub_event_type": rec.get("sub_event_type"),
-                        "date": rec.get("event_date"),
-                        "location": rec.get("location"),
-                        "fatalities": rec.get("fatalities"),
-                        "country": rec.get("country"),
-                        "notes": (rec.get("notes") or "")[:200],
-                    })
+                events.extend(_parse_acled_records(data))
     except Exception as e:
         return [{"error": str(e)}]
     return events[:80]
@@ -140,7 +157,7 @@ def _build_summary(acled_events: List[Dict], gdelt_articles: List[Dict], score: 
     if valid_a:
         parts.append(f"ACLED: {len(valid_a)} protest/riot events.")
     elif not valid_a:
-        parts.append("ACLED: not available (set ACLED_API_KEY). For Iran: acleddata.com/iran-crisis-live")
+        parts.append("ACLED: not available (set ACLED_EMAIL + ACLED_PASSWORD for OAuth). For Iran: acleddata.com/iran-crisis-live")
     valid_g = [a for a in gdelt_articles if a.get("title") and "error" not in a]
     if valid_g:
         parts.append(f"GDELT: {len(valid_g)} protest-related articles.")
@@ -151,10 +168,10 @@ def _build_summary(acled_events: List[Dict], gdelt_articles: List[Dict], score: 
 
 def run_protest_agent(conflict: str) -> Dict[str, Any]:
     """Run PROTEST/Civil Society agent: ACLED protests/riots, GDELT protest coverage."""
-    acled_key = os.getenv("ACLED_API_KEY")
+    acled_key = os.getenv("ACLED_API_KEY", "").strip() if not has_acled_oauth() else ""
 
     async def _run() -> Dict[str, Any]:
-        acled_events = await _fetch_acled_protests(acled_key or "", conflict)
+        acled_events = await _fetch_acled_protests(acled_key, conflict)
         gdelt_articles = await _fetch_gdelt_protest(conflict)
         protest_score = _compute_protest_score(acled_events, gdelt_articles)
         summary = _build_summary(acled_events, gdelt_articles, protest_score)

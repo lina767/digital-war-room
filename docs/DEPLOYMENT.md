@@ -32,7 +32,7 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
     - `NASA_FIRMS_KEY` (GEOINT)
     - `ALPHAVANTAGE_API_KEY` (FININT, optional TECHINT)
   - **Optional:**  
-    `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL` (PROTEST/GEOINT), `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LIVEUAMAP_API_KEY` (GEOINT: Liveuamap Lebanon/Iran, kostenpflichtige API), `UCDP_API_TOKEN` (GEOINT: Uppsala Conflict Data Program), `SPIRE_MARITIME_API_KEY` (SIGINT: Spire Maritime AIS/Vessels), `OTX_API_KEY` (CYBER: AlienVault OTX), `AGSI_API_KEY` (ENERGY: EU-Gasspeicher AGSI+), `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
+    `POLYMARKET_BUILDER_API_KEY`, `ACLED_EMAIL` + `ACLED_PASSWORD` (ACLED OAuth für PROTEST/GEOINT/Heatmap; siehe [ACLED Getting started](https://acleddata.com/api-documentation/getting-started)), `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LIVEUAMAP_API_KEY` (GEOINT: Liveuamap Lebanon/Iran, kostenpflichtige API), `UCDP_API_TOKEN` (GEOINT: Uppsala Conflict Data Program), `SPIRE_MARITIME_API_KEY` (SIGINT: Spire Maritime AIS/Vessels), `OTX_API_KEY` (CYBER: AlienVault OTX), `AGSI_API_KEY` (ENERGY: EU-Gasspeicher AGSI+), `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
 - **Kosten senken (LLM-API):**
   - **OpenAI statt Claude:** `LLM_PROVIDER=openai`, `OPENAI_API_KEY=sk-…`. Agents und Supervisor nutzen dann z. B. `gpt-4o-mini` (Standard); optional `OPENAI_AGENT_MODEL` / `OPENAI_SUPERVISOR_MODEL` setzen.
   - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 21600 = alle 6 Stunden; z. B. 3600 = stündlich, 600 = alle 10 Min).

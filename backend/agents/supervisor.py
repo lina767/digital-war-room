@@ -24,12 +24,14 @@ from .cyber_agent import run_cyber_agent
 from .energy_agent import run_energy_agent
 from .protest_agent import run_protest_agent
 from .diplo_agent import run_diplo_agent
+from .acled_reference import fetch_acled_reference_analyses_sync
 
 
 # ── State ──────────────────────────────────────────────────────────────────
 
 class AnalysisState(TypedDict, total=False):
     conflict: str
+    acled_reference_result: List[Dict[str, Any]]
     finint_result: Dict[str, Any]
     sigint_result: Dict[str, Any]
     news_result: Dict[str, Any]
@@ -66,7 +68,7 @@ def collection_node(state: AnalysisState) -> AnalysisState:
     When USE_RULE_BASED_AGENTS is set, each agent uses its fixed tool chain (no LLM); output shape is unchanged."""
     conflict = state.get("conflict") or ""
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=11) as executor:
         finint_f   = executor.submit(run_finint_agent, conflict)
         sigint_f   = executor.submit(run_sigint_agent, conflict)
         news_f     = executor.submit(run_news_agent, conflict)
@@ -77,6 +79,7 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         energy_f   = executor.submit(run_energy_agent, conflict)
         protest_f  = executor.submit(run_protest_agent, conflict)
         diplo_f    = executor.submit(run_diplo_agent, conflict)
+        acled_ref_f = executor.submit(fetch_acled_reference_analyses_sync, conflict)
 
         finint_result   = _result_or_fallback(finint_f, "finint", {"escalation_score": 0.0, "brent": None, "polymarket": []})
         sigint_result   = _result_or_fallback(sigint_f, "sigint", {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []})
@@ -88,8 +91,10 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         energy_result   = _result_or_fallback(energy_f, "energy", {"energy_score": 0.0, "agsi_storage": {}, "commodities": []})
         protest_result  = _result_or_fallback(protest_f, "protest", {"protest_score": 0.0, "protest_events": [], "protest_articles": []})
         diplo_result    = _result_or_fallback(diplo_f, "diplo", {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []})
+        acled_reference_result = _result_or_fallback(acled_ref_f, "acled_reference", [])
 
     return {
+        "acled_reference_result": acled_reference_result if isinstance(acled_reference_result, list) else [],
         "finint_result":   finint_result,
         "sigint_result":   sigint_result,
         "news_result":     news_result,
@@ -120,6 +125,9 @@ def _agents_seem_contradictory(scores: List[float]) -> bool:
 def supervisor_node(state: AnalysisState) -> AnalysisState:
     """Synthesizes all 10 intelligence streams (Haiku by default; Sonnet when agents disagree)."""
     conflict        = state.get("conflict") or ""
+    acled_refs      = state.get("acled_reference_result") or []
+    if not isinstance(acled_refs, list):
+        acled_refs = []
     finint_result   = state.get("finint_result") or {}
     sigint_result   = state.get("sigint_result") or {}
     news_result     = state.get("news_result") or {}
@@ -201,6 +209,8 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
 - PROTEST: ACLED protests/riots, GDELT protest coverage (civil society unrest)
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 
+When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages (Middle East / Iran updates, expert comments, reports) whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary—e.g. ACLED assessments on Kurdish dynamics, Hezbollah, Gulf states, ground invasion risks—not as mere links but as substantive context.
+
 Agent results may be produced by rule-based tool chains (fixed tool order, no per-agent LLM). Treat the payload as authoritative: use the composite_score and per-stream scores, and derive key_findings, scenarios, and summary from the raw data (articles, aircraft, anomalies, signals, sanctions, protests, etc.) and the stream summaries provided. Your output format and quality standards are unchanged.
 
 Analyze all streams holistically and return ONLY valid JSON with no markdown:
@@ -214,6 +224,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
         user_payload = {
             "conflict": conflict,
             "composite_score": combined_score,
+            "acled_reference_analyses": [{"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:2000]} for r in acled_refs if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))],
             "agent_scores": {
                 "finint": finint_score,
                 "sigint": sigint_score,
@@ -347,6 +358,11 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
     for n in (diplo_result.get("un_icj_news") or [])[:2]:
         if isinstance(n, dict) and n.get("title") and "error" not in n:
             key_findings.append(f"DIPLO ({n.get('source', 'UN/ICJ')}) – {n.get('title', '')[:55]}")
+
+    # ACLED reference analyses (curated Middle East / Iran pages – context for synthesis)
+    for ref in acled_refs[:3]:
+        if isinstance(ref, dict) and ref.get("title") and "error" not in str(ref.get("excerpt", ""))[:50]:
+            key_findings.append(f"ACLED reference – {ref.get('title', '')[:70]}")
 
     return {
         "escalation_score": combined_score,
