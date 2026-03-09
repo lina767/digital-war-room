@@ -491,11 +491,11 @@ export function ConflictMap({
           SIGINT
         </button>
 
-        {/* Heatmap toggle (ACLED conflict intensity) */}
+        {/* Heatmap toggle (ACLED conflict intensity). Without API key: acleddata.com/iran-crisis-live for Iran. */}
         <button
           onClick={() => setShowHeatmap((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-          title="Conflict intensity from ACLED (requires ACLED_API_KEY)"
+          title="Conflict intensity from ACLED (needs ACLED_API_KEY). Alternative: acleddata.com/iran-crisis-live"
         >
           <span
             className={`w-2.5 h-2.5 rounded-full border ${showHeatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}

@@ -49,7 +49,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "NASA FIRMS", description: "Thermal anomalies, area API (middle_east, gaza_israel, iran, yemen, etc.)" },
       { name: "ReliefWeb", description: "api.reliefweb.int/v2 – humanitarian/conflict reports by country" },
       { name: "UCDP", description: "Uppsala Conflict Data Program – GED events (optional UCDP_API_TOKEN)" },
-      { name: "ACLED", description: "Optional – conflict events (ACLED_API_KEY)" },
+      { name: "ACLED", description: "Optional – conflict events (ACLED_API_KEY). Without key: acleddata.com/iran-crisis-live for Iran" },
     ],
   },
   {

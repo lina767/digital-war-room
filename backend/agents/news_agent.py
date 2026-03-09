@@ -4,6 +4,7 @@ Fetches and analyzes conflict-related news articles from NewsAPI, GDELT, and RSS
 """
 import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from urllib.parse import urlparse
@@ -455,9 +456,13 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
     The overall return format remains compatible with existing callers of run_news_agent.
     """
     try:
-        newsapi_res = _run_newsapi_source_agent(conflict)
-        gdelt_res = _run_gdelt_source_agent(conflict)
-        rss_res = _run_rss_source_agent(conflict)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            fut_newsapi = executor.submit(_run_newsapi_source_agent, conflict)
+            fut_gdelt = executor.submit(_run_gdelt_source_agent, conflict)
+            fut_rss = executor.submit(_run_rss_source_agent, conflict)
+            newsapi_res = fut_newsapi.result(timeout=35)
+            gdelt_res = fut_gdelt.result(timeout=35)
+            rss_res = fut_rss.result(timeout=35)
 
         fusion = _run_news_fusion_agent(newsapi_res, gdelt_res, rss_res)
         articles = fusion.get("articles", [])

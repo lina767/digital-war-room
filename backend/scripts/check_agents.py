@@ -28,6 +28,10 @@ AGENT_ENV = {
     "geoint": ["NASA_FIRMS_KEY"],
     "socmint": [],
     "techint": [],  # Alpha Vantage, News, Cloudflare, Shodan are optional; agent runs without
+    "cyber": [],    # CISA KEV no key; OTX optional
+    "energy": [],   # AGSI, Alpha Vantage optional
+    "protest": [],  # ACLED optional; GDELT free
+    "diplo": [],    # OFAC/EU/UN/ICJ no key
 }
 
 CONFLICT = "Iran"
@@ -57,9 +61,18 @@ def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:
             return False, "Missing socmint_score", result
         if name == "techint" and "techint_score" not in result:
             return False, "Missing techint_score", result
+        if name == "cyber" and "cyber_score" not in result:
+            return False, "Missing cyber_score", result
+        if name == "energy" and "energy_score" not in result:
+            return False, "Missing energy_score", result
+        if name == "protest" and "protest_score" not in result:
+            return False, "Missing protest_score", result
+        if name == "diplo" and "diplo_score" not in result:
+            return False, "Missing diplo_score", result
         score_key = {
             "finint": "escalation_score", "sigint": "sigint_score", "news": "news_score",
             "geoint": "geoint_score", "socmint": "socmint_score", "techint": "techint_score",
+            "cyber": "cyber_score", "energy": "energy_score", "protest": "protest_score", "diplo": "diplo_score",
         }.get(name)
         score = result.get(score_key, "?")
         return True, f"OK (score={score}, {elapsed:.1f}s)", result
@@ -98,6 +111,18 @@ def data_hint(name: str, data: dict) -> str:
             hints.append(f"ooni_blocked_IR={data['ooni'].get('telegram_signal_blocked_iran', False)}")
         hints.append(f"cloudflare_outages={len(data.get('cloudflare_outages') or [])}")
         hints.append(f"shodan_total={data.get('shodan', {}).get('total_count', 0)}")
+    elif name == "cyber":
+        hints.append(f"cisa_kev={data.get('cisa_kev', {}).get('total', 0)}")
+        hints.append(f"threat_reports={len(data.get('threat_reports') or [])}")
+    elif name == "energy":
+        hints.append(f"agsi_records={len(data.get('agsi_storage', {}).get('full') or [])}")
+        hints.append(f"commodities={len(data.get('commodities') or [])}")
+    elif name == "protest":
+        hints.append(f"protest_events={len(data.get('protest_events') or [])}")
+        hints.append(f"protest_articles={len(data.get('protest_articles') or [])}")
+    elif name == "diplo":
+        hints.append(f"ofac_matches={data.get('ofac_sdn', {}).get('total_matches', 0)}")
+        hints.append(f"un_icj_news={len(data.get('un_icj_news') or [])}")
     return " | ".join(hints) if hints else "keys: " + ", ".join(list(data.keys())[:5])
 
 
@@ -115,6 +140,10 @@ def main():
         ("geoint", "run_geoint_agent", AGENT_ENV["geoint"]),
         ("socmint", "run_socmint_agent", AGENT_ENV["socmint"]),
         ("techint", "run_techint_agent", AGENT_ENV["techint"]),
+        ("cyber", "run_cyber_agent", AGENT_ENV["cyber"]),
+        ("energy", "run_energy_agent", AGENT_ENV["energy"]),
+        ("protest", "run_protest_agent", AGENT_ENV["protest"]),
+        ("diplo", "run_diplo_agent", AGENT_ENV["diplo"]),
     ]
 
     results = []
@@ -147,7 +176,8 @@ def main():
     if not verbose and ok_count == len(results):
         print("Tip: run with -v to see data hints (e.g. article/outage counts).")
     print("Env vars for full data: ALPHAVANTAGE_API_KEY, NEWS_API_KEY, NASA_FIRMS_KEY,")
-    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY (see backend/.env.example or .env)")
+    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, AGSI_API_KEY, ACLED_API_KEY")
+    print("  (see backend/.env.example or .env)")
     return 0 if ok_count == len(results) else 1
 
 

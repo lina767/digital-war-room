@@ -152,27 +152,35 @@ def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Di
     # Ensure we have bbox for each area
     areas_to_fetch = [a for a in areas_to_fetch if a in REGION_BBOX]
 
-    async def _fetch_one(area: str) -> str:
+    async def _fetch_one(area: str) -> tuple[str, str]:
+        """Returns (area, csv_text). On error returns (area, '')."""
         bbox_str = REGION_BBOX[area]
         url = FIRMS_AREA_URL.format(key=api_key, area=bbox_str, days=days)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url)
             resp.raise_for_status()
-            return resp.text
+            return (area, resp.text)
+
+    async def _fetch_all() -> List[Dict[str, Any]]:
+        tasks = [_fetch_one(area) for area in areas_to_fetch]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        all_anomalies = []
+        for r in results:
+            if isinstance(r, Exception):
+                continue
+            area, csv_text = r
+            if not csv_text:
+                continue
+            bbox = REGIONS.get(area, REGIONS["middle_east"])
+            reader = csv.DictReader(io.StringIO(csv_text))
+            for row in reader:
+                a = _parse_firms_row(row, bbox)
+                if a:
+                    all_anomalies.append(a)
+        return all_anomalies
 
     try:
-        all_anomalies = []
-        for area in areas_to_fetch:
-            try:
-                csv_text = asyncio.run(_fetch_one(area))
-                bbox = REGIONS.get(area, REGIONS["middle_east"])
-                reader = csv.DictReader(io.StringIO(csv_text))
-                for row in reader:
-                    a = _parse_firms_row(row, bbox)
-                    if a:
-                        all_anomalies.append(a)
-            except Exception:
-                continue
+        all_anomalies = asyncio.run(_fetch_all())
         # Deduplicate by (lat, lon) rounded to 2 decimals
         seen = set()
         deduped = []

@@ -21,12 +21,16 @@ export interface AnalyzeResponse {
   key_findings?: string[];
   scenarios?: { description: string; probability: number }[];
   summary?: string;
-  finint_result?: Record<string, unknown>;
-  sigint_result?: Record<string, unknown>;
-  news_result?: Record<string, unknown>;
-  geoint_result?: Record<string, unknown>;
-  socmint_result?: Record<string, unknown>;
-  techint_result?: Record<string, unknown>;
+  finint?: Record<string, unknown>;
+  sigint?: Record<string, unknown>;
+  news?: Record<string, unknown>;
+  geoint?: Record<string, unknown>;
+  socmint?: Record<string, unknown>;
+  techint?: Record<string, unknown>;
+  cyber?: Record<string, unknown>;
+  energy?: Record<string, unknown>;
+  protest?: Record<string, unknown>;
+  diplo?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -55,7 +59,7 @@ export async function getAnalyzeStatus(conflict: string): Promise<{ cached: bool
   }
 }
 
-/** GET last cached analysis (from auto-run every hour). No analysis is run. */
+/** GET last cached analysis (from auto-run every 6 hours). No analysis is run. */
 export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LATEST_ANALYSIS_TIMEOUT_MS);
@@ -78,7 +82,7 @@ export async function getLatestAnalysis(conflict: string): Promise<AnalyzeRespon
 
 /**
  * Holt die aktuelle Analyse aus dem Cache (keine neue Analyse).
- * Analysen laufen stündlich im Backend. Bei 503: noch kein Cache.
+ * Analysen laufen alle 6 Stunden im Backend. Bei 503: noch kein Cache.
  */
 export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
   try {
@@ -89,7 +93,7 @@ export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
     });
     if (res.status === 503) {
       const body = await res.json().catch(() => ({}));
-      const msg = (body as { error?: string })?.error ?? "No cached analysis yet. Analysis runs automatically every hour.";
+      const msg = (body as { error?: string })?.error ?? "No cached analysis yet. Analysis runs automatically every 6 hours.";
       throw new Error(msg);
     }
     if (!res.ok) throw new Error(`Analysis failed: ${res.status} ${res.statusText}`);

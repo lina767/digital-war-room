@@ -7,6 +7,7 @@ Optional: set POLYMARKET_BUILDER_API_KEY in .env (your personal builder API key)
 """
 import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
 import httpx
@@ -329,11 +330,16 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
-    """Execute FININT tool chain in fixed order: brent → wti → polymarket → tracked_wallets. No LLM."""
-    brent = get_brent_price.invoke({})
-    wti = get_wti_price.invoke({})
-    polymarket = get_polymarket_conflict_odds.invoke({"conflict": conflict})
-    tracked_wallets = get_tracked_wallet_positions.invoke({})
+    """Execute FININT tool chain: all four tools in parallel. No LLM."""
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        fut_brent = executor.submit(get_brent_price.invoke, {})
+        fut_wti = executor.submit(get_wti_price.invoke, {})
+        fut_polymarket = executor.submit(get_polymarket_conflict_odds.invoke, {"conflict": conflict})
+        fut_wallets = executor.submit(get_tracked_wallet_positions.invoke, {})
+        brent = fut_brent.result(timeout=25)
+        wti = fut_wti.result(timeout=25)
+        polymarket = fut_polymarket.result(timeout=30)
+        tracked_wallets = fut_wallets.result(timeout=25)
     if not isinstance(polymarket, list):
         polymarket = []
     if not isinstance(tracked_wallets, list):

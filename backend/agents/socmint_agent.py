@@ -5,6 +5,7 @@ Monitors Telegram, X/Twitter (Nitter), Reddit, RSS, and ReliefWeb for conflict s
 import asyncio
 import re
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
@@ -500,13 +501,19 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
-    """Execute SOCMINT tool chain in fixed order: telegram → twitter → reddit → rss → reliefweb. No LLM."""
+    """Execute SOCMINT tool chain: all five sources in parallel. No LLM."""
     try:
-        telegram = [p for p in (scrape_telegram_channels.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        twitter = [p for p in (scrape_twitter_nitter.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        reddit = [p for p in (search_reddit.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        rss = [p for p in (fetch_rss_feeds.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
-        reliefweb = [p for p in (fetch_reliefweb_reports.invoke({"conflict": conflict}) or []) if isinstance(p, dict) and "error" not in p]
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            fut_telegram = executor.submit(scrape_telegram_channels.invoke, {"conflict": conflict})
+            fut_twitter = executor.submit(scrape_twitter_nitter.invoke, {"conflict": conflict})
+            fut_reddit = executor.submit(search_reddit.invoke, {"conflict": conflict})
+            fut_rss = executor.submit(fetch_rss_feeds.invoke, {"conflict": conflict})
+            fut_reliefweb = executor.submit(fetch_reliefweb_reports.invoke, {"conflict": conflict})
+            telegram = [p for p in (fut_telegram.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
+            twitter = [p for p in (fut_twitter.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
+            reddit = [p for p in (fut_reddit.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
+            rss = [p for p in (fut_rss.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
+            reliefweb = [p for p in (fut_reliefweb.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
 
         all_posts = telegram + twitter + reddit + rss + reliefweb
         escalatory = sum(1 for p in all_posts if p.get("sentiment_label") == "ESCALATORY")

@@ -1,6 +1,6 @@
 """
 Supervisor – LangGraph Multi-Agent Orchestrator
-Coordinates FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT agents in parallel,
+Coordinates FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO agents in parallel,
 then runs an LLM (default: Haiku; Sonnet when agent scores disagree) for final assessment.
 """
 import json
@@ -20,6 +20,10 @@ from .news_agent import run_news_agent
 from .sigint_agent import run_sigint_agent
 from .socmint_agent import run_socmint_agent
 from .techint_agent import run_techint_agent
+from .cyber_agent import run_cyber_agent
+from .energy_agent import run_energy_agent
+from .protest_agent import run_protest_agent
+from .diplo_agent import run_diplo_agent
 
 
 # ── State ──────────────────────────────────────────────────────────────────
@@ -32,6 +36,10 @@ class AnalysisState(TypedDict, total=False):
     geoint_result: Dict[str, Any]
     socmint_result: Dict[str, Any]
     techint_result: Dict[str, Any]
+    cyber_result: Dict[str, Any]
+    energy_result: Dict[str, Any]
+    protest_result: Dict[str, Any]
+    diplo_result: Dict[str, Any]
     escalation_score: float
     threat_level: str
     key_findings: List[str]
@@ -39,7 +47,7 @@ class AnalysisState(TypedDict, total=False):
     summary: str
 
 
-# ── Intelligence Collection Node (all 6 agents in parallel) ─────────────────
+# ── Intelligence Collection Node (all 10 agents in parallel) ───────────────
 
 # Per-agent timeout (seconds). Prevents one slow API from blocking the whole run.
 _AGENT_TIMEOUT = 75
@@ -54,17 +62,21 @@ def _result_or_fallback(future, agent_name: str, fallback: Dict[str, Any]) -> Di
 
 
 def collection_node(state: AnalysisState) -> AnalysisState:
-    """Run all 6 intelligence agents in parallel with per-agent timeout.
+    """Run all 10 intelligence agents in parallel with per-agent timeout.
     When USE_RULE_BASED_AGENTS is set, each agent uses its fixed tool chain (no LLM); output shape is unchanged."""
     conflict = state.get("conflict") or ""
 
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         finint_f   = executor.submit(run_finint_agent, conflict)
         sigint_f   = executor.submit(run_sigint_agent, conflict)
         news_f     = executor.submit(run_news_agent, conflict)
         geoint_f   = executor.submit(run_geoint_agent, conflict)
         socmint_f  = executor.submit(run_socmint_agent, conflict)
         techint_f  = executor.submit(run_techint_agent, conflict)
+        cyber_f    = executor.submit(run_cyber_agent, conflict)
+        energy_f   = executor.submit(run_energy_agent, conflict)
+        protest_f  = executor.submit(run_protest_agent, conflict)
+        diplo_f    = executor.submit(run_diplo_agent, conflict)
 
         finint_result   = _result_or_fallback(finint_f, "finint", {"escalation_score": 0.0, "brent": None, "polymarket": []})
         sigint_result   = _result_or_fallback(sigint_f, "sigint", {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []})
@@ -72,6 +84,10 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         geoint_result   = _result_or_fallback(geoint_f, "geoint", {"geoint_score": 0.0, "anomalies": [], "hotspots": []})
         socmint_result  = _result_or_fallback(socmint_f, "socmint", {"socmint_score": 0.0, "top_signals": []})
         techint_result  = _result_or_fallback(techint_f, "techint", {"techint_score": 0.0, "tech_indicators": [], "ioda_events": []})
+        cyber_result    = _result_or_fallback(cyber_f, "cyber", {"cyber_score": 0.0, "cisa_kev": {}, "threat_reports": [], "otx_pulses": []})
+        energy_result   = _result_or_fallback(energy_f, "energy", {"energy_score": 0.0, "agsi_storage": {}, "commodities": []})
+        protest_result  = _result_or_fallback(protest_f, "protest", {"protest_score": 0.0, "protest_events": [], "protest_articles": []})
+        diplo_result    = _result_or_fallback(diplo_f, "diplo", {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []})
 
     return {
         "finint_result":   finint_result,
@@ -80,6 +96,10 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         "geoint_result":   geoint_result,
         "socmint_result":  socmint_result,
         "techint_result":  techint_result,
+        "cyber_result":    cyber_result,
+        "energy_result":   energy_result,
+        "protest_result":  protest_result,
+        "diplo_result":    diplo_result,
     }
 
 
@@ -98,7 +118,7 @@ def _agents_seem_contradictory(scores: List[float]) -> bool:
 
 
 def supervisor_node(state: AnalysisState) -> AnalysisState:
-    """Synthesizes all 6 intelligence streams (Haiku by default; Sonnet when agents disagree)."""
+    """Synthesizes all 10 intelligence streams (Haiku by default; Sonnet when agents disagree)."""
     conflict        = state.get("conflict") or ""
     finint_result   = state.get("finint_result") or {}
     sigint_result   = state.get("sigint_result") or {}
@@ -106,6 +126,10 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
     geoint_result   = state.get("geoint_result") or {}
     socmint_result  = state.get("socmint_result") or {}
     techint_result  = state.get("techint_result") or {}
+    cyber_result    = state.get("cyber_result") or {}
+    energy_result   = state.get("energy_result") or {}
+    protest_result  = state.get("protest_result") or {}
+    diplo_result    = state.get("diplo_result") or {}
 
     # Extract scores
     finint_score   = float(finint_result.get("escalation_score", 0.0))
@@ -114,16 +138,24 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
     geoint_score   = float(geoint_result.get("geoint_score", 0.0))
     socmint_score  = float(socmint_result.get("socmint_score", 0.0))
     techint_score  = float(techint_result.get("techint_score", 0.0))
+    cyber_score    = float(cyber_result.get("cyber_score", 0.0))
+    energy_score   = float(energy_result.get("energy_score", 0.0))
+    protest_score  = float(protest_result.get("protest_score", 0.0))
+    diplo_score    = float(diplo_result.get("diplo_score", 0.0))
 
-    # Weighted composite score
-    # FININT 18% | SIGINT 22% | NEWS 18% | GEOINT 12% | SOCMINT 18% | TECHINT 12%
+    # Weighted composite score (10 agents)
+    # FININT 11% | SIGINT 14% | NEWS 11% | GEOINT 9% | SOCMINT 11% | TECHINT 9% | CYBER 9% | ENERGY 9% | PROTEST 9% | DIPLO 8%
     combined_score = (
-        finint_score   * 0.18 +
-        sigint_score   * 0.22 +
-        news_score     * 0.18 +
-        geoint_score   * 0.12 +
-        socmint_score  * 0.18 +
-        techint_score  * 0.12
+        finint_score   * 0.11 +
+        sigint_score   * 0.14 +
+        news_score     * 0.11 +
+        geoint_score   * 0.09 +
+        socmint_score  * 0.11 +
+        techint_score  * 0.09 +
+        cyber_score    * 0.09 +
+        energy_score   * 0.09 +
+        protest_score  * 0.09 +
+        diplo_score    * 0.08
     )
 
     require_supervisor_api_key()
@@ -148,24 +180,28 @@ def supervisor_node(state: AnalysisState) -> AnalysisState:
             "threat_level": threat_level,
             "key_findings": [],
             "scenarios": [],
-            "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}). Key findings below from agents.",
+            "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}, CYBER {cyber_score:.0f}, ENERGY {energy_score:.0f}, PROTEST {protest_score:.0f}, DIPLO {diplo_score:.0f}). Key findings below from agents.",
         }
     else:
         # Mit LLM: Haiku standardmäßig; bei Widerspruch optional Sonnet (USE_SUPERVISOR_FALLBACK_MODEL=true).
         # Default: Fallback aus → immer Haiku. Schwellwert: SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD (default 50).
         use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
-        agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score]
+        agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score, cyber_score, energy_score, protest_score, diplo_score]
         complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
         model = get_supervisor_model(complex_case=complex_case)
-        system_prompt = """You are a senior intelligence analyst with access to 6 intelligence streams:
+        system_prompt = """You are a senior intelligence analyst with access to 10 intelligence streams:
 - FININT: Financial markets and oil price indicators
 - SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)
 - NEWS: Open-source media sentiment analysis
 - GEOINT: Satellite thermal anomaly detection
 - SOCMINT: Social media signals from Telegram, Reddit, and RSS
 - TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
+- CYBER: CISA KEV, threat intel reports, OTX pulses (APT/exploit indicators)
+- ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI)
+- PROTEST: ACLED protests/riots, GDELT protest coverage (civil society unrest)
+- DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 
-Agent results may be produced by rule-based tool chains (fixed tool order, no per-agent LLM). Treat the payload as authoritative: use the composite_score and per-stream scores, and derive key_findings, scenarios, and summary from the raw data (articles, aircraft, anomalies, signals, etc.) and the stream summaries provided. Your output format and quality standards are unchanged.
+Agent results may be produced by rule-based tool chains (fixed tool order, no per-agent LLM). Treat the payload as authoritative: use the composite_score and per-stream scores, and derive key_findings, scenarios, and summary from the raw data (articles, aircraft, anomalies, signals, sanctions, protests, etc.) and the stream summaries provided. Your output format and quality standards are unchanged.
 
 Analyze all streams holistically and return ONLY valid JSON with no markdown:
 {
@@ -185,6 +221,10 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
                 "geoint": geoint_score,
                 "socmint": socmint_score,
                 "techint": techint_score,
+                "cyber": cyber_score,
+                "energy": energy_score,
+                "protest": protest_score,
+                "diplo": diplo_score,
             },
             "finint": finint_result,
             "sigint": sigint_result,
@@ -192,6 +232,10 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
             "geoint": geoint_result,
             "socmint": socmint_result,
             "techint": techint_result,
+            "cyber": cyber_result,
+            "energy": energy_result,
+            "protest": protest_result,
+            "diplo": diplo_result,
         }
         msg = model.invoke([
             SystemMessage(content=system_prompt),
@@ -213,7 +257,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
                 "threat_level": "ELEVATED",
                 "key_findings": ["Synthese-Ausgabe konnte nicht gelesen werden; Agent-Daten unten."],
                 "scenarios": [],
-                "summary": f"Composite score {combined_score:.0f}/100 aus 6 Agenten. Einzelne Streams (News, SIGINT, etc.) unten.",
+                "summary": f"Composite score {combined_score:.0f}/100 aus 10 Agenten. Einzelne Streams (News, SIGINT, CYBER, ENERGY, PROTEST, DIPLO, etc.) unten.",
             }
 
     threat_level = str(parsed.get("threat_level", "MINIMAL"))
@@ -271,6 +315,39 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
     if techint_result.get("shodan", {}).get("total_count"):
         key_findings.append(f"TECHINT (Shodan) – {techint_result['shodan']['total_count']} hosts in conflict region(s)")
 
+    # Append CYBER: CISA KEV, threat reports, OTX
+    if cyber_result.get("cisa_kev", {}).get("total"):
+        key_findings.append(f"CYBER (CISA KEV) – {cyber_result['cisa_kev']['total']} known exploited vulnerabilities")
+    for r in (cyber_result.get("threat_reports") or [])[:2]:
+        if isinstance(r, dict) and r.get("title") and "error" not in r:
+            key_findings.append(f"CYBER – {r.get('title', '')[:60]}")
+
+    # Append ENERGY: AGSI storage, commodities
+    agsi_full = energy_result.get("agsi_storage", {}).get("full") or []
+    if agsi_full:
+        avg = sum(float(x.get("full_pct") or 0) for x in agsi_full) / max(len(agsi_full), 1)
+        key_findings.append(f"ENERGY (AGSI+) – {len(agsi_full)} storage record(s), avg fill {avg:.0f}%")
+    for c in (energy_result.get("commodities") or [])[:2]:
+        if c.get("symbol") and "error" not in c and c.get("price"):
+            key_findings.append(f"ENERGY – {c.get('symbol')} {c.get('price')} ({c.get('change_pct', '')})")
+
+    # Append PROTEST: ACLED events, GDELT articles
+    protest_events = protest_result.get("protest_events") or []
+    valid_pe = [e for e in protest_events if isinstance(e, dict) and "error" not in e]
+    if valid_pe:
+        key_findings.append(f"PROTEST (ACLED) – {len(valid_pe)} protest/riot events")
+    for a in (protest_result.get("protest_articles") or [])[:1]:
+        if isinstance(a, dict) and a.get("title") and "error" not in a:
+            key_findings.append(f"PROTEST (GDELT) – {a.get('title', '')[:55]}")
+
+    # Append DIPLO: OFAC, EU, UN/ICJ
+    ofac_matches = diplo_result.get("ofac_sdn", {}).get("total_matches") or 0
+    if ofac_matches:
+        key_findings.append(f"DIPLO (OFAC SDN) – {ofac_matches} conflict-relevant entries")
+    for n in (diplo_result.get("un_icj_news") or [])[:2]:
+        if isinstance(n, dict) and n.get("title") and "error" not in n:
+            key_findings.append(f"DIPLO ({n.get('source', 'UN/ICJ')}) – {n.get('title', '')[:55]}")
+
     return {
         "escalation_score": combined_score,
         "threat_level": threat_level,
@@ -296,7 +373,7 @@ _COMPILED_GRAPH = build_graph()
 
 
 def analyze_conflict(conflict: str) -> Dict[str, Any]:
-    """Public entrypoint – runs all 6 agents then supervisor synthesis."""
+    """Public entrypoint – runs all 10 agents then supervisor synthesis."""
     result = _COMPILED_GRAPH.invoke({"conflict": conflict})
     return {
         "conflict": conflict,
@@ -306,6 +383,10 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "geoint":   result.get("geoint_result", {}),
         "socmint":  result.get("socmint_result", {}),
         "techint":  result.get("techint_result", {}),
+        "cyber":    result.get("cyber_result", {}),
+        "energy":   result.get("energy_result", {}),
+        "protest":  result.get("protest_result", {}),
+        "diplo":    result.get("diplo_result", {}),
         "escalation_score": result.get("escalation_score", 0.0),
         "threat_level":     result.get("threat_level", "MINIMAL"),
         "key_findings":     result.get("key_findings", []),

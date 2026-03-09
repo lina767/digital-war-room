@@ -66,7 +66,7 @@ async def analyze(request: Request, body: AnalyzeRequest):
         return JSONResponse(
             status_code=503,
             content={
-                "error": "No cached analysis yet. Analysis runs automatically every hour.",
+                "error": "No cached analysis yet. Analysis runs automatically every 6 hours.",
                 "conflict": body.conflict,
             },
         )

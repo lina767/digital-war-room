@@ -39,6 +39,33 @@ export interface ConflictData {
     conflict_reports?: { title: string; date?: string; url?: string; source?: string }[];
     sigint_score: number;
   };
+  techint?: Record<string, unknown>;
+  cyber?: {
+    cyber_score?: number;
+    cisa_kev?: { total?: number; sample?: unknown[] };
+    threat_reports?: Array<{ title?: string; url?: string }>;
+    otx_pulses?: unknown[];
+    summary?: string;
+  };
+  energy?: {
+    energy_score?: number;
+    agsi_storage?: { full?: Array<{ country?: string; full_pct?: number }> };
+    commodities?: Array<{ symbol?: string; price?: string; change_pct?: string }>;
+    summary?: string;
+  };
+  protest?: {
+    protest_score?: number;
+    protest_events?: unknown[];
+    protest_articles?: Array<{ title?: string; url?: string }>;
+    summary?: string;
+  };
+  diplo?: {
+    diplo_score?: number;
+    ofac_sdn?: { total_matches?: number; sample?: unknown[] };
+    eu_sanctions?: { keyword_mentions?: number };
+    un_icj_news?: Array<{ title?: string; url?: string; source?: string }>;
+    summary?: string;
+  };
 }
 
 interface UseConflictWebSocketOptions {
@@ -86,7 +113,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         if (msg.status === "analyzing") {
           setStatus("analyzing");
         } else if (msg.status === "ok") {
-          setData(normalizeAnalysisResponse(msg) as ConflictData);
+          setData(normalizeAnalysisResponse(msg) as unknown as ConflictData);
           setLastUpdated(new Date());
           setStatus("connected");
         } else if (msg.status === "error") {
@@ -116,7 +143,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     getLatestAnalysis(conflict).then((cached) => {
       if (cancelled) return;
       if (cached) {
-        setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as ConflictData);
+        setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
         setLastUpdated(new Date());
         setAnalysisError(null);
       } else {
@@ -125,7 +152,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           if (status === null) {
             setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
           }
-          // Bei status.cached === false keine Fehlermeldung – Analyse kommt stündlich automatisch
+          // Bei status.cached === false keine Fehlermeldung – Analyse kommt alle 6 Stunden automatisch
         });
       }
     });
@@ -137,7 +164,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     const interval = setInterval(() => {
       getLatestAnalysis(conflict).then((cached) => {
         if (cached) {
-          setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as ConflictData);
+          setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
           setLastUpdated(new Date());
         }
       });
@@ -168,7 +195,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     try {
       const result = await getLatestAnalysis(conflictRef.current);
       if (result) {
-        setData(result as ConflictData);
+        setData(result as unknown as ConflictData);
         setLastUpdated(new Date());
         setStatus("connected");
         setAnalysisError(null);

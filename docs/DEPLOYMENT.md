@@ -32,10 +32,10 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
     - `NASA_FIRMS_KEY` (GEOINT)
     - `ALPHAVANTAGE_API_KEY` (FININT, optional TECHINT)
   - **Optional:**  
-    `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL`, `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LIVEUAMAP_API_KEY` (GEOINT: Liveuamap Lebanon/Iran, kostenpflichtige API), `UCDP_API_TOKEN` (GEOINT: Uppsala Conflict Data Program), `SPIRE_MARITIME_API_KEY` (SIGINT: Spire Maritime AIS/Vessels), `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
+    `POLYMARKET_BUILDER_API_KEY`, `ACLED_API_KEY`, `ACLED_EMAIL` (PROTEST/GEOINT), `SHODAN_API_KEY`, `CLOUDFLARE_RADAR_API_TOKEN`, `LIVEUAMAP_API_KEY` (GEOINT: Liveuamap Lebanon/Iran, kostenpflichtige API), `UCDP_API_TOKEN` (GEOINT: Uppsala Conflict Data Program), `SPIRE_MARITIME_API_KEY` (SIGINT: Spire Maritime AIS/Vessels), `OTX_API_KEY` (CYBER: AlienVault OTX), `AGSI_API_KEY` (ENERGY: EU-Gasspeicher AGSI+), `LANGCHAIN_TRACING_V2`, `LANGCHAIN_API_KEY`
 - **Kosten senken (LLM-API):**
   - **OpenAI statt Claude:** `LLM_PROVIDER=openai`, `OPENAI_API_KEY=sk-…`. Agents und Supervisor nutzen dann z. B. `gpt-4o-mini` (Standard); optional `OPENAI_AGENT_MODEL` / `OPENAI_SUPERVISOR_MODEL` setzen.
-  - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 3600 = stündlich; 600 = alle 10 Min).
+  - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 21600 = alle 6 Stunden; z. B. 3600 = stündlich, 600 = alle 10 Min).
   - **Supervisor standardmäßig nur Haiku:** Default ist `SUPERVISOR_MODEL=claude-haiku-4-5-20251001` und **`USE_SUPERVISOR_FALLBACK_MODEL=false`** (kein Sonnet-Fallback). Optional: `USE_SUPERVISOR_FALLBACK_MODEL=true` setzen – dann wird bei stark auseinanderliegenden Agent-Scores (Spannweite ≥ 50) Sonnet genutzt. Schwellwert: `SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD=50` (default).
   - **`USE_RULE_BASED_AGENTS`** – Standard ist `true`: FININT, GEOINT, NEWS, SOCMINT, SIGINT laufen mit fester Tool-Kette (siehe `docs/AGENT-TOOL-CHAIN.md`), kein LLM in den Agents. Nur der Supervisor nutzt ein LLM. Zum Aktivieren von LLM pro Agent: `USE_RULE_BASED_AGENTS=false`.
   - **`USE_RULE_BASED_SUPERVISOR=true`** – Zusätzlich Supervisor ohne LLM: nur gewichteter Score, Threat-Stufen, Key Findings aus Agent-Daten. Kein LLM-Aufruf im Supervisor (minimale Kosten).

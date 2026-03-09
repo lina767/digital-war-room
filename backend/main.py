@@ -20,7 +20,7 @@ load_dotenv()
 os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", "true"))
 os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"))
 
-# Konflikt, der stündlich automatisch analysiert wird (unabhängig von Aufrufen)
+# Konflikt, der alle 6 Stunden automatisch analysiert wird (unabhängig von Aufrufen)
 # Standard: nur "Iran"
 AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "Iran")
 # Default: alle 6 Stunden (21600s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
