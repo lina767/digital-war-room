@@ -23,7 +23,7 @@ const Dashboard = () => {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [agentExpanded, setAgentExpanded] = useState<string | null>(null);
 
-  const { data: conflictData, status: analysisStatus, runAnalysis, lastUpdated, analysisError } = useConflictWebSocket({
+  const { data: conflictData, status: analysisStatus, initialLoadPending, runAnalysis, lastUpdated, analysisError } = useConflictWebSocket({
     conflict: selectedConflict,
     enabled: true,
   });
@@ -254,6 +254,7 @@ const Dashboard = () => {
           conflictData={conflictData}
           lastUpdated={lastUpdated}
           displayConflictLabel={displayConflictLabel}
+          analysisLoading={initialLoadPending}
           proximityEvidence={proximityEvidence}
           proximityLoading={proximityLoading}
           proximityError={proximityError}

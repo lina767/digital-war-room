@@ -17,6 +17,8 @@ interface DashboardRightPanelProps {
   conflictData: any;
   lastUpdated: Date | null;
   displayConflictLabel: string;
+  /** True while initial load of cached analysis is in progress */
+  analysisLoading?: boolean;
   proximityEvidence: ProximityEvidence[];
   proximityLoading: boolean;
   proximityError: string | null;
@@ -29,6 +31,7 @@ export function DashboardRightPanel({
   conflictData,
   lastUpdated,
   displayConflictLabel,
+  analysisLoading,
   proximityEvidence,
   proximityLoading,
   proximityError,
@@ -57,7 +60,7 @@ export function DashboardRightPanel({
       </div>
 
       <div className="space-y-4">
-        <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} />
+        <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
         <GlobalImpactPanel data={conflictData} />
         <LatestHeadlines data={conflictData} maxItems={15} />
         <EventsTimeline data={conflictData} />

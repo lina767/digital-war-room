@@ -4,6 +4,8 @@ interface DailyBriefingProps {
   data: ConflictData | null;
   conflictLabel: string;
   lastUpdated: Date | null;
+  /** True while initial fetch of cached analysis is in progress (improves perceived load time). */
+  isLoading?: boolean;
 }
 
 function formatTimeAgo(date: Date | null): string {
@@ -15,7 +17,7 @@ function formatTimeAgo(date: Date | null): string {
   return `${Math.floor(sec / 86400)}d ago`;
 }
 
-export function DailyBriefing({ data, conflictLabel, lastUpdated }: DailyBriefingProps) {
+export function DailyBriefing({ data, conflictLabel, lastUpdated, isLoading }: DailyBriefingProps) {
   const summary = data?.summary ?? null;
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
@@ -28,7 +30,10 @@ export function DailyBriefing({ data, conflictLabel, lastUpdated }: DailyBriefin
         <span className="text-[10px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>
       </div>
       <div className="p-3 space-y-3">
-        {!hasContent && (
+        {isLoading && !hasContent && (
+          <p className="text-xs text-muted-foreground italic animate-pulse">Loading analysis…</p>
+        )}
+        {!hasContent && !isLoading && (
           <p className="text-xs text-muted-foreground italic">Run analysis for {conflictLabel} to see the briefing.</p>
         )}
         {summary && (

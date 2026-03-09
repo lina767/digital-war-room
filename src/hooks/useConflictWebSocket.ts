@@ -90,6 +90,7 @@ interface UseConflictWebSocketOptions {
 export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWebSocketOptions) {
   const [data, setData] = useState<ConflictData | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
+  const [initialLoadPending, setInitialLoadPending] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -150,10 +151,11 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     };
   }, [enabled]);
 
-  // Beim Laden gecachtes Ergebnis holen; bei keinem Cache klare Meldung setzen
+  // Beim Laden gecachtes Ergebnis holen; initialLoadPending bleibt true bis Antwort (unabhängig vom WebSocket-Status)
   useEffect(() => {
     let cancelled = false;
     setAnalysisError(null);
+    setInitialLoadPending(true);
     getLatestAnalysis(conflict).then((cached) => {
       if (cancelled) return;
       if (cached) {
@@ -161,14 +163,16 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         setLastUpdated(new Date());
         setAnalysisError(null);
       } else {
-        getAnalyzeStatus(conflict).then((status) => {
+        getAnalyzeStatus(conflict).then((statusRes) => {
           if (cancelled) return;
-          if (status === null) {
+          if (statusRes === null) {
             setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
           }
-          // Bei status.cached === false keine Fehlermeldung – Analyse kommt alle 6 Stunden automatisch
-        });
+        }).catch(() => { /* keep pending false */ });
       }
+      setInitialLoadPending(false);
+    }).catch(() => {
+      if (!cancelled) setInitialLoadPending(false);
     });
     return () => { cancelled = true; };
   }, [conflict]);
@@ -230,5 +234,5 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     }
   }, [enabled]);
 
-  return { data, status, lastUpdated, analysisError, refresh, runAnalysis, setData };
+  return { data, status, lastUpdated, analysisError, initialLoadPending, refresh, runAnalysis, setData };
 }

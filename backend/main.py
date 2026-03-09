@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
 
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
-        first_delay = 15  # Erste Analyse 15 s nach Start, dann alle AUTO_ANALYZE_INTERVAL_SEC
+        first_delay = 5  # Erste Analyse 5 s nach Start (schnellerer erster Cache), dann alle AUTO_ANALYZE_INTERVAL_SEC
         await asyncio.sleep(first_delay)
         while True:
             try:
