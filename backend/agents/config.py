@@ -19,5 +19,5 @@ def _env_true(key: str, default: bool = False) -> bool:
 # Set to false to use Claude/OpenAI in each agent (higher cost).
 USE_RULE_BASED_AGENTS = _env_true("USE_RULE_BASED_AGENTS", default=True)
 
-# LLM provider: see agents/llm_factory.py. Use LLM_PROVIDER=openai + OPENAI_API_KEY
+# LLM provider: see agents/llm.py. Use LLM_PROVIDER=openai + OPENAI_API_KEY
 # for cheaper runs (e.g. gpt-4o-mini). Default is anthropic (ANTHROPIC_API_KEY).

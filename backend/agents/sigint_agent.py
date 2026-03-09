@@ -19,9 +19,7 @@ import os
 from typing import Any, Dict, List
 
 import httpx
-from .llm_factory import get_agent_model
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
+from .llm import run_tool_agent
 
 # ── ADS-B endpoints ───────────────────────────────────────────────────────
 ADSB_ENDPOINTS = [
@@ -97,7 +95,6 @@ def _in_conflict_zone(lat: float, lon: float) -> bool:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
-@tool
 def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
     """
     Fetch military and surveillance aircraft across the full Middle East region.
@@ -219,7 +216,6 @@ def _normalize_vessel(v: dict, label: str) -> dict | None:
     }
 
 
-@tool
 def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
     """
     Fetch warships in the Persian Gulf, Red Sea, Eastern Med, and Gulf of Aden.
@@ -283,7 +279,6 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-@tool
 def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
     """
     Fetch vessel positions from Spire Maritime AIS (subagent). Requires SPIRE_MARITIME_API_KEY.
@@ -344,7 +339,6 @@ def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return []
 
 
-@tool
 def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """
     Fetch recent military/conflict reports from diverse OSINT and media feeds:
@@ -405,16 +399,16 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
 
 def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     """Execute SIGINT tool chain in fixed order: aircraft → vessels → spire_vessels (subagent) → conflict_reports. No LLM."""
-    aircraft = [a for a in (get_military_aircraft.invoke({}) or []) if isinstance(a, dict) and "error" not in a]
-    ships = [s for s in (get_naval_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
-    spire_ships = [s for s in (get_spire_vessels.invoke({}) or []) if isinstance(s, dict) and "error" not in s]
+    aircraft = [a for a in (get_military_aircraft() or []) if isinstance(a, dict) and "error" not in a]
+    ships = [s for s in (get_naval_vessels() or []) if isinstance(s, dict) and "error" not in s]
+    spire_ships = [s for s in (get_spire_vessels() or []) if isinstance(s, dict) and "error" not in s]
     seen_ship = {(s.get("name") or "").lower()[:40] or str(s.get("lat")) + "," + str(s.get("lon")) for s in ships}
     for s in spire_ships:
         key = (s.get("name") or "").lower()[:40] or str(s.get("lat")) + "," + str(s.get("lon"))
         if key not in seen_ship:
             seen_ship.add(key)
             ships.append(s)
-    reports = [r for r in (get_conflict_reports.invoke({"conflict": conflict}) or []) if isinstance(r, dict) and "error" not in r]
+    reports = [r for r in (get_conflict_reports(conflict=conflict) or []) if isinstance(r, dict) and "error" not in r]
 
     base = 30.0
     base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
@@ -449,8 +443,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_spire_vessels, get_conflict_reports]
-
 SIGINT_SYSTEM = """You are a SIGINT analyst monitoring military movements and conflict activity.
 Call all three tools, compute a score (0-100), return ONLY valid JSON:
 
@@ -481,43 +473,36 @@ def run_sigint_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_sigint(conflict)
 
-    model = get_agent_model(SIGINT_TOOLS)
-    messages = [
-        SystemMessage(content=SIGINT_SYSTEM),
-        HumanMessage(content=f"Monitor military movements for conflict: {conflict}"),
+    TOOL_FNS = {
+        "get_military_aircraft": get_military_aircraft,
+        "get_naval_vessels": get_naval_vessels,
+        "get_spire_vessels": get_spire_vessels,
+        "get_conflict_reports": get_conflict_reports,
+    }
+    TOOL_SCHEMAS = [
+        {"name": "get_military_aircraft", "description": "Fetch military aircraft in conflict regions via ADS-B.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_naval_vessels", "description": "Fetch naval vessels in conflict regions.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_spire_vessels", "description": "Fetch Spire Maritime AIS vessel data.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_conflict_reports", "description": "Fetch conflict intelligence reports from RSS feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     ]
-
-    for _ in range(6):
-        response = model.invoke(messages)
-        messages.append(response)
-
-        if not response.tool_calls:
-            try:
-                content = response.content
-                if isinstance(content, list):
-                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
-                text = (content or "").strip()
-                for p in ("```json", "```"):
-                    if text.startswith(p):
-                        text = text[len(p):].strip()
-                if text.endswith("```"):
-                    text = text[:-3].strip()
-                result = json.loads(text)
-                result["conflict"] = conflict
-                return result
-            except Exception:
-                break
-
-        for tc in response.tool_calls:
-            tool_map = {t.name: t for t in SIGINT_TOOLS}
-            tool_fn = tool_map.get(tc["name"])
-            if tool_fn:
-                result = tool_fn.invoke(tc.get("args", {}))
-                from langchain_core.messages import ToolMessage
-                messages.append(ToolMessage(
-                    content=json.dumps(result, default=str),
-                    tool_call_id=tc["id"],
-                ))
-
-    # Fallback: same fixed tool chain as rule-based mode
+    text = run_tool_agent(
+        system=SIGINT_SYSTEM,
+        user_content=f"Monitor military movements for conflict: {conflict}",
+        tool_fns=TOOL_FNS,
+        tool_schemas=TOOL_SCHEMAS,
+        max_rounds=6,
+    )
+    if text:
+        text = text.strip()
+        for p in ("```json", "```"):
+            if text.startswith(p):
+                text = text[len(p):].strip()
+        if text.endswith("```"):
+            text = text[:-3].strip()
+        try:
+            result = json.loads(text)
+            result["conflict"] = conflict
+            return result
+        except Exception:
+            pass
     return _run_rule_based_sigint(conflict)

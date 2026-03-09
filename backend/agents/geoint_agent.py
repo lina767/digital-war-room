@@ -12,9 +12,7 @@ from typing import Any, Dict, List, Tuple
 
 import httpx
 from services.acled_auth import get_acled_token_async, has_acled_oauth
-from .llm_factory import get_agent_model
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
+from .llm import run_tool_agent
 
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
@@ -136,7 +134,6 @@ def _parse_firms_row(row: dict, bbox: dict) -> dict | None:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
-@tool
 def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Dict[str, Any]]:
     """
     Fetch NASA FIRMS thermal anomalies for a region (area API, no world download).
@@ -196,7 +193,6 @@ def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Di
         return [{"error": str(e)}]
 
 
-@tool
 def get_conflict_region(conflict: str) -> str:
     """Map a conflict name to its geographic region for thermal anomaly detection."""
     cl = conflict.lower()
@@ -245,7 +241,6 @@ ACLED_COUNTRY_NAMES = {
 }
 
 
-@tool
 def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     """
     Fetch recent geospatial event reports from ReliefWeb API v2 (free, no key) and optionally ACLED.
@@ -492,7 +487,6 @@ UCDP_COUNTRY_IDS = {
 }
 
 
-@tool
 def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
     """
     Fetch recent conflict events from UCDP GED (Uppsala Conflict Data Program).
@@ -554,7 +548,6 @@ def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
         return []
 
 
-@tool
 def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
     """
     Return direct links to Sentinel Hub EO Browser for the conflict region (Lebanon, Iran, etc.).
@@ -574,8 +567,6 @@ def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────
-
-GEOINT_TOOLS = [get_conflict_region, get_thermal_anomalies, get_conflict_hotspot_news, get_ucdp_events, get_eo_browser_links]
 
 GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS, ReliefWeb/ACLED, UCDP (Uppsala), and EO Browser links.
 Your job: get conflict region, fetch thermal anomalies (days=3), conflict hotspot news, UCDP events (if token set), and EO Browser links for the region (Lebanon, Iran, etc.); then compute score.
@@ -672,16 +663,16 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
 def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
     """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → ucdp_events → eo_browser_links. No LLM."""
     try:
-        region = get_conflict_region.invoke({"conflict": conflict})
+        region = get_conflict_region(conflict=conflict)
         if not isinstance(region, str):
             region = "middle_east"
-        raw = get_thermal_anomalies.invoke({"region": region, "days": 3})
+        raw = get_thermal_anomalies(region=region, days=3)
         anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
-        reliefweb_raw = get_conflict_hotspot_news.invoke({"conflict": conflict})
+        reliefweb_raw = get_conflict_hotspot_news(conflict=conflict)
         reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
-        ucdp_raw = get_ucdp_events.invoke({"conflict": conflict})
+        ucdp_raw = get_ucdp_events(conflict=conflict)
         ucdp_events = [e for e in (ucdp_raw if isinstance(ucdp_raw, list) else []) if isinstance(e, dict) and "error" not in e]
-        eo_links = get_eo_browser_links.invoke({"conflict": conflict})
+        eo_links = get_eo_browser_links(conflict=conflict)
         if not isinstance(eo_links, dict):
             eo_links = {}
         score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
@@ -716,41 +707,38 @@ def run_geoint_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_geoint(conflict)
 
-    model = get_agent_model(GEOINT_TOOLS)
-
-    messages = [
-        SystemMessage(content=GEOINT_SYSTEM),
-        HumanMessage(content=f"Detect thermal anomalies for conflict: {conflict}"),
+    TOOL_FNS = {
+        "get_conflict_region": get_conflict_region,
+        "get_thermal_anomalies": get_thermal_anomalies,
+        "get_conflict_hotspot_news": get_conflict_hotspot_news,
+        "get_ucdp_events": get_ucdp_events,
+        "get_eo_browser_links": get_eo_browser_links,
+    }
+    TOOL_SCHEMAS = [
+        {"name": "get_conflict_region", "description": "Map conflict to a geographic region.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "get_thermal_anomalies", "description": "Fetch NASA FIRMS thermal anomalies.", "input_schema": {"type": "object", "properties": {"region": {"type": "string"}, "days": {"type": "integer"}}, "required": ["region"]}},
+        {"name": "get_conflict_hotspot_news", "description": "Fetch ReliefWeb/ACLED hotspot news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "get_ucdp_events", "description": "Fetch UCDP conflict events.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "get_eo_browser_links", "description": "Generate EO Browser links.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     ]
-
-    for _ in range(6):
-        response = model.invoke(messages)
-        messages.append(response)
-
-        if not response.tool_calls:
-            try:
-                content = response.content
-                if isinstance(content, list):
-                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
-                result = json.loads(content)
-                result["conflict"] = conflict
-                return result
-            except Exception:
-                break
-
-        for tc in response.tool_calls:
-            tool_map = {t.name: t for t in GEOINT_TOOLS}
-            tool_fn = tool_map.get(tc["name"])
-            if tool_fn:
-                args = dict(tc.get("args", {}))
-                if "conflict" not in args and tool_fn.name in ("get_conflict_region", "get_conflict_hotspot_news", "get_ucdp_events"):
-                    args["conflict"] = conflict
-                result = tool_fn.invoke(args)
-                from langchain_core.messages import ToolMessage
-                messages.append(ToolMessage(
-                    content=json.dumps(result, default=str),
-                    tool_call_id=tc["id"],
-                ))
-
-    # Fallback: same fixed tool chain as rule-based mode
+    text = run_tool_agent(
+        system=GEOINT_SYSTEM,
+        user_content=f"Detect thermal anomalies for conflict: {conflict}",
+        tool_fns=TOOL_FNS,
+        tool_schemas=TOOL_SCHEMAS,
+        max_rounds=6,
+    )
+    if text:
+        text = text.strip()
+        for prefix in ("```json", "```"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+        if text.endswith("```"):
+            text = text[:-3].strip()
+        try:
+            result = json.loads(text)
+            result["conflict"] = conflict
+            return result
+        except Exception:
+            pass
     return _run_rule_based_geoint(conflict)

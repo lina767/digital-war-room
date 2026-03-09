@@ -11,9 +11,7 @@ from typing import Any, Dict, List
 
 import feedparser
 import httpx
-from .llm_factory import get_agent_model
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
+from .llm import run_tool_agent
 
 # Telegram public channels (scraped via t.me/s/)
 TELEGRAM_CHANNELS = {
@@ -167,7 +165,6 @@ def _conflict_keywords(conflict: str) -> List[str]:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
-@tool
 def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
     """
     Scrape public Telegram channels for conflict-related posts.
@@ -239,7 +236,6 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-@tool
 def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
     """
     Scrape conflict-relevant Twitter/X accounts via public Nitter instances.
@@ -304,7 +300,6 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-@tool
 def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
     """
     Search Reddit for recent conflict-related posts using public JSON API.
@@ -369,7 +364,6 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-@tool
 def fetch_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     """
     Fetch and filter RSS feeds from region-specific sources for conflict-related content.
@@ -435,7 +429,6 @@ RELIEFWEB_COUNTRY_NAMES = {
 }
 
 
-@tool
 def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
     """
     Fetch recent conflict reports from ReliefWeb API v2.
@@ -512,11 +505,11 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
     """Execute SOCMINT tool chain: all five sources in parallel. No LLM."""
     try:
         with ThreadPoolExecutor(max_workers=5) as executor:
-            fut_telegram = executor.submit(scrape_telegram_channels.invoke, {"conflict": conflict})
-            fut_twitter = executor.submit(scrape_twitter_nitter.invoke, {"conflict": conflict})
-            fut_reddit = executor.submit(search_reddit.invoke, {"conflict": conflict})
-            fut_rss = executor.submit(fetch_rss_feeds.invoke, {"conflict": conflict})
-            fut_reliefweb = executor.submit(fetch_reliefweb_reports.invoke, {"conflict": conflict})
+            fut_telegram = executor.submit(scrape_telegram_channels, conflict=conflict)
+            fut_twitter = executor.submit(scrape_twitter_nitter, conflict=conflict)
+            fut_reddit = executor.submit(search_reddit, conflict=conflict)
+            fut_rss = executor.submit(fetch_rss_feeds, conflict=conflict)
+            fut_reliefweb = executor.submit(fetch_reliefweb_reports, conflict=conflict)
             telegram = [p for p in (fut_telegram.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
             twitter = [p for p in (fut_twitter.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
             reddit = [p for p in (fut_reddit.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
@@ -583,14 +576,6 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-SOCMINT_TOOLS = [
-    scrape_telegram_channels,
-    scrape_twitter_nitter,
-    search_reddit,
-    fetch_rss_feeds,
-    fetch_reliefweb_reports,
-]
-
 SOCMINT_SYSTEM = """You are a SOCMINT (Social Media Intelligence) analyst.
 Your job: monitor Telegram, Twitter (Nitter), Reddit, RSS, and ReliefWeb for conflict signals, then compute a SOCMINT score (0-100).
 
@@ -631,41 +616,38 @@ def run_socmint_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_socmint(conflict)
 
-    model = get_agent_model(SOCMINT_TOOLS)
-
-    messages = [
-        SystemMessage(content=SOCMINT_SYSTEM),
-        HumanMessage(content=f"Monitor social media and open sources for conflict: {conflict}"),
+    TOOL_FNS = {
+        "scrape_telegram_channels": scrape_telegram_channels,
+        "scrape_twitter_nitter": scrape_twitter_nitter,
+        "search_reddit": search_reddit,
+        "fetch_rss_feeds": fetch_rss_feeds,
+        "fetch_reliefweb_reports": fetch_reliefweb_reports,
+    }
+    TOOL_SCHEMAS = [
+        {"name": "scrape_telegram_channels", "description": "Scrape Telegram channels for conflict signals.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "scrape_twitter_nitter", "description": "Scrape Twitter/Nitter for conflict signals.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "search_reddit", "description": "Search Reddit for conflict-related posts.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "fetch_rss_feeds", "description": "Fetch curated RSS feeds for conflict analysis.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "fetch_reliefweb_reports", "description": "Fetch ReliefWeb humanitarian reports.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     ]
-
-    for _ in range(6):
-        response = model.invoke(messages)
-        messages.append(response)
-
-        if not response.tool_calls:
-            try:
-                content = response.content
-                if isinstance(content, list):
-                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
-                result = json.loads(content)
-                result["conflict"] = conflict
-                return result
-            except Exception:
-                break
-
-        for tc in response.tool_calls:
-            tool_map = {t.name: t for t in SOCMINT_TOOLS}
-            tool_fn = tool_map.get(tc["name"])
-            if tool_fn:
-                args = dict(tc.get("args", {}))
-                if "conflict" not in args:
-                    args["conflict"] = conflict
-                result = tool_fn.invoke(args)
-                from langchain_core.messages import ToolMessage
-                messages.append(ToolMessage(
-                    content=json.dumps(result, default=str),
-                    tool_call_id=tc["id"],
-                ))
-
-    # Fallback: same fixed tool chain as rule-based mode
+    text = run_tool_agent(
+        system=SOCMINT_SYSTEM,
+        user_content=f"Monitor social media and open sources for conflict: {conflict}",
+        tool_fns=TOOL_FNS,
+        tool_schemas=TOOL_SCHEMAS,
+        max_rounds=6,
+    )
+    if text:
+        text = text.strip()
+        for prefix in ("```json", "```"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+        if text.endswith("```"):
+            text = text[:-3].strip()
+        try:
+            result = json.loads(text)
+            result["conflict"] = conflict
+            return result
+        except Exception:
+            pass
     return _run_rule_based_socmint(conflict)

@@ -11,9 +11,7 @@ from urllib.parse import urlparse
 
 import feedparser
 import httpx
-from .llm_factory import get_agent_model
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
+from .llm import run_tool_agent
 
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
@@ -159,7 +157,6 @@ def _merge_news_results(
     }
 
 
-@tool
 def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, Any]]:
     """Search for recent news articles about a conflict from trusted sources (NewsAPI)."""
     api_key = os.getenv("NEWS_API_KEY")
@@ -238,7 +235,6 @@ def _gdelt_article_list(data: Any) -> List[Dict[str, Any]]:
     return []
 
 
-@tool
 def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
     """Search GDELT for conflict news - covers 100+ languages, 65k+ sources worldwide."""
     query = _build_query(conflict).replace('"', ' ').replace("(", "").replace(")", "").strip()
@@ -301,7 +297,6 @@ def _rss_feeds_for_conflict(conflict: str) -> List[str]:
     return RSS_FEEDS["default"]
 
 
-@tool
 def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     """Fetch conflict-specific RSS feeds from think tanks and regional outlets."""
     feeds = _rss_feeds_for_conflict(conflict)
@@ -349,7 +344,7 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
 
 def _run_newsapi_source_agent(conflict: str, hours_back: int = 48) -> Dict[str, Any]:
     """Source agent: NewsAPI-only view of the conflict."""
-    raw = search_conflict_news.invoke({"conflict": conflict, "hours_back": hours_back})
+    raw = search_conflict_news(conflict=conflict, hours_back=hours_back)
     articles = [
         a for a in (raw if isinstance(raw, list) else [])
         if isinstance(a, dict) and "error" not in a
@@ -363,7 +358,7 @@ def _run_newsapi_source_agent(conflict: str, hours_back: int = 48) -> Dict[str, 
 
 def _run_gdelt_source_agent(conflict: str) -> Dict[str, Any]:
     """Source agent: GDELT-only view of the conflict."""
-    raw = search_gdelt_news.invoke({"conflict": conflict})
+    raw = search_gdelt_news(conflict=conflict)
     articles = [
         a for a in (raw if isinstance(raw, list) else [])
         if isinstance(a, dict) and "error" not in a
@@ -377,7 +372,7 @@ def _run_gdelt_source_agent(conflict: str) -> Dict[str, Any]:
 
 def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
     """Source agent: curated RSS/think-tank/OSINT feeds."""
-    raw = search_rss_feeds.invoke({"conflict": conflict})
+    raw = search_rss_feeds(conflict=conflict)
     articles = [
         a for a in (raw if isinstance(raw, list) else [])
         if isinstance(a, dict) and "error" not in a
@@ -505,8 +500,6 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-NEWS_TOOLS = [search_conflict_news, search_gdelt_news, search_rss_feeds]
-
 NEWS_SYSTEM = """You are a NEWS/OSINT analyst monitoring open-source media.
 Your job: fetch news from all three tools (NewsAPI, GDELT, RSS), combine and analyze.
 
@@ -544,41 +537,34 @@ def run_news_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_news(conflict)
 
-    model = get_agent_model(NEWS_TOOLS)
-
-    messages = [
-        SystemMessage(content=NEWS_SYSTEM),
-        HumanMessage(content=f"Analyze news coverage for conflict: {conflict}"),
+    TOOL_FNS = {
+        "search_conflict_news": search_conflict_news,
+        "search_gdelt_news": search_gdelt_news,
+        "search_rss_feeds": search_rss_feeds,
+    }
+    TOOL_SCHEMAS = [
+        {"name": "search_conflict_news", "description": "Search NewsAPI for conflict-related articles.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}, "hours_back": {"type": "integer"}}, "required": ["conflict"]}},
+        {"name": "search_gdelt_news", "description": "Search GDELT for conflict news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "search_rss_feeds", "description": "Search curated RSS/think-tank feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     ]
-
-    for _ in range(5):
-        response = model.invoke(messages)
-        messages.append(response)
-
-        if not response.tool_calls:
-            try:
-                content = response.content
-                if isinstance(content, list):
-                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
-                result = json.loads(content)
-                result["conflict"] = conflict
-                return result
-            except Exception:
-                break
-
-        for tc in response.tool_calls:
-            tool_map = {t.name: t for t in NEWS_TOOLS}
-            tool_fn = tool_map.get(tc["name"])
-            if tool_fn:
-                args = tc.get("args", {})
-                if "conflict" not in args:
-                    args["conflict"] = conflict
-                result = tool_fn.invoke(args)
-                messages.append(ToolMessage(
-                    content=json.dumps(result, default=str),
-                    tool_call_id=tc["id"],
-                ))
-
-    # Fallback: same fixed tool chain as rule-based mode
+    text = run_tool_agent(
+        system=NEWS_SYSTEM,
+        user_content=f"Analyze news coverage for conflict: {conflict}",
+        tool_fns=TOOL_FNS,
+        tool_schemas=TOOL_SCHEMAS,
+    )
+    if text:
+        text = text.strip()
+        for prefix in ("```json", "```"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+        if text.endswith("```"):
+            text = text[:-3].strip()
+        try:
+            result = json.loads(text)
+            result["conflict"] = conflict
+            return result
+        except Exception:
+            pass
     return _run_rule_based_news(conflict)
 

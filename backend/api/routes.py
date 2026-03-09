@@ -109,7 +109,7 @@ async def get_proximity_strikes(region: str = "middle_east", days: int = 3):
         loop = asyncio.get_running_loop()
         raw = await loop.run_in_executor(
             None,
-            lambda: get_thermal_anomalies.invoke({"region": region, "days": max(1, min(5, int(days)))}),
+            lambda: get_thermal_anomalies(region=region, days=max(1, min(5, int(days)))),
         )
         anomalies = [
             a for a in (raw if isinstance(raw, list) else [])
@@ -137,7 +137,7 @@ async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
         loop = asyncio.get_running_loop()
         raw = await loop.run_in_executor(
             None,
-            lambda: get_thermal_anomalies.invoke({"region": region, "days": max(1, min(5, int(days)))}),
+            lambda: get_thermal_anomalies(region=region, days=max(1, min(5, int(days)))),
         )
         anomalies = [
             a for a in (raw if isinstance(raw, list) else [])

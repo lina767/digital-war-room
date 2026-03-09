@@ -2,6 +2,8 @@
 
 Überblick für das regelbasierte System: Wo werden Agents/Tools in welcher Reihenfolge aufgerufen? (Stand: aktueller Code.)
 
+**Tracing:** Wenn `OTEL_EXPORTER_OTLP_ENDPOINT` gesetzt ist, werden alle LangChain-/LangGraph-Aufrufe (Graph, Supervisor-LLM, Agent-LLMs, Tools) als OpenTelemetry-Spans exportiert (z. B. an Jaeger oder einen anderen OTLP-kompatiblen Collector).
+
 ---
 
 ## Regelbasierten Modus aktivieren

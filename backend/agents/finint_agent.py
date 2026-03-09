@@ -6,14 +6,13 @@ Fetches Brent/WTI oil prices, Polymarket conflict odds, and tracked wallet posit
 Optional: set POLYMARKET_BUILDER_API_KEY in .env (your personal builder API key) for authenticated requests.
 """
 import asyncio
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
 import httpx
-from .llm_factory import get_agent_model
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.tools import tool
+from .llm import run_tool_agent
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
@@ -91,7 +90,6 @@ def _normalize_polymarket_item(m: dict, slug: str = "") -> dict | None:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
-@tool
 def get_brent_price() -> Dict[str, Any]:
     """Fetch current Brent crude oil price and daily change from Alpha Vantage."""
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
@@ -125,7 +123,6 @@ def get_brent_price() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@tool
 def get_wti_price() -> Dict[str, Any]:
     """Fetch current WTI crude oil price and daily change from Alpha Vantage."""
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
@@ -159,7 +156,6 @@ def get_wti_price() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@tool
 def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
     """Fetch Polymarket odds: tracked US–Iran/Trump/military/trade slugs first, then geopolitics keyword-matched events (excludes Oscars, Hungary PM, etc.)."""
     async def _fetch_tracked():
@@ -277,7 +273,6 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-@tool
 def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
     """Fetch current Polymarket positions for tracked wallets (e.g. rundeep) via Data API."""
     if not TRACKED_WALLETS:
@@ -330,10 +325,10 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
 def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
     """Execute FININT tool chain: all four tools in parallel. No LLM."""
     with ThreadPoolExecutor(max_workers=4) as executor:
-        fut_brent = executor.submit(get_brent_price.invoke, {})
-        fut_wti = executor.submit(get_wti_price.invoke, {})
-        fut_polymarket = executor.submit(get_polymarket_conflict_odds.invoke, {"conflict": conflict})
-        fut_wallets = executor.submit(get_tracked_wallet_positions.invoke, {})
+        fut_brent = executor.submit(get_brent_price)
+        fut_wti = executor.submit(get_wti_price)
+        fut_polymarket = executor.submit(get_polymarket_conflict_odds, conflict)
+        fut_wallets = executor.submit(get_tracked_wallet_positions)
         brent = fut_brent.result(timeout=25)
         wti = fut_wti.result(timeout=25)
         polymarket = fut_polymarket.result(timeout=30)
@@ -377,8 +372,6 @@ def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-FININT_TOOLS = [get_brent_price, get_wti_price, get_polymarket_conflict_odds, get_tracked_wallet_positions]
-
 FININT_SYSTEM = """You are a FININT (Financial Intelligence) analyst.
 Your job: fetch oil prices, Polymarket conflict odds, and tracked wallet positions, then compute an escalation score (0-100).
 
@@ -407,49 +400,35 @@ def run_finint_agent(conflict: str) -> Dict[str, Any]:
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_finint(conflict)
 
-    model = get_agent_model(FININT_TOOLS)
-
-    messages = [
-        SystemMessage(content=FININT_SYSTEM),
-        HumanMessage(content=f"Analyze financial indicators for conflict: {conflict}"),
+    TOOL_FNS = {
+        "get_brent_price": get_brent_price,
+        "get_wti_price": get_wti_price,
+        "get_polymarket_conflict_odds": get_polymarket_conflict_odds,
+        "get_tracked_wallet_positions": get_tracked_wallet_positions,
+    }
+    TOOL_SCHEMAS = [
+        {"name": "get_brent_price", "description": "Fetch current Brent crude oil price from Alpha Vantage.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_wti_price", "description": "Fetch current WTI crude oil price from Alpha Vantage.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_polymarket_conflict_odds", "description": "Fetch Polymarket conflict prediction odds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "get_tracked_wallet_positions", "description": "Fetch tracked wallet positions from Polymarket.", "input_schema": {"type": "object", "properties": {}}},
     ]
-
-    import json
-    # Agentic loop
-    for _ in range(5):
-        response = model.invoke(messages)
-        messages.append(response)
-
-        if not response.tool_calls:
-            # Final answer: parse JSON (strip optional markdown code fence)
-            try:
-                content = response.content
-                if isinstance(content, list):
-                    content = " ".join(c.get("text", "") if isinstance(c, dict) else str(c) for c in content)
-                text = (content or "").strip()
-                for prefix in ("```json", "```"):
-                    if text.startswith(prefix):
-                        text = text[len(prefix):].strip()
-                    if text.endswith("```"):
-                        text = text[:-3].strip()
-                return json.loads(text)
-            except Exception:
-                break
-
-        # Execute tool calls
-        for tc in response.tool_calls:
-            tool_map = {t.name: t for t in FININT_TOOLS}
-            tool_fn = tool_map.get(tc["name"])
-            if tool_fn:
-                args = tc.get("args", {})
-                result = tool_fn.invoke(args)
-                from langchain_core.messages import ToolMessage
-                messages.append(ToolMessage(
-                    content=json.dumps(result, default=str),
-                    tool_call_id=tc["id"],
-                ))
-
-    # Fallback: same fixed tool chain as rule-based mode
+    text = run_tool_agent(
+        system=FININT_SYSTEM,
+        user_content=f"Analyze financial indicators for conflict: {conflict}",
+        tool_fns=TOOL_FNS,
+        tool_schemas=TOOL_SCHEMAS,
+    )
+    if text:
+        text = text.strip()
+        for prefix in ("```json", "```"):
+            if text.startswith(prefix):
+                text = text[len(prefix):].strip()
+            if text.endswith("```"):
+                text = text[:-3].strip()
+        try:
+            return json.loads(text)
+        except Exception:
+            pass
     return _run_rule_based_finint(conflict)
 
 

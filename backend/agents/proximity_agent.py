@@ -74,7 +74,7 @@ def _build_summary(evidence: List[Dict[str, Any]], score: float) -> str:
 def run_proximity_agent(conflict: str) -> Dict[str, Any]:
     """Run PROXIMITY agent: FIRMS strikes + Overpass + optional tunnel sites → evidence + score."""
     region = _conflict_to_region(conflict)
-    raw = get_thermal_anomalies.invoke({"region": region, "days": 3})
+    raw = get_thermal_anomalies(region=region, days=3)
     anomalies = [
         a for a in (raw if isinstance(raw, list) else [])
         if isinstance(a, dict) and "error" not in a and "lat" in a and "lon" in a

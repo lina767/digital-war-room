@@ -46,6 +46,17 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 
 ---
 
+## Observability (OpenTelemetry / Jaeger)
+
+| Key / Env | Verwendung im Code | Beschreibung |
+|-----------|---------------------|--------------|
+| **OTEL_EXPORTER_OTLP_ENDPOINT** | `backend/agents/otel_callbacks.py`, `main.py` | Wenn gesetzt: Traces (LangChain/LangGraph: LLM, Tools, Chains) werden per OTLP (gRPC) an diesen Endpoint gesendet. Z. B. `http://localhost:4317` für lokales Jaeger. Kein API-Key nötig für Jaeger. |
+| **OTEL_SERVICE_NAME** | `backend/agents/otel_callbacks.py` | Optional; Service-Name in Traces (Default: `digital-war-room`). |
+
+**LangSmith** ist standardmäßig aus (`LANGCHAIN_TRACING_V2=false`). Für LangSmith: `LANGCHAIN_TRACING_V2=true` und `LANGCHAIN_API_KEY` setzen (siehe [LangSmith](https://smith.langchain.com/)).
+
+---
+
 ## Wo die Keys eintragen
 
 - **Lokal:** `backend/.env` (nicht committen).  

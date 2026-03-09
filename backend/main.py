@@ -12,13 +12,11 @@ from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from api.stripe_checkout import router as stripe_router
 from agents.supervisor import analyze_conflict
+from agents.otel_callbacks import init_otel
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 
 load_dotenv()
-
-os.environ.setdefault("LANGCHAIN_TRACING_V2", os.getenv("LANGCHAIN_TRACING_V2", "true"))
-os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com"))
 
 # Konflikt, der alle 6 Stunden automatisch analysiert wird (unabhängig von Aufrufen)
 # Standard: nur "Iran"
@@ -29,6 +27,7 @@ AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "21600"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_otel()  # OpenTelemetry TracerProvider + OTLP exporter when OTEL_EXPORTER_OTLP_ENDPOINT set
     app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
     app.state.job_queue = JobQueue()
 
