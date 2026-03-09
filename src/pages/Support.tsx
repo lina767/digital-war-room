@@ -58,6 +58,11 @@ const Support = () => {
             <Heart className="h-5 w-5 text-primary" aria-hidden />
             Support the Mission
           </h1>
+          <p className="text-sm text-muted-foreground mt-3 max-w-xl">
+            This project is intentionally free and open: no paywall, no partisan framing, no sensationalism — just
+            structured insights that anyone can use. To keep the Digital War Room online and up to date, I need help
+            covering the basic operating costs (API usage, including the Claude API: Haiku and Sonnet).
+          </p>
           <p className="text-sm text-muted-foreground mt-2">
             One-time donation via Stripe. You will be redirected to Stripe’s secure checkout page.
           </p>

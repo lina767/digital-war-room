@@ -51,6 +51,11 @@ const HowItWorks = () => {
               </Link>
               {" "}– transparent, searchable list of all data sources with reliability ratings.
             </p>
+            <p className="text-xs sm:text-[13px] text-muted-foreground max-w-3xl">
+              For conflict <strong className="text-foreground">Iran</strong>, keywords and synthesis explicitly include
+              Hezbollah–IDF and Houthis (no separate dropdown). Global impact (e.g. oil price moves, Strait of Hormuz /
+              chokepoint risk) is derived from ENERGY and surfaced in key findings and the dashboard Global Impact panel.
+            </p>
             <div className="grid gap-4 sm:gap-5 md:grid-cols-2">
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
                 <h3 className="font-mono text-xs tracking-wider text-primary">FININT – Financial Intelligence</h3>
@@ -64,14 +69,14 @@ const HowItWorks = () => {
                 <h3 className="font-mono text-xs tracking-wider text-primary">SIGINT – Signals Intelligence</h3>
                 <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
                   <li>Military aircraft and naval movements (ADS-B / open feeds)</li>
-                  <li>Conflict reports from think tanks and defence-focused outlets</li>
+                  <li>Conflict reports from think tanks (Hezbollah, Houthis, Iran, Yemen, Lebanon in keywords for Iran)</li>
                   <li>Signals aggregated into a SIGINT escalation score</li>
                 </ul>
               </div>
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
                 <h3 className="font-mono text-xs tracking-wider text-primary">NEWS – Open-source media</h3>
                 <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
-                  <li>News articles related to the selected conflict</li>
+                  <li>News articles for the selected conflict (Iran query includes Hezbollah, Houthi, IDF, Yemen, Lebanon)</li>
                   <li>Headline and body sentiment (escalatory vs. de-escalatory)</li>
                   <li>Summarised into a news_score for the supervisor</li>
                 </ul>
@@ -87,7 +92,7 @@ const HowItWorks = () => {
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
                 <h3 className="font-mono text-xs tracking-wider text-primary">SOCMINT – Social Media Intelligence</h3>
                 <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
-                  <li>Signals from Telegram, Reddit and RSS feeds</li>
+                  <li>Signals from Telegram, Reddit and RSS (for Iran: includes Houthi, Hezbollah, IDF, Yemen, Lebanon)</li>
                   <li>Focus on escalation-related narratives and spikes</li>
                   <li>Top social signals passed to the supervisor</li>
                 </ul>
@@ -96,8 +101,45 @@ const HowItWorks = () => {
                 <h3 className="font-mono text-xs tracking-wider text-primary">TECHINT – Technical Intelligence</h3>
                 <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
                   <li>Tech &amp; export control news impacting escalation</li>
-                  <li>Internet outage signals (IODA / Cloudflare / OONI)</li>
+                  <li>Internet outage signals (IODA v2 / Cloudflare / OONI)</li>
                   <li>Shodan activity around relevant regions</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
+                <h3 className="font-mono text-xs tracking-wider text-primary">CYBER – Threat Intelligence</h3>
+                <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
+                  <li>CISA KEV, threat reports, AlienVault OTX pulses</li>
+                  <li>GreyNoise: malicious scanner context (7d)</li>
+                  <li>Combined into a cyber escalation score</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
+                <h3 className="font-mono text-xs tracking-wider text-primary">ENERGY – Commodities &amp; Gas</h3>
+                <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
+                  <li>EU gas storage (AGSI+), Brent/WTI (Alpha Vantage)</li>
+                  <li>For Iran: global impact note when oil moves significantly (Strait of Hormuz / chokepoint risk)</li>
+                  <li>Energy score and commodities feed supervisor and Global Impact panel</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
+                <h3 className="font-mono text-xs tracking-wider text-primary">PROTEST – Civil Society</h3>
+                <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
+                  <li>ACLED protests/riots, GDELT protest coverage</li>
+                  <li>Civil society unrest score for the supervisor</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
+                <h3 className="font-mono text-xs tracking-wider text-primary">DIPLO – Diplomacy / Legal</h3>
+                <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
+                  <li>OFAC SDN, EU sanctions, UN/ICJ press</li>
+                  <li>Diplomatic and legal signals for the conflict</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
+                <h3 className="font-mono text-xs tracking-wider text-primary">PROXIMITY – Strike–Civilian</h3>
+                <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
+                  <li>NASA FIRMS thermal anomalies vs. OSM schools/hospitals (and optional tunnel/military sites)</li>
+                  <li>Human-shield / collateral risk labels; evidence list for key findings</li>
                 </ul>
               </div>
             </div>
@@ -109,11 +151,12 @@ const HowItWorks = () => {
             <ol className="space-y-3 text-sm sm:text-[15px] text-muted-foreground max-w-3xl list-decimal list-inside">
               <li>
                 <strong className="text-foreground">Select a conflict.</strong> In the dashboard header you choose a
-                conflict (for example “US–Iran” or “Ukraine–Russia”). This value is passed to all agents.
+                conflict (currently &quot;Iran&quot;). This value is passed to all agents. For Iran, Hezbollah, Houthis and
+                global impact (oil, Hormuz) are included in keywords and synthesis without a separate dropdown.
               </li>
               <li>
                 <strong className="text-foreground">Agents run in parallel.</strong> FININT, SIGINT, NEWS, GEOINT,
-                SOCMINT and TECHINT run concurrently. Each agent:
+                SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO and PROXIMITY run concurrently. Each agent:
                 <ul className="mt-1.5 ml-5 space-y-1 list-disc list-inside">
                   <li>Calls its external APIs (oil, FIRMS, news, markets, etc.)</li>
                   <li>Handles timeouts and errors gracefully (returns empty/error objects instead of crashing)</li>
@@ -160,22 +203,24 @@ const HowItWorks = () => {
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
                 <h3 className="font-mono text-xs tracking-wider text-primary">Agents panel</h3>
                 <p className="text-xs sm:text-[13px] text-muted-foreground">
-                  The left panel shows all intelligence agents, their full names and data sources. It explains what
-                  feeds power FININT, SIGINT, NEWS, GEOINT, SOCMINT and TECHINT for the selected conflict.
+                  The left panel shows all 11 intelligence agents (FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT,
+                  CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY), their full names and data sources for the selected conflict.
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
                 <h3 className="font-mono text-xs tracking-wider text-primary">Conflict map &amp; timeline</h3>
                 <p className="text-xs sm:text-[13px] text-muted-foreground">
-                  The central map visualises the conflict region and overlays relevant signals. At the bottom, an
-                  escalation timeline highlights key time buckets across the day.
+                  The central map visualises the conflict region and overlays thermal anomalies, aircraft, ships and
+                  optional layers: heatmap (ACLED), SAM rings, air routes, sea lanes (e.g. Strait of Hormuz). An
+                  escalation timeline highlights key findings by category.
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
-                <h3 className="font-mono text-xs tracking-wider text-primary">Intelligence feed</h3>
+                <h3 className="font-mono text-xs tracking-wider text-primary">Intelligence feed &amp; Global Impact</h3>
                 <p className="text-xs sm:text-[13px] text-muted-foreground">
-                  The right panel contains the daily briefing, latest headlines, an events timeline and additional
-                  modules: a proximity analyzer (FIRMS vs. civilian infrastructure), connectivity signals and
+                  The right panel contains the daily briefing, a <strong className="text-foreground">Global Impact</strong> panel
+                  (when available: oil/Hormuz risk for Iran from ENERGY and key findings), latest headlines, events
+                  timeline, proximity analyzer (FIRMS vs. civilian infrastructure), connectivity signals and
                   prediction markets.
                 </p>
               </div>
