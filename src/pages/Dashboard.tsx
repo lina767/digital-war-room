@@ -62,7 +62,7 @@ const Dashboard = () => {
     n += (geoint?.anomalies?.length ?? 0) + (geoint?.hotspots?.length ?? 0);
     const techint = conflictData.techint as { tech_indicators?: unknown[]; export_controls?: unknown[]; ioda_events?: unknown[] } | undefined;
     n += (techint?.tech_indicators?.length ?? 0) + (techint?.export_controls?.length ?? 0) + (techint?.ioda_events?.length ?? 0);
-    n += (conflictData.cyber?.cisa_kev?.total ?? 0) + (conflictData.cyber?.threat_reports?.length ?? 0) + (conflictData.cyber?.otx_pulses?.length ?? 0);
+    n += (conflictData.cyber?.cisa_kev?.total ?? 0) + (conflictData.cyber?.threat_reports?.length ?? 0) + (conflictData.cyber?.otx_pulses?.length ?? 0) + (conflictData.cyber?.greynoise_scan_context?.available ? (conflictData.cyber.greynoise_scan_context.count ?? 0) : 0);
     n += (conflictData.energy?.agsi_storage?.full?.length ?? 0) + (conflictData.energy?.commodities?.length ?? 0);
     n += (conflictData.protest?.protest_events?.length ?? 0) + (conflictData.protest?.protest_articles?.length ?? 0);
     n += (conflictData.diplo?.ofac_sdn?.total_matches ?? 0) + (conflictData.diplo?.un_icj_news?.length ?? 0);

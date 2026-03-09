@@ -1,8 +1,8 @@
 """
 TECHINT Agent – Tech sector indicators, export control, IODA, OONI, Cloudflare Radar, Shodan.
-Fetches: tech ETF quotes (Alpha Vantage), export-control news (NewsAPI), IODA events,
-OONI measurements (Telegram/Signal confirmed_blocked in Iran = escalation), Cloudflare
-Radar outages, Shodan host counts (cyber-activity indicator).
+Fetches: tech ETF quotes (Alpha Vantage), export-control news (NewsAPI), IODA v2 API
+(outages, BGP/signals raw, alerts, entities/ASNs), OONI, Cloudflare Radar, Shodan.
+IODA: https://api.ioda.inetintel.cc.gatech.edu/v2/ — BGP routing anomalies, internet outages.
 """
 import asyncio
 import os
@@ -14,7 +14,8 @@ import httpx
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 NEWS_API_URL = "https://newsapi.org/v2/everything"
-IODA_EVENTS_URL = "https://ioda.inetintel.cc.gatech.edu/v2/events"
+# IODA v2 API – outages, signals (BGP/Ping/Telescope), alerts, entities (ASNs)
+IODA_BASE = "https://api.ioda.inetintel.cc.gatech.edu/v2"
 OONI_MEASUREMENTS_URL = "https://api.ooni.io/api/v1/measurements"
 CLOUDFLARE_RADAR_OUTAGES_URL = "https://api.cloudflare.com/client/v4/radar/annotations/outages"
 SHODAN_HOST_COUNT_URL = "https://api.shodan.io/shodan/host/count"
@@ -86,38 +87,134 @@ def _conflict_to_country_codes(conflict: str) -> List[str]:
     return []
 
 
-async def _fetch_ioda_events(conflict: str) -> List[Dict[str, Any]]:
-    """Fetch IODA outage events for conflict-relevant countries. API: https://ioda.caida.org/ioda/api"""
+def _ioda_time_range(days: int = 7) -> tuple[int, int]:
+    """Return (from_ts, until_ts) for IODA API (Unix seconds)."""
+    until_ts = int(time.time())
+    from_ts = until_ts - (days * 24 * 3600)
+    return from_ts, until_ts
+
+
+async def _fetch_ioda_outages(client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int, limit: int = 10) -> List[Dict[str, Any]]:
+    """GET /v2/outages/events — outage events for country (entityType, entityCode, from, until)."""
+    try:
+        resp = await client.get(
+            f"{IODA_BASE}/outages/events",
+            params={
+                "entityType": "country",
+                "entityCode": entity_code,
+                "from": from_ts,
+                "until": until_ts,
+                "limit": limit,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not isinstance(items, list):
+            return []
+        return [{"entityCode": entity_code, "location": x.get("location"), "start": x.get("start"), "duration": x.get("duration"), "datasource": x.get("datasource"), **(x if isinstance(x, dict) else {})} for x in items[:limit]]
+    except Exception as e:
+        return [{"entityCode": entity_code, "error": str(e)}]
+
+
+async def _fetch_ioda_signals_raw(client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int) -> Dict[str, Any]:
+    """GET /v2/signals/raw/country/{code} — BGP, Active Probing (Ping), Telescope time-series."""
+    try:
+        resp = await client.get(
+            f"{IODA_BASE}/signals/raw/country/{entity_code}",
+            params={"from": from_ts, "until": until_ts},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            return {"entityCode": entity_code, "signals": {}}
+        # API may return nested by datasource (BGP, ping, telescope)
+        signals = data.get("signals") or data.get("data") or data
+        return {"entityCode": entity_code, "signals": signals, "from": from_ts, "until": until_ts}
+    except Exception as e:
+        return {"entityCode": entity_code, "error": str(e), "signals": {}}
+
+
+async def _fetch_ioda_alerts(client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int) -> List[Dict[str, Any]]:
+    """Fetch anomaly alerts (same /outages/events with includeAlerts=true for BGP/signal-deviation alerts)."""
+    try:
+        resp = await client.get(
+            f"{IODA_BASE}/outages/events",
+            params={
+                "entityType": "country",
+                "entityCode": entity_code,
+                "from": from_ts,
+                "until": until_ts,
+                "includeAlerts": "true",
+                "limit": 20,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not isinstance(items, list):
+            return []
+        return [{"entityCode": entity_code, "type": "alert", **(x if isinstance(x, dict) else {})} for x in items]
+    except Exception as e:
+        return [{"entityCode": entity_code, "error": str(e)}]
+
+
+async def _fetch_ioda_entities(client: httpx.AsyncClient, entity_code: str) -> List[Dict[str, Any]]:
+    """GET /v2/entities/query — ASNs in country (e.g. Irancell, TCI). relatedTo=country/IR."""
+    try:
+        resp = await client.get(
+            f"{IODA_BASE}/entities/query",
+            params={"entityType": "asn", "relatedTo": f"country/{entity_code}"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not isinstance(items, list):
+            return []
+        return [{"entityCode": entity_code, **(x if isinstance(x, dict) else {})} for x in items[:50]]
+    except Exception as e:
+        return [{"entityCode": entity_code, "error": str(e)}]
+
+
+async def _fetch_ioda_all(conflict: str) -> Dict[str, Any]:
+    """
+    Fetch IODA v2: outages, signals (BGP/Ping/Telescope), alerts, entities for conflict countries.
+    Returns unified structure; ioda_events = combined list for backward compat (outages + alerts).
+    """
     codes = _conflict_to_country_codes(conflict)
     if not codes:
-        return []
-    until_ts = int(time.time())
-    from_ts = until_ts - (7 * 24 * 3600)  # last 7 days
-    all_events: List[Dict[str, Any]] = []
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for entity_code in codes[:3]:  # max 3 countries to avoid rate limits
-            try:
-                resp = await client.get(
-                    IODA_EVENTS_URL,
-                    params={
-                        "from": from_ts,
-                        "until": until_ts,
-                        "entityType": "country",
-                        "entityCode": entity_code,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                # Normalize: API may return { "data": [...] } or { "events": [...] } or list
-                events = data if isinstance(data, list) else data.get("events") or data.get("data") or []
-                for ev in events if isinstance(events, list) else []:
-                    if isinstance(ev, dict):
-                        ev_copy = dict(ev)
-                        ev_copy["entityCode"] = ev_copy.get("entityCode") or entity_code
-                        all_events.append(ev_copy)
-            except Exception as e:
-                all_events.append({"entityCode": entity_code, "error": str(e)})
-    return all_events
+        return {"outages": [], "signals_raw": [], "alerts": [], "entities": [], "ioda_events": []}
+    from_ts, until_ts = _ioda_time_range(7)
+    outages: List[Dict[str, Any]] = []
+    signals_raw: List[Dict[str, Any]] = []
+    alerts: List[Dict[str, Any]] = []
+    entities: List[Dict[str, Any]] = []
+    async with httpx.AsyncClient(timeout=25.0) as client:
+        for entity_code in codes[:3]:
+            out = await _fetch_ioda_outages(client, entity_code, from_ts, until_ts, limit=10)
+            outages.extend(out)
+            sig = await _fetch_ioda_signals_raw(client, entity_code, from_ts, until_ts)
+            if "error" not in sig:
+                signals_raw.append(sig)
+            al = await _fetch_ioda_alerts(client, entity_code, from_ts, until_ts)
+            alerts.extend(al)
+            ent = await _fetch_ioda_entities(client, entity_code)
+            entities.extend(ent)
+    # Backward compat: ioda_events = outages + alerts (each with entityCode)
+    ioda_events: List[Dict[str, Any]] = []
+    for o in outages:
+        if "error" not in o:
+            ioda_events.append({"entityCode": o.get("entityCode"), "type": "outage", **o})
+    for a in alerts:
+        if "error" not in a:
+            ioda_events.append({"entityCode": a.get("entityCode"), "type": "alert", **a})
+    return {
+        "outages": outages,
+        "signals_raw": signals_raw,
+        "alerts": alerts,
+        "entities": entities,
+        "ioda_events": ioda_events,
+    }
 
 
 async def _fetch_ooni_measurements(conflict: str) -> Dict[str, Any]:
@@ -414,6 +511,7 @@ def _build_summary(
     tech_indicators: List[Dict],
     export_articles: List[Dict],
     ioda_events: List[Dict],
+    ioda_result: Dict[str, Any],
     ooni_result: Dict[str, Any],
     cloudflare_outages: List[Dict],
     shodan_activity: Dict[str, Any],
@@ -431,7 +529,18 @@ def _build_summary(
     if valid_news:
         parts.append(f"Export control: {len(valid_news)} articles.")
     if valid_ioda:
-        parts.append(f"IODA: {len(valid_ioda)} outage event(s).")
+        outages_n = len([x for x in (ioda_result.get("outages") or []) if "error" not in x])
+        alerts_n = len([x for x in (ioda_result.get("alerts") or []) if "error" not in x])
+        signals_n = len(ioda_result.get("signals_raw") or [])
+        entities_n = len([x for x in (ioda_result.get("entities") or []) if "error" not in x])
+        msg = f"IODA: {len(valid_ioda)} event(s) (outages/alerts)."
+        if outages_n or alerts_n:
+            msg = f"IODA: {outages_n} outage(s), {alerts_n} alert(s)."
+        if signals_n:
+            msg += f" BGP/Ping/Telescope signals for {signals_n} country/codes."
+        if entities_n:
+            msg += f" {entities_n} ASN(s) in region."
+        parts.append(msg)
     if ooni_result.get("telegram_signal_blocked_iran"):
         parts.append("OONI: Telegram/Signal confirmed blocked in Iran (escalation).")
     elif ooni_result.get("confirmed_blocked"):
@@ -463,7 +572,8 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
     async def _run() -> Dict[str, Any]:
         tech_indicators = await _fetch_tech_indicators(av_key) if av_key else []
         export_controls = await _fetch_export_control_news(news_key, conflict) if news_key else []
-        ioda_events = await _fetch_ioda_events(conflict)
+        ioda_result = await _fetch_ioda_all(conflict)
+        ioda_events = ioda_result.get("ioda_events") or []
         ooni_result = await _fetch_ooni_measurements(conflict)
         cloudflare_outages = await _fetch_cloudflare_outages(cf_token, conflict) if cf_token else []
         shodan_activity = await _fetch_shodan_activity(shodan_key, conflict) if shodan_key else {}
@@ -472,7 +582,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             ooni_result, cloudflare_outages, shodan_activity,
         )
         summary = _build_summary(
-            tech_indicators, export_controls, ioda_events,
+            tech_indicators, export_controls, ioda_events, ioda_result,
             ooni_result, cloudflare_outages, shodan_activity,
             techint_score,
         )
@@ -480,6 +590,10 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "tech_indicators": tech_indicators,
             "export_controls": export_controls,
             "ioda_events": ioda_events,
+            "ioda_outages": ioda_result.get("outages") or [],
+            "ioda_signals_raw": ioda_result.get("signals_raw") or [],
+            "ioda_alerts": ioda_result.get("alerts") or [],
+            "ioda_entities": ioda_result.get("entities") or [],
             "ooni": ooni_result,
             "cloudflare_outages": cloudflare_outages,
             "shodan": shodan_activity,
@@ -494,6 +608,10 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "tech_indicators": [],
             "export_controls": [{"error": str(e)}],
             "ioda_events": [],
+            "ioda_outages": [],
+            "ioda_signals_raw": [],
+            "ioda_alerts": [],
+            "ioda_entities": [],
             "ooni": {},
             "cloudflare_outages": [],
             "shodan": {},

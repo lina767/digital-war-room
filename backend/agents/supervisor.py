@@ -89,8 +89,8 @@ def collection_node(state: AnalysisState) -> AnalysisState:
         news_result     = _result_or_fallback(news_f, "news", {"news_score": 0.0, "articles": [], "summary": ""})
         geoint_result   = _result_or_fallback(geoint_f, "geoint", {"geoint_score": 0.0, "anomalies": [], "hotspots": []})
         socmint_result  = _result_or_fallback(socmint_f, "socmint", {"socmint_score": 0.0, "top_signals": []})
-        techint_result  = _result_or_fallback(techint_f, "techint", {"techint_score": 0.0, "tech_indicators": [], "ioda_events": []})
-        cyber_result    = _result_or_fallback(cyber_f, "cyber", {"cyber_score": 0.0, "cisa_kev": {}, "threat_reports": [], "otx_pulses": []})
+        techint_result  = _result_or_fallback(techint_f, "techint", {"techint_score": 0.0, "tech_indicators": [], "ioda_events": [], "ioda_outages": [], "ioda_alerts": [], "ioda_signals_raw": [], "ioda_entities": []})
+        cyber_result    = _result_or_fallback(cyber_f, "cyber", {"cyber_score": 0.0, "cisa_kev": {}, "threat_reports": [], "otx_pulses": [], "greynoise_scan_context": {}})
         energy_result   = _result_or_fallback(energy_f, "energy", {"energy_score": 0.0, "agsi_storage": {}, "commodities": []})
         protest_result  = _result_or_fallback(protest_f, "protest", {"protest_score": 0.0, "protest_events": [], "protest_articles": []})
         diplo_result    = _result_or_fallback(diplo_f, "diplo", {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []})
@@ -326,6 +326,10 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
     for ev in (techint_result.get("ioda_events") or [])[:2]:
         if isinstance(ev, dict) and "error" not in ev and ev.get("entityCode"):
             key_findings.append(f"TECHINT (IODA) – Internet outage/event in {ev.get('entityCode', '')}")
+    ioda_outages = [o for o in (techint_result.get("ioda_outages") or []) if isinstance(o, dict) and "error" not in o]
+    ioda_alerts = [a for a in (techint_result.get("ioda_alerts") or []) if isinstance(a, dict) and "error" not in a]
+    if ioda_outages or ioda_alerts:
+        key_findings.append(f"TECHINT (IODA v2) – {len(ioda_outages)} outage(s), {len(ioda_alerts)} BGP/anomaly alert(s); signals (BGP/Ping/Telescope) available.")
     if techint_result.get("ooni", {}).get("telegram_signal_blocked_iran"):
         key_findings.append("TECHINT (OONI) – Telegram/Signal confirmed blocked in Iran (escalation)")
     for o in (techint_result.get("cloudflare_outages") or [])[:1]:
@@ -343,6 +347,9 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
     for r in (cyber_result.get("threat_reports") or [])[:2]:
         if isinstance(r, dict) and r.get("title") and "error" not in r:
             key_findings.append(f"CYBER – {r.get('title', '')[:60]}")
+    gn = cyber_result.get("greynoise_scan_context") or {}
+    if gn.get("available") and int(gn.get("count") or 0) > 0:
+        key_findings.append(f"CYBER (GreyNoise) – {gn['count']} malicious scanners (7d); top actors/countries in context")
 
     # Append ENERGY: AGSI storage, commodities
     agsi_full = energy_result.get("agsi_storage", {}).get("full") or []

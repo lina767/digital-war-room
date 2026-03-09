@@ -115,7 +115,7 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 - **Keine LangChain-Tools;** interne async Funktionen in fester Reihenfolge:
   1. `_fetch_tech_indicators(av_key)` (wenn ALPHAVANTAGE_API_KEY)
   2. `_fetch_export_control_news(news_key, conflict)` (wenn NEWS_API_KEY)
-  3. `_fetch_ioda_events(conflict)`
+  3. `_fetch_ioda_all(conflict)` – IODA v2 API: outages/events, signals/raw (BGP/Ping/Telescope), alerts, entities/query (ASNs)
   4. `_fetch_ooni_measurements(conflict)`
   5. `_fetch_cloudflare_outages(cf_token, conflict)` (wenn CLOUDFLARE_RADAR_API_TOKEN)
   6. `_fetch_shodan_activity(shodan_key, conflict)` (wenn SHODAN_API_KEY)
@@ -129,7 +129,8 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
   1. `_fetch_cisa_kev()` – CISA Known Exploited Vulnerabilities (kostenlos, kein Key)
   2. `_fetch_threat_rss(conflict)` – Mandiant/CrowdStrike RSS, gefiltert nach Konflikt-Keywords
   3. `_fetch_otx_pulses(api_key, conflict)` – AlienVault OTX (optional `OTX_API_KEY`)
-- Danach: `_compute_cyber_score`, `_build_summary`. Ausgabe: `cyber_score`, `cisa_kev`, `threat_reports`, `otx_pulses`.
+  4. `_fetch_greynoise_scan_context(api_key)` – GreyNoise GNQL Stats: malicious scanners (7d), top actors/countries (optional `GREYNOISE_API_KEY`)
+- Danach: `_compute_cyber_score`, `_build_summary`. Ausgabe: `cyber_score`, `cisa_kev`, `threat_reports`, `otx_pulses`, `greynoise_scan_context`.
 
 ---
 
@@ -179,7 +180,7 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 | GEOINT | 5       | get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news → get_ucdp_events → get_eo_browser_links |
 | SOCMINT| 5       | scrape_telegram_channels → scrape_twitter_nitter → search_reddit → fetch_rss_feeds → fetch_reliefweb_reports |
 | TECHINT| 6 (intern) | _fetch_tech_indicators → _fetch_export_control_news → _fetch_ioda_events → _fetch_ooni_measurements → _fetch_cloudflare_outages → _fetch_shodan_activity |
-| CYBER  | 3 (intern) | _fetch_cisa_kev → _fetch_threat_rss → _fetch_otx_pulses |
+| CYBER  | 4 (intern) | _fetch_cisa_kev → _fetch_threat_rss → _fetch_otx_pulses → _fetch_greynoise_scan_context |
 | ENERGY | 2 (intern) | _fetch_agsi_storage → _fetch_commodity_prices |
 | PROTEST| 2 (intern) | _fetch_acled_protests → _fetch_gdelt_protest |
 | DIPLO  | 3 (intern) | _fetch_ofac_sdn → _fetch_eu_sanctions → _fetch_un_icj_news |

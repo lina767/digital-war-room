@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, memo } from "react";
 import { Plus, Minus, RotateCcw } from "lucide-react";
-import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from "react-simple-maps";
+import { ComposableMap, Geographies, Geography, Line, Marker, ZoomableGroup } from "react-simple-maps";
 import { getConflictEvents, type ConflictEventForHeatmap } from "@/lib/api";
 import { conflicts, severityColor } from "./conflictData";
 import { ConnectionLines } from "./ConnectionLines";
 import { conflictLinks } from "./conflictData";
+import { SAM_RINGS, AIR_ROUTES, SEA_LANES, circlePoints } from "./mapOverlaysData";
 
 const GEO_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
 
@@ -110,6 +111,9 @@ export function ConflictMap({
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatmapEvents, setHeatmapEvents] = useState<ConflictEventForHeatmap[]>([]);
   const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [showSamRings, setShowSamRings] = useState(false);
+  const [showAirRoutes, setShowAirRoutes] = useState(false);
+  const [showSeaLanes, setShowSeaLanes] = useState(false);
 
   // Fetch conflict events for heatmap when layer is enabled
   useEffect(() => {
@@ -200,6 +204,47 @@ export function ConflictMap({
           maxZoom={8}
         >
           <WorldGeographies />
+
+          {/* SAM rings – circle overlays (vordefinierte Stellungen) */}
+          {showSamRings &&
+            SAM_RINGS.map((sam) => {
+              const coords = circlePoints(sam.center[0], sam.center[1], sam.radius_km);
+              return (
+                <Line
+                  key={sam.id}
+                  coordinates={coords}
+                  stroke="hsl(var(--destructive) / 0.6)"
+                  strokeWidth={0.5}
+                  fill="none"
+                  strokeDasharray="2 2"
+                />
+              );
+            })}
+
+          {/* Air routes – Hauptflugrouten */}
+          {showAirRoutes &&
+            AIR_ROUTES.map((route) => (
+              <Line
+                key={route.id}
+                coordinates={route.coordinates}
+                stroke="hsl(210 80% 55% / 0.7)"
+                strokeWidth={0.6}
+                fill="none"
+                strokeDasharray="4 2"
+              />
+            ))}
+
+          {/* Sea lanes – Seerouten (z. B. Straße von Hormus) */}
+          {showSeaLanes &&
+            SEA_LANES.map((lane) => (
+              <Line
+                key={lane.id}
+                coordinates={lane.coordinates}
+                stroke="hsl(160 70% 45% / 0.7)"
+                strokeWidth={0.6}
+                fill="none"
+              />
+            ))}
 
           {/* Heatmap layer: conflict intensity (ACLED) – optional */}
           {showHeatmap &&
@@ -502,6 +547,39 @@ export function ConflictMap({
           />
           HEATMAP
           {heatmapLoading && showHeatmap && <span className="animate-pulse">…</span>}
+        </button>
+
+        {/* SAM rings – vordefinierte Stellungen (OSINT) */}
+        <button
+          onClick={() => setShowSamRings((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="SAM engagement zones (static overlay)"
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-full border ${showSamRings ? "border-destructive" : "border-border"}`}
+            style={showSamRings ? { borderColor: "hsl(var(--destructive))", background: "hsl(var(--destructive) / 0.2)" } : {}}
+          />
+          SAM
+        </button>
+
+        {/* Air routes */}
+        <button
+          onClick={() => setShowAirRoutes((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="Main air corridors"
+        >
+          <span style={{ color: showAirRoutes ? "hsl(210 80% 55%)" : undefined }}>✈</span>
+          AIR
+        </button>
+
+        {/* Sea lanes */}
+        <button
+          onClick={() => setShowSeaLanes((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="Sea lanes (e.g. Strait of Hormuz)"
+        >
+          <span style={{ color: showSeaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
+          SEA
         </button>
 
         {/* Links toggle */}

@@ -45,6 +45,7 @@ export interface ConflictData {
     cisa_kev?: { total?: number; sample?: unknown[] };
     threat_reports?: Array<{ title?: string; url?: string }>;
     otx_pulses?: unknown[];
+    greynoise_scan_context?: { available?: boolean; count?: number; top_actors?: unknown[]; top_source_countries?: unknown[] };
     summary?: string;
   };
   energy?: {

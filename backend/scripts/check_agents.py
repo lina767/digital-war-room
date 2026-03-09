@@ -114,6 +114,9 @@ def data_hint(name: str, data: dict) -> str:
     elif name == "cyber":
         hints.append(f"cisa_kev={data.get('cisa_kev', {}).get('total', 0)}")
         hints.append(f"threat_reports={len(data.get('threat_reports') or [])}")
+        gn = data.get("greynoise_scan_context") or {}
+        if gn.get("available") and gn.get("count") is not None:
+            hints.append(f"greynoise_scan={gn.get('count', 0)}")
     elif name == "energy":
         hints.append(f"agsi_records={len(data.get('agsi_storage', {}).get('full') or [])}")
         hints.append(f"commodities={len(data.get('commodities') or [])}")
@@ -176,7 +179,7 @@ def main():
     if not verbose and ok_count == len(results):
         print("Tip: run with -v to see data hints (e.g. article/outage counts).")
     print("Env vars for full data: ALPHAVANTAGE_API_KEY, NEWS_API_KEY, NASA_FIRMS_KEY,")
-    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, AGSI_API_KEY, ACLED_API_KEY")
+    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, AGSI_API_KEY, GREYNOISE_API_KEY, ACLED_API_KEY")
     print("  (see backend/.env.example or .env)")
     return 0 if ok_count == len(results) else 1
 

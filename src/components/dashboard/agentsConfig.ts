@@ -69,7 +69,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "Alpha Vantage", description: "Tech ETF quotes (SMH, QQQ)" },
       { name: "NewsAPI", description: "Export control / semiconductor sanctions news" },
-      { name: "IODA", description: "Internet outage events (Georgia Tech)" },
+      { name: "IODA", description: "IODA v2 API: outages, BGP/Ping/Telescope signals, alerts, ASN entities (Georgia Tech)" },
       { name: "OONI", description: "Telegram/Signal blocking (e.g. Iran)" },
       { name: "Cloudflare Radar", description: "Outage annotations" },
       { name: "Shodan", description: "Host counts by country, port breakdown (502/22/443), vuln count" },
@@ -82,6 +82,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "CISA KEV", description: "Known Exploited Vulnerabilities catalog (free)" },
       { name: "Threat RSS", description: "Mandiant, CrowdStrike – conflict-related APT reports" },
       { name: "AlienVault OTX", description: "Pulses/IoCs (optional OTX_API_KEY)" },
+      { name: "GreyNoise", description: "GNQL stats: malicious scanners (7d), top actors/countries (optional GREYNOISE_API_KEY)" },
     ],
   },
   {

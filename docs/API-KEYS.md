@@ -20,6 +20,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | Key | Verwendung im Code | Bezugsquelle |
 |-----|---------------------|--------------|
 | **OTX_API_KEY** | `backend/agents/cyber_agent.py` – AlienVault OTX (Threat Intel) | [otx.alienvault.com](https://otx.alienvault.com/) → Sign Up → Einstellungen (Avatar) → API Key. Kostenlos. |
+| **GREYNOISE_API_KEY** | `backend/agents/cyber_agent.py` – GreyNoise GNQL Stats (Scan-Kontext: malicious scanners 7d) | [greynoise.io](https://www.greynoise.io/) → Account → API Key. Free Tier verfügbar. |
 | **AGSI_API_KEY** | `backend/agents/energy_agent.py` – EU-Gasspeicher (AGSI+) | [agsi.gie.eu/account](https://agsi.gie.eu/account) – Registrierung (kostenlos). Key nach Login in der API-Doku. |
 | **ACLED_EMAIL** | `backend/agents/protest_agent.py`, `geoint_agent.py`, `services/acled_auth.py` | Deine myACLED-Registrierungs-E-Mail. **OAuth (empfohlen):** zusammen mit `ACLED_PASSWORD` für Token-Auth. |
 | **ACLED_PASSWORD** | `backend/services/acled_auth.py` – OAuth Token-Abruf | Dein myACLED-Passwort. Mit `ACLED_EMAIL` erhält die App ein Zugangs-Token (24h gültig) gemäß [ACLED API Getting started](https://acleddata.com/api-documentation/getting-started). |
