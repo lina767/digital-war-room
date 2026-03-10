@@ -33,16 +33,22 @@ async def lifespan(app: FastAPI):
 
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
-        first_delay = 5  # Erste Analyse 5 s nach Start (schnellerer erster Cache), dann alle AUTO_ANALYZE_INTERVAL_SEC
+        first_delay = 5
         await asyncio.sleep(first_delay)
+        consecutive_failures = 0
         while True:
             try:
                 result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
                 app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": time.time()}
                 print(f"[periodic] Analysis for {AUTO_ANALYZE_CONFLICT} done.")
+                consecutive_failures = 0
+                await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
             except Exception as e:
-                print(f"[periodic] Analysis failed: {e}")
-            await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
+                consecutive_failures += 1
+                retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)
+                print(f"[periodic] Analysis failed (attempt {consecutive_failures}): {e}")
+                print(f"[periodic] Retrying in {retry_delay}s …")
+                await asyncio.sleep(retry_delay)
 
     analysis_task = asyncio.create_task(run_periodic_analysis())
     worker_task = asyncio.create_task(app.state.job_queue.worker())

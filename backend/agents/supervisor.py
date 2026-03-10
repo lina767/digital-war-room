@@ -139,8 +139,6 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         proximity_score * 0.10
     )
 
-    require_api_key()
-
     use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
 
     if use_rule_based:
@@ -162,6 +160,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
             "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}, CYBER {cyber_score:.0f}, ENERGY {energy_score:.0f}, PROTEST {protest_score:.0f}, DIPLO {diplo_score:.0f}, PROXIMITY {proximity_score:.0f}). Key findings below from agents.",
         }
     else:
+        require_api_key()
         use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
         agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score, cyber_score, energy_score, protest_score, diplo_score, proximity_score]
         complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)

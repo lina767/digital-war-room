@@ -173,7 +173,7 @@ const Dashboard = () => {
           </Badge>
           <div className="flex flex-col items-end gap-1">
             {analysisError && (
-              <p className="text-[10px] text-destructive max-w-[200px] sm:max-w-[320px] text-right truncate" title={analysisError}>
+              <p className={`text-[10px] max-w-[200px] sm:max-w-[320px] text-right truncate ${analysisError.includes("Erste Analyse") ? "text-warning" : "text-destructive"}`} title={analysisError}>
                 {analysisError}
               </p>
             )}

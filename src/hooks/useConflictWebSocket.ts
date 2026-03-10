@@ -131,6 +131,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           setData(normalizeAnalysisResponse(msg) as unknown as ConflictData);
           setLastUpdated(new Date());
           setStatus("connected");
+          setAnalysisError(null);
         } else if (msg.status === "error") {
           console.error("[WS] Server error:", msg.message);
           setStatus("error");
@@ -167,6 +168,8 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           if (cancelled) return;
           if (statusRes === null) {
             setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+          } else if (!statusRes.cached) {
+            setAnalysisError("Erste Analyse läuft noch – Daten erscheinen in Kürze automatisch.");
           }
         }).catch(() => { /* keep pending false */ });
       }
