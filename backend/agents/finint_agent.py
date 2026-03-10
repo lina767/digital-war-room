@@ -474,7 +474,7 @@ def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:
             combined = name + " " + program
             if any(k in combined for k in keywords):
                 matches.append({
-                    "name": (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip() or "",
+                    "name": (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip() or ""),
                     "type": row.get("type"),
                     "program": row.get("programs") or row.get("program"),
                 })
