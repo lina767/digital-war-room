@@ -101,20 +101,127 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
 _MAX_PAYLOAD_CHARS = 250_000
 
 
-def _trim_value(v: Any, max_list: int = 5, max_str: int = 300) -> Any:
-    """Recursively trim a value for the supervisor prompt."""
-    if isinstance(v, list):
-        return [_trim_value(item, max_list, max_str) for item in v[:max_list]]
-    if isinstance(v, dict):
-        return {k: _trim_value(val, max_list, max_str) for k, val in v.items()}
-    if isinstance(v, str) and len(v) > max_str:
-        return v[:max_str] + "…"
-    return v
+def _summarize_for_llm(name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a compact summary of *result* tailored to *name* for the LLM.
 
+    Only the fields the supervisor needs for synthesis are kept; bulky raw
+    data (ioda_signals_raw, full article bodies, all protest events …) is
+    stripped so the prompt stays well under the 200 k-token limit.
+    Full data still reaches the frontend via the final return dict.
+    """
+    r = result
+    _s = lambda v, n=150: (str(v)[:n] + "…") if isinstance(v, str) and len(v) > n else v
 
-def _trim_agent(result: Dict[str, Any]) -> Dict[str, Any]:
-    """Trim large agent payloads so the supervisor prompt stays under the token limit."""
-    return _trim_value(result)
+    if name == "finint":
+        brent = r.get("brent") or {}
+        return {
+            "escalation_score": r.get("escalation_score"),
+            "summary": r.get("summary"),
+            "brent": {"price": brent.get("price"), "change": brent.get("change")} if brent else None,
+            "polymarket": [{"question": p.get("question"), "probability": p.get("probability")}
+                           for p in (r.get("polymarket") or [])[:3]],
+            "metaculus": [{"title": m.get("title"), "probability": m.get("probability")}
+                          for m in (r.get("metaculus") or [])[:3]],
+        }
+
+    if name == "sigint":
+        return {
+            "sigint_score": r.get("sigint_score"),
+            "summary": r.get("summary"),
+            "aircraft_count": len(r.get("aircraft") or []),
+            "ships_count": len(r.get("ships") or []),
+            "conflict_reports": [{"title": c.get("title"), "source": c.get("source")}
+                                  for c in (r.get("conflict_reports") or [])[:3]],
+        }
+
+    if name == "news":
+        return {
+            "news_score": r.get("news_score"),
+            "summary": r.get("summary"),
+            "overall_sentiment": r.get("overall_sentiment"),
+            "articles": [{"title": a.get("title"), "source": a.get("source"),
+                          "sentiment_label": a.get("sentiment_label")}
+                         for a in (r.get("articles") or [])[:5]],
+        }
+
+    if name == "geoint":
+        return {
+            "geoint_score": r.get("geoint_score"),
+            "summary": r.get("summary"),
+            "hotspots": (r.get("hotspots") or [])[:5],
+            "anomaly_count": len(r.get("anomalies") or []),
+        }
+
+    if name == "socmint":
+        return {
+            "socmint_score": r.get("socmint_score"),
+            "summary": r.get("summary"),
+            "top_signals": [_s(s) for s in (r.get("top_signals") or [])[:5]],
+        }
+
+    if name == "techint":
+        return {
+            "techint_score": r.get("techint_score"),
+            "summary": r.get("summary"),
+            "tech_indicators": (r.get("tech_indicators") or [])[:3],
+            "export_controls": [{"title": e.get("title")}
+                                 for e in (r.get("export_controls") or [])[:2]],
+            "ioda_events_count": len(r.get("ioda_events") or []),
+            "ioda_outages_count": len(r.get("ioda_outages") or []),
+            "ioda_alerts_count": len(r.get("ioda_alerts") or []),
+        }
+
+    if name == "cyber":
+        gn = r.get("greynoise_scan_context") or {}
+        return {
+            "cyber_score": r.get("cyber_score"),
+            "summary": r.get("summary"),
+            "cisa_kev_total": (r.get("cisa_kev") or {}).get("total"),
+            "threat_reports": [{"title": t.get("title")}
+                                for t in (r.get("threat_reports") or [])[:3]],
+            "greynoise_scan_context": {"available": gn.get("available"),
+                                       "count": gn.get("count")},
+        }
+
+    if name == "energy":
+        return {
+            "energy_score": r.get("energy_score"),
+            "summary": r.get("summary"),
+            "commodities": [{"symbol": c.get("symbol"), "price": c.get("price"),
+                             "change_pct": c.get("change_pct")}
+                            for c in (r.get("commodities") or [])[:3]],
+            "global_impact_note": r.get("global_impact_note"),
+        }
+
+    if name == "protest":
+        return {
+            "protest_score": r.get("protest_score"),
+            "summary": r.get("summary"),
+            "protest_events_count": len(r.get("protest_events") or []),
+            "protest_articles": [{"title": a.get("title")}
+                                  for a in (r.get("protest_articles") or [])[:3]],
+        }
+
+    if name == "diplo":
+        return {
+            "diplo_score": r.get("diplo_score"),
+            "summary": r.get("summary"),
+            "ofac_sdn_total_matches": (r.get("ofac_sdn") or {}).get("total_matches"),
+            "un_icj_news": [{"title": n.get("title"), "source": n.get("source")}
+                            for n in (r.get("un_icj_news") or [])[:3]],
+        }
+
+    if name == "proximity":
+        return {
+            "proximity_score": r.get("proximity_score"),
+            "summary": r.get("summary"),
+            "evidence": [{"facilityName": e.get("facilityName"),
+                          "riskLabel": e.get("riskLabel"),
+                          "distanceMeters": e.get("distanceMeters")}
+                         for e in (r.get("evidence") or [])[:3]],
+        }
+
+    return {"summary": r.get("summary")}
 
 
 def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
@@ -195,12 +302,17 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
                 "cyber": cyber_score, "energy": energy_score, "protest": protest_score,
                 "diplo": diplo_score, "proximity": proximity_score,
             },
-            "finint": _trim_agent(finint_result), "sigint": _trim_agent(sigint_result),
-            "news": _trim_agent(news_result), "geoint": _trim_agent(geoint_result),
-            "socmint": _trim_agent(socmint_result), "techint": _trim_agent(techint_result),
-            "cyber": _trim_agent(cyber_result), "energy": _trim_agent(energy_result),
-            "protest": _trim_agent(protest_result), "diplo": _trim_agent(diplo_result),
-            "proximity": _trim_agent(proximity_result),
+            "finint": _summarize_for_llm("finint", finint_result),
+            "sigint": _summarize_for_llm("sigint", sigint_result),
+            "news": _summarize_for_llm("news", news_result),
+            "geoint": _summarize_for_llm("geoint", geoint_result),
+            "socmint": _summarize_for_llm("socmint", socmint_result),
+            "techint": _summarize_for_llm("techint", techint_result),
+            "cyber": _summarize_for_llm("cyber", cyber_result),
+            "energy": _summarize_for_llm("energy", energy_result),
+            "protest": _summarize_for_llm("protest", protest_result),
+            "diplo": _summarize_for_llm("diplo", diplo_result),
+            "proximity": _summarize_for_llm("proximity", proximity_result),
         }
 
         user_json = json.dumps(user_payload, default=str)
