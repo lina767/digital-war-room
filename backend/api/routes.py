@@ -77,17 +77,23 @@ async def analyze(request: Request, body: AnalyzeRequest):
 async def refresh_analysis(request: Request, conflict: str = "Iran"):
     """
     GET /analyze/refresh?conflict=Iran
-    Runs a full analysis and fills the cache. No secret required.
-    Use after deploy / restart when the periodic job hasn't completed yet.
+    Kicks off a full analysis in the background and returns immediately.
+    No secret required. Use after deploy / restart when cache is empty.
     """
-    try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
-        cache = _get_cache(request)
-        cache[conflict] = {"result": result, "at": time.time()}
-        return result
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    cache = _get_cache(request)
+    app_state = request.app.state
+
+    async def _run_in_background():
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+            app_state.analysis_cache[conflict] = {"result": result, "at": time.time()}
+            print(f"[refresh] Analysis for {conflict} done and cached.")
+        except Exception as e:
+            print(f"[refresh] Analysis for {conflict} failed: {e}")
+
+    asyncio.create_task(_run_in_background())
+    return {"status": "started", "conflict": conflict, "message": "Analysis running in background. Poll /api/analyze/status to check."}
 
 
 @router.post("/analyze/trigger")
