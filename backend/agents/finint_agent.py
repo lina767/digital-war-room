@@ -1,6 +1,6 @@
 """
-FININT Agent – LangChain Tool-Calling Agent
-Fetches Brent/WTI oil prices, Polymarket conflict odds, OFAC sanctions highlights, and tracked wallet positions.
+FININT Agent – Tool-Calling Agent
+Fetches Brent/WTI oil prices, VIX, Fear & Greed Index (CNN-style), Polymarket conflict odds, OFAC sanctions, OFAC delta, and tracked wallet positions.
 - Gamma API: https://gamma-api.polymarket.com (events, markets)
 - Data API:  https://data-api.polymarket.com (positions, activity)
 - OFAC SDN: Treasury bulk CSV (same source as DIPLO; FININT focus: sanctions/market relevance).
@@ -11,15 +11,22 @@ import csv
 import io
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List, Optional
 
 import httpx
+from pydantic import BaseModel, Field
+
 from .llm import run_tool_agent
+from services.http_client import get_http_client
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 DATA_API_BASE = "https://data-api.polymarket.com"
+# Fear & Greed: optional CNN source (e.g. FGI-Tracker https://github.com/leejustin/fgi-tracker); else Alternative.me
+FEAR_GREED_CNN_API_URL = (os.getenv("FEAR_GREED_CNN_API_URL") or "").strip() or None
+FEAR_GREED_FALLBACK_URL = "https://api.alternative.me/fng/?limit=1"
 
 # Optional: POLYMARKET_BUILDER_API_KEY in .env for authenticated requests (e.g. higher rate limits).
 def _polymarket_headers() -> Dict[str, str]:
@@ -80,12 +87,136 @@ OFAC_CONFLICT_KEYWORDS: Dict[str, List[str]] = {
     "default": ["iran", "russia", "syria"],
 }
 
+# OFAC cache: raw CSV and TTL 6h (Treasury updates periodically)
+_ofac_raw_csv: str | None = None
+_ofac_cache_ts: float = 0.0
+OFAC_CACHE_TTL = 6 * 3600  # 6h
+# OFAC delta: keys from previous run (set of "name|type|program") to compute added_since_last_run
+_ofac_previous_keys: set = set()
+
+# Polymarket: only include markets with >48h left until end
+POLYMARKET_MIN_HOURS_LEFT = 48
+
+
+def _polymarket_end_ok(m: dict) -> bool:
+    """True if market has no end date or ends more than POLYMARKET_MIN_HOURS_LEFT from now."""
+    end_raw = m.get("endDate") or m.get("end_date") or m.get("closedTime") or m.get("end_date_iso")
+    if not end_raw:
+        return True
+    try:
+        if isinstance(end_raw, (int, float)):
+            end_dt = datetime.fromtimestamp(end_raw, tz=timezone.utc)
+        else:
+            end_str = str(end_raw).replace("Z", "+00:00")[:19]
+            end_dt = datetime.fromisoformat(end_str)
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=timezone.utc)
+        cutoff = (datetime.now(timezone.utc) + timedelta(hours=POLYMARKET_MIN_HOURS_LEFT)).isoformat()[:19]
+        return end_dt.isoformat()[:19] >= cutoff
+    except Exception:
+        return True
+
+
+# ─── Pydantic models ───────────────────────────────────────────────────────
+
+def _utc_iso_default() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class PricePoint(BaseModel):
+    """Oil/gold/VIX price snapshot with change and fetched_at."""
+    price: Optional[str] = None
+    change_pct: str = "0.0%"
+    as_of: str = ""
+    fetched_at: str = Field(default_factory=_utc_iso_default)
+
+
+class FearGreedResult(BaseModel):
+    """Fear & Greed Index (0–100; Alternative.me, CNN-style sentiment)."""
+    value: Optional[int] = None
+    value_classification: Optional[str] = None
+    error: Optional[str] = None
+    fetched_at: str = Field(default_factory=_utc_iso_default)
+
+
+class OfacDelta(BaseModel):
+    """New OFAC entries since last run."""
+    added_since_last_run: int = 0
+    previous_total: int = 0
+    current_total: int = 0
+
+
+class ScoreConfidence(BaseModel):
+    level: str = "low"
+    sources_ok: List[str] = Field(default_factory=list)
+    sources_missing: List[str] = Field(default_factory=list)
+
+
+class FinintResult(BaseModel):
+    """Structured FININT agent output."""
+    brent: Dict[str, Any] = Field(default_factory=dict)
+    wti: Dict[str, Any] = Field(default_factory=dict)
+    gold: Dict[str, Any] = Field(default_factory=dict)
+    vix: Dict[str, Any] = Field(default_factory=dict)
+    fear_greed: Dict[str, Any] = Field(default_factory=dict)
+    polymarket: List[Dict[str, Any]] = Field(default_factory=list)
+    polymarket_fetched_at: Optional[str] = None
+    metaculus: List[Dict[str, Any]] = Field(default_factory=list)
+    metaculus_fetched_at: Optional[str] = None
+    ofac_sanctions: Dict[str, Any] = Field(default_factory=dict)
+    ofac_delta: Optional[OfacDelta] = None
+    tracked_wallets: List[Dict[str, Any]] = Field(default_factory=list)
+    tracked_wallets_fetched_at: Optional[str] = None
+    tracked_chain_wallets: List[Dict[str, Any]] = Field(default_factory=list)
+    tracked_chain_wallets_fetched_at: Optional[str] = None
+    escalation_score: float = 0.0
+    summary: str = ""
+    score_confidence: ScoreConfidence = Field(default_factory=ScoreConfidence)
+    fetched_at: str = Field(default_factory=_utc_iso_default)
+
+
+def _filter_ofac(csv_text: str, conflict: str) -> Dict[str, Any]:
+    """Parse OFAC CSV and return conflict-relevant highlights (total_matches, sample, error, match_keys for delta)."""
+    cl = (conflict or "").lower().strip()
+    keywords = OFAC_CONFLICT_KEYWORDS.get("default", [])
+    for k, v in OFAC_CONFLICT_KEYWORDS.items():
+        if k != "default" and k in cl:
+            keywords = v
+            break
+    try:
+        reader = csv.DictReader(io.StringIO(csv_text))
+        matches: List[Dict[str, Any]] = []
+        match_keys: set = set()
+        for row in reader:
+            if not row:
+                continue
+            name = (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip()).lower()
+            program = (row.get("programs") or row.get("program", "") or "").lower()
+            combined = name + " " + program
+            if any(k in combined for k in keywords):
+                nm = (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip() or "")
+                ty = row.get("type") or ""
+                prg = row.get("programs") or row.get("program") or ""
+                matches.append({"name": nm, "type": ty, "program": prg})
+                match_keys.add(f"{nm}|{ty}|{prg}")
+        return {"total_matches": len(matches), "sample": matches[:15], "error": None, "match_keys": match_keys}
+    except Exception as e:
+        return {"total_matches": 0, "sample": [], "error": str(e), "match_keys": set()}
+
 
 def _safe_float(value: Any) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _extract_metaculus_prob(q: dict) -> float | None:
+    """Extract probability from Metaculus question: community_prediction.full or .q2, or direct value."""
+    prob = q.get("community_prediction")
+    if isinstance(prob, dict):
+        return _safe_float(prob.get("full") or prob.get("q2"))
+    return _safe_float(prob)
 
 
 def _format_pct(change: float | None) -> str:
@@ -277,6 +408,8 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
         seen = set()
 
         for m in data:
+            if not _polymarket_end_ok(m):
+                continue
             question = str(m.get("question") or m.get("title") or m.get("name") or "").strip()
             if not question:
                 continue
@@ -291,7 +424,7 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
                 continue
             seen.add(key)
             item = _normalize_polymarket_item(m)
-            if item:
+            if item and (item.get("probability") or 0) > 0:  # 0.0 = resolved/inactive
                 item["url"] = f"https://polymarket.com/event/{m.get('slug', '')}"
                 relevant.append(item)
 
@@ -337,9 +470,7 @@ def get_metaculus_conflict_questions(conflict: str) -> List[Dict[str, Any]]:
             title_lower = title.lower()
             if not any(kw in title_lower for kw in keywords):
                 continue
-            prob = q.get("community_prediction") or q.get("prob") or q.get("mean")
-            if prob is not None:
-                prob = _safe_float(prob)
+            prob = _extract_metaculus_prob(q)
             out.append({
                 "title": title[:200],
                 "probability": round(prob, 3) if prob is not None else None,
@@ -444,43 +575,515 @@ def get_tracked_chain_wallets() -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+# ── Async fetches (for parallel run) ────────────────────────────────────────
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _fetch_brent(client: Any) -> Dict[str, Any]:
+    fetched_at = _utc_iso()
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY not set", "fetched_at": fetched_at}
+    try:
+        resp = await client.request("GET", ALPHAVANTAGE_URL, params={"function": "BRENT", "interval": "daily", "apikey": api_key}, timeout=15.0)
+        data = resp.json()
+        series = data.get("data", [])
+        if len(series) < 2:
+            return {"error": "Insufficient data", "fetched_at": fetched_at}
+        latest, prev = series[0], series[1]
+        price, prev_price = _safe_float(latest.get("value")), _safe_float(prev.get("value"))
+        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+        return {"price": f"{price:.2f}" if price else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", ""), "fetched_at": fetched_at}
+    except Exception as e:
+        return {"error": str(e), "fetched_at": fetched_at}
+
+
+async def _fetch_wti(client: Any) -> Dict[str, Any]:
+    fetched_at = _utc_iso()
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY not set", "fetched_at": fetched_at}
+    try:
+        resp = await client.request("GET", ALPHAVANTAGE_URL, params={"function": "WTI", "interval": "daily", "apikey": api_key}, timeout=15.0)
+        data = resp.json()
+        series = data.get("data", [])
+        if len(series) < 2:
+            return {"error": "Insufficient data", "fetched_at": fetched_at}
+        latest, prev = series[0], series[1]
+        price, prev_price = _safe_float(latest.get("value")), _safe_float(prev.get("value"))
+        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+        return {"price": f"{price:.2f}" if price else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", ""), "fetched_at": fetched_at}
+    except Exception as e:
+        return {"error": str(e), "fetched_at": fetched_at}
+
+
+async def _fetch_gold(client: Any) -> Dict[str, Any]:
+    fetched_at = _utc_iso()
+    api_key = (os.getenv("METALS_API_KEY") or os.getenv("METALPRICEAPI_KEY") or "").strip()
+    if not api_key:
+        return {"error": "METALS_API_KEY not set (optional; get key at metals-api.com)", "fetched_at": fetched_at}
+    try:
+        resp = await client.request("GET", f"{METALS_API_BASE}/latest", params={"access_key": api_key, "base": "XAU", "currencies": "USD"}, timeout=12.0)
+        data = resp.json()
+        if isinstance(data, dict) and "error" in data:
+            return {**data, "fetched_at": fetched_at}
+        rates = (data.get("rates") or {}) if isinstance(data, dict) else {}
+        usd = _safe_float(rates.get("USD"))
+        if usd is None:
+            return {"error": "No USD rate in response", "fetched_at": fetched_at}
+        return {"price": f"{usd:.2f}", "change_pct": "0.0%", "as_of": (data.get("date") or ""), "fetched_at": fetched_at}
+    except Exception as e:
+        return {"error": str(e), "fetched_at": fetched_at}
+
+
+async def _fetch_fear_greed(client: Any) -> Dict[str, Any]:
+    """Fetch Fear & Greed Index: optional CNN source (FEAR_GREED_CNN_API_URL / FGI-Tracker), else Alternative.me. Returns value 0–100, classification, fetched_at."""
+    fetched_at = _utc_iso()
+
+    def _parse_item(item: dict) -> Dict[str, Any]:
+        if not isinstance(item, dict):
+            return {}
+        value = item.get("value")
+        v = int(value) if value is not None else None
+        if v is not None and (v < 0 or v > 100):
+            v = None
+        classification = item.get("value_classification") or item.get("classification") or item.get("label")
+        return {"value": v, "value_classification": classification, "fetched_at": fetched_at}
+
+    if FEAR_GREED_CNN_API_URL:
+        try:
+            resp = await client.request("GET", FEAR_GREED_CNN_API_URL, timeout=10.0)
+            data = resp.json()
+            if isinstance(data, dict):
+                arr = data.get("data") or data.get("values") or data.get("results")
+                if isinstance(arr, list) and arr:
+                    out = _parse_item(arr[0] if isinstance(arr[0], dict) else {})
+                    if out.get("value") is not None:
+                        return out
+                if data.get("value") is not None:
+                    out = _parse_item(data)
+                    if out.get("value") is not None:
+                        return out
+            if isinstance(data, list) and data and isinstance(data[0], dict):
+                out = _parse_item(data[0])
+                if out.get("value") is not None:
+                    return out
+        except Exception:
+            pass
+
+    try:
+        resp = await client.request("GET", FEAR_GREED_FALLBACK_URL, timeout=10.0)
+        data = resp.json()
+        arr = data.get("data") if isinstance(data, dict) else []
+        if not arr or not isinstance(arr, list):
+            return {"error": "No data", "fetched_at": fetched_at}
+        item = arr[0]
+        out = _parse_item(item)
+        if out.get("value") is not None:
+            return out
+        return {"error": "Invalid item", "fetched_at": fetched_at}
+    except Exception as e:
+        return {"error": str(e), "fetched_at": fetched_at}
+
+
+async def _fetch_vix(client: Any) -> Dict[str, Any]:
+    """Fetch VIX (CBOE Volatility Index) via Alpha Vantage function=VIX or TIME_SERIES_DAILY symbol=VIX."""
+    fetched_at = _utc_iso()
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY not set", "fetched_at": fetched_at}
+    try:
+        resp = await client.request(
+            "GET",
+            ALPHAVANTAGE_URL,
+            params={"function": "VIX", "interval": "daily", "apikey": api_key},
+            timeout=15.0,
+        )
+        data = resp.json()
+        if isinstance(data, dict) and data.get("Note"):
+            return {"error": "Alpha Vantage rate limit", "fetched_at": fetched_at}
+        series = data.get("data", [])
+        if not series or len(series) < 2:
+            return {"error": "Insufficient VIX data", "fetched_at": fetched_at}
+        latest, prev = series[0], series[1]
+        price = _safe_float(latest.get("value"))
+        prev_price = _safe_float(prev.get("value"))
+        change_pct = ((price - prev_price) / prev_price * 100) if price is not None and prev_price else None
+        return {
+            "price": f"{price:.2f}" if price is not None else None,
+            "change_pct": _format_pct(change_pct),
+            "as_of": latest.get("date", ""),
+            "fetched_at": fetched_at,
+        }
+    except Exception as e:
+        return {"error": str(e), "fetched_at": fetched_at}
+
+
+async def _fetch_polymarket(client: Any, conflict: str) -> Dict[str, Any]:
+    """Fetch Polymarket odds; returns {items: [...], fetched_at: ...}. Only items with probability > 0 and endDate > 48h."""
+    fetched_at = _utc_iso()
+    headers = _polymarket_headers()
+
+    tracked: List[Dict[str, Any]] = []
+    try:
+        for slug in TRACKED_POLYMARKET_SLUGS:
+            resp = await client.request("GET", f"{GAMMA_API_BASE}/events/slug/{slug}", headers=headers or {}, timeout=15.0)
+            if resp.status_code != 200:
+                continue
+            event = resp.json()
+            if not isinstance(event, dict):
+                continue
+            if not _polymarket_end_ok(event):
+                continue
+            question = (event.get("title") or event.get("question") or event.get("name") or "").strip()
+            if not question:
+                continue
+            prob = 0.0
+            for p in event.get("outcomePrices") or []:
+                v = _safe_float(p)
+                if v and v > prob:
+                    prob = v
+            for market in event.get("markets") or []:
+                if not isinstance(market, dict):
+                    continue
+                for p in market.get("outcomePrices") or []:
+                    v = _safe_float(p)
+                    if v and v > prob:
+                        prob = v
+                for token in market.get("tokens") or []:
+                    v = _safe_float(token.get("price"))
+                    if v and v > prob:
+                        prob = v
+            volume = _safe_float(event.get("volume") or event.get("volumeNum") or event.get("liquidity") or 0) or 0
+            item = {"question": question, "probability": round(prob, 3), "volume": round(volume, 0), "url": f"https://polymarket.com/event/{slug}"}
+            if item.get("probability", 0) > 0:
+                tracked.append(item)
+    except Exception:
+        pass
+    tracked_questions = {str(t.get("question", ""))[:80] for t in tracked if t.get("question")}
+    results: List[Dict] = []
+    try:
+        for url_suffix, params in [
+            (f"{GAMMA_API_BASE}/events", {"limit": 200, "active": "true", "closed": "false"}),
+            (f"{GAMMA_API_BASE}/markets", {"limit": 200, "active": "true", "closed": "false"}),
+        ]:
+            resp = await client.request("GET", url_suffix, params=params, headers=headers or {}, timeout=20.0)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            for m in (data if isinstance(data, list) else []):
+                if not _polymarket_end_ok(m):
+                    continue
+                question = str(m.get("question") or m.get("title") or m.get("name") or "").strip()
+                if not question or question[:80] in tracked_questions:
+                    continue
+                key = question[:60]
+                if key in {r.get("question", "")[:60] for r in results}:
+                    continue
+                combined = f"{(m.get('description') or '').lower()} {question.lower()}"
+                if not any(kw in combined for kw in POLYMARKET_KEYWORDS):
+                    continue
+                item = _normalize_polymarket_item(m)
+                if item and (item.get("probability") or 0) > 0:
+                    item["url"] = f"https://polymarket.com/event/{m.get('slug', '')}"
+                    results.append(item)
+    except Exception:
+        pass
+    results.sort(key=lambda x: x.get("volume") or 0, reverse=True)
+    return {"items": tracked + results[:10], "fetched_at": fetched_at}
+
+
+async def _fetch_metaculus(client: Any, conflict: str) -> Dict[str, Any]:
+    """Fetch Metaculus questions; returns {items: [...], fetched_at: ...}. Uses _extract_metaculus_prob."""
+    fetched_at = _utc_iso()
+    search_term = (conflict or "").strip() or "geopolitics"
+    try:
+        resp = await client.request("GET", METACULUS_API_BASE, params={"search": search_term, "status": "open", "limit": 20, "order_by": "-activity"}, timeout=15.0)
+        if resp.status_code != 200:
+            return {"items": [{"error": f"Metaculus API {resp.status_code}"}], "fetched_at": fetched_at}
+        data = resp.json()
+    except Exception as e:
+        return {"items": [{"error": str(e)}], "fetched_at": fetched_at}
+    results = data.get("results") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    if not isinstance(results, list):
+        return {"items": [], "fetched_at": fetched_at}
+    cl = (conflict or "").lower()
+    keywords = [t for t in METACULUS_CONFLICT_TERMS if t in cl] or ["war", "military", "iran", "ukraine"]
+    out = []
+    for q in results[:15]:
+        if not isinstance(q, dict):
+            continue
+        title = (q.get("title") or "").strip()
+        if not title or not any(kw in title.lower() for kw in keywords):
+            continue
+        prob = _extract_metaculus_prob(q)
+        out.append({
+            "title": title[:200],
+            "probability": round(prob, 3) if prob is not None else None,
+            "url": f"https://www.metaculus.com/questions/{q.get('id', '')}",
+            "resolve_time": q.get("resolve_time"),
+        })
+    return {"items": out[:10], "fetched_at": fetched_at}
+
+
+async def _fetch_ofac_cached(client: Any, conflict: str) -> Dict[str, Any]:
+    """Fetch OFAC SDN (or use 6h cache), filter by conflict; returns total_matches, sample, error, fetched_at, ofac_delta."""
+    global _ofac_raw_csv, _ofac_cache_ts, _ofac_previous_keys
+    fetched_at = datetime.now(timezone.utc).isoformat()
+    if _ofac_raw_csv is not None and (time.monotonic() - _ofac_cache_ts) < OFAC_CACHE_TTL:
+        out = _filter_ofac(_ofac_raw_csv, conflict)
+        out["fetched_at"] = fetched_at
+    else:
+        try:
+            resp = await client.request("GET", OFAC_SDN_CSV_URL, timeout=30.0)
+            _ofac_raw_csv = resp.text
+            _ofac_cache_ts = time.monotonic()
+            out = _filter_ofac(_ofac_raw_csv, conflict)
+            out["fetched_at"] = fetched_at
+        except Exception as e:
+            out = {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": fetched_at, "match_keys": set()}
+
+    current_keys = out.get("match_keys") or set()
+    previous_total = len(_ofac_previous_keys)
+    current_total = len(current_keys)
+    added = len(current_keys - _ofac_previous_keys)
+    out["ofac_delta"] = {
+        "added_since_last_run": added,
+        "previous_total": previous_total,
+        "current_total": current_total,
+    }
+    if out.get("error") is None:
+        _ofac_previous_keys = current_keys
+    return out
+
+
+async def _fetch_wallet_positions(client: Any) -> Dict[str, Any]:
+    """Fetch Polymarket positions for tracked wallets; returns {items: [...], fetched_at: ...}."""
+    fetched_at = _utc_iso()
+    if not TRACKED_WALLETS:
+        return {"items": [], "fetched_at": fetched_at}
+    out = []
+    headers = _polymarket_headers()
+    for label, address in TRACKED_WALLETS:
+        try:
+            resp = await client.request("GET", f"{DATA_API_BASE}/positions", params={"user": address, "limit": 50, "sortBy": "TOKENS", "sortDirection": "DESC"}, headers=headers or {}, timeout=15.0)
+            if resp.status_code != 200:
+                out.append({"wallet": label, "address": address[:10] + "...", "error": resp.status_code})
+                continue
+            data = resp.json()
+            positions = data if isinstance(data, list) else data.get("data", data.get("positions", []))
+            if not isinstance(positions, list):
+                positions = []
+            items = []
+            for p in positions[:20]:
+                title = p.get("title") or p.get("market") or p.get("question") or ""
+                size = _safe_float(p.get("size") or p.get("tokens") or 0)
+                avg_price = _safe_float(p.get("avgPrice") or p.get("price"))
+                items.append({"title": title[:120] if title else "", "size": round(size, 2) if size else 0, "avgPrice": round(avg_price, 4) if avg_price else None})
+            out.append({"wallet": label, "address": address[:10] + "...", "position_count": len(positions), "positions": items})
+        except Exception as e:
+            out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
+    return {"items": out, "fetched_at": fetched_at}
+
+
+async def _fetch_chain_wallets(client: Any) -> Dict[str, Any]:
+    """Fetch Etherscan balances for tracked addresses; returns {items: [...], fetched_at: ...}."""
+    fetched_at = _utc_iso()
+    api_key = (os.getenv("ETHEREUM_ETHERSCAN_API_KEY") or os.getenv("ETHERSCAN_API_KEY") or "").strip()
+    addresses = (TRACKED_ETH_ADDRESSES or [])[:MAX_ETHERSCAN_ADDRESSES_PER_RUN]
+    if not addresses:
+        return {"items": [], "fetched_at": fetched_at}
+    if not api_key:
+        return {"items": [{"error": "ETHEREUM_ETHERSCAN_API_KEY not set"}], "fetched_at": fetched_at}
+    out: List[Dict[str, Any]] = []
+    for i, (label, address) in enumerate(addresses):
+        if i > 0:
+            await asyncio.sleep(ETHERSCAN_RATE_LIMIT_DELAY_SEC)
+        try:
+            resp = await client.request("GET", "https://api.etherscan.io/api", params={"module": "account", "action": "balance", "address": address, "tag": "latest", "apikey": api_key}, timeout=15.0)
+            if resp.status_code != 200:
+                out.append({"wallet": label, "address": address[:10] + "...", "error": resp.status_code})
+                continue
+            data = resp.json()
+            if data.get("status") != "1" and data.get("message") != "OK":
+                out.append({"wallet": label, "address": address[:10] + "...", "error": data.get("message", "API error")})
+                continue
+            wei = int(data.get("result", 0))
+            out.append({"wallet": label, "address": address[:10] + "...", "balance_eth": round(wei / 1e18, 4), "balance_wei": str(wei)})
+        except Exception as e:
+            out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
+    if out:
+        out.append({"_attribution": "Etherscan (etherscan.io)"})
+    return {"items": out, "fetched_at": fetched_at}
+
+
+async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
+    """Run all FININT fetches in parallel with shared client; return_exceptions=True; return FinintResult as dict."""
+    client = get_http_client()
+    brent, wti, gold, vix, fear_greed, polymarket, metaculus, ofac, wallets, chain = await asyncio.gather(
+        _fetch_brent(client),
+        _fetch_wti(client),
+        _fetch_gold(client),
+        _fetch_vix(client),
+        _fetch_fear_greed(client),
+        _fetch_polymarket(client, conflict),
+        _fetch_metaculus(client, conflict),
+        _fetch_ofac_cached(client, conflict),
+        _fetch_wallet_positions(client),
+        _fetch_chain_wallets(client),
+        return_exceptions=True,
+    )
+
+    def _unwrap(x: Any, default: Any) -> Any:
+        if isinstance(x, Exception):
+            return {"error": str(x), "fetched_at": _utc_iso()}
+        return x
+
+    brent = _unwrap(brent, {})
+    wti = _unwrap(wti, {})
+    gold = _unwrap(gold, {})
+    vix = _unwrap(vix, {})
+    fear_greed = _unwrap(fear_greed, {})
+    polymarket = _unwrap(polymarket, {"items": [], "fetched_at": _utc_iso()})
+    metaculus = _unwrap(metaculus, {"items": [], "fetched_at": _utc_iso()})
+    ofac = _unwrap(ofac, {"total_matches": 0, "sample": [], "error": None, "fetched_at": _utc_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}})
+    wallets = _unwrap(wallets, {"items": [], "fetched_at": _utc_iso()})
+    chain = _unwrap(chain, {"items": [], "fetched_at": _utc_iso()})
+
+    polymarket_list = polymarket.get("items", []) if isinstance(polymarket, dict) else []
+    metaculus_list = metaculus.get("items", []) if isinstance(metaculus, dict) else []
+    tracked_wallets_list = wallets.get("items", []) if isinstance(wallets, dict) else []
+    tracked_chain_list = chain.get("items", []) if isinstance(chain, dict) else []
+    if not isinstance(polymarket_list, list):
+        polymarket_list = []
+    if not isinstance(metaculus_list, list):
+        metaculus_list = []
+    if not isinstance(tracked_wallets_list, list):
+        tracked_wallets_list = []
+    if not isinstance(tracked_chain_list, list):
+        tracked_chain_list = []
+
+    base = 50.0
+    if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
+        cp = brent.get("change_pct") or "0%"
+        if "+" in cp and "%" in cp:
+            try:
+                v = float(cp.replace("%", "").strip())
+                if v > 5:
+                    base += 15
+                elif v > 2:
+                    base += 8
+            except ValueError:
+                pass
+        if "-" in cp:
+            base -= 10
+    if polymarket_list:
+        max_prob = max((_safe_float(p.get("probability")) or 0) for p in polymarket_list if isinstance(p, dict) and "error" not in p)
+        if max_prob and max_prob > 0.5:
+            base += 20
+        elif max_prob and max_prob > 0.3:
+            base += 10
+    if metaculus_list:
+        meta_probs = [_safe_float(p.get("probability")) for p in metaculus_list if isinstance(p, dict) and "error" not in p and p.get("probability") is not None]
+        if meta_probs:
+            max_meta = max(meta_probs)
+            if max_meta and max_meta > 0.5:
+                base += 8
+            elif max_meta and max_meta > 0.3:
+                base += 4
+    ofac_total = int(ofac.get("total_matches") or 0) if isinstance(ofac, dict) and "error" not in ofac else 0
+    if ofac_total > 200:
+        base += 6
+    elif ofac_total > 50:
+        base += 3
+    vix_price = _safe_float(vix.get("price")) if isinstance(vix, dict) and "error" not in vix else None
+    if vix_price is not None and vix_price > 25:
+        base += 2
+    fg_val = fear_greed.get("value") if isinstance(fear_greed, dict) and "error" not in fear_greed else None
+    if fg_val is not None and fg_val <= 25:
+        base += 2
+    score = max(0.0, min(100.0, base))
+
+    source_keys = ["brent", "wti", "gold", "vix", "fear_greed", "polymarket", "metaculus", "ofac_sanctions", "tracked_wallets", "tracked_chain_wallets"]
+    results_by_key = {
+        "brent": brent, "wti": wti, "gold": gold, "vix": vix, "fear_greed": fear_greed,
+        "polymarket": polymarket_list, "metaculus": metaculus_list,
+        "ofac_sanctions": ofac, "tracked_wallets": tracked_wallets_list, "tracked_chain_wallets": tracked_chain_list,
+    }
+    sources_ok = []
+    sources_missing = []
+    for k in source_keys:
+        val = results_by_key.get(k)
+        if k == "ofac_sanctions":
+            ok = isinstance(val, dict) and "error" not in val and val.get("error") is None
+        elif k in ("polymarket", "metaculus", "tracked_wallets", "tracked_chain_wallets"):
+            ok = isinstance(val, list) and len(val) > 0 and not (len(val) == 1 and isinstance(val[0], dict) and val[0].get("error"))
+        else:
+            ok = isinstance(val, dict) and "error" not in val
+        if ok:
+            sources_ok.append(k)
+        else:
+            sources_missing.append(k)
+    api_keys_available = len(sources_ok)
+    score_confidence = ScoreConfidence(
+        level="high" if api_keys_available >= 2 else "low",
+        sources_ok=sources_ok,
+        sources_missing=sources_missing,
+    )
+
+    ofac_delta_data = ofac.get("ofac_delta") if isinstance(ofac, dict) else None
+    ofac_delta = None
+    if ofac_delta_data and isinstance(ofac_delta_data, dict):
+        ofac_delta = OfacDelta(
+            added_since_last_run=int(ofac_delta_data.get("added_since_last_run") or 0),
+            previous_total=int(ofac_delta_data.get("previous_total") or 0),
+            current_total=int(ofac_delta_data.get("current_total") or 0),
+        )
+
+    def _ofac_for_output(o: Dict[str, Any]) -> Dict[str, Any]:
+        """Drop match_keys (set) so JSON serialization succeeds."""
+        return {k: v for k, v in (o or {}).items() if k != "match_keys"}
+
+    def _price_fallback(p: Any, key: str) -> Dict[str, Any]:
+        if isinstance(p, dict) and "error" not in p:
+            return p
+        return {"price": None, "change_pct": "0.0%", "as_of": "", "fetched_at": p.get("fetched_at", _utc_iso()) if isinstance(p, dict) else _utc_iso()}
+
+    result = FinintResult(
+        brent=_price_fallback(brent, "brent"),
+        wti=_price_fallback(wti, "wti"),
+        gold=_price_fallback(gold, "gold"),
+        vix=_price_fallback(vix, "vix"),
+        fear_greed=fear_greed if isinstance(fear_greed, dict) and "error" not in fear_greed else {"error": fear_greed.get("error") if isinstance(fear_greed, dict) else "unknown", "fetched_at": _utc_iso()},
+        polymarket=[p for p in polymarket_list if isinstance(p, dict) and "error" not in p],
+        polymarket_fetched_at=polymarket.get("fetched_at") if isinstance(polymarket, dict) else None,
+        metaculus=[m for m in metaculus_list if isinstance(m, dict) and "error" not in m],
+        metaculus_fetched_at=metaculus.get("fetched_at") if isinstance(metaculus, dict) else None,
+        ofac_sanctions=_ofac_for_output(ofac) if isinstance(ofac, dict) and ofac.get("error") is None else {"total_matches": 0, "sample": [], "error": ofac.get("error") if isinstance(ofac, dict) else None, "fetched_at": ofac.get("fetched_at", _utc_iso()) if isinstance(ofac, dict) else _utc_iso(), "ofac_delta": None},
+        ofac_delta=ofac_delta,
+        tracked_wallets=[w for w in tracked_wallets_list if isinstance(w, dict)],
+        tracked_wallets_fetched_at=wallets.get("fetched_at") if isinstance(wallets, dict) else None,
+        tracked_chain_wallets=[w for w in tracked_chain_list if isinstance(w, dict) and "balance_eth" in w],
+        tracked_chain_wallets_fetched_at=chain.get("fetched_at") if isinstance(chain, dict) else None,
+        escalation_score=round(score, 1),
+        summary="FININT (rule-based): oil, gold, VIX, Fear & Greed, Polymarket, Metaculus, OFAC sanctions and delta, wallet data.",
+        score_confidence=score_confidence,
+        fetched_at=_utc_iso(),
+    )
+    return result.model_dump(mode="json")
+
+
 def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:
     """
     Fetch OFAC SDN list and return conflict-relevant sanctions highlights (for markets/finance context).
     Same Treasury CSV as DIPLO; FININT uses this for sanctions exposure and market risk.
     """
-    cl = (conflict or "").lower().strip()
-    keywords = OFAC_CONFLICT_KEYWORDS.get("default", [])
-    for k, v in OFAC_CONFLICT_KEYWORDS.items():
-        if k != "default" and k in cl:
-            keywords = v
-            break
-
-    async def _fetch():
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(OFAC_SDN_CSV_URL)
-            resp.raise_for_status()
-            return resp.text
-
     try:
-        text = asyncio.run(_fetch())
-        reader = csv.DictReader(io.StringIO(text))
-        matches: List[Dict[str, Any]] = []
-        for row in reader:
-            if not row:
-                continue
-            name = (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip()).lower()
-            program = (row.get("programs") or row.get("program", "") or "").lower()
-            combined = name + " " + program
-            if any(k in combined for k in keywords):
-                matches.append({
-                    "name": (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip() or ""),
-                    "type": row.get("type"),
-                    "program": row.get("programs") or row.get("program"),
-                })
-        return {"total_matches": len(matches), "sample": matches[:15], "error": None}
+        return asyncio.run(_fetch_ofac_cached(get_http_client(), conflict))
     except Exception as e:
-        return {"total_matches": 0, "sample": [], "error": str(e)}
+        return {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": datetime.now(timezone.utc).isoformat()}
 
 
 def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
@@ -530,96 +1133,31 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-# ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+# ── Rule-based tool chain (uses async parallel run) ──────────────────────────
 
 def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
-    """Execute FININT tool chain: all tools in parallel. No LLM."""
-    tools_to_run = [
-        ("brent", get_brent_price, []),
-        ("wti", get_wti_price, []),
-        ("gold", get_gold_price, []),
-        ("polymarket", get_polymarket_conflict_odds, [conflict]),
-        ("metaculus", get_metaculus_conflict_questions, [conflict]),
-        ("ofac_sanctions", get_ofac_sanctions_highlights, [conflict]),
-        ("tracked_wallets", get_tracked_wallet_positions, []),
-        ("tracked_chain_wallets", get_tracked_chain_wallets, []),
-    ]
-    results = {}
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {}
-        for key, fn, args in tools_to_run:
-            futures[key] = executor.submit(fn, *args) if args else executor.submit(fn)
-        for key in futures:
-            try:
-                results[key] = futures[key].result(timeout=30)
-            except Exception as e:
-                results[key] = {"error": str(e)} if key in ("brent", "wti", "gold") else [{"error": str(e)}]
-
-    brent = results.get("brent") or {}
-    wti = results.get("wti") or {}
-    gold = results.get("gold") or {}
-    polymarket = results.get("polymarket")
-    metaculus = results.get("metaculus")
-    ofac_sanctions = results.get("ofac_sanctions") or {}
-    tracked_wallets = results.get("tracked_wallets")
-    tracked_chain_wallets = results.get("tracked_chain_wallets")
-
-    if not isinstance(polymarket, list):
-        polymarket = []
-    if not isinstance(tracked_wallets, list):
-        tracked_wallets = []
-    if not isinstance(metaculus, list):
-        metaculus = []
-    if not isinstance(tracked_chain_wallets, list):
-        tracked_chain_wallets = []
-
-    base = 50.0
-    if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
-        cp = brent.get("change_pct") or "0%"
-        if "+" in cp and "%" in cp:
-            try:
-                v = float(cp.replace("%", "").strip())
-                if v > 5:
-                    base += 15
-                elif v > 2:
-                    base += 8
-            except ValueError:
-                pass
-        if "-" in cp:
-            base -= 10
-    if polymarket:
-        max_prob = max((_safe_float(p.get("probability")) or 0) for p in polymarket if isinstance(p, dict) and "error" not in p)
-        if max_prob and max_prob > 0.5:
-            base += 20
-        elif max_prob and max_prob > 0.3:
-            base += 10
-    if metaculus:
-        meta_probs = [_safe_float(p.get("probability")) for p in metaculus if isinstance(p, dict) and "error" not in p and p.get("probability") is not None]
-        if meta_probs:
-            max_meta = max(meta_probs)
-            if max_meta and max_meta > 0.5:
-                base += 8
-            elif max_meta and max_meta > 0.3:
-                base += 4
-    ofac_total = (int(ofac_sanctions.get("total_matches") or 0) if isinstance(ofac_sanctions, dict) and "error" not in ofac_sanctions else 0)
-    if ofac_total > 200:
-        base += 6
-    elif ofac_total > 50:
-        base += 3
-    score = max(0.0, min(100.0, base))
-
-    return {
-        "brent": brent if isinstance(brent, dict) and "error" not in brent else {"price": None, "change_pct": "0.0%", "as_of": ""},
-        "wti": wti if isinstance(wti, dict) and "error" not in wti else {"price": None, "change_pct": "0.0%", "as_of": ""},
-        "gold": gold if isinstance(gold, dict) and "error" not in gold else {"price": None, "change_pct": "0.0%", "as_of": ""},
-        "polymarket": [p for p in polymarket if isinstance(p, dict) and "error" not in p],
-        "metaculus": [m for m in metaculus if isinstance(m, dict) and "error" not in m],
-        "ofac_sanctions": ofac_sanctions if isinstance(ofac_sanctions, dict) and "error" not in ofac_sanctions else {"total_matches": 0, "sample": [], "error": (ofac_sanctions.get("error") if isinstance(ofac_sanctions, dict) else (ofac_sanctions[0].get("error") if isinstance(ofac_sanctions, list) and ofac_sanctions else None))},
-        "tracked_wallets": [w for w in tracked_wallets if isinstance(w, dict)],
-        "tracked_chain_wallets": [w for w in tracked_chain_wallets if isinstance(w, dict) and "balance_eth" in w],
-        "escalation_score": round(score, 1),
-        "summary": "FININT (rule-based): oil, gold, Polymarket, Metaculus, OFAC sanctions highlights, and wallet data from fixed tool chain.",
-    }
+    """Execute FININT via async parallel fetches; returns result with fetched_at and score_confidence."""
+    try:
+        return asyncio.run(_run_all_parallel(conflict))
+    except Exception as e:
+        utc = datetime.now(timezone.utc).isoformat()
+        return {
+            "brent": {"price": None, "change_pct": "0.0%", "as_of": "", "fetched_at": utc},
+            "wti": {"price": None, "change_pct": "0.0%", "as_of": "", "fetched_at": utc},
+            "gold": {"price": None, "change_pct": "0.0%", "as_of": "", "fetched_at": utc},
+            "vix": {"price": None, "change_pct": "0.0%", "as_of": "", "fetched_at": utc},
+            "fear_greed": {"error": str(e), "fetched_at": utc},
+            "polymarket": [],
+            "metaculus": [],
+            "ofac_sanctions": {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": utc},
+            "ofac_delta": None,
+            "tracked_wallets": [],
+            "tracked_chain_wallets": [],
+            "escalation_score": 50.0,
+            "summary": f"FININT error: {e}",
+            "score_confidence": {"level": "low", "sources_ok": [], "sources_missing": ["brent", "wti", "gold", "vix", "fear_greed", "polymarket", "metaculus", "ofac_sanctions", "tracked_wallets", "tracked_chain_wallets"]},
+            "fetched_at": utc,
+        }
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────

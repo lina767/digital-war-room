@@ -43,7 +43,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **CLOUDFLARE_RADAR_API_TOKEN** | `backend/agents/techint_agent.py` – Outage-Annotations | [dash.cloudflare.com](https://dash.cloudflare.com/) → Radar / API. |
 | **WIGLE_API_NAME** / **WIGLE_API_TOKEN** | `backend/agents/techint_agent.py` – Wigle.net WLAN-Datenbank (TECHINT) | [wigle.net](https://wigle.net/) – Account anlegen, API-Token im Profil; Username + Token als Basic Auth. |
 | **SPIRE_MARITIME_API_KEY** | `backend/agents/sigint_agent.py` – Spire Maritime (Schiffe/AIS) | [spire.com](https://spire.com/) – Maritime API. |
-| **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program | Bei UCDP/API-Anbietern anfragen (z. B. [ucdp.uu.se](https://ucdp.uu.se/)). |
+| **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program (GED events) | Bei UCDP anfragen ([ucdp.uu.se](https://ucdp.uu.se/), [API-Doku](https://ucdp.uu.se/apidocs/)). Header: `x-ucdp-access-token`. **Limit:** 5.000 Requests/Tag (Mitternacht UTC); jeder paginierte Request zählt. |
 | **LIVEUAMAP_API_KEY** | GEOINT (Liveuamap, falls integriert) | Liveuamap – oft kostenpflichtig. |
 | **NOTAM_API_KEY** | `backend/agents/iaea_tracker.py` – NOTAM (Autorouter.aero) | [autorouter.aero](https://www.autorouter.aero/) – falls der Endpunkt Auth verlangt. |
 | **FIRECRAWL_API_KEY** | `backend/agents/acled_reference.py` – ACLED-Referenzseiten (robustes Scraping) | [firecrawl.dev](https://firecrawl.dev) – Free Plan: 500 Credits einmalig, 2 gleichzeitige Requests. Ohne Key: Fallback auf httpx. |
@@ -87,6 +87,9 @@ ACLED_PASSWORD=dein_myACLED_passwort
 
 # Optional – Firecrawl (ACLED-Referenzseiten; ohne Key: Fallback auf httpx)
 # FIRECRAWL_API_KEY=fc-...
+
+# Optional – GEOINT: UCDP (Uppsala Conflict Data Program). Header: x-ucdp-access-token. Limit: 5.000 Requests/Tag.
+# UCDP_API_TOKEN=...
 
 # Optional – FININT: Gold, On-Chain-Wallets (TRACKED_ETH_ADDRESSES in finint_agent.py)
 # METALS_API_KEY=...

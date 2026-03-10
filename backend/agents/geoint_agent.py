@@ -477,6 +477,7 @@ def _region_from_conflict(conflict: str) -> str:
 
 # UCDP API: https://ucdpapi.pcr.uu.se/api/<resource>/<version>?pagesize=x&page=x [&Country=country_id][&StartDate=][&EndDate=]
 # Requires UCDP_API_TOKEN (header: x-ucdp-access-token). Gleditsch & Ward country_id.
+# Authenticated access: 5,000 requests/day (resets midnight UTC). One paginated request = one count.
 UCDP_BASE = "https://ucdpapi.pcr.uu.se/api"
 UCDP_GED_VERSION = "25.1"
 UCDP_COUNTRY_IDS = {
@@ -496,6 +497,7 @@ def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
     token = (os.getenv("UCDP_API_TOKEN") or os.getenv("UCDP_ACCESS_TOKEN") or "").strip()
     if not token:
         return []
+    # One request per analysis; stay under 5,000/day (UCDP limit)
 
     cl = conflict.lower()
     country_ids = next((v for k, v in UCDP_COUNTRY_IDS.items() if k != "default" and k in cl), UCDP_COUNTRY_IDS["default"])
