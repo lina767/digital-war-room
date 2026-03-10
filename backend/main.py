@@ -83,6 +83,15 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/")
+def root() -> dict:
+    """
+    Simple root endpoint so platform health checks against `/` return 200.
+    Returns the same payload as `/health` for consistency.
+    """
+    return {"status": "ok", "service": "conflict-backend"}
+
+
 # ── WebSocket Manager ──────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
