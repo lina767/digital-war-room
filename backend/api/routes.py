@@ -74,14 +74,23 @@ async def analyze(request: Request, body: AnalyzeRequest):
 
 
 @router.get("/analyze/refresh")
-async def refresh_analysis(request: Request, conflict: str = "Iran"):
+async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool = False):
     """
     GET /analyze/refresh?conflict=Iran
     Kicks off a full analysis in the background and returns immediately.
-    No secret required. Use after deploy / restart when cache is empty.
+    Add &sync=true to run synchronously and see errors (may timeout on Railway).
     """
-    cache = _get_cache(request)
     app_state = request.app.state
+
+    if sync:
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+            app_state.analysis_cache[conflict] = {"result": result, "at": time.time()}
+            return {"status": "ok", "conflict": conflict}
+        except Exception as e:
+            import traceback
+            return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
     async def _run_in_background():
         try:
