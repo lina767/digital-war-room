@@ -41,6 +41,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **ETHEREUM_ETHERSCAN_API_KEY** | `backend/agents/finint_agent.py` – On-Chain-Wallets (Etherscan) | [etherscan.io/myapikey](https://etherscan.io/myapikey) – **Free Tier:** 3 calls/s, bis 100.000 Calls/Tag, **Attribution erforderlich** (z. B. „Data by Etherscan“ im UI). Nur ausgewählte Chains/Community-Endpoints; 90 % Multichain-Abdeckung. |
 | **SHODAN_API_KEY** | `backend/agents/techint_agent.py` – Shodan Host-Counts | [account.shodan.io](https://account.shodan.io/) – Registrierung, API Key im Dashboard. |
 | **CLOUDFLARE_RADAR_API_TOKEN** | `backend/agents/techint_agent.py` – Outage-Annotations | [dash.cloudflare.com](https://dash.cloudflare.com/) → Radar / API. |
+| **WIGLE_API_NAME** / **WIGLE_API_TOKEN** | `backend/agents/techint_agent.py` – Wigle.net WLAN-Datenbank (TECHINT) | [wigle.net](https://wigle.net/) – Account anlegen, API-Token im Profil; Username + Token als Basic Auth. |
 | **SPIRE_MARITIME_API_KEY** | `backend/agents/sigint_agent.py` – Spire Maritime (Schiffe/AIS) | [spire.com](https://spire.com/) – Maritime API. |
 | **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program | Bei UCDP/API-Anbietern anfragen (z. B. [ucdp.uu.se](https://ucdp.uu.se/)). |
 | **LIVEUAMAP_API_KEY** | GEOINT (Liveuamap, falls integriert) | Liveuamap – oft kostenpflichtig. |

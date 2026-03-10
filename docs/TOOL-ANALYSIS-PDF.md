@@ -56,9 +56,9 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 | PDF-Tool | Im Projekt? | Anmerkung |
 |----------|-------------|-----------|
 | **Shodan** | ✅ | `_fetch_shodan_activity` (optional SHODAN_API_KEY) |
-| **Wayback Machine** | ❌ | PDF: „archiviert gelöschte Webseiten/Tweets“ – API vorhanden |
-| WHOIS/DNS-Analysen | ❌ | „Wer registriert welche Server?“ – gut automatisierbar |
-| wigle.net (WLAN-DB) | ❌ | Nischen-Tool; API verfügbar |
+| **Wayback Machine** | ✅ | `_fetch_wayback_snapshots(conflict)` nutzt Archive.org-CDX (keine Auth) |
+| WHOIS/DNS-Analysen | ✅ | `_fetch_whois_dns(conflict)` via RDAP + Google DNS over HTTPS |
+| wigle.net (WLAN-DB) | ✅ | `_fetch_wigle_networks(conflict)` mit WIGLE_API_NAME/TOKEN (Bounding Box pro Konflikt) |
 
 ### FININT (PDF)
 
@@ -144,7 +144,7 @@ Diese waren bereits in der Doku genannt; passen gut zur PDF:
 | 2 | Gold | FININT | **Umgesetzt** – `get_gold_price()` (METALS_API_KEY, metals-api.com) |
 | 3 | Wayback Machine (CDX) | TECHINT | **Umgesetzt** – `_fetch_wayback_snapshots(conflict)` |
 | 4 | Etherscan (On-Chain Wallets) | FININT | **Umgesetzt** – `get_tracked_chain_wallets()` (TRACKED_ETH_ADDRESSES) |
-| 5 | WHOIS/DNS | TECHINT | Offen |
+| 5 | WHOIS/DNS | TECHINT | **Umgesetzt** – `_fetch_whois_dns(conflict)` |
 | 6 | Zapper.fi (optional) | FININT | Offen |
 | 7 | MarineTraffic (optional) | SIGINT | Offen |
 

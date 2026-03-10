@@ -20,6 +20,8 @@ OONI_MEASUREMENTS_URL = "https://api.ooni.io/api/v1/measurements"
 CLOUDFLARE_RADAR_OUTAGES_URL = "https://api.cloudflare.com/client/v4/radar/annotations/outages"
 SHODAN_HOST_COUNT_URL = "https://api.shodan.io/shodan/host/count"
 WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
+RDAP_DOMAIN_URL = "https://rdap.org/domain"
+GOOGLE_DNS_RESOLVE_URL = "https://dns.google/resolve"
 
 # URLs to check in Wayback Machine per conflict (detect deletions). Expand as needed.
 WAYBACK_URLS_BY_CONFLICT: Dict[str, List[str]] = {
@@ -67,6 +69,27 @@ TECH_SYMBOLS = [
     ("SMH", "Semiconductor ETF"),
     ("QQQ", "Nasdaq-100 / Tech"),
 ]
+
+# Conflict → domains to track in WHOIS/DNS (infrastructure attribution, registrars, DNS changes)
+WHOIS_DOMAINS_BY_CONFLICT: Dict[str, List[str]] = {
+    "iran": [
+        "leader.ir",
+        "president.ir",
+        "irib.ir",
+    ],
+    "us-iran": [
+        "state.gov",
+        "centcom.mil",
+    ],
+    "ukraine": [
+        "president.gov.ua",
+        "mil.gov.ua",
+    ],
+    "russia": [
+        "mil.ru",
+        "kremlin.ru",
+    ],
+}
 
 EXPORT_CONTROL_QUERY = (
     '"export control" OR "export controls" OR "semiconductor sanctions" '
@@ -436,6 +459,102 @@ async def _fetch_wayback_snapshots(conflict: str) -> Dict[str, Any]:
         return {"urls_checked": [], "snapshots": [], "summary": "", "error": str(e)}
 
 
+async def _fetch_whois_dns(conflict: str) -> Dict[str, Any]:
+    """
+    Fetch WHOIS (via RDAP) and DNS A-records (via Google DNS over HTTPS) for
+    conflict-relevant domains. No API key required.
+    """
+    cl = (conflict or "").lower().strip()
+    domains: List[str] = []
+    for key, ds in WHOIS_DOMAINS_BY_CONFLICT.items():
+        if key in cl:
+            domains = ds
+            break
+    if not domains:
+        return {
+            "domains": [],
+            "results": [],
+            "summary": "No WHOIS domains configured for this conflict.",
+        }
+
+    results: List[Dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for domain in domains:
+                item: Dict[str, Any] = {"domain": domain}
+                # WHOIS / RDAP
+                try:
+                    resp = await client.get(f"{RDAP_DOMAIN_URL}/{domain}")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        registrar = data.get("registrar") or data.get("registrarName")
+                        if not registrar:
+                            # Try entities role=registrar
+                            for ent in data.get("entities") or []:
+                                if not isinstance(ent, dict):
+                                    continue
+                                roles = ent.get("roles") or []
+                                if "registrar" in roles:
+                                    vcard = ent.get("vcardArray") or []
+                                    if len(vcard) == 2 and isinstance(vcard[1], list):
+                                        for field in vcard[1]:
+                                            if isinstance(field, list) and len(field) >= 4 and field[0] == "fn":
+                                                registrar = field[3]
+                                                break
+                                if registrar:
+                                    break
+                        created = None
+                        expires = None
+                        for ev in data.get("events") or []:
+                            if not isinstance(ev, dict):
+                                continue
+                            action = (ev.get("eventAction") or "").lower()
+                            if action in ("registration", "registered", "create"):
+                                created = ev.get("eventDate")
+                            elif action in ("expiration", "expiry", "expire"):
+                                expires = ev.get("eventDate")
+                        item["whois"] = {
+                            "registrar": registrar,
+                            "created": created,
+                            "expires": expires,
+                        }
+                    else:
+                        item["whois_error"] = resp.status_code
+                except Exception as e:  # pragma: no cover - network failure path
+                    item["whois_error"] = str(e)
+
+                # DNS A-records via Google Public DNS
+                try:
+                    dns_resp = await client.get(
+                        GOOGLE_DNS_RESOLVE_URL,
+                        params={"name": domain, "type": "A"},
+                    )
+                    if dns_resp.status_code == 200:
+                        dns_data = dns_resp.json()
+                        answers = dns_data.get("Answer") or []
+                        item["dns_a"] = [
+                            a.get("data")
+                            for a in answers
+                            if isinstance(a, dict) and a.get("type") == 1 and a.get("data")
+                        ]
+                    else:
+                        item["dns_error"] = dns_resp.status_code
+                except Exception as e:  # pragma: no cover - network failure path
+                    item.setdefault("dns_error", str(e))
+
+                results.append(item)
+
+        ok = [r for r in results if r.get("whois") or r.get("dns_a")]
+        summary = (
+            f"WHOIS/DNS: {len(ok)} domain(s) resolved."
+            if ok
+            else "WHOIS/DNS: no successful lookups."
+        )
+        return {"domains": domains, "results": results, "summary": summary}
+    except Exception as e:  # pragma: no cover - network failure path
+        return {"domains": domains, "results": [], "summary": "", "error": str(e)}
+
+
 async def _fetch_quote(client: httpx.AsyncClient, symbol: str, api_key: str) -> Dict[str, Any]:
     """Fetch GLOBAL_QUOTE for one symbol."""
     try:
@@ -512,6 +631,69 @@ async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[s
         return [{"error": str(e)}]
 
 
+async def _fetch_wigle_networks(conflict: str) -> Dict[str, Any]:
+    """
+    Query Wigle.net WiFi database for conflict-relevant region (bounding box).
+    Requires WIGLE_API_NAME and WIGLE_API_TOKEN (Basic Auth).
+    """
+    username = (os.getenv("WIGLE_API_NAME") or "").strip()
+    token = (os.getenv("WIGLE_API_TOKEN") or "").strip()
+    cl = (conflict or "").lower().strip()
+    # Simple coarse bounding boxes per conflict (lat1, lat2, lon1, lon2)
+    wigle_bbox_by_conflict: Dict[str, tuple[float, float, float, float]] = {
+        "iran": (24.0, 40.0, 44.0, 63.0),
+        "us-iran": (24.0, 40.0, 44.0, 63.0),
+        "ukraine": (44.0, 53.0, 22.0, 41.0),
+        "russia": (54.0, 71.0, 30.0, 150.0),
+    }
+    bbox = None
+    for key, box in wigle_bbox_by_conflict.items():
+        if key in cl:
+            bbox = box
+            break
+    if not username or not token or not bbox:
+        return {"total_results": 0, "sample": [], "error": "Wigle API not configured or no bbox for conflict."}
+
+    lat1, lat2, lon1, lon2 = bbox
+    try:
+        async with httpx.AsyncClient(
+            timeout=20.0,
+            auth=httpx.BasicAuth(username, token),
+        ) as client:
+            resp = await client.get(
+                "https://api.wigle.net/api/v2/network/search",
+                params={
+                    "latrange1": lat1,
+                    "latrange2": lat2,
+                    "longrange1": lon1,
+                    "longrange2": lon2,
+                    "resultsPerPage": 50,
+                    "page": 1,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        results = data.get("results") or []
+        sample = []
+        for r in results[:30]:
+            if not isinstance(r, dict):
+                continue
+            sample.append(
+                {
+                    "ssid": r.get("ssid"),
+                    "netid": r.get("netid"),
+                    "trilat": r.get("trilat"),
+                    "trilong": r.get("trilong"),
+                    "encryption": r.get("encryption"),
+                    "lasttime": r.get("lasttime"),
+                }
+            )
+        total = data.get("totalResults") or data.get("total", len(results))
+        return {"total_results": int(total or 0), "sample": sample}
+    except Exception as e:  # pragma: no cover - network failure path
+        return {"total_results": 0, "sample": [], "error": str(e)}
+
+
 def _compute_techint_score(
     tech_indicators: List[Dict],
     export_articles: List[Dict],
@@ -519,6 +701,8 @@ def _compute_techint_score(
     ooni_result: Dict[str, Any],
     cloudflare_outages: List[Dict],
     shodan_activity: Dict[str, Any],
+    whois_dns: Dict[str, Any] | None = None,
+    wigle_result: Dict[str, Any] | None = None,
 ) -> float:
     """Compute TECHINT escalation score 0–100 from all signals."""
     base = 30.0
@@ -568,6 +752,11 @@ def _compute_techint_score(
         base += 4
     if vuln_count is not None and int(vuln_count) > 20000:
         base += 5   # Large attack surface in region
+    # Light touch: if WHOIS/DNS/Wigle have data, nudge score slightly (signals active infrastructure mapping)
+    if whois_dns and isinstance(whois_dns, dict) and whois_dns.get("results"):
+        base += 2
+    if wigle_result and isinstance(wigle_result, dict) and (wigle_result.get("total_results") or 0) > 0:
+        base += 2
     return min(100.0, max(0.0, base))
 
 
@@ -581,6 +770,8 @@ def _build_summary(
     shodan_activity: Dict[str, Any],
     techint_score: float,
     wayback_result: Dict[str, Any] | None = None,
+    whois_dns: Dict[str, Any] | None = None,
+    wigle_result: Dict[str, Any] | None = None,
 ) -> str:
     """One- or two-sentence summary."""
     valid_tech = [t for t in tech_indicators if t.get("price") and "error" not in t]
@@ -626,6 +817,10 @@ def _build_summary(
         n = len([s for s in wayback_result.get("snapshots") or [] if "error" not in s])
         if n:
             parts.append(f"Wayback: {n} URL(s) checked for archives.")
+    if whois_dns and whois_dns.get("results"):
+        parts.append(f"WHOIS/DNS: {len(whois_dns.get('results') or [])} domain(s) queried.")
+    if wigle_result and isinstance(wigle_result, dict) and (wigle_result.get("total_results") or 0) > 0:
+        parts.append(f"Wigle: {wigle_result.get('total_results', 0)} WiFi networks in region (sample stored).")
     if not parts:
         return "TECHINT: No tech, export control, IODA, OONI, Cloudflare, or Shodan data."
     return "TECHINT: " + " ".join(parts)
@@ -647,14 +842,17 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         cloudflare_outages = await _fetch_cloudflare_outages(cf_token, conflict) if cf_token else []
         shodan_activity = await _fetch_shodan_activity(shodan_key, conflict) if shodan_key else {}
         wayback_result = await _fetch_wayback_snapshots(conflict)
+        whois_dns = await _fetch_whois_dns(conflict)
+        wigle_result = await _fetch_wigle_networks(conflict)
         techint_score = _compute_techint_score(
             tech_indicators, export_controls, ioda_events,
             ooni_result, cloudflare_outages, shodan_activity,
+            whois_dns, wigle_result,
         )
         summary = _build_summary(
             tech_indicators, export_controls, ioda_events, ioda_result,
             ooni_result, cloudflare_outages, shodan_activity,
-            techint_score, wayback_result,
+            techint_score, wayback_result, whois_dns, wigle_result,
         )
         return {
             "tech_indicators": tech_indicators,
@@ -668,6 +866,8 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "cloudflare_outages": cloudflare_outages,
             "shodan": shodan_activity,
             "wayback": wayback_result,
+            "whois_dns": whois_dns,
+            "wigle": wigle_result,
             "techint_score": round(techint_score, 1),
             "summary": summary,
         }
@@ -687,6 +887,8 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "cloudflare_outages": [],
             "shodan": {},
             "wayback": {},
+            "whois_dns": {},
+            "wigle": {},
             "techint_score": 30.0,
             "summary": f"TECHINT error: {e}",
         }

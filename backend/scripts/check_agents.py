@@ -121,6 +121,10 @@ def data_hint(name: str, data: dict) -> str:
         hints.append(f"shodan_total={data.get('shodan', {}).get('total_count', 0)}")
         if data.get("wayback") and (data.get("wayback") or {}).get("snapshots"):
             hints.append(f"wayback={len((data['wayback'].get('snapshots') or []))}")
+        if data.get("whois_dns") and isinstance(data.get("whois_dns"), dict):
+            hints.append(f"whois_domains={len(data['whois_dns'].get('results') or [])}")
+        if data.get("wigle") and isinstance(data.get("wigle"), dict):
+            hints.append(f"wigle_total={data['wigle'].get('total_results', 0)}")
     elif name == "cyber":
         hints.append(f"cisa_kev={data.get('cisa_kev', {}).get('total', 0)}")
         hints.append(f"threat_reports={len(data.get('threat_reports') or [])}")
