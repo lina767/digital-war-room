@@ -73,10 +73,27 @@ async def analyze(request: Request, body: AnalyzeRequest):
     return entry["result"]
 
 
+@router.get("/analyze/refresh")
+async def refresh_analysis(request: Request, conflict: str = "Iran"):
+    """
+    GET /analyze/refresh?conflict=Iran
+    Runs a full analysis and fills the cache. No secret required.
+    Use after deploy / restart when the periodic job hasn't completed yet.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+        cache = _get_cache(request)
+        cache[conflict] = {"result": result, "at": time.time()}
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @router.post("/analyze/trigger")
 async def trigger_analysis(
     request: Request,
-    conflict: str = "US-Iran",
+    conflict: str = "Iran",
     x_trigger_secret: str | None = Header(default=None, alias="X-Trigger-Secret"),
 ):
     """
@@ -85,7 +102,7 @@ async def trigger_analysis(
     """
     secret = os.getenv("ANALYZE_TRIGGER_SECRET", "").strip()
     if secret and x_trigger_secret != secret:
-        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Trigger-Secret"})
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Trigger-Secret. Remove ANALYZE_TRIGGER_SECRET from env to disable."})
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
