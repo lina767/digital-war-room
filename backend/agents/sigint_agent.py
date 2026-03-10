@@ -398,7 +398,9 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
-    """Execute SIGINT tool chain in fixed order: aircraft → vessels → spire_vessels (subagent) → conflict_reports. No LLM."""
+    """Execute SIGINT tool chain: aircraft → vessels → spire_vessels → conflict_reports → NOTAMs (iaea_tracker). No LLM."""
+    from .iaea_tracker import fetch_notams
+
     aircraft = [a for a in (get_military_aircraft() or []) if isinstance(a, dict) and "error" not in a]
     ships = [s for s in (get_naval_vessels() or []) if isinstance(s, dict) and "error" not in s]
     spire_ships = [s for s in (get_spire_vessels() or []) if isinstance(s, dict) and "error" not in s]
@@ -409,6 +411,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             seen_ship.add(key)
             ships.append(s)
     reports = [r for r in (get_conflict_reports(conflict=conflict) or []) if isinstance(r, dict) and "error" not in r]
+    notam_result = fetch_notams(days=3, limit=15)
 
     base = 30.0
     base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
@@ -429,15 +432,19 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         alerts.append(f"{len(ships)} warship(s) in region")
     if reports:
         alerts.append(f"{len(reports)} recent intel reports")
+    notams = (notam_result.get("notams") or []) if isinstance(notam_result, dict) else []
+    if notams:
+        alerts.append(f"{len(notams)} NOTAM(s) (airspace)")
 
     return {
         "conflict": conflict,
         "aircraft": aircraft,
         "ships": ships,
         "conflict_reports": reports,
+        "notams": notams,
         "sigint_score": round(score, 1),
         "alerts": alerts,
-        "summary": f"SIGINT (rule-based): {len(aircraft)} aircraft, {len(ships)} ships, {len(reports)} reports. Score {score:.0f}.",
+        "summary": f"SIGINT (rule-based): {len(aircraft)} aircraft, {len(ships)} ships, {len(reports)} reports, {len(notams)} NOTAMs. Score {score:.0f}.",
     }
 
 

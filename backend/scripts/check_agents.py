@@ -91,10 +91,18 @@ def data_hint(name: str, data: dict) -> str:
             hints.append("brent ✓")
         if data.get("wti"):
             hints.append("wti ✓")
+        if data.get("gold") and isinstance(data.get("gold"), dict) and "error" not in data.get("gold", {}):
+            hints.append("gold ✓")
         hints.append(f"polymarket={len(data.get('polymarket') or [])}")
+        hints.append(f"metaculus={len(data.get('metaculus') or [])}")
+        ofac = data.get("ofac_sanctions") or {}
+        if isinstance(ofac, dict) and ofac.get("total_matches") is not None:
+            hints.append(f"ofac_sanctions={ofac.get('total_matches', 0)}")
+        hints.append(f"chain_wallets={len(data.get('tracked_chain_wallets') or [])}")
     elif name == "sigint":
         hints.append(f"aircraft={len(data.get('aircraft') or [])}")
         hints.append(f"ships={len(data.get('ships') or [])}")
+        hints.append(f"notams={len(data.get('notams') or [])}")
     elif name == "news":
         hints.append(f"articles={len(data.get('articles') or [])}")
         if data.get("source_breakdown"):
@@ -111,6 +119,8 @@ def data_hint(name: str, data: dict) -> str:
             hints.append(f"ooni_blocked_IR={data['ooni'].get('telegram_signal_blocked_iran', False)}")
         hints.append(f"cloudflare_outages={len(data.get('cloudflare_outages') or [])}")
         hints.append(f"shodan_total={data.get('shodan', {}).get('total_count', 0)}")
+        if data.get("wayback") and (data.get("wayback") or {}).get("snapshots"):
+            hints.append(f"wayback={len((data['wayback'].get('snapshots') or []))}")
     elif name == "cyber":
         hints.append(f"cisa_kev={data.get('cisa_kev', {}).get('total', 0)}")
         hints.append(f"threat_reports={len(data.get('threat_reports') or [])}")

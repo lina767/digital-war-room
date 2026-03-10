@@ -19,12 +19,25 @@ IODA_BASE = "https://api.ioda.inetintel.cc.gatech.edu/v2"
 OONI_MEASUREMENTS_URL = "https://api.ooni.io/api/v1/measurements"
 CLOUDFLARE_RADAR_OUTAGES_URL = "https://api.cloudflare.com/client/v4/radar/annotations/outages"
 SHODAN_HOST_COUNT_URL = "https://api.shodan.io/shodan/host/count"
+WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
+
+# URLs to check in Wayback Machine per conflict (detect deletions). Expand as needed.
+WAYBACK_URLS_BY_CONFLICT: Dict[str, List[str]] = {
+    "iran": ["https://www.state.gov/", "https://www.whitehouse.gov/", "https://en.wikipedia.org/wiki/Iran"],
+    "us-iran": ["https://www.state.gov/", "https://www.whitehouse.gov/"],
+    "ukraine": ["https://www.president.gov.ua/", "https://en.wikipedia.org/wiki/2022_Russian_invasion_of_Ukraine"],
+    "russia": ["https://en.wikipedia.org/wiki/Russia"],
+}
 
 # Shodan: strategic port counts (no search credits; count API is free)
-# port 502 = Modbus (industrial/SCADA) – exposure in conflict zone = escalation signal
-# port 22 = SSH, 443 = HTTPS (general exposure)
+# Industrial/SCADA: 502 Modbus, 44818 EtherNet/IP, 47808 BACnet, 1911 Tridium Niagara, 102 Siemens S7
+# General: 22 SSH, 443 HTTPS
 SHODAN_PORT_QUERIES = [
-    (502, "port:502", "industrial_scada"),   # Modbus – critical infrastructure
+    (502, "port:502", "industrial_modbus"),
+    (44818, "port:44818", "industrial_ethernet_ip"),  # Rockwell EtherNet/IP
+    (47808, "port:47808", "industrial_bacnet"),       # BACnet building automation
+    (1911, "port:1911", "industrial_niagara"),       # Tridium Niagara
+    (102, "port:102", "industrial_s7"),               # Siemens S7
     (22, "port:22", "ssh"),
     (443, "port:443", "https"),
 ]
@@ -308,8 +321,8 @@ async def _fetch_cloudflare_outages(token: str, conflict: str) -> List[Dict[str,
 async def _fetch_shodan_activity(api_key: str, conflict: str) -> Dict[str, Any]:
     """
     Shodan host count for conflict-relevant countries (count API uses no query credits).
-    Adds breakdown by strategic ports: 502 (Modbus/SCADA), 22 (SSH), 443 (HTTPS).
-    Industrial (port 502) exposure in conflict zone = escalation indicator.
+    Breakdown by strategic ports: industrial (502 Modbus, 44818 EtherNet/IP, 47808 BACnet, 1911 Niagara, 102 S7), SSH, HTTPS.
+    Industrial/SCADA exposure in conflict zone = escalation indicator.
     """
     codes = _conflict_to_country_codes(conflict)
     if not codes or not api_key:
@@ -341,7 +354,7 @@ async def _fetch_shodan_activity(api_key: str, conflict: str) -> Dict[str, Any]:
                             port_count = int(r.json().get("total", 0))
                             country_data["ports"][str(port_num)] = port_count
                             port_breakdown[label] = port_breakdown.get(label, 0) + port_count
-                            if port_num == 502:
+                            if port_num in (502, 44818, 47808, 1911, 102):
                                 industrial_exposed += port_count
                         except Exception:
                             country_data["ports"][str(port_num)] = 0
@@ -371,6 +384,56 @@ async def _fetch_shodan_activity(api_key: str, conflict: str) -> Dict[str, Any]:
         return out
     except Exception as e:
         return {"countries": [], "total_count": 0, "port_breakdown": {}, "industrial_exposed": 0, "error": str(e)}
+
+
+async def _fetch_wayback_snapshots(conflict: str) -> Dict[str, Any]:
+    """
+    Query Archive.org CDX for configured URLs per conflict. Returns snapshot count and last capture per URL.
+    No API key required for CDX search. Use to detect if official/News pages were changed or removed.
+    """
+    cl = (conflict or "").lower().strip()
+    urls = []
+    for key, list_urls in WAYBACK_URLS_BY_CONFLICT.items():
+        if key in cl:
+            urls = list_urls
+            break
+    if not urls:
+        return {"urls_checked": [], "snapshots": [], "summary": "No Wayback URLs configured for this conflict."}
+
+    result: List[Dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            for url in urls[:10]:
+                try:
+                    resp = await client.get(
+                        WAYBACK_CDX_URL,
+                        params={"url": url, "output": "json", "limit": 5, "collapse": "timestamp:6"},
+                    )
+                    if resp.status_code != 200:
+                        result.append({"url": url, "error": resp.status_code})
+                        continue
+                    data = resp.json()
+                    if not isinstance(data, list) or len(data) < 2:
+                        result.append({"url": url, "snapshot_count": 0, "last_capture": None})
+                        continue
+                    # First row is header; rows are [urlkey, timestamp, original, ...]
+                    rows = data[1:]
+                    last_ts = rows[0][1] if rows else None
+                    result.append({
+                        "url": url,
+                        "snapshot_count": len(rows),
+                        "last_capture": last_ts,
+                        "wayback_url": f"https://web.archive.org/web/{last_ts}/{url}" if last_ts else None,
+                    })
+                except Exception as e:
+                    result.append({"url": url, "error": str(e)})
+        return {
+            "urls_checked": urls[:10],
+            "snapshots": result,
+            "summary": f"Wayback: {len([r for r in result if 'error' not in r])} URL(s) checked.",
+        }
+    except Exception as e:
+        return {"urls_checked": [], "snapshots": [], "summary": "", "error": str(e)}
 
 
 async def _fetch_quote(client: httpx.AsyncClient, symbol: str, api_key: str) -> Dict[str, Any]:
@@ -517,6 +580,7 @@ def _build_summary(
     cloudflare_outages: List[Dict],
     shodan_activity: Dict[str, Any],
     techint_score: float,
+    wayback_result: Dict[str, Any] | None = None,
 ) -> str:
     """One- or two-sentence summary."""
     valid_tech = [t for t in tech_indicators if t.get("price") and "error" not in t]
@@ -554,10 +618,14 @@ def _build_summary(
         vuln_s = shodan_activity.get("vuln_count")
         msg = f"Shodan: {total_s} hosts in region."
         if ind > 0:
-            msg += f" {ind} industrial/SCADA (port 502) exposed."
+            msg += f" {ind} industrial/SCADA (Modbus, EtherNet/IP, BACnet, etc.) exposed."
         if vuln_s is not None:
             msg += f" {vuln_s} with known vulns (primary country)."
         parts.append(msg)
+    if wayback_result and wayback_result.get("snapshots"):
+        n = len([s for s in wayback_result.get("snapshots") or [] if "error" not in s])
+        if n:
+            parts.append(f"Wayback: {n} URL(s) checked for archives.")
     if not parts:
         return "TECHINT: No tech, export control, IODA, OONI, Cloudflare, or Shodan data."
     return "TECHINT: " + " ".join(parts)
@@ -578,6 +646,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         ooni_result = await _fetch_ooni_measurements(conflict)
         cloudflare_outages = await _fetch_cloudflare_outages(cf_token, conflict) if cf_token else []
         shodan_activity = await _fetch_shodan_activity(shodan_key, conflict) if shodan_key else {}
+        wayback_result = await _fetch_wayback_snapshots(conflict)
         techint_score = _compute_techint_score(
             tech_indicators, export_controls, ioda_events,
             ooni_result, cloudflare_outages, shodan_activity,
@@ -585,7 +654,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         summary = _build_summary(
             tech_indicators, export_controls, ioda_events, ioda_result,
             ooni_result, cloudflare_outages, shodan_activity,
-            techint_score,
+            techint_score, wayback_result,
         )
         return {
             "tech_indicators": tech_indicators,
@@ -598,6 +667,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "ooni": ooni_result,
             "cloudflare_outages": cloudflare_outages,
             "shodan": shodan_activity,
+            "wayback": wayback_result,
             "techint_score": round(techint_score, 1),
             "summary": summary,
         }
@@ -616,6 +686,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "ooni": {},
             "cloudflare_outages": [],
             "shodan": {},
+            "wayback": {},
             "techint_score": 30.0,
             "summary": f"TECHINT error: {e}",
         }

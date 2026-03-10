@@ -1,11 +1,14 @@
 """
 FININT Agent – LangChain Tool-Calling Agent
-Fetches Brent/WTI oil prices, Polymarket conflict odds, and tracked wallet positions.
+Fetches Brent/WTI oil prices, Polymarket conflict odds, OFAC sanctions highlights, and tracked wallet positions.
 - Gamma API: https://gamma-api.polymarket.com (events, markets)
 - Data API:  https://data-api.polymarket.com (positions, activity)
+- OFAC SDN: Treasury bulk CSV (same source as DIPLO; FININT focus: sanctions/market relevance).
 Optional: set POLYMARKET_BUILDER_API_KEY in .env (your personal builder API key) for authenticated requests.
 """
 import asyncio
+import csv
+import io
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -50,6 +53,32 @@ POLYMARKET_KEYWORDS = [
     "visit china", "trade with", "cut off trade", "tariff", "sanctions",
     "middle east", "persian gulf", "strait of hormuz", "spain", "military base",
 ]
+
+# Metaculus API – Prognosemärkte (zweiter Markt neben Polymarket)
+METACULUS_API_BASE = "https://www.metaculus.com/api2/questions/"
+METACULUS_CONFLICT_TERMS = ["iran", "us-iran", "war", "military", "strike", "nuclear", "israel", "gaza", "ukraine", "russia", "taiwan", "china"]
+
+# Optional: Etherscan für On-Chain-Wallets (Whale/Sanktionen). Liste: (label, Ethereum-Adresse).
+TRACKED_ETH_ADDRESSES: List[tuple[str, str]] = []
+
+# Etherscan Free Tier: 3 calls/s, 100k calls/day – Delay zwischen Requests einhalten.
+ETHERSCAN_RATE_LIMIT_DELAY_SEC = 0.35
+MAX_ETHERSCAN_ADDRESSES_PER_RUN = 20
+
+# Gold: optional METALS_API_KEY (metals-api.com) oder leer lassen
+METALS_API_BASE = "https://metals-api.com/api"
+
+# OFAC SDN (Treasury bulk CSV – free, no key). Keywords for conflict-relevant sanctions (market/sanctions context).
+OFAC_SDN_CSV_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
+OFAC_CONFLICT_KEYWORDS: Dict[str, List[str]] = {
+    "iran": ["iran", "irgc", "iranian", "tehran", "qods", "khamenei"],
+    "us-iran": ["iran", "irgc", "iranian", "tehran"],
+    "russia": ["russia", "russian", "ukraine", "donbas", "crimea", "putin"],
+    "ukraine": ["ukraine", "russia", "donbas", "crimea"],
+    "syria": ["syria", "syrian", "assad"],
+    "north korea": ["dprk", "north korea", "kim jong"],
+    "default": ["iran", "russia", "syria"],
+}
 
 
 def _safe_float(value: Any) -> float | None:
@@ -273,6 +302,187 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+def get_metaculus_conflict_questions(conflict: str) -> List[Dict[str, Any]]:
+    """Fetch open Metaculus prediction questions relevant to conflict (search + filter)."""
+    async def _fetch():
+        out = []
+        search_term = (conflict or "").strip() or "geopolitics"
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    METACULUS_API_BASE,
+                    params={
+                        "search": search_term,
+                        "status": "open",
+                        "limit": 20,
+                        "order_by": "-activity",
+                    },
+                )
+                if resp.status_code != 200:
+                    return [{"error": f"Metaculus API {resp.status_code}"}]
+                data = resp.json()
+        except Exception as e:
+            return [{"error": str(e)}]
+        results = data.get("results") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not isinstance(results, list):
+            return []
+        cl = (conflict or "").lower()
+        keywords = [t for t in METACULUS_CONFLICT_TERMS if t in cl] or ["war", "military", "iran", "ukraine"]
+        for q in results[:15]:
+            if not isinstance(q, dict):
+                continue
+            title = (q.get("title") or "").strip()
+            if not title:
+                continue
+            title_lower = title.lower()
+            if not any(kw in title_lower for kw in keywords):
+                continue
+            prob = q.get("community_prediction") or q.get("prob") or q.get("mean")
+            if prob is not None:
+                prob = _safe_float(prob)
+            out.append({
+                "title": title[:200],
+                "probability": round(prob, 3) if prob is not None else None,
+                "url": f"https://www.metaculus.com/questions/{q.get('id', '')}",
+                "resolve_time": q.get("resolve_time"),
+            })
+        return out[:10]
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def get_gold_price() -> Dict[str, Any]:
+    """Fetch current gold (XAU) price in USD. Uses metals-api.com if METALS_API_KEY is set."""
+    api_key = (os.getenv("METALS_API_KEY") or os.getenv("METALPRICEAPI_KEY") or "").strip()
+    if not api_key:
+        return {"error": "METALS_API_KEY not set (optional; get key at metals-api.com)"}
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get(
+                f"{METALS_API_BASE}/latest",
+                params={"access_key": api_key, "base": "XAU", "currencies": "USD"},
+            )
+            if resp.status_code != 200:
+                return {"error": f"Metals API {resp.status_code}"}
+            return resp.json()
+
+    try:
+        data = asyncio.run(_fetch())
+        if isinstance(data, dict) and "error" in data:
+            return data
+        rates = (data.get("rates") or {}) if isinstance(data, dict) else {}
+        usd = _safe_float(rates.get("USD"))
+        if usd is None:
+            return {"error": "No USD rate in response"}
+        return {
+            "price": f"{usd:.2f}",
+            "change_pct": "0.0%",
+            "as_of": (data.get("date") or ""),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_tracked_chain_wallets() -> List[Dict[str, Any]]:
+    """
+    Fetch Ethereum balances for tracked addresses via Etherscan (Free Tier).
+    Respects 3 calls/s (delay between requests) and 100k calls/day. Attribution required – see docs/API-KEYS.md.
+    """
+    api_key = (os.getenv("ETHEREUM_ETHERSCAN_API_KEY") or os.getenv("ETHERSCAN_API_KEY") or "").strip()
+    addresses = (TRACKED_ETH_ADDRESSES or [])[:MAX_ETHERSCAN_ADDRESSES_PER_RUN]
+    if not addresses:
+        return []
+    if not api_key:
+        return [{"error": "ETHEREUM_ETHERSCAN_API_KEY not set"}]
+
+    async def _fetch():
+        out: List[Dict[str, Any]] = []
+        delay = ETHERSCAN_RATE_LIMIT_DELAY_SEC
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for i, (label, address) in enumerate(addresses):
+                if i > 0:
+                    await asyncio.sleep(delay)
+                try:
+                    resp = await client.get(
+                        "https://api.etherscan.io/api",
+                        params={
+                            "module": "account",
+                            "action": "balance",
+                            "address": address,
+                            "tag": "latest",
+                            "apikey": api_key,
+                        },
+                    )
+                    if resp.status_code != 200:
+                        out.append({"wallet": label, "address": address[:10] + "...", "error": resp.status_code})
+                        continue
+                    data = resp.json()
+                    if data.get("status") != "1" and data.get("message") != "OK":
+                        out.append({"wallet": label, "address": address[:10] + "...", "error": data.get("message", "API error")})
+                        continue
+                    wei = int(data.get("result", 0))
+                    eth = wei / 1e18
+                    out.append({
+                        "wallet": label,
+                        "address": address[:10] + "...",
+                        "balance_eth": round(eth, 4),
+                        "balance_wei": str(wei),
+                    })
+                except Exception as e:
+                    out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
+        if out:
+            out.append({"_attribution": "Etherscan (etherscan.io)"})
+        return out
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:
+    """
+    Fetch OFAC SDN list and return conflict-relevant sanctions highlights (for markets/finance context).
+    Same Treasury CSV as DIPLO; FININT uses this for sanctions exposure and market risk.
+    """
+    cl = (conflict or "").lower().strip()
+    keywords = OFAC_CONFLICT_KEYWORDS.get("default", [])
+    for k, v in OFAC_CONFLICT_KEYWORDS.items():
+        if k != "default" and k in cl:
+            keywords = v
+            break
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(OFAC_SDN_CSV_URL)
+            resp.raise_for_status()
+            return resp.text
+
+    try:
+        text = asyncio.run(_fetch())
+        reader = csv.DictReader(io.StringIO(text))
+        matches: List[Dict[str, Any]] = []
+        for row in reader:
+            if not row:
+                continue
+            name = (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip()).lower()
+            program = (row.get("programs") or row.get("program", "") or "").lower()
+            combined = name + " " + program
+            if any(k in combined for k in keywords):
+                matches.append({
+                    "name": (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip() or "",
+                    "type": row.get("type"),
+                    "program": row.get("programs") or row.get("program"),
+                })
+        return {"total_matches": len(matches), "sample": matches[:15], "error": None}
+    except Exception as e:
+        return {"total_matches": 0, "sample": [], "error": str(e)}
+
+
 def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
     """Fetch current Polymarket positions for tracked wallets (e.g. rundeep) via Data API."""
     if not TRACKED_WALLETS:
@@ -323,20 +533,45 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
-    """Execute FININT tool chain: all four tools in parallel. No LLM."""
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        fut_brent = executor.submit(get_brent_price)
-        fut_wti = executor.submit(get_wti_price)
-        fut_polymarket = executor.submit(get_polymarket_conflict_odds, conflict)
-        fut_wallets = executor.submit(get_tracked_wallet_positions)
-        brent = fut_brent.result(timeout=25)
-        wti = fut_wti.result(timeout=25)
-        polymarket = fut_polymarket.result(timeout=30)
-        tracked_wallets = fut_wallets.result(timeout=25)
+    """Execute FININT tool chain: all tools in parallel. No LLM."""
+    tools_to_run = [
+        ("brent", get_brent_price, []),
+        ("wti", get_wti_price, []),
+        ("gold", get_gold_price, []),
+        ("polymarket", get_polymarket_conflict_odds, [conflict]),
+        ("metaculus", get_metaculus_conflict_questions, [conflict]),
+        ("ofac_sanctions", get_ofac_sanctions_highlights, [conflict]),
+        ("tracked_wallets", get_tracked_wallet_positions, []),
+        ("tracked_chain_wallets", get_tracked_chain_wallets, []),
+    ]
+    results = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {}
+        for key, fn, args in tools_to_run:
+            futures[key] = executor.submit(fn, *args) if args else executor.submit(fn)
+        for key in futures:
+            try:
+                results[key] = futures[key].result(timeout=30)
+            except Exception as e:
+                results[key] = {"error": str(e)} if key in ("brent", "wti", "gold") else [{"error": str(e)}]
+
+    brent = results.get("brent") or {}
+    wti = results.get("wti") or {}
+    gold = results.get("gold") or {}
+    polymarket = results.get("polymarket")
+    metaculus = results.get("metaculus")
+    ofac_sanctions = results.get("ofac_sanctions") or {}
+    tracked_wallets = results.get("tracked_wallets")
+    tracked_chain_wallets = results.get("tracked_chain_wallets")
+
     if not isinstance(polymarket, list):
         polymarket = []
     if not isinstance(tracked_wallets, list):
         tracked_wallets = []
+    if not isinstance(metaculus, list):
+        metaculus = []
+    if not isinstance(tracked_chain_wallets, list):
+        tracked_chain_wallets = []
 
     base = 50.0
     if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
@@ -358,38 +593,60 @@ def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
             base += 20
         elif max_prob and max_prob > 0.3:
             base += 10
+    if metaculus:
+        meta_probs = [_safe_float(p.get("probability")) for p in metaculus if isinstance(p, dict) and "error" not in p and p.get("probability") is not None]
+        if meta_probs:
+            max_meta = max(meta_probs)
+            if max_meta and max_meta > 0.5:
+                base += 8
+            elif max_meta and max_meta > 0.3:
+                base += 4
+    ofac_total = (int(ofac_sanctions.get("total_matches") or 0) if isinstance(ofac_sanctions, dict) and "error" not in ofac_sanctions else 0)
+    if ofac_total > 200:
+        base += 6
+    elif ofac_total > 50:
+        base += 3
     score = max(0.0, min(100.0, base))
 
     return {
         "brent": brent if isinstance(brent, dict) and "error" not in brent else {"price": None, "change_pct": "0.0%", "as_of": ""},
         "wti": wti if isinstance(wti, dict) and "error" not in wti else {"price": None, "change_pct": "0.0%", "as_of": ""},
+        "gold": gold if isinstance(gold, dict) and "error" not in gold else {"price": None, "change_pct": "0.0%", "as_of": ""},
         "polymarket": [p for p in polymarket if isinstance(p, dict) and "error" not in p],
+        "metaculus": [m for m in metaculus if isinstance(m, dict) and "error" not in m],
+        "ofac_sanctions": ofac_sanctions if isinstance(ofac_sanctions, dict) and "error" not in ofac_sanctions else {"total_matches": 0, "sample": [], "error": (ofac_sanctions.get("error") if isinstance(ofac_sanctions, dict) else (ofac_sanctions[0].get("error") if isinstance(ofac_sanctions, list) and ofac_sanctions else None))},
         "tracked_wallets": [w for w in tracked_wallets if isinstance(w, dict)],
+        "tracked_chain_wallets": [w for w in tracked_chain_wallets if isinstance(w, dict) and "balance_eth" in w],
         "escalation_score": round(score, 1),
-        "summary": "FININT (rule-based): oil and Polymarket data from fixed tool chain.",
+        "summary": "FININT (rule-based): oil, gold, Polymarket, Metaculus, OFAC sanctions highlights, and wallet data from fixed tool chain.",
     }
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 FININT_SYSTEM = """You are a FININT (Financial Intelligence) analyst.
-Your job: fetch oil prices, Polymarket conflict odds, and tracked wallet positions, then compute an escalation score (0-100).
+Your job: fetch oil prices, gold, Polymarket and Metaculus conflict odds, and tracked wallet positions (Polymarket + Ethereum), then compute an escalation score (0-100).
 
 Scoring rules:
 - Base: 50
 - Brent > +5%: +15, Brent +2-5%: +8, Brent negative: -10
 - Polymarket conflict odds > 50%: +20, 30-50%: +10
-- Tracked wallets with large conflict-related positions: consider in summary
+- Metaculus high conflict probability: +8 (>.5) or +4 (>.3)
+- Tracked wallets (Polymarket + chain) with large conflict-related positions: consider in summary
 - Clamp to [0, 100]
 
-Always call all four tools, then return ONLY valid JSON:
+Always call all tools, then return ONLY valid JSON:
 {
   "brent": {"price": "...", "change_pct": "...", "as_of": "..."},
   "wti": {"price": "...", "change_pct": "...", "as_of": "..."},
+  "gold": {"price": "...", "change_pct": "...", "as_of": "..."},
   "polymarket": [...],
+  "metaculus": [...],
+  "ofac_sanctions": {"total_matches": N, "sample": [{"name", "type", "program"}]},
   "tracked_wallets": [{"wallet": "...", "position_count": N, "positions": [...]}],
+  "tracked_chain_wallets": [{"wallet": "...", "balance_eth": N}],
   "escalation_score": <number>,
-  "summary": "<1-2 sentence summary; mention if tracked wallets have conflict exposure>"
+  "summary": "<1-2 sentence summary; mention sanctions/market exposure if relevant>"
 }
 No markdown, no explanation, just JSON."""
 
@@ -403,14 +660,22 @@ def run_finint_agent(conflict: str) -> Dict[str, Any]:
     TOOL_FNS = {
         "get_brent_price": get_brent_price,
         "get_wti_price": get_wti_price,
+        "get_gold_price": get_gold_price,
         "get_polymarket_conflict_odds": get_polymarket_conflict_odds,
+        "get_metaculus_conflict_questions": get_metaculus_conflict_questions,
+        "get_ofac_sanctions_highlights": get_ofac_sanctions_highlights,
         "get_tracked_wallet_positions": get_tracked_wallet_positions,
+        "get_tracked_chain_wallets": get_tracked_chain_wallets,
     }
     TOOL_SCHEMAS = [
         {"name": "get_brent_price", "description": "Fetch current Brent crude oil price from Alpha Vantage.", "input_schema": {"type": "object", "properties": {}}},
         {"name": "get_wti_price", "description": "Fetch current WTI crude oil price from Alpha Vantage.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_gold_price", "description": "Fetch current gold (XAU) price in USD (optional METALS_API_KEY).", "input_schema": {"type": "object", "properties": {}}},
         {"name": "get_polymarket_conflict_odds", "description": "Fetch Polymarket conflict prediction odds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "get_metaculus_conflict_questions", "description": "Fetch Metaculus prediction questions relevant to conflict.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {"name": "get_ofac_sanctions_highlights", "description": "Fetch OFAC SDN sanctions highlights for conflict (market/sanctions context).", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
         {"name": "get_tracked_wallet_positions", "description": "Fetch tracked wallet positions from Polymarket.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_tracked_chain_wallets", "description": "Fetch Ethereum balances for tracked addresses (Etherscan).", "input_schema": {"type": "object", "properties": {}}},
     ]
     text = run_tool_agent(
         system=FININT_SYSTEM,

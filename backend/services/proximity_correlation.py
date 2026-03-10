@@ -2,12 +2,14 @@
 Proximity correlation: Overpass (schools/hospitals) + optional tunnel/sites GeoJSON.
 Shared by api routes and PROXIMITY agent. Used for IRGC tunnel vs. civilian infrastructure (human shield).
 """
+import logging
 import math
 from urllib.parse import quote
 from typing import Any, Dict, List, Optional
 
-from services.http_client import get_http_client
+import httpx
 
+logger = logging.getLogger(__name__)
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 RADIUS_M = 300
 CRITICAL_M = 50
@@ -41,12 +43,27 @@ out body center;
 async def fetch_overpass_context(lat: float, lon: float) -> List[Dict[str, Any]]:
     """Return list of {id, name, lat, lon, amenity?, office?} for civilian facilities in radius."""
     query = _overpass_query(lat, lon, RADIUS_M)
-    client = get_http_client()
-    data = await client.post_json(
-        OVERPASS_URL,
-        content=f"data={quote(query)}",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            resp = await client.post(
+                OVERPASS_URL,
+                content=f"data={quote(query)}",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            logger.info(
+                "Overpass API rate limit (429); skipping facility context. "
+                "Consider a self-hosted Overpass instance for higher throughput."
+            )
+        else:
+            logger.warning("Overpass API error %s: %s", e.response.status_code, e)
+        return []
+    except Exception as e:
+        logger.warning("Overpass request failed: %s", e)
+        return []
     elements = data.get("elements") or []
     facilities = []
     seen = set()

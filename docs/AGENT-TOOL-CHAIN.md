@@ -51,25 +51,17 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ### FININT
 
-- **Tools (Definition):** `FININT_TOOLS = [get_brent_price, get_wti_price, get_polymarket_conflict_odds, get_tracked_wallet_positions]`
-- **Fallback-Reihenfolge (fest):**
-  1. `get_brent_price.invoke({})`
-  2. `get_wti_price.invoke({})`
-  3. `get_polymarket_conflict_odds.invoke({"conflict": conflict})`
-  4. `get_tracked_wallet_positions.invoke({})`
-- Danach: Score und Ergebnis aus den Rohdaten berechnen (regelbasiert).
+- **Tools (Definition):** get_brent_price, get_wti_price, get_gold_price, get_polymarket_conflict_odds, get_metaculus_conflict_questions, get_ofac_sanctions_highlights, get_tracked_wallet_positions, get_tracked_chain_wallets
+- **Fallback-Reihenfolge (fest):** Alle genannten Tools parallel (ThreadPoolExecutor).
+- Danach: Score und Ergebnis (inkl. ofac_sanctions für Märkte/Sanktionen).
 
 ---
 
 ### SIGINT
 
-- **Tools:** `SIGINT_TOOLS = [get_military_aircraft, get_naval_vessels, get_spire_vessels, get_conflict_reports]`
-- **Fallback-Reihenfolge (fest):**
-  1. `get_military_aircraft.invoke({})`  // region default "Middle East"
-  2. `get_naval_vessels.invoke({})`
-  3. `get_spire_vessels.invoke({})`  // Subagent: Spire Maritime AIS (optional SPIRE_MARITIME_API_KEY)
-  4. `get_conflict_reports.invoke({"conflict": conflict})`
-- Danach: Score aus aircraft/ships (inkl. Spire)/reports, Alerts bauen.
+- **Tools:** get_military_aircraft, get_naval_vessels, get_spire_vessels, get_conflict_reports; zusätzlich NOTAMs via `iaea_tracker.fetch_notams`.
+- **Fallback-Reihenfolge (fest):** aircraft → vessels → spire_vessels → conflict_reports → NOTAMs (fetch_notams, days=3, limit=15).
+- Danach: Score aus aircraft/ships/reports, Alerts; `notams` im Ergebnis (optional NOTAM_API_KEY für Autorouter).
 
 ---
 
@@ -121,6 +113,7 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
   4. `_fetch_ooni_measurements(conflict)`
   5. `_fetch_cloudflare_outages(cf_token, conflict)` (wenn CLOUDFLARE_RADAR_API_TOKEN)
   6. `_fetch_shodan_activity(shodan_key, conflict)` (wenn SHODAN_API_KEY)
+  7. `_fetch_wayback_snapshots(conflict)` – Archive.org CDX: Snapshot-Count und letzte Erfassung pro URL (kein Key nötig)
 - Danach: `_compute_techint_score`, `_build_summary`. Kein Claude-Aufruf in TECHINT.
 
 ---
@@ -176,12 +169,12 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 | Agent  | Anzahl/Quellen | Feste Reihenfolge (Fallback) |
 |--------|----------------|-------------------------------|
-| FININT | 4             | get_brent_price → get_wti_price → get_polymarket_conflict_odds → get_tracked_wallet_positions |
+| FININT | 8             | get_brent_price → get_wti_price → get_gold_price → get_polymarket_conflict_odds → get_metaculus_conflict_questions → get_ofac_sanctions_highlights → get_tracked_wallet_positions → get_tracked_chain_wallets (parallel) |
 | SIGINT | 4       | get_military_aircraft → get_naval_vessels → get_spire_vessels → get_conflict_reports |
 | NEWS   | 3       | search_conflict_news → search_gdelt_news → search_rss_feeds |
 | GEOINT | 5       | get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news → get_ucdp_events → get_eo_browser_links |
 | SOCMINT| 5       | scrape_telegram_channels → scrape_twitter_nitter → search_reddit → fetch_rss_feeds → fetch_reliefweb_reports |
-| TECHINT| 6 (intern) | _fetch_tech_indicators → _fetch_export_control_news → _fetch_ioda_events → _fetch_ooni_measurements → _fetch_cloudflare_outages → _fetch_shodan_activity |
+| TECHINT| 7 (intern) | _fetch_tech_indicators → _fetch_export_control_news → _fetch_ioda_events → _fetch_ooni_measurements → _fetch_cloudflare_outages → _fetch_shodan_activity → _fetch_wayback_snapshots |
 | CYBER  | 4 (intern) | _fetch_cisa_kev → _fetch_threat_rss → _fetch_otx_pulses → _fetch_greynoise_scan_context |
 | ENERGY | 2 (intern) | _fetch_agsi_storage → _fetch_commodity_prices |
 | PROTEST| 2 (intern) | _fetch_acled_protests → _fetch_gdelt_protest |
