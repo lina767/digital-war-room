@@ -101,127 +101,49 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
 _MAX_PAYLOAD_CHARS = 250_000
 
 
-def _summarize_for_llm(name: str, result: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a compact summary of *result* tailored to *name* for the LLM.
+def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract only what the supervisor LLM needs: score, summary, and compact top items."""
+    score_keys = [k for k in result if k.endswith("_score") or k == "escalation_score"]
+    out: Dict[str, Any] = {k: result[k] for k in score_keys if k in result}
+    if "summary" in result:
+        s = result["summary"]
+        out["summary"] = s[:600] if isinstance(s, str) else str(s)[:600]
+    for key in ("articles", "top_signals", "conflict_reports", "threat_reports",
+                "protest_articles", "un_icj_news", "evidence", "hotspots",
+                "tech_indicators", "export_controls", "ioda_events",
+                "protest_events", "commodities", "otx_pulses"):
+        items = result.get(key)
+        if isinstance(items, list) and items:
+            compact = []
+            for item in items[:3]:
+                if isinstance(item, dict):
+                    compact.append({k: (str(v)[:120] if isinstance(v, str) and len(v) > 120 else v) for k, v in list(item.items())[:6]})
+                elif isinstance(item, str):
+                    compact.append(item[:150])
+                else:
+                    compact.append(item)
+            out[key] = compact
+    for key in ("aircraft", "ships"):
+        items = result.get(key)
+        if isinstance(items, list):
+            out[f"{key}_count"] = len([i for i in items if isinstance(i, dict) and "error" not in i])
+    for key in ("brent", "polymarket", "cisa_kev", "ofac_sdn", "eu_sanctions",
+                "agsi_storage", "greynoise_scan_context"):
+        val = result.get(key)
+        if val is not None:
+            s = json.dumps(val, default=str)
+            if len(s) < 500:
+                out[key] = val
+    return out
 
-    Only the fields the supervisor needs for synthesis are kept; bulky raw
-    data (ioda_signals_raw, full article bodies, all protest events …) is
-    stripped so the prompt stays well under the 200 k-token limit.
-    Full data still reaches the frontend via the final return dict.
-    """
-    r = result
-    _s = lambda v, n=150: (str(v)[:n] + "…") if isinstance(v, str) and len(v) > n else v
 
-    if name == "finint":
-        brent = r.get("brent") or {}
-        return {
-            "escalation_score": r.get("escalation_score"),
-            "summary": r.get("summary"),
-            "brent": {"price": brent.get("price"), "change": brent.get("change")} if brent else None,
-            "polymarket": [{"question": p.get("question"), "probability": p.get("probability")}
-                           for p in (r.get("polymarket") or [])[:3]],
-            "metaculus": [{"title": m.get("title"), "probability": m.get("probability")}
-                          for m in (r.get("metaculus") or [])[:3]],
-        }
-
-    if name == "sigint":
-        return {
-            "sigint_score": r.get("sigint_score"),
-            "summary": r.get("summary"),
-            "aircraft_count": len(r.get("aircraft") or []),
-            "ships_count": len(r.get("ships") or []),
-            "conflict_reports": [{"title": c.get("title"), "source": c.get("source")}
-                                  for c in (r.get("conflict_reports") or [])[:3]],
-        }
-
-    if name == "news":
-        return {
-            "news_score": r.get("news_score"),
-            "summary": r.get("summary"),
-            "overall_sentiment": r.get("overall_sentiment"),
-            "articles": [{"title": a.get("title"), "source": a.get("source"),
-                          "sentiment_label": a.get("sentiment_label")}
-                         for a in (r.get("articles") or [])[:5]],
-        }
-
-    if name == "geoint":
-        return {
-            "geoint_score": r.get("geoint_score"),
-            "summary": r.get("summary"),
-            "hotspots": (r.get("hotspots") or [])[:5],
-            "anomaly_count": len(r.get("anomalies") or []),
-        }
-
-    if name == "socmint":
-        return {
-            "socmint_score": r.get("socmint_score"),
-            "summary": r.get("summary"),
-            "top_signals": [_s(s) for s in (r.get("top_signals") or [])[:5]],
-        }
-
-    if name == "techint":
-        return {
-            "techint_score": r.get("techint_score"),
-            "summary": r.get("summary"),
-            "tech_indicators": (r.get("tech_indicators") or [])[:3],
-            "export_controls": [{"title": e.get("title")}
-                                 for e in (r.get("export_controls") or [])[:2]],
-            "ioda_events_count": len(r.get("ioda_events") or []),
-            "ioda_outages_count": len(r.get("ioda_outages") or []),
-            "ioda_alerts_count": len(r.get("ioda_alerts") or []),
-        }
-
-    if name == "cyber":
-        gn = r.get("greynoise_scan_context") or {}
-        return {
-            "cyber_score": r.get("cyber_score"),
-            "summary": r.get("summary"),
-            "cisa_kev_total": (r.get("cisa_kev") or {}).get("total"),
-            "threat_reports": [{"title": t.get("title")}
-                                for t in (r.get("threat_reports") or [])[:3]],
-            "greynoise_scan_context": {"available": gn.get("available"),
-                                       "count": gn.get("count")},
-        }
-
-    if name == "energy":
-        return {
-            "energy_score": r.get("energy_score"),
-            "summary": r.get("summary"),
-            "commodities": [{"symbol": c.get("symbol"), "price": c.get("price"),
-                             "change_pct": c.get("change_pct")}
-                            for c in (r.get("commodities") or [])[:3]],
-            "global_impact_note": r.get("global_impact_note"),
-        }
-
-    if name == "protest":
-        return {
-            "protest_score": r.get("protest_score"),
-            "summary": r.get("summary"),
-            "protest_events_count": len(r.get("protest_events") or []),
-            "protest_articles": [{"title": a.get("title")}
-                                  for a in (r.get("protest_articles") or [])[:3]],
-        }
-
-    if name == "diplo":
-        return {
-            "diplo_score": r.get("diplo_score"),
-            "summary": r.get("summary"),
-            "ofac_sdn_total_matches": (r.get("ofac_sdn") or {}).get("total_matches"),
-            "un_icj_news": [{"title": n.get("title"), "source": n.get("source")}
-                            for n in (r.get("un_icj_news") or [])[:3]],
-        }
-
-    if name == "proximity":
-        return {
-            "proximity_score": r.get("proximity_score"),
-            "summary": r.get("summary"),
-            "evidence": [{"facilityName": e.get("facilityName"),
-                          "riskLabel": e.get("riskLabel"),
-                          "distanceMeters": e.get("distanceMeters")}
-                         for e in (r.get("evidence") or [])[:3]],
-        }
-
-    return {"summary": r.get("summary")}
+def _rule_based_fallback(combined_score: float) -> Dict[str, Any]:
+    if combined_score >= 80: tl = "CRITICAL"
+    elif combined_score >= 60: tl = "HIGH"
+    elif combined_score >= 40: tl = "ELEVATED"
+    elif combined_score >= 20: tl = "LOW"
+    else: tl = "MINIMAL"
+    return {"escalation_score": combined_score, "threat_level": tl, "key_findings": [], "scenarios": [], "summary": f"Composite {combined_score:.0f}/100. Agent findings below."}
 
 
 def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
@@ -268,23 +190,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
 
     if use_rule_based:
-        if combined_score >= 80:
-            threat_level = "CRITICAL"
-        elif combined_score >= 60:
-            threat_level = "HIGH"
-        elif combined_score >= 40:
-            threat_level = "ELEVATED"
-        elif combined_score >= 20:
-            threat_level = "LOW"
-        else:
-            threat_level = "MINIMAL"
-        parsed = {
-            "escalation_score": combined_score,
-            "threat_level": threat_level,
-            "key_findings": [],
-            "scenarios": [],
-            "summary": f"Composite {combined_score:.0f}/100 (FININT {finint_score:.0f}, SIGINT {sigint_score:.0f}, NEWS {news_score:.0f}, GEOINT {geoint_score:.0f}, SOCMINT {socmint_score:.0f}, TECHINT {techint_score:.0f}, CYBER {cyber_score:.0f}, ENERGY {energy_score:.0f}, PROTEST {protest_score:.0f}, DIPLO {diplo_score:.0f}, PROXIMITY {proximity_score:.0f}). Key findings below from agents.",
-        }
+        parsed = _rule_based_fallback(combined_score)
     else:
         require_api_key()
         use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
@@ -302,22 +208,22 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
                 "cyber": cyber_score, "energy": energy_score, "protest": protest_score,
                 "diplo": diplo_score, "proximity": proximity_score,
             },
-            "finint": _summarize_for_llm("finint", finint_result),
-            "sigint": _summarize_for_llm("sigint", sigint_result),
-            "news": _summarize_for_llm("news", news_result),
-            "geoint": _summarize_for_llm("geoint", geoint_result),
-            "socmint": _summarize_for_llm("socmint", socmint_result),
-            "techint": _summarize_for_llm("techint", techint_result),
-            "cyber": _summarize_for_llm("cyber", cyber_result),
-            "energy": _summarize_for_llm("energy", energy_result),
-            "protest": _summarize_for_llm("protest", protest_result),
-            "diplo": _summarize_for_llm("diplo", diplo_result),
-            "proximity": _summarize_for_llm("proximity", proximity_result),
+            "finint": _compact_for_llm("finint", finint_result),
+            "sigint": _compact_for_llm("sigint", sigint_result),
+            "news": _compact_for_llm("news", news_result),
+            "geoint": _compact_for_llm("geoint", geoint_result),
+            "socmint": _compact_for_llm("socmint", socmint_result),
+            "techint": _compact_for_llm("techint", techint_result),
+            "cyber": _compact_for_llm("cyber", cyber_result),
+            "energy": _compact_for_llm("energy", energy_result),
+            "protest": _compact_for_llm("protest", protest_result),
+            "diplo": _compact_for_llm("diplo", diplo_result),
+            "proximity": _compact_for_llm("proximity", proximity_result),
         }
 
         user_json = json.dumps(user_payload, default=str)
         if len(user_json) > _MAX_PAYLOAD_CHARS:
-            print(f"[supervisor] payload too large ({len(user_json):,} chars), truncating")
+            print(f"[supervisor] payload {len(user_json):,} chars > limit, truncating")
             user_json = user_json[:_MAX_PAYLOAD_CHARS]
 
         try:
@@ -329,16 +235,11 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
                     temperature=0.1,
                 )
         except Exception as llm_err:
-            print(f"[supervisor] LLM failed: {llm_err} - using rule-based fallback")
+            print(f"[supervisor] LLM failed: {llm_err} - rule-based fallback")
             raw = None
 
         if raw is None:
-            if combined_score >= 80: _tl = "CRITICAL"
-            elif combined_score >= 60: _tl = "HIGH"
-            elif combined_score >= 40: _tl = "ELEVATED"
-            elif combined_score >= 20: _tl = "LOW"
-            else: _tl = "MINIMAL"
-            parsed = {"escalation_score": combined_score, "threat_level": _tl, "key_findings": [], "scenarios": [], "summary": f"Composite {combined_score:.0f}/100. Agent data below."}
+            parsed = _rule_based_fallback(combined_score)
         else:
             raw = raw.strip()
             if "```" in raw:
@@ -348,7 +249,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 parsed = json.loads(raw)
             except json.JSONDecodeError:
-                parsed = {"escalation_score": combined_score, "threat_level": "ELEVATED", "key_findings": [], "scenarios": [], "summary": f"Composite score {combined_score:.0f}/100."}
+                parsed = _rule_based_fallback(combined_score)
 
     threat_level = str(parsed.get("threat_level", "MINIMAL"))
     key_findings = list(parsed.get("key_findings") or [])
