@@ -98,6 +98,25 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
 }"""
 
 
+_MAX_PAYLOAD_CHARS = 250_000
+
+
+def _trim_value(v: Any, max_list: int = 5, max_str: int = 300) -> Any:
+    """Recursively trim a value for the supervisor prompt."""
+    if isinstance(v, list):
+        return [_trim_value(item, max_list, max_str) for item in v[:max_list]]
+    if isinstance(v, dict):
+        return {k: _trim_value(val, max_list, max_str) for k, val in v.items()}
+    if isinstance(v, str) and len(v) > max_str:
+        return v[:max_str] + "…"
+    return v
+
+
+def _trim_agent(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Trim large agent payloads so the supervisor prompt stays under the token limit."""
+    return _trim_value(result)
+
+
 def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     """Synthesize all agent results into a single assessment."""
     acled_refs       = agent_results.get("acled_refs") or []
@@ -169,42 +188,55 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         user_payload = {
             "conflict": conflict,
             "composite_score": combined_score,
-            "acled_reference_analyses": [{"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:2000]} for r in acled_refs if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))],
+            "acled_reference_analyses": [{"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:1000]} for r in acled_refs[:3] if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))],
             "agent_scores": {
                 "finint": finint_score, "sigint": sigint_score, "news": news_score,
                 "geoint": geoint_score, "socmint": socmint_score, "techint": techint_score,
                 "cyber": cyber_score, "energy": energy_score, "protest": protest_score,
                 "diplo": diplo_score, "proximity": proximity_score,
             },
-            "finint": finint_result, "sigint": sigint_result, "news": news_result,
-            "geoint": geoint_result, "socmint": socmint_result, "techint": techint_result,
-            "cyber": cyber_result, "energy": energy_result, "protest": protest_result,
-            "diplo": diplo_result, "proximity": proximity_result,
+            "finint": _trim_agent(finint_result), "sigint": _trim_agent(sigint_result),
+            "news": _trim_agent(news_result), "geoint": _trim_agent(geoint_result),
+            "socmint": _trim_agent(socmint_result), "techint": _trim_agent(techint_result),
+            "cyber": _trim_agent(cyber_result), "energy": _trim_agent(energy_result),
+            "protest": _trim_agent(protest_result), "diplo": _trim_agent(diplo_result),
+            "proximity": _trim_agent(proximity_result),
         }
 
-        with traced("analysis.supervisor.llm", {"model": model, "conflict": conflict}):
-            raw = call_llm(
-                system=_SUPERVISOR_SYSTEM_PROMPT,
-                user_content=json.dumps(user_payload, default=str),
-                model=model,
-                temperature=0.1,
-            )
+        user_json = json.dumps(user_payload, default=str)
+        if len(user_json) > _MAX_PAYLOAD_CHARS:
+            print(f"[supervisor] payload too large ({len(user_json):,} chars), truncating")
+            user_json = user_json[:_MAX_PAYLOAD_CHARS]
 
-        raw = raw.strip()
-        if "```" in raw:
-            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
-            if m:
-                raw = m.group(1).strip()
         try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            parsed = {
-                "escalation_score": combined_score,
-                "threat_level": "ELEVATED",
-                "key_findings": ["Synthese-Ausgabe konnte nicht gelesen werden; Agent-Daten unten."],
-                "scenarios": [],
-                "summary": f"Composite score {combined_score:.0f}/100 aus 10 Agenten. Einzelne Streams (News, SIGINT, CYBER, ENERGY, PROTEST, DIPLO, etc.) unten.",
-            }
+            with traced("analysis.supervisor.llm", {"model": model, "conflict": conflict}):
+                raw = call_llm(
+                    system=_SUPERVISOR_SYSTEM_PROMPT,
+                    user_content=user_json,
+                    model=model,
+                    temperature=0.1,
+                )
+        except Exception as llm_err:
+            print(f"[supervisor] LLM failed: {llm_err} - using rule-based fallback")
+            raw = None
+
+        if raw is None:
+            if combined_score >= 80: _tl = "CRITICAL"
+            elif combined_score >= 60: _tl = "HIGH"
+            elif combined_score >= 40: _tl = "ELEVATED"
+            elif combined_score >= 20: _tl = "LOW"
+            else: _tl = "MINIMAL"
+            parsed = {"escalation_score": combined_score, "threat_level": _tl, "key_findings": [], "scenarios": [], "summary": f"Composite {combined_score:.0f}/100. Agent data below."}
+        else:
+            raw = raw.strip()
+            if "```" in raw:
+                m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+                if m:
+                    raw = m.group(1).strip()
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = {"escalation_score": combined_score, "threat_level": "ELEVATED", "key_findings": [], "scenarios": [], "summary": f"Composite score {combined_score:.0f}/100."}
 
     threat_level = str(parsed.get("threat_level", "MINIMAL"))
     key_findings = list(parsed.get("key_findings") or [])
