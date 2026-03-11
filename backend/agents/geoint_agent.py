@@ -501,6 +501,122 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
     return events
 
 
+# ── Theater Map: unified events for map visualization (Iran / conflict region) ─────
+# event_type for frontend: airstrike | missile | drone | explosion | naval | fire | other
+
+def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: str | None = None) -> str:
+    """Map source-specific event type to theater event_type for map icons."""
+    if not raw_type:
+        return "other"
+    t = (raw_type or "").lower()
+    if source == "FIRMS":
+        if "explosion" in t or t == "explosion":
+            return "airstrike"
+        if "fire" in t:
+            return "fire"
+        return "explosion"
+    if source == "ACLED":
+        if "air" in t and ("strike" in t or "attack" in t):
+            return "airstrike"
+        if "explosion" in t or "remote violence" in t or "shelling" in t:
+            return "explosion"
+        if "missile" in t or "rocket" in t:
+            return "missile"
+        if "drone" in t:
+            return "drone"
+        if "naval" in t or "sea" in t:
+            return "naval"
+        if "battle" in t or "armed" in t:
+            return "explosion"
+        return "other"
+    if source == "UCDP":
+        return "airstrike"  # UCDP events with coords are conflict events
+    return "other"
+
+
+def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
+    """
+    Unified events for Theater Map: FIRMS thermal anomalies + ACLED + UCDP (with lat/lon).
+    Returns list of { lat, lon, event_type, source, confidence?, label? }.
+    event_type: airstrike | missile | drone | explosion | naval | fire | other.
+    Skips FIRMS industrial/gas-flaring points. Use for Iran (or other conflict) map layer.
+    """
+    region = get_conflict_region(conflict)
+    out: List[Dict[str, Any]] = []
+
+    # 1) FIRMS thermal anomalies (excluding gas flaring)
+    try:
+        raw_firms = get_thermal_anomalies(region=region, days=3)
+        for a in raw_firms if isinstance(raw_firms, list) else []:
+            if not isinstance(a, dict) or a.get("error") or a.get("gas_flaring"):
+                continue
+            lat = _safe_float(a.get("lat"), 0)
+            lon = _safe_float(a.get("lon"), 0)
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+            out.append({
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "event_type": _normalize_theater_event_type("FIRMS", a.get("type")),
+                "source": "FIRMS",
+                "confidence": a.get("confidence", "nominal"),
+                "label": f"FRP {int(_safe_float(a.get('frp'), 0))} MW",
+            })
+    except Exception:
+        pass
+
+    # 2) ACLED events
+    try:
+        acled = get_conflict_events_for_heatmap(conflict, limit=max(100, min(500, limit)))
+        for e in acled:
+            if not isinstance(e, dict):
+                continue
+            lat = _safe_float(e.get("lat"), 0)
+            lon = _safe_float(e.get("lon"), 0)
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+            event_type = _normalize_theater_event_type("ACLED", e.get("event_type"))
+            out.append({
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "event_type": event_type,
+                "source": "ACLED",
+                "confidence": "high" if (e.get("fatalities") or 0) > 0 else "nominal",
+                "label": (e.get("event_type") or "Event")[:60],
+            })
+    except Exception:
+        pass
+
+    # 3) UCDP events with coordinates
+    try:
+        ucdp = get_ucdp_events(conflict)
+        for e in ucdp if isinstance(ucdp, list) else []:
+            if not isinstance(e, dict):
+                continue
+            lat_val, lon_val = e.get("latitude"), e.get("longitude")
+            if lat_val is None or lon_val is None:
+                continue
+            try:
+                lat = float(lat_val)
+                lon = float(lon_val)
+            except (TypeError, ValueError):
+                continue
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+            out.append({
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "event_type": _normalize_theater_event_type("UCDP", e.get("type_of_violence")),
+                "source": "UCDP",
+                "confidence": "high",
+                "label": (e.get("side_a") or "") + " vs " + (e.get("side_b") or ""),
+            })
+    except Exception:
+        pass
+
+    return out[: limit]
+
+
 # ── EO Browser / Sentinel Hub (links; optional Process API when credentials set) ─
 
 # EO Browser: center (lat, lon), zoom. No API key required – returns URLs for manual inspection.

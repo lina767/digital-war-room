@@ -9,7 +9,7 @@ from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
 from agents.supervisor import analyze_conflict
-from agents.geoint_agent import get_thermal_anomalies, get_conflict_events_for_heatmap
+from agents.geoint_agent import get_thermal_anomalies, get_conflict_events_for_heatmap, get_theater_events
 from agents.iaea_tracker import run_iaea_tracker, fetch_notams
 from api.proximity_correlation import run_correlation_for_events
 from services.http_client import get_http_client
@@ -257,6 +257,25 @@ async def get_conflict_events(conflict: str = "Iran", limit: int = 200):
         events = await loop.run_in_executor(
             None,
             lambda: get_conflict_events_for_heatmap(conflict, limit=max(50, min(500, limit))),
+        )
+        return {"events": events, "conflict": conflict}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/theater-events")
+async def get_theater_events_route(conflict: str = "Iran", limit: int = 400):
+    """
+    GET /api/theater-events?conflict=Iran&limit=400
+    Returns unified theater map events: FIRMS thermal anomalies + ACLED + UCDP (with lat/lon).
+    Each event has lat, lon, event_type (airstrike | missile | drone | explosion | naval | fire | other), source, confidence, label.
+    Use for Theater Map layer (e.g. Iran) with type-specific icons.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        events = await loop.run_in_executor(
+            None,
+            lambda: get_theater_events(conflict, limit=max(100, min(600, limit))),
         )
         return {"events": events, "conflict": conflict}
     except Exception as e:

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, memo } from "react";
 import { Plus, Minus, RotateCcw } from "lucide-react";
 import { ComposableMap, Geographies, Geography, Line, Marker, ZoomableGroup } from "react-simple-maps";
-import { getConflictEvents, type ConflictEventForHeatmap } from "@/lib/api";
+import { getConflictEvents, getTheaterEvents, type ConflictEventForHeatmap, type TheaterEvent } from "@/lib/api";
 import { conflicts, severityColor } from "./conflictData";
 import { ConnectionLines } from "./ConnectionLines";
 import { conflictLinks } from "./conflictData";
@@ -41,6 +41,7 @@ interface ConflictMapProps {
 
 // ── Conflict region centers for auto-zoom ─────────────────────────────────
 const CONFLICT_CENTERS: Record<string, { center: [number, number]; zoom: number }> = {
+  iran: { center: [53, 32], zoom: 4 },
   "us-iran": { center: [53, 28], zoom: 3.5 },
   ukraine: { center: [32, 48], zoom: 4 },
   "israel-palestine": { center: [35, 31], zoom: 5 },
@@ -54,6 +55,20 @@ const CONFLICT_CENTERS: Record<string, { center: [number, number]; zoom: number 
   syria: { center: [38, 35], zoom: 5 },
   drc: { center: [24, -3], zoom: 3.5 },
   ethiopia: { center: [40, 9], zoom: 4 },
+};
+
+// Theater map: event_type → display label and color for marker
+const THEATER_EVENT_STYLE: Record<
+  string,
+  { label: string; fill: string; stroke: string }
+> = {
+  airstrike: { label: "Airstrike", fill: "#dc2626", stroke: "#b91c1c" },
+  missile: { label: "Missile", fill: "#ea580c", stroke: "#c2410c" },
+  drone: { label: "Drone", fill: "#ca8a04", stroke: "#a16207" },
+  explosion: { label: "Explosion", fill: "#dc2626", stroke: "#991b1b" },
+  naval: { label: "Naval", fill: "#2563eb", stroke: "#1d4ed8" },
+  fire: { label: "Fire", fill: "#ea580c", stroke: "#c2410c" },
+  other: { label: "Other", fill: "#6b7280", stroke: "#4b5563" },
 };
 
 // Fuzzy match: "Iran" → "iran"
@@ -115,6 +130,9 @@ export function ConflictMap({
   const [showSamRings, setShowSamRings] = useState(false);
   const [showAirRoutes, setShowAirRoutes] = useState(false);
   const [showSeaLanes, setShowSeaLanes] = useState(false);
+  const [showTheater, setShowTheater] = useState(false);
+  const [theaterEvents, setTheaterEvents] = useState<TheaterEvent[]>([]);
+  const [theaterLoading, setTheaterLoading] = useState(false);
 
   // Fetch conflict events for heatmap when layer is enabled
   useEffect(() => {
@@ -131,6 +149,22 @@ export function ConflictMap({
       .catch(() => setHeatmapEvents([]))
       .finally(() => setHeatmapLoading(false));
   }, [showHeatmap, activeConflict]);
+
+  // Fetch theater map events when Theater layer is enabled (e.g. Iran)
+  useEffect(() => {
+    if (!showTheater || !activeConflict) {
+      setTheaterEvents([]);
+      return;
+    }
+    setTheaterLoading(true);
+    getTheaterEvents(activeConflict, 400)
+      .then((data) => {
+        if (data?.events) setTheaterEvents(data.events);
+        else setTheaterEvents([]);
+      })
+      .catch(() => setTheaterEvents([]))
+      .finally(() => setTheaterLoading(false));
+  }, [showTheater, activeConflict]);
 
   // Pulse animation
   useEffect(() => {
@@ -263,6 +297,92 @@ export function ConflictMap({
                       stroke="rgba(220,38,38,0.4)"
                       strokeWidth={0.2 * s}
                     />
+                  </g>
+                </Marker>
+              );
+            })}
+
+          {/* Theater Map layer: unified events (FIRMS + ACLED + UCDP) with type-specific icons */}
+          {showTheater &&
+            !theaterLoading &&
+            theaterEvents.map((evt, i) => {
+              const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
+              const r = 3 * s;
+              const pulseScale = 1 + 0.2 * Math.sin((animPhase + i * 5) * 0.15);
+              const isHovered = hoveredId === `theater-${i}`;
+              return (
+                <Marker key={`theater-${i}`} coordinates={[evt.lon, evt.lat]}>
+                  <g
+                    className="cursor-pointer"
+                    onMouseEnter={() => setHoveredId(`theater-${i}`)}
+                    onMouseLeave={() => setHoveredId(null)}
+                  >
+                    <circle
+                      r={r * 2 * pulseScale}
+                      fill="none"
+                      stroke={style.stroke}
+                      strokeWidth={0.3 * s}
+                      opacity={0.35}
+                    />
+                    {/* Icon by type: airstrike=burst, missile=rocket, drone=diamond, explosion=circle, naval=anchor, fire=flame, other=dot */}
+                    {evt.event_type === "airstrike" && (
+                      <polygon
+                        points={`0,${-r * 1.2} ${r * 0.7},${r * 0.4} ${r * 0.5},${r} ${0},${r * 0.6} ${-r * 0.5},${r} ${-r * 1.2},${r * 0.4}`}
+                        fill={style.fill}
+                        stroke={style.stroke}
+                        strokeWidth={0.25 * s}
+                      />
+                    )}
+                    {evt.event_type === "missile" && (
+                      <polygon
+                        points={`0,${-r * 1.4} ${-r * 0.45},${r * 1} ${r * 0.45},${r * 1}`}
+                        fill={style.fill}
+                        stroke={style.stroke}
+                        strokeWidth={0.25 * s}
+                      />
+                    )}
+                    {evt.event_type === "drone" && (
+                      <polygon
+                        points={`0,${-r} ${r},${0} ${0},${r} ${-r},${0}`}
+                        fill={style.fill}
+                        stroke={style.stroke}
+                        strokeWidth={0.25 * s}
+                      />
+                    )}
+                    {(evt.event_type === "explosion" || evt.event_type === "fire" || evt.event_type === "other") && (
+                      <circle r={r * 0.7} fill={style.fill} stroke={style.stroke} strokeWidth={0.25 * s} />
+                    )}
+                    {evt.event_type === "naval" && (
+                      <g fill={style.fill} stroke={style.stroke} strokeWidth={0.3 * s}>
+                        <circle r={r * 0.5} fill="none" />
+                        <line x1={0} y1={-r * 0.5} x2={0} y2={r * 0.8} />
+                        <path d={`M ${-r * 0.6} ${r * 0.5} L ${r * 0.6} ${r * 0.5}`} fill="none" />
+                      </g>
+                    )}
+                    {isHovered && evt.label && (
+                      <g>
+                        <rect
+                          x={6 * s}
+                          y={-12 * s}
+                          width={Math.min(evt.label.length * 5 + 12, 120) * s}
+                          height={18 * s}
+                          rx={2 * s}
+                          fill="hsl(var(--card))"
+                          stroke={style.stroke}
+                          strokeWidth={0.5 * s}
+                          opacity={0.95}
+                        />
+                        <text
+                          x={10 * s}
+                          y={-1 * s}
+                          fill="hsl(var(--foreground))"
+                          fontSize={8 * s}
+                          fontFamily="JetBrains Mono, monospace"
+                        >
+                          {evt.label.length > 22 ? evt.label.slice(0, 22) + "…" : evt.label}
+                        </text>
+                      </g>
+                    )}
                   </g>
                 </Marker>
               );
@@ -550,6 +670,22 @@ export function ConflictMap({
           {heatmapLoading && showHeatmap && <span className="animate-pulse">…</span>}
         </button>
 
+        {/* Theater Map toggle: unified events (FIRMS + ACLED + UCDP) with type-specific icons (e.g. Iran). */}
+        <button
+          onClick={() => setShowTheater((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="Theater map: Airstrike, Missile, Drone, Explosion, Naval, Fire (FIRMS + ACLED + UCDP)"
+        >
+          <span
+            className={`w-2.5 h-2.5 rounded-sm border ${showTheater ? "bg-destructive/60 border-destructive" : "bg-muted/40 border-border"}`}
+          />
+          THEATER
+          {theaterLoading && showTheater && <span className="animate-pulse">…</span>}
+          {showTheater && !theaterLoading && theaterEvents.length > 0 && (
+            <span className="text-muted-foreground">({theaterEvents.length})</span>
+          )}
+        </button>
+
         {/* SAM rings – vordefinierte Stellungen (OSINT) */}
         <button
           onClick={() => setShowSamRings((v) => !v)}
@@ -602,6 +738,20 @@ export function ConflictMap({
           >
             RESET
           </button>
+        )}
+        {showTheater && !theaterLoading && theaterEvents.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {(Object.entries(THEATER_EVENT_STYLE) as [string, { label: string; fill: string }][]).map(([key, { label, fill }]) => {
+              const count = theaterEvents.filter((e) => e.event_type === key).length;
+              if (count === 0) return null;
+              return (
+                <div key={key} className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: fill }} title={label} />
+                  <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 

@@ -173,3 +173,36 @@ export async function getConflictEvents(
     return null;
   }
 }
+
+/** Theater map event (unified FIRMS + ACLED + UCDP) for type-specific icons. */
+export interface TheaterEvent {
+  lat: number;
+  lon: number;
+  event_type: "airstrike" | "missile" | "drone" | "explosion" | "naval" | "fire" | "other";
+  source?: string;
+  confidence?: string;
+  label?: string;
+}
+
+/** GET /api/theater-events – unified events for Theater Map layer (Iran etc.). */
+export async function getTheaterEvents(
+  conflict: string,
+  limit = 400
+): Promise<{ events: TheaterEvent[]; conflict: string } | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(
+      `${getApiBase()}/api/theater-events?conflict=${encodeURIComponent(conflict)}&limit=${limit}`,
+      { method: "GET", signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const raw = (await res.json()) as { events?: TheaterEvent[]; conflict?: string };
+    const events = Array.isArray(raw?.events) ? raw.events : [];
+    return { events, conflict: raw?.conflict ?? conflict };
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
