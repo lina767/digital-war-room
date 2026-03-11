@@ -3,7 +3,9 @@ NEWS Agent – LangChain Tool-Calling Agent
 Fetches and analyzes conflict-related news articles from NewsAPI, GDELT, and RSS.
 """
 import asyncio
+import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
@@ -13,8 +15,11 @@ import feedparser
 import httpx
 from .llm import run_tool_agent
 
+logger = logging.getLogger(__name__)
+
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+FOREIGN_POLICY_IRAN_PROJECT_URL = "https://foreignpolicy.com/projects/iran-israel-conflict-news-nuclear-sites-proxies/"
 NEWS_DOMAINS = (
     "reuters.com,apnews.com,bbc.com,aljazeera.com,theguardian.com,"
     "nytimes.com,washingtonpost.com,ft.com,bloomberg.com,politico.com,"
@@ -29,7 +34,7 @@ RSS_FEEDS = {
         "https://www.aljazeera.com/xml/rss/all.xml",
         "https://rss.dw.com/rdf/rss-en-world",
         "https://iranintl.com/en/rss",
-        "https://www.rferl.org/api/zpqoyhrhkhrut",  # RFE/RL Iran
+        "https://www.rferl.org/api/zpqoyhrhkhrut",  # RFE/RL Iran (EN)
         "https://www.middleeasteye.net/rss",
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
@@ -39,6 +44,10 @@ RSS_FEEDS = {
         "https://ecfr.eu/feed/",  # European Council on Foreign Relations
         "https://www.csis.org/rss.xml",  # CSIS (Middle East / Iran analysis)
         "https://www.fdd.org/feed/",  # FDD – Iran reports (if available)
+        # Farsi/Persian-language Iran-focused feeds
+        "https://iranintl.com/fa/rss",  # Iran International (FA)
+        "https://www.radiofarda.com/api/zkqopekqqop_ztql",  # RFE/RL Radio Farda (FA)
+        "https://www.bbc.com/persian/index.xml",  # BBC Persian
     ],
     "ukraine": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
@@ -64,6 +73,27 @@ TITLE_EXCLUDE = ["marathon", "eurovision", "cricket", "bollywood", "sports", "we
 ESCALATION_KW = ["attack", "strike", "missile", "war", "explosion", "killed", "military", "nuclear", "threat", "sanctions"]
 DE_ESCALATION_KW = ["ceasefire", "talks", "diplomatic", "deal", "agreement", "withdraw", "peace", "negotiate"]
 
+# Farsi/Persian escalation keywords for sentiment analysis
+ESCALATION_KW_FA = [
+    "حمله",
+    "موشک",
+    "جنگ",
+    "انفجار",
+    "کشته",
+    "نظامی",
+    "هسته‌ای",
+    "تهدید",
+    "تحریم",
+]
+DE_ESCALATION_KW_FA = [
+    "آتش‌بس",
+    "توافق",
+    "مذاکره",
+    "صلح",
+    "گفتگو",
+    "عقب‌نشینی",
+]
+
 
 def _build_query(conflict: str) -> str:
     cl = conflict.lower()
@@ -84,6 +114,9 @@ def _sentiment(text: str) -> float:
     lower = text.lower()
     score = sum(1 for kw in ESCALATION_KW if kw in lower)
     score -= sum(1 for kw in DE_ESCALATION_KW if kw in lower)
+    # Farsi sentiment: work on original text (no lowercasing needed for non-Latin)
+    score += sum(1 for kw in ESCALATION_KW_FA if kw in text)
+    score -= sum(1 for kw in DE_ESCALATION_KW_FA if kw in text)
     if score == 0:
         return 0.0
     return max(-3, min(3, score)) / 3.0
@@ -196,6 +229,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                 "published_at": art.get("publishedAt"),
                 "sentiment_score": score,
                 "sentiment_label": _label(score),
+                "language": "en",
                 "source_type": "newsapi",
             })
         if not articles and hours_back == 48:
@@ -215,6 +249,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                     "published_at": art.get("publishedAt"),
                     "sentiment_score": score,
                     "sentiment_label": _label(score),
+                    "language": "en",
                     "source_type": "newsapi",
                 })
         return articles
@@ -237,9 +272,8 @@ def _gdelt_article_list(data: Any) -> List[Dict[str, Any]]:
 
 def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
     """Search GDELT for conflict news - covers 100+ languages, 65k+ sources worldwide."""
-    query = _build_query(conflict).replace('"', ' ').replace("(", "").replace(")", "").strip()
-    if not query:
-        query = conflict
+    # Preserve boolean structure from _build_query for GDELT's query syntax
+    query = _build_query(conflict).strip() or conflict
 
     async def _fetch():
         # GDELT accepts timespan as "48H" or "2d"; format=json for JSON response
@@ -268,9 +302,7 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
             url = art.get("url") or art.get("url_mobile") or art.get("socialimage")
             title = (art.get("title") or art.get("snippet") or "").strip()
             lang = (art.get("language") or art.get("sourcecountry") or "").lower()
-            # Include if English or language unknown; skip only when clearly non-English
-            if lang and "en" not in lang and lang != "eng":
-                continue
+            # Do not over-filter by language; keep non-English (incl. Farsi) as long as query matched
             if not url:  # need url for dedupe and linking
                 continue
             score = _sentiment(title)
@@ -281,6 +313,7 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
                 "published_at": art.get("seendate"),
                 "sentiment_score": score,
                 "sentiment_label": _label(score),
+                "language": lang or "",
                 "source_type": "gdelt",
             })
         return articles[:25]
@@ -300,15 +333,39 @@ def _rss_feeds_for_conflict(conflict: str) -> List[str]:
 def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     """Fetch conflict-specific RSS feeds from think tanks and regional outlets."""
     feeds = _rss_feeds_for_conflict(conflict)
-    keywords = []
+    keywords_en: List[str] = []
+    keywords_fa: List[str] = []
     cl = conflict.lower()
     if "iran" in cl:
-        keywords = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian", "houthi", "hezbollah", "idf", "yemen", "lebanon"]
+        keywords_en = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian", "houthi", "hezbollah", "idf", "yemen", "lebanon"]
+        # Basic Farsi conflict keywords for Iran context
+        keywords_fa = [
+            "ایران",
+            "تهران",
+            "سپاه پاسداران",
+            "سپاه",
+            "خلیج فارس",
+            "خامنه‌ای",
+            "حزب‌الله",
+            "یمن",
+            "لبنان",
+            "هسته‌ای",
+        ]
     elif "ukraine" in cl or "russia" in cl:
-        keywords = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
+        keywords_en = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
     else:
-        keywords = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
+        keywords_en = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
     results = []
+
+    def _matches_keywords(title: str, summary: str) -> bool:
+        lower = f"{title} {summary}".lower()
+        if any(kw in lower for kw in keywords_en):
+            return True
+        full = f"{title} {summary}"
+        if any(kw in full for kw in keywords_fa):
+            return True
+        return False
+
     for feed_url in feeds:
         try:
             parsed = feedparser.parse(
@@ -321,8 +378,7 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                 summary = (entry.get("summary") or entry.get("description") or "").strip()
                 if not link:
                     continue
-                text = f"{title} {summary}".lower()
-                if not any(kw in text for kw in keywords):
+                if not _matches_keywords(title, summary):
                     continue
                 score = _sentiment(f"{title} {summary}")
                 source = (parsed.feed.get("title") or feed_url) if getattr(parsed, "feed", None) else feed_url
@@ -333,6 +389,7 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                     "published_at": entry.get("published") or entry.get("updated"),
                     "sentiment_score": score,
                     "sentiment_label": _label(score),
+                    "language": "",  # language not reliably available from RSS; leave empty
                     "source_type": "rss",
                 })
         except Exception:
@@ -372,11 +429,130 @@ def _run_gdelt_source_agent(conflict: str) -> Dict[str, Any]:
 
 def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
     """Source agent: curated RSS/think-tank/OSINT feeds."""
-    raw = search_rss_feeds(conflict=conflict)
-    articles = [
-        a for a in (raw if isinstance(raw, list) else [])
-        if isinstance(a, dict) and "error" not in a
-    ]
+    feeds = _rss_feeds_for_conflict(conflict)
+
+    def _parse_single_feed(feed_url: str) -> List[Dict[str, Any]]:
+        try:
+            parsed = feedparser.parse(
+                feed_url,
+                request_headers={"User-Agent": "Mozilla/5.0 (compatible; NewsAgent/1.0)"},
+            )
+            cl = conflict.lower()
+            keywords_en: List[str]
+            keywords_fa: List[str]
+            if "iran" in cl:
+                keywords_en = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian", "houthi", "hezbollah", "idf", "yemen", "lebanon"]
+                keywords_fa = [
+                    "ایران",
+                    "تهران",
+                    "سپاه پاسداران",
+                    "سپاه",
+                    "خلیج فارس",
+                    "خامنه‌ای",
+                    "حزب‌الله",
+                    "یمن",
+                    "لبنان",
+                    "هسته‌ای",
+                ]
+            elif "ukraine" in cl or "russia" in cl:
+                keywords_en = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
+                keywords_fa = []
+            else:
+                keywords_en = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
+                keywords_fa = []
+
+            def _matches(title: str, summary: str) -> bool:
+                lower = f"{title} {summary}".lower()
+                if any(kw in lower for kw in keywords_en):
+                    return True
+                full = f"{title} {summary}"
+                if any(kw in full for kw in keywords_fa):
+                    return True
+                return False
+
+            out: List[Dict[str, Any]] = []
+            for entry in getattr(parsed, "entries", [])[:15]:
+                title = (entry.get("title") or "").strip()
+                link = entry.get("link") or ""
+                summary = (entry.get("summary") or entry.get("description") or "").strip()
+                if not link:
+                    continue
+                if not _matches(title, summary):
+                    continue
+                score = _sentiment(f"{title} {summary}")
+                source = (parsed.feed.get("title") or feed_url) if getattr(parsed, "feed", None) else feed_url
+                out.append({
+                    "title": title[:500],
+                    "source": source,
+                    "url": link,
+                    "published_at": entry.get("published") or entry.get("updated"),
+                    "sentiment_score": score,
+                    "sentiment_label": _label(score),
+                    "language": "",
+                    "source_type": "rss",
+                })
+            return out
+        except Exception as e:
+            logger.debug("NEWS: RSS feed %s failed: %s", feed_url, e)
+            return []
+
+    articles: List[Dict[str, Any]] = []
+    # Run RSS fetches in parallel so feedparser parsing does not block sequentially
+    with ThreadPoolExecutor(max_workers=min(8, len(feeds) or 1)) as executor:
+        futures = [executor.submit(_parse_single_feed, url) for url in feeds]
+        for fut in futures:
+            try:
+                batch = fut.result(timeout=20)
+                if batch:
+                    articles.extend(batch)
+            except Exception as e:
+                logger.debug("NEWS: RSS worker failed: %s", e)
+
+    # Foreign Policy's curated Iran/Israel conflict project – treat as an additional curated source
+    if "iran" in conflict.lower():
+        try:
+            with httpx.Client(timeout=12.0) as client:
+                resp = client.get(
+                    FOREIGN_POLICY_IRAN_PROJECT_URL,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; NewsAgent/1.0)"},
+                )
+                resp.raise_for_status()
+                html = resp.text
+
+            # Simple extraction of article links and titles
+            pattern = re.compile(
+                r'<a[^>]+href="(?P<href>https?://foreignpolicy\\.com[^"]+)"[^>]*>(?P<title>[^<]+)</a>',
+                re.IGNORECASE,
+            )
+            seen_urls = {a.get("url") for a in articles if a.get("url")}
+            for match in pattern.finditer(html):
+                url = match.group("href")
+                title = (match.group("title") or "").strip()
+                if not url or not title:
+                    continue
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                score = _sentiment(title)
+                articles.append(
+                    {
+                        "title": title[:500],
+                        "source": "Foreign Policy – Iran/Israel project",
+                        "url": url,
+                        "published_at": "",
+                        "sentiment_score": score,
+                        "sentiment_label": _label(score),
+                        "language": "en",
+                        "source_type": "rss",
+                    }
+                )
+        except Exception as e:
+            logger.debug(
+                "NEWS: Foreign Policy Iran project fetch failed for conflict '%s': %s",
+                conflict,
+                e,
+            )
+
     return {
         "source": "rss",
         "articles": articles,
@@ -465,27 +641,41 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
 
         escalation_meta = _run_escalation_headline_agent(articles)
 
+        news_score = fusion.get("news_score", 50.0)
+        esc_score = escalation_meta.get("escalation_score", 0.0)
+        # Wire escalation_score slightly into news_score without breaking range/semantics
+        adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
+
         return {
             "conflict": conflict,
             "articles": fusion.get("articles", []),
             "overall_sentiment": fusion.get("overall_sentiment", 0.0),
             "sentiment_label": fusion.get("sentiment_label", "NEUTRAL"),
             "top_sources": fusion.get("top_sources", []),
-            "news_score": fusion.get("news_score", 50.0),
+            "news_score": adjusted_news_score,
             "summary": (
                 "News (rule-based multi-agent): "
                 f"{fusion.get('source_breakdown', {}).get('newsapi', 0)} NewsAPI, "
                 f"{fusion.get('source_breakdown', {}).get('gdelt', 0)} GDELT, "
                 f"{fusion.get('source_breakdown', {}).get('rss', 0)} RSS. "
                 f"Sentiment: {fusion.get('sentiment_label', 'NEUTRAL')}. "
-                f"Escalation score: {escalation_meta.get('escalation_score', 0.0):.2f}."
+                f"Escalation score: {esc_score:.2f}."
             ),
             "source_breakdown": fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0}),
             "escalation_headlines": escalation_meta.get("escalation_headlines", []),
             "escalation_score": escalation_meta.get("escalation_score", 0.0),
         }
-    except Exception:
-        pass
+        if (
+            not newsapi_res.get("articles")
+            and not gdelt_res.get("articles")
+            and not rss_res.get("articles")
+        ):
+            logger.warning(
+                "NEWS: All three sources (NewsAPI, GDELT, RSS) returned 0 articles for conflict '%s'",
+                conflict,
+            )
+    except Exception as e:
+        logger.exception("NEWS: rule-based news pipeline failed for conflict '%s': %s", conflict, e)
     return {
         "conflict": conflict,
         "articles": [],
