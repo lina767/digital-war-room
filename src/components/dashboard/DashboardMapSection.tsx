@@ -1,6 +1,5 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import type { GeointAnomaly, SigintAircraft, SigintShip } from "./mapConfig";
-import { WorldMap } from "@/components/dashboard/WorldMap";
 import { TheaterMap } from "@/components/dashboard/TheaterMap";
 import { Radio, Rss } from "lucide-react";
 
@@ -30,20 +29,14 @@ export function DashboardMapSection({
   return (
     <main className="flex-[0_1_50%] min-h-0 min-w-0 relative overflow-hidden flex flex-col">
       <div className="absolute inset-0 grid-overlay opacity-30 pointer-events-none" />
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Small world map – fixed width */}
-        <div className="w-[200px] sm:w-[240px] flex-shrink-0 relative border-r border-border/50">
-          <WorldMap activeConflict={activeConflict} />
-        </div>
-        {/* Theater map – takes remaining space, focused on conflict region */}
-        <div className="flex-1 min-w-[280px] relative">
-          <TheaterMap
-            activeConflict={activeConflict}
-            geointAnomalies={geointAnomalies as GeointAnomaly[]}
-            sigintAircraft={sigintAircraft as SigintAircraft[]}
-            sigintShips={sigintShips as SigintShip[]}
-          />
-        </div>
+      {/* Theater map only – full width for clearer overview */}
+      <div className="flex-1 min-w-[280px] relative">
+        <TheaterMap
+          activeConflict={activeConflict}
+          geointAnomalies={geointAnomalies as GeointAnomaly[]}
+          sigintAircraft={sigintAircraft as SigintAircraft[]}
+          sigintShips={sigintShips as SigintShip[]}
+        />
       </div>
 
       {/* Mobile floating panel toggles – 44px tap targets */}

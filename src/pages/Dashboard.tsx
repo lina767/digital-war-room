@@ -230,6 +230,7 @@ const Dashboard = () => {
           conflictData={conflictData}
           lastUpdated={lastUpdated}
           displayConflictLabel={displayConflictLabel}
+          activeConflict={selectedConflict}
           analysisLoading={initialLoadPending}
           proximityEvidence={proximityEvidence}
         />

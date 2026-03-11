@@ -8,8 +8,9 @@ import { InternetConnectivity } from "@/components/dashboard/InternetConnectivit
 import { FlightRadar } from "@/components/dashboard/FlightRadar";
 import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
 import { NarrativeSignalPanel } from "@/components/dashboard/NarrativeSignalPanel";
+import { WorldMap } from "@/components/dashboard/WorldMap";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
-import { Target, X } from "lucide-react";
+import { Target, X, Globe } from "lucide-react";
 
 interface DashboardRightPanelProps {
   rightPanelOpen: boolean;
@@ -17,6 +18,8 @@ interface DashboardRightPanelProps {
   conflictData: any;
   lastUpdated: Date | null;
   displayConflictLabel: string;
+  /** Current conflict for world map highlight */
+  activeConflict?: string | null;
   /** True while initial load of cached analysis is in progress */
   analysisLoading?: boolean;
   /** Proximity evidence from main analysis (runs automatically with other agents) */
@@ -29,6 +32,7 @@ export function DashboardRightPanel({
   conflictData,
   lastUpdated,
   displayConflictLabel,
+  activeConflict = null,
   analysisLoading,
   proximityEvidence,
 }: DashboardRightPanelProps) {
@@ -52,6 +56,17 @@ export function DashboardRightPanel({
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+
+      {/* World map overview – integrated in right panel */}
+      <div className="mb-4 rounded-lg border border-border overflow-hidden bg-card/30">
+        <div className="px-2 py-1.5 border-b border-border flex items-center gap-1.5">
+          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-mono text-[10px] text-muted-foreground tracking-wider">WORLD OVERVIEW</span>
+        </div>
+        <div className="h-40 sm:h-44 relative">
+          <WorldMap activeConflict={activeConflict} />
+        </div>
       </div>
 
       <div className="space-y-4">
