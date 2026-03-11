@@ -15,11 +15,18 @@ Intelligence reports:
   - CriticalThreats, LongWarJournal, UnderstandingWar RSS feeds
 """
 import asyncio
+import logging
 import os
-from typing import Any, Dict, List
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import httpx
+from pydantic import BaseModel, Field
+
 from .llm import run_tool_agent
+
+logger = logging.getLogger(__name__)
 
 # ── ADS-B endpoints ───────────────────────────────────────────────────────
 ADSB_ENDPOINTS = [
@@ -66,6 +73,22 @@ SPIRE_REGIONS = [
     ("Eastern Med", 30, 37, 25, 38),
     ("Gulf of Aden", 10, 16, 42, 52),
 ]  # (label, lat_lo, lat_hi, lon_lo, lon_hi)
+
+# Optional target aircraft profile (IAEA jet OE-III)
+TARGET_AIRCRAFT: Dict[str, Dict[str, Any]] = {
+    "OE-III": {
+        # ICAO hex can be configured via env to avoid hard-coding
+        "hex": (os.getenv("OEIII_HEX") or "").lower() or None,
+        "regs": ["OE-III", "OEIII"],
+        "notes": "IAEA / diplomatic jet",
+    },
+}
+
+# Optional external APIs for target tracking (can be left unset in .env)
+ADSBX_BASE_URL = os.getenv("ADSBX_BASE_URL", "").rstrip("/") or None
+ADSBX_API_KEY = (os.getenv("ADSBX_API_KEY") or "").strip() or None
+OPENSKY_USERNAME = (os.getenv("OPENSKY_USERNAME") or "").strip() or None
+OPENSKY_PASSWORD = (os.getenv("OPENSKY_PASSWORD") or "").strip() or None
 
 
 def _safe_float(v: Any) -> float | None:
@@ -182,6 +205,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
     try:
         return asyncio.run(_run())
     except Exception as e:
+        logger.exception("SIGINT: get_military_aircraft failed: %s", e)
         return [{"error": str(e)}]
 
 
@@ -276,6 +300,7 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
     try:
         return asyncio.run(_run())
     except Exception as e:
+        logger.exception("SIGINT: get_naval_vessels failed: %s", e)
         return [{"error": str(e)}]
 
 
@@ -329,13 +354,14 @@ def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
                                 "source": "spire",
                             })
                             break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("SIGINT: Spire vessels fetch failed: %s", e)
         return out[:80]
 
     try:
         return asyncio.run(_fetch())
-    except Exception:
+    except Exception as e:
+        logger.exception("SIGINT: get_spire_vessels failed: %s", e)
         return []
 
 
@@ -392,7 +418,180 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     try:
         return asyncio.run(_fetch())
     except Exception as e:
+        logger.exception("SIGINT: get_conflict_reports failed: %s", e)
         return [{"error": str(e)}]
+
+
+# ── Structured result models ────────────────────────────────────────────────
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class ScoreConfidence(BaseModel):
+    level: str = "low"
+    sources_ok: List[str] = Field(default_factory=list)
+    sources_missing: List[str] = Field(default_factory=list)
+
+
+class SigintResult(BaseModel):
+    conflict: str
+    aircraft: List[Dict[str, Any]] = Field(default_factory=list)
+    ships: List[Dict[str, Any]] = Field(default_factory=list)
+    conflict_reports: List[Dict[str, Any]] = Field(default_factory=list)
+    notams: List[Dict[str, Any]] = Field(default_factory=list)
+    sigint_score: float = 0.0
+    alerts: List[str] = Field(default_factory=list)
+    summary: str = ""
+    score_confidence: ScoreConfidence = Field(default_factory=ScoreConfidence)
+    fetched_at: str = Field(default_factory=_utc_iso)
+    target_tracks: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ── Target aircraft tracking (OE-III, etc.) ─────────────────────────────────
+
+def _match_target_aircraft(ac: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
+    """Return True if ADS-B aircraft dict matches configured target (by hex, registration or callsign)."""
+    if not isinstance(ac, dict):
+        return False
+    hex_cfg = (cfg.get("hex") or "").lower()
+    regs = [r.upper() for r in (cfg.get("regs") or [])]
+
+    icao24 = str(ac.get("hex") or ac.get("icao24") or "").lower()
+    callsign = str(ac.get("flight") or ac.get("callsign") or "").upper().strip()
+    reg = str(ac.get("r") or ac.get("registration") or "").upper().strip()
+
+    if hex_cfg and icao24 and icao24 == hex_cfg:
+        return True
+    if reg and reg in regs:
+        return True
+    if callsign and any(cs in callsign for cs in regs):
+        return True
+    return False
+
+
+def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
+    """
+    Track a specific high-value aircraft (e.g. IAEA jet OE-III) across multiple SIGINT layers.
+
+    Combines:
+    - ADSB-Exchange (unfiltered) when ADSBX_* env vars are set
+    - OpenSky historical pattern (optional)
+    - Existing ADS-B-based get_military_aircraft as a fallback
+    """
+    target_key = target.upper()
+    cfg = TARGET_AIRCRAFT.get(target_key)
+    if not cfg:
+        return {"target": target, "error": "unknown_target"}
+
+    async def _run() -> Dict[str, Any]:
+        result: Dict[str, Any] = {"target": target_key}
+        latest_adsbx: Optional[Dict[str, Any]] = None
+        opensky_hint: Optional[Dict[str, Any]] = None
+
+        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
+            # 1. ADSB-Exchange live position (if configured)
+            if ADSBX_BASE_URL and ADSBX_API_KEY:
+                try:
+                    # Broad Middle East / Europe search radius around eastern Med
+                    url = f"{ADSBX_BASE_URL.rstrip('/')}/v2/lat/35/lon/25/dist/3000"
+                    resp = await client.get(
+                        url,
+                        headers={"api-key": ADSBX_API_KEY},
+                        timeout=15.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        ac_list = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                        if isinstance(ac_list, list):
+                            candidates = [ac for ac in ac_list if _match_target_aircraft(ac, cfg)]
+                            if candidates:
+                                # take the most recently seen
+                                ac = candidates[0]
+                                lat = _safe_float(ac.get("lat"))
+                                lon = _safe_float(ac.get("lon"))
+                                latest_adsbx = {
+                                    "lat": lat,
+                                    "lon": lon,
+                                    "alt_baro": _safe_float(ac.get("alt_baro") or ac.get("altitude")),
+                                    "gs": _safe_float(ac.get("gs") or ac.get("groundspeed") or ac.get("speed")),
+                                    "track": _safe_float(ac.get("track") or ac.get("heading")),
+                                    "hex": ac.get("hex") or ac.get("icao24"),
+                                    "callsign": ac.get("flight") or ac.get("callsign"),
+                                    "registration": ac.get("r") or ac.get("registration"),
+                                    "seen": ac.get("seen") or ac.get("timestamp"),
+                                    "position_source": "adsbx",
+                                }
+                except Exception as e:
+                    logger.debug("SIGINT: ADSB-Exchange target fetch failed: %s", e)
+
+            # 2. OpenSky history (optional; good for pattern/historical last-seen)
+            if OPENSKY_USERNAME and OPENSKY_PASSWORD and (cfg.get("hex") or "").lower():
+                try:
+                    now_ts = int(datetime.now(timezone.utc).timestamp())
+                    from_ts = now_ts - 24 * 3600
+                    params = {
+                        "icao24": (cfg.get("hex") or "").lower(),
+                        "begin": from_ts,
+                        "end": now_ts,
+                    }
+                    resp = await client.get(
+                        "https://opensky-network.org/api/flights/aircraft",
+                        params=params,
+                        auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD),
+                        timeout=20.0,
+                    )
+                    if resp.status_code == 200:
+                        flights = resp.json()
+                        if isinstance(flights, list) and flights:
+                            last = flights[-1]
+                            opensky_hint = {
+                                "last_callsign": last.get("callsign"),
+                                "last_origin": last.get("estDepartureAirport"),
+                                "last_destination": last.get("estArrivalAirport"),
+                                "last_time": last.get("lastSeen") or last.get("firstSeen"),
+                            }
+                except Exception as e:
+                    logger.debug("SIGINT: OpenSky history fetch failed: %s", e)
+
+        # 3. Fallback: use existing ADS-B based military aircraft list and try to match target
+        fallback_match: Optional[Dict[str, Any]] = None
+        try:
+            mil = get_military_aircraft() or []
+            for ac in mil:
+                if _match_target_aircraft(ac, cfg):
+                    fallback_match = {
+                        "flight": ac.get("flight"),
+                        "lat": ac.get("lat"),
+                        "lon": ac.get("lon"),
+                        "type": ac.get("type"),
+                        "category": ac.get("category"),
+                        "source": ac.get("source", "mil-global"),
+                        "position_source": "adsb",
+                    }
+                    break
+        except Exception as e:
+            logger.debug("SIGINT: fallback aircraft list for target failed: %s", e)
+
+        result["adsbx"] = latest_adsbx
+        result["opensky"] = opensky_hint
+        result["fallback_sigint"] = fallback_match
+
+        # derive a simple confidence flag for the target track
+        if latest_adsbx:
+            confidence = "high"
+        elif fallback_match or opensky_hint:
+            confidence = "medium"
+        else:
+            confidence = "low"
+        result["confidence"] = confidence
+        return result
+
+    try:
+        return asyncio.run(_run())
+    except Exception as e:
+        logger.exception("SIGINT: get_target_aircraft failed for %s: %s", target, e)
+        return {"target": target, "error": str(e)}
 
 
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
@@ -401,51 +600,161 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     """Execute SIGINT tool chain: aircraft → vessels → spire_vessels → conflict_reports → NOTAMs (iaea_tracker). No LLM."""
     from .iaea_tracker import fetch_notams
 
-    aircraft = [a for a in (get_military_aircraft() or []) if isinstance(a, dict) and "error" not in a]
-    ships = [s for s in (get_naval_vessels() or []) if isinstance(s, dict) and "error" not in s]
-    spire_ships = [s for s in (get_spire_vessels() or []) if isinstance(s, dict) and "error" not in s]
-    seen_ship = {(s.get("name") or "").lower()[:40] or str(s.get("lat")) + "," + str(s.get("lon")) for s in ships}
-    for s in spire_ships:
-        key = (s.get("name") or "").lower()[:40] or str(s.get("lat")) + "," + str(s.get("lon"))
-        if key not in seen_ship:
-            seen_ship.add(key)
-            ships.append(s)
-    reports = [r for r in (get_conflict_reports(conflict=conflict) or []) if isinstance(r, dict) and "error" not in r]
-    notam_result = fetch_notams(days=3, limit=15)
+    try:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            fut_air = executor.submit(get_military_aircraft)
+            fut_ships = executor.submit(get_naval_vessels)
+            fut_spire = executor.submit(get_spire_vessels)
+            fut_reports = executor.submit(get_conflict_reports, conflict)
+            fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
+            fut_target = executor.submit(get_target_aircraft, "OE-III")
 
-    base = 30.0
-    base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
-    base += sum(8 for a in aircraft if a.get("category") == "tanker")
-    base += sum(12 for a in aircraft if a.get("category") == "fighter")
-    base += min(25, len(ships) * 5)
-    base += min(30, len(reports) * 8)
-    score = max(0.0, min(100.0, base))
+            try:
+                raw_aircraft = fut_air.result(timeout=40)
+            except Exception as e:
+                logger.exception("SIGINT: aircraft fetch failed: %s", e)
+                raw_aircraft = [{"error": str(e)}]
 
-    alerts = []
-    if aircraft:
-        by_cat: Dict[str, List] = {}
-        for a in aircraft:
-            by_cat.setdefault(a.get("category", "?"), []).append(a.get("flight", "?"))
-        for cat, flights in by_cat.items():
-            alerts.append(f"{len(flights)} {cat} aircraft: {', '.join(flights[:3])}")
-    if ships:
-        alerts.append(f"{len(ships)} warship(s) in region")
-    if reports:
-        alerts.append(f"{len(reports)} recent intel reports")
-    notams = (notam_result.get("notams") or []) if isinstance(notam_result, dict) else []
-    if notams:
-        alerts.append(f"{len(notams)} NOTAM(s) (airspace)")
+            try:
+                raw_ships = fut_ships.result(timeout=40)
+            except Exception as e:
+                logger.exception("SIGINT: naval vessels fetch failed: %s", e)
+                raw_ships = [{"error": str(e)}]
 
-    return {
-        "conflict": conflict,
-        "aircraft": aircraft,
-        "ships": ships,
-        "conflict_reports": reports,
-        "notams": notams,
-        "sigint_score": round(score, 1),
-        "alerts": alerts,
-        "summary": f"SIGINT (rule-based): {len(aircraft)} aircraft, {len(ships)} ships, {len(reports)} reports, {len(notams)} NOTAMs. Score {score:.0f}.",
-    }
+            try:
+                raw_spire = fut_spire.result(timeout=40)
+            except Exception as e:
+                logger.debug("SIGINT: Spire vessels fetch in orchestrator failed: %s", e)
+                raw_spire = []
+
+            try:
+                raw_reports = fut_reports.result(timeout=40)
+            except Exception as e:
+                logger.exception("SIGINT: conflict reports fetch failed: %s", e)
+                raw_reports = [{"error": str(e)}]
+
+            try:
+                notam_result = fut_notams.result(timeout=40)
+            except Exception as e:
+                logger.exception("SIGINT: NOTAM fetch failed: %s", e)
+                notam_result = {"notams": [], "error": str(e)}
+
+            try:
+                target_track = fut_target.result(timeout=40)
+            except Exception as e:
+                logger.debug("SIGINT: target aircraft tracking failed: %s", e)
+                target_track = {"target": "OE-III", "error": str(e)}
+
+        aircraft = [
+            a for a in (raw_aircraft or [])
+            if isinstance(a, dict) and "error" not in a
+        ]
+        ships = [
+            s for s in (raw_ships or [])
+            if isinstance(s, dict) and "error" not in s
+        ]
+        spire_ships = [
+            s for s in (raw_spire or [])
+            if isinstance(s, dict) and "error" not in s
+        ]
+        # merge Spire vessels into ships (dedup by name/position)
+        seen_ship = {
+            (s.get("name") or "").lower()[:40] or f"{s.get('lat')},{s.get('lon')}"
+            for s in ships
+        }
+        for s in spire_ships:
+            key = (s.get("name") or "").lower()[:40] or f"{s.get('lat')},{s.get('lon')}"
+            if key not in seen_ship:
+                seen_ship.add(key)
+                ships.append(s)
+
+        reports = [
+            r for r in (raw_reports or [])
+            if isinstance(r, dict) and "error" not in r
+        ]
+        notams = (notam_result.get("notams") or []) if isinstance(notam_result, dict) else []
+
+        base = 30.0
+        base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
+        base += sum(8 for a in aircraft if a.get("category") == "tanker")
+        base += sum(12 for a in aircraft if a.get("category") == "fighter")
+        base += min(25, len(ships) * 5)
+        base += min(30, len(reports) * 8)
+        score = max(0.0, min(100.0, base))
+
+        alerts: List[str] = []
+        if aircraft:
+            by_cat: Dict[str, List] = {}
+            for a in aircraft:
+                by_cat.setdefault(a.get("category", "?"), []).append(a.get("flight", "?"))
+            for cat, flights in by_cat.items():
+                alerts.append(f"{len(flights)} {cat} aircraft: {', '.join(flights[:3])}")
+        if ships:
+            alerts.append(f"{len(ships)} warship(s) in region")
+        if reports:
+            alerts.append(f"{len(reports)} recent intel reports")
+        if notams:
+            alerts.append(f"{len(notams)} NOTAM(s) (airspace)")
+
+        # score confidence based on which sources returned non-empty data
+        sources_ok: List[str] = []
+        sources_missing: List[str] = []
+        for name, data in (
+            ("aircraft", aircraft),
+            ("ships", ships),
+            ("spire_vessels", spire_ships),
+            ("conflict_reports", reports),
+            ("notams", notams),
+        ):
+            if data:
+                sources_ok.append(name)
+            else:
+                sources_missing.append(name)
+        if isinstance(target_track, dict) and not target_track.get("error") and (
+            target_track.get("adsbx") or target_track.get("fallback_sigint") or target_track.get("opensky")
+        ):
+            sources_ok.append("target_OE-III")
+        score_confidence = ScoreConfidence(
+            level="high" if len(sources_ok) >= 2 else "low",
+            sources_ok=sources_ok,
+            sources_missing=sources_missing,
+        )
+
+        if not aircraft and not ships and not reports and not notams:
+            logger.warning(
+                "SIGINT: All sources empty for conflict '%s' (no aircraft, ships, reports, NOTAMs).",
+                conflict,
+            )
+
+        result = SigintResult(
+            conflict=conflict,
+            aircraft=aircraft,
+            ships=ships,
+            conflict_reports=reports,
+            notams=notams,
+            sigint_score=round(score, 1),
+            alerts=alerts,
+            summary=(
+                f"SIGINT (rule-based): {len(aircraft)} aircraft, "
+                f"{len(ships)} ships, {len(reports)} reports, {len(notams)} NOTAMs. "
+                f"Score {score:.0f}."
+            ),
+            score_confidence=score_confidence,
+            target_tracks={"OE-III": target_track} if isinstance(target_track, dict) else {},
+        )
+        return result.model_dump(mode="json")
+    except Exception as e:
+        logger.exception("SIGINT: rule-based pipeline failed for conflict '%s': %s", conflict, e)
+        return {
+            "conflict": conflict,
+            "aircraft": [],
+            "ships": [],
+            "conflict_reports": [],
+            "notams": [],
+            "sigint_score": 30.0,
+            "alerts": [],
+            "summary": "SIGINT error: pipeline failed.",
+        }
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────

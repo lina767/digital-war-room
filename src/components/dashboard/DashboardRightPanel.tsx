@@ -8,6 +8,7 @@ import { NewsSentiment } from "@/components/dashboard/NewsSentiment";
 import { InternetConnectivity } from "@/components/dashboard/InternetConnectivity";
 import { FlightRadar } from "@/components/dashboard/FlightRadar";
 import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
+import { NarrativeSignalPanel } from "@/components/dashboard/NarrativeSignalPanel";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { Target, X } from "lucide-react";
 
@@ -62,6 +63,7 @@ export function DashboardRightPanel({
       <div className="space-y-4">
         <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
         <GlobalImpactPanel data={conflictData} />
+        <NarrativeSignalPanel data={conflictData} conflictLabel={displayConflictLabel} />
         <LatestHeadlines data={conflictData} maxItems={15} />
         <EventsTimeline data={conflictData} />
       </div>

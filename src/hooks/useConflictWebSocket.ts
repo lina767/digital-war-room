@@ -80,6 +80,26 @@ export interface ConflictData {
     }>;
     summary?: string;
   };
+  /** Signal Framework: state vs exile/independent media comparison (Iran). */
+  narrative?: {
+    conflict?: string;
+    source_comparison_table?: Array<{ point: string; state_narrative: string; exile_narrative: string }>;
+    signal_assessment?: { latency?: string; credibility_gaps?: string };
+    signals?: {
+      lexical?: { state_terms?: string[]; exile_terms?: string[]; interpretation?: string };
+      latency?: string;
+      discrepancy?: string;
+      reaction?: string[];
+    };
+    synthesis_probability?: number;
+    synthesis_text?: string;
+    anomalies?: string[];
+    reaction_signals?: string[];
+    state_item_count?: number;
+    exile_item_count?: number;
+    fetched_at?: string;
+    error?: string;
+  };
 }
 
 interface UseConflictWebSocketOptions {

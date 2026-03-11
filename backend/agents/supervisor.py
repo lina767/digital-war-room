@@ -22,6 +22,7 @@ from .energy_agent import run_energy_agent
 from .protest_agent import run_protest_agent
 from .diplo_agent import run_diplo_agent
 from .proximity_agent import run_proximity_agent
+from .signal_framework_agent import run_signal_framework_agent
 from .acled_reference import fetch_acled_reference_analyses_sync
 
 
@@ -52,6 +53,7 @@ def _collect_all_agents(conflict: str) -> Dict[str, Any]:
                 "protest":  (executor.submit(run_protest_agent, conflict), {"protest_score": 0.0, "protest_events": [], "protest_articles": []}),
                 "diplo":    (executor.submit(run_diplo_agent, conflict), {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []}),
                 "proximity":(executor.submit(run_proximity_agent, conflict), {"proximity_score": 0.0, "evidence": [], "summary": ""}),
+                "narrative": (executor.submit(run_signal_framework_agent, conflict), {"synthesis_text": "", "synthesis_probability": 0.0, "source_comparison_table": [], "signal_assessment": {}, "anomalies": []}),
             }
             acled_ref_f = executor.submit(fetch_acled_reference_analyses_sync, conflict)
 
@@ -84,6 +86,8 @@ _SUPERVISOR_SYSTEM_PROMPT = """You are a senior intelligence analyst with access
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 - PROXIMITY: Strike–civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
 
+When the payload includes "narrative", this is the Signal Framework: state vs exile/independent media comparison (e.g. IRNA/Fars vs Iran International/Radio Farda). Use synthesis_text, synthesis_probability, and source_comparison_table to inform key_findings and summary when relevant (e.g. information vacuum, framing divergence).
+
 When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages (Middle East / Iran updates, expert comments, reports) whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary—e.g. ACLED assessments on Kurdish dynamics, Hezbollah, Gulf states, ground invasion risks—not as mere links but as substantive context. For conflict Iran/Middle East, include Hezbollah–IDF and Houthi dynamics in key_findings and summary when the agent data supports it. For conflict Iran/Middle East, explicitly address global impacts in key_findings and summary when data supports it: oil price moves (Brent/WTI), Strait of Hormuz / chokepoint risk, EU gas storage, and supply chain implications.
 
 Agent results may be produced by rule-based tool chains (fixed tool order, no per-agent LLM). Treat the payload as authoritative: use the composite_score and per-stream scores, and derive key_findings, scenarios, and summary from the raw data (articles, aircraft, anomalies, signals, sanctions, protests, etc.) and the stream summaries provided. Your output format and quality standards are unchanged.
@@ -103,6 +107,16 @@ _MAX_PAYLOAD_CHARS = 250_000
 
 def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     """Extract only what the supervisor LLM needs: score, summary, and compact top items."""
+    if agent_name == "narrative":
+        return {
+            "synthesis_text": (result.get("synthesis_text") or "")[:800],
+            "synthesis_probability": result.get("synthesis_probability", 0.0),
+            "signal_assessment": result.get("signal_assessment") or {},
+            "source_comparison_table": (result.get("source_comparison_table") or [])[:3],
+            "anomalies": (result.get("anomalies") or [])[:5],
+            "state_item_count": result.get("state_item_count", 0),
+            "exile_item_count": result.get("exile_item_count", 0),
+        }
     score_keys = [k for k in result if k.endswith("_score") or k == "escalation_score"]
     out: Dict[str, Any] = {k: result[k] for k in score_keys if k in result}
     if "summary" in result:
@@ -134,6 +148,14 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
             s = json.dumps(val, default=str)
             if len(s) < 500:
                 out[key] = val
+    if agent_name == "narrative":
+        out["synthesis_text"] = (result.get("synthesis_text") or "")[:500]
+        out["synthesis_probability"] = result.get("synthesis_probability")
+        sa = result.get("signal_assessment") or {}
+        out["latency"] = (sa.get("latency") or "")[:200]
+        out["anomalies"] = (result.get("anomalies") or [])[:5]
+        out["state_item_count"] = result.get("state_item_count", 0)
+        out["exile_item_count"] = result.get("exile_item_count", 0)
     return out
 
 
@@ -160,6 +182,8 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     protest_result   = agent_results.get("protest") or {}
     diplo_result     = agent_results.get("diplo") or {}
     proximity_result = agent_results.get("proximity") or {}
+    narrative_result = agent_results.get("narrative") or {}
+    narrative_result = agent_results.get("narrative") or {}
 
     finint_score    = float(finint_result.get("escalation_score", 0.0))
     sigint_score    = float(sigint_result.get("sigint_score", 0.0))
@@ -219,6 +243,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
             "protest": _compact_for_llm("protest", protest_result),
             "diplo": _compact_for_llm("diplo", diplo_result),
             "proximity": _compact_for_llm("proximity", proximity_result),
+            "narrative": _compact_for_llm("narrative", narrative_result),
         }
 
         user_json = json.dumps(user_payload, default=str)
@@ -397,6 +422,7 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "protest":  synthesis.get("protest", {}),
         "diplo":    synthesis.get("diplo", {}),
         "proximity": synthesis.get("proximity", {}),
+        "narrative": synthesis.get("narrative", {}),
         "escalation_score": synthesis.get("escalation_score", 0.0),
         "threat_level":     synthesis.get("threat_level", "MINIMAL"),
         "key_findings":     synthesis.get("key_findings", []),
