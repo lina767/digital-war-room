@@ -11,7 +11,8 @@ Optional: ADSBexchange via RapidAPI (ADSBEXCHANGE_RAPIDAPI_KEY) for target track
 
 Ship sources:
   - VesselFinder public endpoint (multiple bounding boxes)
-  - Spire Maritime (subagent; optional SPIRE_MARITIME_API_KEY) – AIS/vessels in Persian Gulf, Red Sea, etc.
+  - Spire Maritime (optional SPIRE_MARITIME_API_KEY) – AIS/vessels in Persian Gulf, Red Sea, etc.
+  - Spire Airsafe (optional SPIRE_AIRSAFE_TOKEN) – aircraft tracking stream api.airsafe.spire.com/v2/targets/stream
   - MarineTraffic RSS
 
 Intelligence reports:
@@ -70,6 +71,8 @@ MILITARY_SHIP_TYPE_CODES = (30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
 
 # Spire Maritime (optional): legacy Vessels API – https://api.sense.spire.com/ (short token) or https://ais.spire.com/ (long token)
 SPIRE_VESSELS_URL = "https://api.sense.spire.com/vessels"
+# Spire Airsafe (optional): aircraft tracking stream – https://api.airsafe.spire.com/v2/targets/stream (Bearer token)
+SPIRE_AIRSAFE_STREAM_URL = "https://api.airsafe.spire.com/v2/targets/stream"
 SPIRE_REGIONS = [
     ("Persian Gulf", 22, 30, 48, 62),
     ("Red Sea", 12, 28, 32, 44),
@@ -485,6 +488,63 @@ def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return []
 
 
+def get_spire_airsafe_targets(hours_back: float = 1.0) -> List[Dict[str, Any]]:
+    """
+    Fetch aircraft targets from Spire Airsafe tracking stream (batch mode).
+    https://api.airsafe.spire.com/v2/targets/stream – requires SPIRE_AIRSAFE_TOKEN (Bearer).
+    Uses start/end query params for batch; filters to conflict zone (Middle East).
+    """
+    token = (os.getenv("SPIRE_AIRSAFE_TOKEN") or os.getenv("SPIRE_API_KEY") or "").strip()
+    if not token:
+        return []
+
+    async def _fetch() -> List[Dict[str, Any]]:
+        from datetime import timedelta
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=max(0.25, min(6.0, hours_back)))
+        params = {"start": start.isoformat(), "end": end.isoformat()}
+        out: List[Dict[str, Any]] = []
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(
+                    SPIRE_AIRSAFE_STREAM_URL,
+                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+                    params=params,
+                )
+                if resp.status_code != 200:
+                    logger.debug("SIGINT: Spire Airsafe stream returned %s", resp.status_code)
+                    return []
+                data = resp.json()
+                targets = data if isinstance(data, list) else data.get("targets", data.get("data", []))
+                if not isinstance(targets, list):
+                    return []
+                for t in targets:
+                    if not isinstance(t, dict):
+                        continue
+                    lat = _safe_float(t.get("latitude") or t.get("lat"))
+                    lon = _safe_float(t.get("longitude") or t.get("lon"))
+                    if lat is None or lon is None or not _in_conflict_zone(lat, lon):
+                        continue
+                    out.append({
+                        "flight": t.get("callsign") or t.get("flight_number") or t.get("icao_address") or "",
+                        "type": t.get("aircraft_type") or t.get("type") or "",
+                        "lat": lat,
+                        "lon": lon,
+                        "alt_baro": _safe_float(t.get("altitude") or t.get("alt_baro")),
+                        "hex": t.get("icao_address") or t.get("hex"),
+                        "source": "spire_airsafe",
+                    })
+        except Exception as e:
+            logger.debug("SIGINT: Spire Airsafe targets fetch failed: %s", e)
+        return out[:100]
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        logger.exception("SIGINT: get_spire_airsafe_targets failed: %s", e)
+        return []
+
+
 def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """
     Fetch recent military/conflict reports from diverse OSINT and media feeds:
@@ -761,10 +821,11 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     from .iaea_tracker import fetch_notams
 
     try:
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=6) as executor:
             fut_air = executor.submit(get_military_aircraft)
             fut_ships = executor.submit(get_naval_vessels)
             fut_spire = executor.submit(get_spire_vessels)
+            fut_spire_airsafe = executor.submit(get_spire_airsafe_targets)
             fut_reports = executor.submit(get_conflict_reports, conflict)
             fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
             fut_target = executor.submit(get_target_aircraft, "OE-III")
@@ -788,6 +849,12 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 raw_spire = []
 
             try:
+                raw_spire_airsafe = fut_spire_airsafe.result(timeout=35)
+            except Exception as e:
+                logger.debug("SIGINT: Spire Airsafe targets fetch failed: %s", e)
+                raw_spire_airsafe = []
+
+            try:
                 raw_reports = fut_reports.result(timeout=40)
             except Exception as e:
                 logger.exception("SIGINT: conflict reports fetch failed: %s", e)
@@ -809,6 +876,13 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             a for a in (raw_aircraft or [])
             if isinstance(a, dict) and "error" not in a
         ]
+        spire_airsafe = [a for a in (raw_spire_airsafe or []) if isinstance(a, dict) and "error" not in a]
+        seen_ac = {(a.get("hex") or a.get("flight") or f"{a.get('lat')},{a.get('lon')}"): a for a in aircraft}
+        for a in spire_airsafe:
+            key = a.get("hex") or a.get("flight") or f"{a.get('lat')},{a.get('lon')}"
+            if key and key not in seen_ac:
+                seen_ac[key] = a
+                aircraft.append(a)
         ships = [
             s for s in (raw_ships or [])
             if isinstance(s, dict) and "error" not in s
@@ -863,6 +937,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             ("aircraft", aircraft),
             ("ships", ships),
             ("spire_vessels", spire_ships),
+            ("spire_airsafe", spire_airsafe),
             ("conflict_reports", reports),
             ("notams", notams),
         ):
@@ -953,12 +1028,14 @@ def run_sigint_agent(conflict: str) -> Dict[str, Any]:
         "get_military_aircraft": get_military_aircraft,
         "get_naval_vessels": get_naval_vessels,
         "get_spire_vessels": get_spire_vessels,
+        "get_spire_airsafe_targets": get_spire_airsafe_targets,
         "get_conflict_reports": get_conflict_reports,
     }
     TOOL_SCHEMAS = [
         {"name": "get_military_aircraft", "description": "Fetch military aircraft in conflict regions via ADS-B.", "input_schema": {"type": "object", "properties": {}}},
         {"name": "get_naval_vessels", "description": "Fetch naval vessels in conflict regions.", "input_schema": {"type": "object", "properties": {}}},
         {"name": "get_spire_vessels", "description": "Fetch Spire Maritime AIS vessel data.", "input_schema": {"type": "object", "properties": {}}},
+        {"name": "get_spire_airsafe_targets", "description": "Fetch aircraft targets from Spire Airsafe tracking stream (Bearer token).", "input_schema": {"type": "object", "properties": {}}},
         {"name": "get_conflict_reports", "description": "Fetch conflict intelligence reports from RSS feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     ]
     text = run_tool_agent(

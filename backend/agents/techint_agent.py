@@ -634,10 +634,15 @@ async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[s
 async def _fetch_wigle_networks(conflict: str) -> Dict[str, Any]:
     """
     Query Wigle.net WiFi database for conflict-relevant region (bounding box).
-    Requires WIGLE_API_NAME and WIGLE_API_TOKEN (Basic Auth).
+    Auth: WIGLE_API_TOKEN (required). If it contains ":", use as username:token; else use WIGLE_API_NAME + WIGLE_API_TOKEN.
     """
-    username = (os.getenv("WIGLE_API_NAME") or "").strip()
-    token = (os.getenv("WIGLE_API_TOKEN") or "").strip()
+    raw_token = (os.getenv("WIGLE_API_TOKEN") or "").strip()
+    if ":" in raw_token:
+        username, token = raw_token.split(":", 1)
+        username, token = username.strip(), token.strip()
+    else:
+        username = (os.getenv("WIGLE_API_NAME") or "").strip()
+        token = raw_token
     cl = (conflict or "").lower().strip()
     # Simple coarse bounding boxes per conflict (lat1, lat2, lon1, lon2)
     wigle_bbox_by_conflict: Dict[str, tuple[float, float, float, float]] = {

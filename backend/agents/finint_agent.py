@@ -42,7 +42,7 @@ TRACKED_WALLETS: List[tuple[str, str]] = [
 ]
 
 # Explicit Polymarket markets to always track (FININT) – fetched by slug via Gamma API.
-# Focus: US–Iran, Trump military/foreign policy. 2025-spezifische Märkte entfernt (Stand 2026).
+# Focus: US–Iran, Israel–Iran, Trump military/foreign policy. 2025-spezifische Märkte entfernt (Stand 2026).
 TRACKED_POLYMARKET_SLUGS = [
     "us-strikes-iran-by",
     "will-trump-announce-military-actions-against-iran-by-friday",
@@ -51,6 +51,7 @@ TRACKED_POLYMARKET_SLUGS = [
     "will-trump-visit-china-by",
     "us-x-iran-ceasefire-by",
     "will-the-iranian-regime-fall-by-the-end-of-2026",
+    "israel-strikes-iran-by-march-31-2026",  # Israel–Iran strike timing (adjust slug if Polymarket changes)
 ]
 
 # Keywords for /events and /markets search: only geopolitics/conflict (avoids Oscars, Hungary PM, Warnock).

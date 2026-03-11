@@ -82,21 +82,79 @@ def _classify(frp: float) -> str:
     return "unknown"
 
 
-def _is_explosion_cluster(anomalies: List[Dict[str, Any]], radius_deg: float = 0.5) -> List[Dict[str, Any]]:
-    """Detect clusters of anomalies (within radius_deg) indicating possible military activity."""
+# Static list of known gas flaring / industrial sites (approximate) to down-weight in GEOINT.
+# These are approximate centroids of major oil/gas fields with persistent flares.
+GAS_FLARE_SITES: List[Dict[str, Any]] = [
+    {"name": "South Pars gas field", "lat": 26.5, "lon": 52.5, "radius_deg": 0.3},
+    {"name": "Rumaila oil field", "lat": 30.7, "lon": 47.5, "radius_deg": 0.3},
+    {"name": "Kirkuk oil field", "lat": 35.6, "lon": 44.3, "radius_deg": 0.3},
+]
+
+
+def _is_gas_flare_site(lat: float, lon: float) -> bool:
+    for site in GAS_FLARE_SITES:
+        r = float(site.get("radius_deg", 0.3))
+        if abs(lat - float(site["lat"])) <= r and abs(lon - float(site["lon"])) <= r:
+            return True
+    return False
+
+
+def _is_explosion_cluster(
+    anomalies: List[Dict[str, Any]],
+    radius_deg: float = 0.5,
+    max_hours: float | None = 2.0,
+) -> List[Dict[str, Any]]:
+    """
+    Detect clusters of anomalies (within radius_deg and optional time window) indicating possible
+    military activity. Gas-flaring / industrial sites are ignored.
+    """
     clusters = []
     used = set()
     for a in anomalies:
+        if a.get("gas_flaring"):
+            continue
         lat = _safe_float(a.get("lat"), 0)
         lon = _safe_float(a.get("lon"), 0)
         key = (round(lat, 2), round(lon, 2))
         if key in used:
             continue
-        nearby = [
-            b for b in anomalies
-            if abs(_safe_float(b.get("lat"), 0) - lat) <= radius_deg
-            and abs(_safe_float(b.get("lon"), 0) - lon) <= radius_deg
-        ]
+        nearby: List[Dict[str, Any]] = []
+        t0 = None
+        if max_hours is not None:
+            # Parse acquisition time for temporal clustering; ignore if parsing fails.
+            from datetime import datetime as _dt
+
+            def _parse_t(acq: str) -> Any:
+                if not acq:
+                    return None
+                s = str(acq).strip().replace("Z", "+00:00")
+                try:
+                    return _dt.fromisoformat(s)
+                except Exception:
+                    return None
+
+            t0 = _parse_t(a.get("acquired", ""))
+            for b in anomalies:
+                if b.get("gas_flaring"):
+                    continue
+                if abs(_safe_float(b.get("lat"), 0) - lat) > radius_deg:
+                    continue
+                if abs(_safe_float(b.get("lon"), 0) - lon) > radius_deg:
+                    continue
+                if t0 is not None and max_hours is not None:
+                    tb = _parse_t(b.get("acquired", ""))
+                    if tb is None:
+                        continue
+                    if abs((tb - t0).total_seconds()) > max_hours * 3600:
+                        continue
+                nearby.append(b)
+        else:
+            nearby = [
+                b for b in anomalies
+                if not b.get("gas_flaring")
+                and abs(_safe_float(b.get("lat"), 0) - lat) <= radius_deg
+                and abs(_safe_float(b.get("lon"), 0) - lon) <= radius_deg
+            ]
         if len(nearby) >= 3:
             used.add(key)
             clusters.append({
@@ -123,11 +181,14 @@ def _parse_firms_row(row: dict, bbox: dict) -> dict | None:
     if len(t) == 4 and t.isdigit():
         t = f"{t[:2]}:{t[2:]}"
     acquired = f"{acq_date}T{t}Z" if acq_date else ""
+    is_flaring = _is_gas_flare_site(lat, lon)
+    ftype = "industrial" if is_flaring else _classify(frp)
     return {
         "lat": lat, "lon": lon,
         "frp": frp,
         "confidence": conf,
-        "type": _classify(frp),
+        "type": ftype,
+        "gas_flaring": is_flaring,
         "acquired": acquired,
     }
 
@@ -560,11 +621,19 @@ def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
     view = EO_BROWSER_VIEWS.get(region) or EO_BROWSER_VIEWS["middle_east"]
     lat, lon, zoom = view
     base = "https://apps.sentinel-hub.com/eo-browser"
-    url = f"{base}/?lat={lat}&lng={lon}&zoom={zoom}"
+    # Default (Sentinel-2 / optical) view
+    url_s2 = f"{base}/?lat={lat}&lng={lon}&zoom={zoom}"
+    # Sentinel-1 SAR (AWD-style radar visualisation) – useful under heavy cloud cover
+    url_s1 = (
+        f"{base}/?lat={lat}&lng={lon}&zoom={zoom}"
+        "&datasetId=S1GRD&fromTime=NOW-7DAYS&toTime=NOW"
+        "&layerId=S1-IW-VVVH"
+    )
     return {
         "region": region,
-        "eo_browser_url": url,
-        "description": "Open in EO Browser for Sentinel-2 and other satellite imagery. Sentinel Hub Process API can be enabled with SENTINELHUB_CLIENT_ID and SENTINELHUB_CLIENT_SECRET.",
+        "eo_browser_s2_url": url_s2,
+        "eo_browser_s1_sar_url": url_s1,
+        "description": "Open in EO Browser for Sentinel-2 (optical) and Sentinel-1 SAR (cloud-penetrating) imagery. Sentinel Hub Process API can be enabled with SENTINELHUB_CLIENT_ID and SENTINELHUB_CLIENT_SECRET.",
     }
 
 
@@ -628,9 +697,16 @@ def _recent_within_hours(acquired_str: str, hours: float = 6.0) -> bool:
 
 def _compute_geoint_score(anomalies: List[Dict[str, Any]]) -> Tuple[float, int, List[Dict], int]:
     """Returns (score, explosion_count, clusters, recent_count)."""
-    high = sum(1 for a in anomalies if a.get("confidence") == "high")
-    explosion_count = sum(1 for a in anomalies if a.get("type") == "explosion" or _safe_float(a.get("frp"), 0) > 500)
-    clusters = _is_explosion_cluster(anomalies, radius_deg=0.5)
+    # Ignore gas flares / industrial sites for scoring – they tend to be persistent and not conflict-driven.
+    non_flaring = [a for a in anomalies if not a.get("gas_flaring")]
+    high = sum(1 for a in non_flaring if a.get("confidence") == "high")
+    explosion_count = sum(
+        1
+        for a in non_flaring
+        if a.get("type") == "explosion" or _safe_float(a.get("frp"), 0) > 500
+    )
+    # Spatial + temporal cluster (radius 0.5°, ≤2h window) for concerted strikes
+    clusters = _is_explosion_cluster(non_flaring, radius_deg=0.5, max_hours=2.0)
     recent = sum(1 for a in anomalies if _recent_within_hours(a.get("acquired", ""), 6.0))
     base = 20.0
     base += min(40, high * 5)
@@ -672,6 +748,8 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
         reliefweb_raw = get_conflict_hotspot_news(conflict=conflict)
         reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
+        has_acled_cfg = has_acled_oauth() or os.getenv("ACLED_API_KEY")
+        has_acled_reports = any(r.get("source") == "ACLED" for r in reliefweb_reports)
         ucdp_raw = get_ucdp_events(conflict=conflict)
         ucdp_events = [e for e in (ucdp_raw if isinstance(ucdp_raw, list) else []) if isinstance(e, dict) and "error" not in e]
         eo_links = get_eo_browser_links(conflict=conflict)
@@ -683,6 +761,8 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         high = sum(1 for a in anomalies if a.get("confidence") == "high")
         hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
         summary_extra = f" {len(ucdp_events)} UCDP events." if ucdp_events else ""
+        if has_acled_cfg and not has_acled_reports:
+            summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and UCDP/ReliefWeb."
         return {
             "conflict": conflict,
             "anomalies": anomalies,

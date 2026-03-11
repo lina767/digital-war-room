@@ -4,6 +4,7 @@ const FALLBACK_MARKETS = [
   { question: "US military strike on Iran in 2025?", probability: 0.34, volume: 0 },
   { question: "Iran nuclear weapon test by 2026?", probability: 0.12, volume: 0 },
   { question: "Oil price above $100/bbl by Q2?", probability: 0.47, volume: 0 },
+  { question: "Israel strikes Iran by end of 2026?", probability: 0.35, volume: 0 },
 ];
 
 interface PolymarketItem {
@@ -14,11 +15,11 @@ interface PolymarketItem {
 }
 
 interface PredictionMarketsProps {
-  /** From FININT: polymarket array (probability 0–1). Show top 3 by importance (volume, then probability). */
+  /** From FININT: polymarket array (probability 0–1). Show top 4 by importance (volume, then probability). */
   polymarket?: PolymarketItem[] | null;
 }
 
-const TOP_N = 3;
+const TOP_N = 4;
 
 function formatVolume(vol: number): string {
   if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(0)}m`;
@@ -112,7 +113,7 @@ export function PredictionMarkets({ polymarket }: PredictionMarketsProps) {
           </div>
         ))}
       </div>
-      <p className="text-[9px] text-muted-foreground">Source: Polymarket · Top {TOP_N} by volume</p>
+      <p className="text-[9px] text-muted-foreground">Source: Polymarket · Top 4 by volume</p>
     </div>
   );
 }
