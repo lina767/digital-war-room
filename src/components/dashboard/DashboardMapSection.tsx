@@ -1,5 +1,7 @@
-import { ReactNode } from "react";
-import { ConflictMap } from "@/components/dashboard/ConflictMap";
+import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { GeointAnomaly, SigintAircraft, SigintShip } from "./mapConfig";
+import { WorldMap } from "@/components/dashboard/WorldMap";
+import { TheaterMap } from "@/components/dashboard/TheaterMap";
 import { Radio, Rss } from "lucide-react";
 
 interface DashboardMapSectionProps {
@@ -7,8 +9,10 @@ interface DashboardMapSectionProps {
   setLeftPanelOpen: (open: boolean) => void;
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
-  /** Current conflict for map zoom and heatmap data (ACLED). */
+  /** Current conflict for map zoom and theater/heatmap data. */
   activeConflict?: string | null;
+  /** Analysis data for GEOINT/SIGINT on theater map. */
+  conflictData?: ConflictData | null;
 }
 
 export function DashboardMapSection({
@@ -17,11 +21,30 @@ export function DashboardMapSection({
   rightPanelOpen,
   setRightPanelOpen,
   activeConflict = null,
+  conflictData = null,
 }: DashboardMapSectionProps) {
+  const geointAnomalies = conflictData?.geoint?.anomalies ?? [];
+  const sigintAircraft = conflictData?.sigint?.aircraft ?? [];
+  const sigintShips = conflictData?.sigint?.ships ?? [];
+
   return (
-    <main className="flex-[0_1_44%] min-h-0 min-w-[280px] relative overflow-hidden flex flex-col">
-      <div className="absolute inset-0 grid-overlay opacity-30" />
-      <ConflictMap activeConflict={activeConflict} />
+    <main className="flex-[0_1_50%] min-h-0 min-w-0 relative overflow-hidden flex flex-col">
+      <div className="absolute inset-0 grid-overlay opacity-30 pointer-events-none" />
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Small world map – fixed width */}
+        <div className="w-[200px] sm:w-[240px] flex-shrink-0 relative border-r border-border/50">
+          <WorldMap activeConflict={activeConflict} />
+        </div>
+        {/* Theater map – takes remaining space, focused on conflict region */}
+        <div className="flex-1 min-w-[280px] relative">
+          <TheaterMap
+            activeConflict={activeConflict}
+            geointAnomalies={geointAnomalies as GeointAnomaly[]}
+            sigintAircraft={sigintAircraft as SigintAircraft[]}
+            sigintShips={sigintShips as SigintShip[]}
+          />
+        </div>
+      </div>
 
       {/* Mobile floating panel toggles – 44px tap targets */}
       <div className="absolute top-3 left-3 flex gap-2 lg:hidden z-10">
@@ -54,7 +77,7 @@ export function DashboardMapSection({
       </div>
 
       {/* Bottom Escalation Timeline – touch-friendly padding on mobile */}
-      <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-background/95 backdrop-blur-sm p-3 sm:p-3 supports-[padding:env(safe-area-inset-bottom)]:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-sm p-3 sm:p-3 supports-[padding:env(safe-area-inset-bottom)]:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-[10px] sm:text-xs text-muted-foreground shrink-0">[ Escalation Timeline ]</span>
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -74,4 +97,3 @@ export function DashboardMapSection({
     </main>
   );
 }
-

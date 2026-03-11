@@ -221,6 +221,7 @@ const Dashboard = () => {
           rightPanelOpen={rightPanelOpen}
           setRightPanelOpen={setRightPanelOpen}
           activeConflict={selectedConflict}
+          conflictData={conflictData}
         />
 
         <DashboardRightPanel

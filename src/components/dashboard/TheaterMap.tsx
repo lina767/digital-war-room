@@ -1,93 +1,26 @@
 import { useEffect, useState, useCallback, memo } from "react";
-import { Plus, Minus, RotateCcw } from "lucide-react";
-import { ComposableMap, Geographies, Geography, Line, Marker, ZoomableGroup } from "react-simple-maps";
+import { Plus, Minus } from "lucide-react";
+import {
+  ComposableMap,
+  Geographies,
+  Geography,
+  Line,
+  Marker,
+  ZoomableGroup,
+} from "react-simple-maps";
 import { getConflictEvents, getTheaterEvents, type ConflictEventForHeatmap, type TheaterEvent } from "@/lib/api";
-import { conflicts, severityColor } from "./conflictData";
-import { ConnectionLines } from "./ConnectionLines";
-import { conflictLinks } from "./conflictData";
+import {
+  GEO_URL,
+  CONFLICT_CENTERS,
+  matchConflict,
+  THEATER_EVENT_STYLE,
+  type GeointAnomaly,
+  type SigintAircraft,
+  type SigintShip,
+} from "./mapConfig";
 import { SAM_RINGS, AIR_ROUTES, SEA_LANES, circlePoints } from "./mapOverlaysData";
 
-const GEO_URL = "https://unpkg.com/world-atlas@2.0.2/countries-110m.json";
-
-// ── Types ──────────────────────────────────────────────────────────────────
-export interface GeointAnomaly {
-  latitude: number;
-  longitude: number;
-  frp: number; // Fire Radiative Power
-  confidence: string; // "high" | "nominal" | "low"
-  classification: string;
-}
-
-export interface SigintAircraft {
-  flight: string;
-  lat: number;
-  lon: number;
-  category?: string;
-}
-
-export interface SigintShip {
-  name: string;
-  lat: number;
-  lon: number;
-  type?: string;
-}
-
-interface ConflictMapProps {
-  geointAnomalies?: GeointAnomaly[];
-  sigintAircraft?: SigintAircraft[];
-  sigintShips?: SigintShip[];
-  activeConflict?: string | null; // e.g. "Iran" → auto-zoom
-}
-
-// ── Conflict region centers for auto-zoom ─────────────────────────────────
-const CONFLICT_CENTERS: Record<string, { center: [number, number]; zoom: number }> = {
-  iran: { center: [53, 32], zoom: 4 },
-  "us-iran": { center: [53, 28], zoom: 3.5 },
-  ukraine: { center: [32, 48], zoom: 4 },
-  "israel-palestine": { center: [35, 31], zoom: 5 },
-  lebanon: { center: [35.8, 33.9], zoom: 5.5 },
-  "taiwan-strait": { center: [120, 24], zoom: 4 },
-  sudan: { center: [30, 15], zoom: 3.5 },
-  yemen: { center: [46, 15], zoom: 4 },
-  myanmar: { center: [96, 20], zoom: 4 },
-  sahel: { center: [2, 15], zoom: 3 },
-  korea: { center: [127, 37], zoom: 4.5 },
-  syria: { center: [38, 35], zoom: 5 },
-  drc: { center: [24, -3], zoom: 3.5 },
-  ethiopia: { center: [40, 9], zoom: 4 },
-};
-
-// Theater map: event_type → display label and color for marker
-const THEATER_EVENT_STYLE: Record<
-  string,
-  { label: string; fill: string; stroke: string }
-> = {
-  airstrike: { label: "Airstrike", fill: "#dc2626", stroke: "#b91c1c" },
-  missile: { label: "Missile", fill: "#ea580c", stroke: "#c2410c" },
-  drone: { label: "Drone", fill: "#ca8a04", stroke: "#a16207" },
-  explosion: { label: "Explosion", fill: "#dc2626", stroke: "#991b1b" },
-  naval: { label: "Naval", fill: "#2563eb", stroke: "#1d4ed8" },
-  fire: { label: "Fire", fill: "#ea580c", stroke: "#c2410c" },
-  other: { label: "Other", fill: "#6b7280", stroke: "#4b5563" },
-};
-
-// Fuzzy match: "Iran" → "iran"
-function matchConflict(name: string): string | null {
-  if (!name) return null;
-  const normalized = name
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
-  for (const key of Object.keys(CONFLICT_CENTERS)) {
-    if (normalized.includes(key) || key.split("-").every((part) => normalized.includes(part))) {
-      return key;
-    }
-  }
-  return null;
-}
-
-// ── Static world map ───────────────────────────────────────────────────────
-const WorldGeographies = memo(() => (
+const TheaterGeographies = memo(() => (
   <Geographies geography={GEO_URL}>
     {({ geographies }) =>
       geographies.map((geo) => (
@@ -107,21 +40,25 @@ const WorldGeographies = memo(() => (
     }
   </Geographies>
 ));
-WorldGeographies.displayName = "WorldGeographies";
+TheaterGeographies.displayName = "TheaterGeographies";
 
-// ── Main component ─────────────────────────────────────────────────────────
-export function ConflictMap({
+export interface TheaterMapProps {
+  activeConflict?: string | null;
+  geointAnomalies?: GeointAnomaly[];
+  sigintAircraft?: SigintAircraft[];
+  sigintShips?: SigintShip[];
+}
+
+export function TheaterMap({
+  activeConflict = null,
   geointAnomalies = [],
   sigintAircraft = [],
   sigintShips = [],
-  activeConflict = null,
-}: ConflictMapProps) {
+}: TheaterMapProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [animPhase, setAnimPhase] = useState(0);
-  const [zoom, setZoom] = useState(1);
-  const [center, setCenter] = useState<[number, number]>([10, 20]);
-  const [showLinks, setShowLinks] = useState(true);
-  const [hiddenLinks, setHiddenLinks] = useState<Set<string>>(new Set());
+  const [zoom, setZoom] = useState(4);
+  const [center, setCenter] = useState<[number, number]>([53, 32]);
   const [showGeoint, setShowGeoint] = useState(true);
   const [showSigint, setShowSigint] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -130,11 +67,19 @@ export function ConflictMap({
   const [showSamRings, setShowSamRings] = useState(false);
   const [showAirRoutes, setShowAirRoutes] = useState(false);
   const [showSeaLanes, setShowSeaLanes] = useState(false);
-  const [showTheater, setShowTheater] = useState(false);
   const [theaterEvents, setTheaterEvents] = useState<TheaterEvent[]>([]);
   const [theaterLoading, setTheaterLoading] = useState(false);
 
-  // Fetch conflict events for heatmap when layer is enabled
+  useEffect(() => {
+    if (!activeConflict) return;
+    const key = matchConflict(activeConflict);
+    if (key && CONFLICT_CENTERS[key]) {
+      const { center: c, zoom: z } = CONFLICT_CENTERS[key];
+      setCenter(c);
+      setZoom(z);
+    }
+  }, [activeConflict]);
+
   useEffect(() => {
     if (!showHeatmap || !activeConflict) {
       setHeatmapEvents([]);
@@ -150,9 +95,8 @@ export function ConflictMap({
       .finally(() => setHeatmapLoading(false));
   }, [showHeatmap, activeConflict]);
 
-  // Fetch theater map events when Theater layer is enabled (e.g. Iran)
   useEffect(() => {
-    if (!showTheater || !activeConflict) {
+    if (!activeConflict) {
       setTheaterEvents([]);
       return;
     }
@@ -164,37 +108,14 @@ export function ConflictMap({
       })
       .catch(() => setTheaterEvents([]))
       .finally(() => setTheaterLoading(false));
-  }, [showTheater, activeConflict]);
+  }, [activeConflict]);
 
-  // Pulse animation
   useEffect(() => {
     const interval = setInterval(() => setAnimPhase((p) => (p + 1) % 60), 50);
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-zoom when activeConflict changes
-  useEffect(() => {
-    if (!activeConflict) return;
-    const key = matchConflict(activeConflict);
-    if (key && CONFLICT_CENTERS[key]) {
-      const { center: c, zoom: z } = CONFLICT_CENTERS[key];
-      setCenter(c);
-      setZoom(z);
-    }
-  }, [activeConflict]);
-
-  const toggleLink = useCallback((id: string) => {
-    setHiddenLinks((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const allHidden = showLinks ? hiddenLinks : new Set(conflictLinks.map((l) => l.id));
-
-  const s = 1 / zoom; // inverse scale for markers
+  const s = 1 / zoom;
 
   return (
     <div className="absolute inset-0">
@@ -205,19 +126,7 @@ export function ConflictMap({
         style={{ width: "100%", height: "100%" }}
       >
         <defs>
-          {(["high", "medium", "low"] as const).map((sv) => (
-            <filter key={sv} id={`glow-${sv}`} x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feFlood floodColor={severityColor[sv]} floodOpacity="0.6" result="color" />
-              <feComposite in="color" in2="blur" operator="in" result="shadow" />
-              <feMerge>
-                <feMergeNode in="shadow" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          ))}
-          {/* GEOINT glow – orange/red */}
-          <filter id="glow-geoint" x="-50%" y="-50%" width="200%" height="200%">
+          <filter id="theater-glow-geoint" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="2" result="blur" />
             <feFlood floodColor="#ff4400" floodOpacity="0.7" result="color" />
             <feComposite in="color" in2="blur" operator="in" result="shadow" />
@@ -235,12 +144,11 @@ export function ConflictMap({
             setCenter(coordinates);
             setZoom(z);
           }}
-          minZoom={1}
+          minZoom={2}
           maxZoom={8}
         >
-          <WorldGeographies />
+          <TheaterGeographies />
 
-          {/* SAM rings – circle overlays (vordefinierte Stellungen) */}
           {showSamRings &&
             SAM_RINGS.map((sam) => {
               const coords = circlePoints(sam.center[0], sam.center[1], sam.radius_km);
@@ -256,7 +164,6 @@ export function ConflictMap({
               );
             })}
 
-          {/* Air routes – Hauptflugrouten */}
           {showAirRoutes &&
             AIR_ROUTES.map((route) => (
               <Line
@@ -269,7 +176,6 @@ export function ConflictMap({
               />
             ))}
 
-          {/* Sea lanes – Seerouten (z. B. Straße von Hormus) */}
           {showSeaLanes &&
             SEA_LANES.map((lane) => (
               <Line
@@ -281,7 +187,6 @@ export function ConflictMap({
               />
             ))}
 
-          {/* Heatmap layer: conflict intensity (ACLED) – optional */}
           {showHeatmap &&
             !heatmapLoading &&
             heatmapEvents.map((evt, i) => {
@@ -302,9 +207,7 @@ export function ConflictMap({
               );
             })}
 
-          {/* Theater Map layer: unified events (FIRMS + ACLED + UCDP) with type-specific icons */}
-          {showTheater &&
-            !theaterLoading &&
+          {!theaterLoading &&
             theaterEvents.map((evt, i) => {
               const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
               const r = 3 * s;
@@ -324,7 +227,6 @@ export function ConflictMap({
                       strokeWidth={0.3 * s}
                       opacity={0.35}
                     />
-                    {/* Icon by type: airstrike=burst, missile=rocket, drone=diamond, explosion=circle, naval=anchor, fire=flame, other=dot */}
                     {evt.event_type === "airstrike" && (
                       <polygon
                         points={`0,${-r * 1.2} ${r * 0.7},${r * 0.4} ${r * 0.5},${r} ${0},${r * 0.6} ${-r * 0.5},${r} ${-r * 1.2},${r * 0.4}`}
@@ -388,9 +290,6 @@ export function ConflictMap({
               );
             })}
 
-          <ConnectionLines hiddenLinks={allHidden} onToggleLink={toggleLink} animPhase={animPhase} zoom={zoom} />
-
-          {/* ── GEOINT Thermal Anomalies ── */}
           {showGeoint &&
             geointAnomalies.map((anomaly, i) => {
               const intensity = anomaly.frp > 1000 ? 1 : anomaly.frp > 100 ? 0.7 : 0.4;
@@ -399,12 +298,11 @@ export function ConflictMap({
               return (
                 <Marker key={`geoint-${i}`} coordinates={[anomaly.longitude, anomaly.latitude]}>
                   <g
-                    filter="url(#glow-geoint)"
+                    filter="url(#theater-glow-geoint)"
                     className="cursor-pointer"
                     onMouseEnter={() => setHoveredId(`geoint-${i}`)}
                     onMouseLeave={() => setHoveredId(null)}
                   >
-                    {/* Outer pulse ring */}
                     <circle
                       r={r * 2.5 * pulseScale}
                       fill="none"
@@ -412,7 +310,6 @@ export function ConflictMap({
                       strokeWidth={0.4 * s}
                       opacity={0.25 / pulseScale}
                     />
-                    {/* Triangle marker */}
                     <polygon
                       points={`0,${-r * 1.8} ${r * 1.2},${r * 0.9} ${-r * 1.2},${r * 0.9}`}
                       fill={`rgba(255, ${Math.floor(68 + (1 - intensity) * 100)}, 0, ${0.7 + intensity * 0.3})`}
@@ -448,7 +345,6 @@ export function ConflictMap({
               );
             })}
 
-          {/* ── SIGINT Aircraft ── */}
           {showSigint &&
             sigintAircraft.map((ac, i) => (
               <Marker key={`ac-${i}`} coordinates={[ac.lon, ac.lat]}>
@@ -494,7 +390,6 @@ export function ConflictMap({
               </Marker>
             ))}
 
-          {/* ── SIGINT Ships ── */}
           {showSigint &&
             sigintShips.map((ship, i) => (
               <Marker key={`ship-${i}`} coordinates={[ship.lon, ship.lat]}>
@@ -539,116 +434,39 @@ export function ConflictMap({
                 </g>
               </Marker>
             ))}
-
-          {/* ── Conflict Markers ── */}
-          {conflicts.map((c) => {
-            const color = severityColor[c.severity];
-            const pulseScale = 1 + 0.4 * Math.sin((animPhase + parseInt(c.id, 36)) * 0.15);
-            const isHovered = hoveredId === c.id;
-            return (
-              <Marker
-                key={c.id}
-                coordinates={c.coordinates}
-                onMouseEnter={() => setHoveredId(c.id)}
-                onMouseLeave={() => setHoveredId(null)}
-              >
-                <g className="cursor-pointer" filter={`url(#glow-${c.severity})`} transform={`scale(${s})`}>
-                  <circle r={8 * pulseScale} fill="none" stroke={color} strokeWidth={0.5} opacity={0.4 / pulseScale} />
-                  <circle r={14 * pulseScale} fill="none" stroke={color} strokeWidth={0.3} opacity={0.2 / pulseScale} />
-                  <circle r={isHovered ? 5 : 3.5} fill={color} opacity={0.9} />
-                  {isHovered && (
-                    <g>
-                      <rect
-                        x={8}
-                        y={-12}
-                        width={c.label.length * 7.5 + 16}
-                        height={20}
-                        rx={3}
-                        fill="hsl(var(--card))"
-                        stroke={color}
-                        strokeWidth={0.5}
-                        opacity={0.95}
-                      />
-                      <text
-                        x={16}
-                        y={2}
-                        fill="hsl(var(--foreground))"
-                        fontSize={10}
-                        fontFamily="JetBrains Mono, monospace"
-                      >
-                        {c.label}
-                      </text>
-                    </g>
-                  )}
-                </g>
-              </Marker>
-            );
-          })}
         </ZoomableGroup>
       </ComposableMap>
 
-      {/* ── Zoom controls ── */}
-      <div className="absolute top-3 right-3 flex flex-col gap-1">
+      <div className="absolute top-2 right-2 flex flex-col gap-1">
         <button
+          type="button"
           onClick={() => setZoom((z) => Math.min(z * 1.5, 8))}
-          className="w-7 h-7 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+          aria-label="Zoom in"
         >
-          <Plus size={14} />
+          <Plus size={12} />
         </button>
         <button
-          onClick={() => setZoom((z) => Math.max(z / 1.5, 1))}
-          className="w-7 h-7 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+          type="button"
+          onClick={() => setZoom((z) => Math.max(z / 1.5, 2))}
+          className="w-6 h-6 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+          aria-label="Zoom out"
         >
-          <Minus size={14} />
-        </button>
-        <button
-          onClick={() => {
-            setZoom(1);
-            setCenter([10, 20]);
-          }}
-          className="w-7 h-7 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
-        >
-          <RotateCcw size={12} />
+          <Minus size={12} />
         </button>
       </div>
 
-      {/* Crimea = Ukraine: über der unteren Leiste, damit nicht verdeckt */}
-      <div
-        className="absolute bottom-14 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-card/95 border border-border/60 shadow-sm pointer-events-none z-10"
-        title="Map stance"
-      >
-        <span className="text-[10px] font-mono text-foreground whitespace-nowrap">
-          Crimea = Ukraine (under international law)
-        </span>
-      </div>
-
-      {/* ── Legend ── */}
-      <div className="absolute bottom-4 left-4 flex items-center gap-4 flex-wrap">
-        {/* Severity */}
-        {(
-          [
-            ["high", "HIGH"],
-            ["medium", "MED"],
-            ["low", "LOW"],
-          ] as const
-        ).map(([sv, label]) => (
-          <div key={sv} className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: severityColor[sv] }} />
-            <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
-          </div>
-        ))}
-
-        {/* GEOINT toggle */}
+      <div className="absolute bottom-12 left-2 flex items-center gap-3 flex-wrap">
         <button
+          type="button"
           onClick={() => setShowGeoint((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
           <span style={{ color: showGeoint ? "#ff4400" : undefined }}>△</span>
           GEOINT
         </button>
-
-        {/* SIGINT toggle */}
         <button
+          type="button"
           onClick={() => setShowSigint((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
@@ -656,12 +474,11 @@ export function ConflictMap({
           <span style={{ color: showSigint ? "#34d399" : undefined }}>⚓</span>
           SIGINT
         </button>
-
-        {/* Heatmap toggle (ACLED conflict intensity). Without API key: acleddata.com/iran-crisis-live for Iran. */}
         <button
+          type="button"
           onClick={() => setShowHeatmap((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-          title="Conflict intensity from ACLED (needs ACLED_API_KEY). Alternative: acleddata.com/iran-crisis-live"
+          title="Conflict intensity from ACLED"
         >
           <span
             className={`w-2.5 h-2.5 rounded-full border ${showHeatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
@@ -669,28 +486,11 @@ export function ConflictMap({
           HEATMAP
           {heatmapLoading && showHeatmap && <span className="animate-pulse">…</span>}
         </button>
-
-        {/* Theater Map toggle: unified events (FIRMS + ACLED + UCDP) with type-specific icons (e.g. Iran). */}
         <button
-          onClick={() => setShowTheater((v) => !v)}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-          title="Theater map: Airstrike, Missile, Drone, Explosion, Naval, Fire (FIRMS + ACLED + UCDP)"
-        >
-          <span
-            className={`w-2.5 h-2.5 rounded-sm border ${showTheater ? "bg-destructive/60 border-destructive" : "bg-muted/40 border-border"}`}
-          />
-          THEATER
-          {theaterLoading && showTheater && <span className="animate-pulse">…</span>}
-          {showTheater && !theaterLoading && theaterEvents.length > 0 && (
-            <span className="text-muted-foreground">({theaterEvents.length})</span>
-          )}
-        </button>
-
-        {/* SAM rings – vordefinierte Stellungen (OSINT) */}
-        <button
+          type="button"
           onClick={() => setShowSamRings((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-          title="SAM engagement zones (static overlay)"
+          title="SAM engagement zones"
         >
           <span
             className={`w-2.5 h-2.5 rounded-full border ${showSamRings ? "border-destructive" : "border-border"}`}
@@ -698,9 +498,8 @@ export function ConflictMap({
           />
           SAM
         </button>
-
-        {/* Air routes */}
         <button
+          type="button"
           onClick={() => setShowAirRoutes((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Main air corridors"
@@ -708,38 +507,16 @@ export function ConflictMap({
           <span style={{ color: showAirRoutes ? "hsl(210 80% 55%)" : undefined }}>✈</span>
           AIR
         </button>
-
-        {/* Sea lanes */}
         <button
+          type="button"
           onClick={() => setShowSeaLanes((v) => !v)}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-          title="Sea lanes (e.g. Strait of Hormuz)"
+          title="Sea lanes"
         >
           <span style={{ color: showSeaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
           SEA
         </button>
-
-        {/* Links toggle */}
-        <button
-          onClick={() => setShowLinks((v) => !v)}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <div
-            className={`w-2.5 h-0.5 ${showLinks ? "bg-primary" : "bg-muted-foreground/40"}`}
-            style={{ borderTop: "1px dashed" }}
-          />
-          {showLinks ? "LINKS ON" : "LINKS OFF"}
-        </button>
-
-        {hiddenLinks.size > 0 && showLinks && (
-          <button
-            onClick={() => setHiddenLinks(new Set())}
-            className="text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-          >
-            RESET
-          </button>
-        )}
-        {showTheater && !theaterLoading && theaterEvents.length > 0 && (
+        {!theaterLoading && theaterEvents.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             {(Object.entries(THEATER_EVENT_STYLE) as [string, { label: string; fill: string }][]).map(([key, { label, fill }]) => {
               const count = theaterEvents.filter((e) => e.event_type === key).length;
@@ -755,9 +532,8 @@ export function ConflictMap({
         )}
       </div>
 
-      {/* ── Live indicator ── */}
       {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && (
-        <div className="absolute top-3 left-3 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
+        <div className="absolute top-2 left-2 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
           <span className="text-[10px] font-mono text-muted-foreground">
             {geointAnomalies.length > 0 && `${geointAnomalies.length} THERMAL`}
@@ -766,6 +542,12 @@ export function ConflictMap({
             {sigintAircraft.length > 0 && sigintShips.length > 0 && " · "}
             {sigintShips.length > 0 && `${sigintShips.length} SHIPS`}
           </span>
+        </div>
+      )}
+
+      {theaterLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none">
+          <span className="text-xs font-mono text-muted-foreground animate-pulse">Loading theater…</span>
         </div>
       )}
     </div>
