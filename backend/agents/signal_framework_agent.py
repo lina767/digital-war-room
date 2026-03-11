@@ -54,6 +54,36 @@ EXILE_FRAMING_TERMS = [
 REACTION_KEYWORDS = ["deny", "denial", "dismiss", "reject", "accusation", "conspiracy", "fake", "fabricated"]
 
 
+def _is_mostly_farsi(text: str) -> bool:
+    """True if text is predominantly in Persian/Arabic script (U+0600–U+06FF)."""
+    if not text or not text.strip():
+        return False
+    chars = [c for c in text if c.strip()]
+    if not chars:
+        return False
+    farsi_count = sum(1 for c in chars if "\u0600" <= c <= "\u06FF")
+    return farsi_count / len(chars) >= 0.3
+
+
+def _ensure_english_display(
+    state_val: Optional[str], exile_val: Optional[str], exile_en_val: Optional[str]
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    For display we want English. If exile content is Farsi and no English version, return placeholder for exile_en.
+    Returns (state_en_display, exile_en_display).
+    """
+    state_en = (state_val or "").strip() or None
+    exile_en = (exile_en_val or "").strip() or None
+    exile_raw = (exile_val or "").strip()
+    if exile_raw and _is_mostly_farsi(exile_raw) and (not exile_en or _is_mostly_farsi(exile_en)):
+        exile_en = "Content in Farsi (no English translation in this run)."
+    elif not exile_en and exile_raw and not _is_mostly_farsi(exile_raw):
+        exile_en = exile_raw
+    elif not exile_en and exile_raw:
+        exile_en = "Content in Farsi (no English translation in this run)."
+    return state_en or None, exile_en or None
+
+
 def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -268,20 +298,35 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
         if not main_exile_en and main_exile:
             main_exile_en = main_exile  # fallback to any
 
+        # Ensure display is in English: prefer _en; if content is Farsi, use placeholder
+        main_state_display, main_exile_display = _ensure_english_display(main_state, main_exile, main_exile_en)
+
+        state_terms_str = ", ".join(state_terms[:15]) if state_terms else "—"
+        exile_terms_str = ", ".join(exile_terms[:15]) if exile_terms else "—"
+        exile_terms_en_str = ", ".join(exile_terms_en[:15]) if exile_terms_en else ""
+        if exile_terms_en_str and _is_mostly_farsi(exile_terms_en_str):
+            exile_terms_en_str = "Key terms in Farsi (no English translation in this run)."
+        elif not exile_terms_en_str and exile_terms_str and not _is_mostly_farsi(exile_terms_str):
+            exile_terms_en_str = exile_terms_str
+        elif not exile_terms_en_str and exile_terms_str:
+            exile_terms_en_str = "Key terms in Farsi (no English translation in this run)."
+        key_state_display = state_terms_str if state_terms_str != "—" else None
+        key_exile_display = exile_terms_en_str or None
+
         table = [
             SourceComparisonRow(
                 point="Main claim",
                 state_narrative=main_state[:400] if main_state else "No state coverage retrieved.",
                 exile_narrative=main_exile or "No exile/independent coverage retrieved.",
-                state_narrative_en=main_state[:400] if main_state else None,
-                exile_narrative_en=main_exile_en or None,
+                state_narrative_en=main_state_display,
+                exile_narrative_en=main_exile_display,
             ),
             SourceComparisonRow(
                 point="Key terms",
-                state_narrative=", ".join(state_terms[:15]) if state_terms else "—",
-                exile_narrative=", ".join(exile_terms[:15]) if exile_terms else "—",
-                state_narrative_en=", ".join(state_terms[:15]) if state_terms else None,
-                exile_narrative_en=", ".join(exile_terms_en[:15]) if exile_terms_en else None,
+                state_narrative=state_terms_str,
+                exile_narrative=exile_terms_str,
+                state_narrative_en=key_state_display,
+                exile_narrative_en=key_exile_display,
             ),
         ]
 
