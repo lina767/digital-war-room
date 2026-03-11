@@ -6,11 +6,16 @@ import { Button } from "@/components/ui/button";
 import { getLatestAnalysis } from "@/lib/api";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
+import {
+  IRAN_CONFLICT_ACTORS,
+  activityFromKeyFindings,
+  type ConflictActor,
+} from "@/components/dashboard/actorsData";
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 
-/** Reference start date for "Day X of operations" (e.g. Iran escalation). */
-const OPERATIONS_START_DATE = new Date(2024, 3, 13); // 2024-04-13
+/** Reference start date for "Day X of operations" – counting from 28 February 2026. */
+const OPERATIONS_START_DATE = new Date(2026, 1, 28); // 2026-02-28
 
 function formatAsOf(date: Date): string {
   return date.toISOString().replace("T", " ").slice(0, 19) + " UTC";
@@ -75,6 +80,19 @@ export default function DailyIntelligenceBriefing() {
     String(f).toLowerCase().includes("global impact")
   );
   const globalNote = data?.energy?.global_impact_note ?? null;
+
+  const briefingActors: ConflictActor[] = (() => {
+    if (Array.isArray(data?.actors) && data.actors.length > 0) {
+      return data.actors as ConflictActor[];
+    }
+    if (!conflictParam || !String(conflictParam).toLowerCase().includes("iran")) return [];
+    const keyFindings = data?.key_findings ?? [];
+    return IRAN_CONFLICT_ACTORS.map((a) => ({
+      ...a,
+      activity: activityFromKeyFindings(a.id, a.name, keyFindings),
+      intelligence: undefined,
+    })) as ConflictActor[];
+  })();
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -183,24 +201,80 @@ export default function DailyIntelligenceBriefing() {
                 </div>
               </section>
 
-              {/* 3. Situation by Actor */}
+              {/* 3. Situation by Actor – Actor Intelligence (official position, doing, signals, military profile) */}
               <section>
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   3. Situation by Actor
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed">
-                  {data.narrative?.source_comparison_table && data.narrative.source_comparison_table.length > 0 ? (
-                    <ul className="space-y-3">
-                      {data.narrative.source_comparison_table.slice(0, 6).map((row, i) => (
-                        <li key={i} className="border-b border-border/50 pb-2 last:border-0 last:pb-0">
-                          <p className="font-medium text-foreground mb-1">{row.point}</p>
-                          <p className="text-muted-foreground text-xs">State: {row.state_narrative}</p>
-                          <p className="text-muted-foreground text-xs">Exile/independent: {row.exile_narrative}</p>
+                  {briefingActors.length > 0 ? (
+                    <ul className="space-y-4">
+                      {briefingActors.map((actor) => (
+                        <li key={actor.id} className="border-b border-border/50 pb-4 last:border-0 last:pb-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="font-medium text-foreground">{actor.name}</span>
+                            <span className="text-[10px] font-mono text-muted-foreground uppercase">
+                              {actor.role}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">Activity: {actor.activity}</span>
+                          </div>
+                          {actor.intelligence?.official_position && (
+                            <div className="mb-1.5">
+                              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                                Official position
+                              </p>
+                              <p className="text-xs">{actor.intelligence.official_position}</p>
+                            </div>
+                          )}
+                          {actor.intelligence?.verified_actions &&
+                            actor.intelligence.verified_actions.length > 0 && (
+                              <div className="mb-1.5">
+                                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                                  Doing (verified actions)
+                                </p>
+                                <ul className="text-xs list-disc list-inside space-y-0.5">
+                                  {actor.intelligence.verified_actions.map((a, i) => (
+                                    <li key={i}>{a}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          {actor.intelligence?.signals && actor.intelligence.signals.length > 0 && (
+                            <div className="mb-1.5">
+                              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                                Signals
+                              </p>
+                              <ul className="text-xs list-disc list-inside space-y-0.5">
+                                {actor.intelligence.signals.map((s, i) => (
+                                  <li key={i}>{s}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {actor.intelligence?.military_profile && (
+                            <div>
+                              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                                Military profile
+                              </p>
+                              <p className="text-xs">{actor.intelligence.military_profile}</p>
+                            </div>
+                          )}
+                          {!actor.intelligence ||
+                            (!actor.intelligence.official_position &&
+                              !(actor.intelligence.verified_actions?.length) &&
+                              !(actor.intelligence.signals?.length) &&
+                              !actor.intelligence.military_profile) && (
+                            <p className="text-xs text-muted-foreground italic">
+                              No detailed intelligence for this actor in current analysis.
+                            </p>
+                          )}
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-muted-foreground italic">Situation-by-actor analysis not available for this conflict.</p>
+                    <p className="text-muted-foreground italic">
+                      Actor list and situation-by-actor analysis are available for the Iran conflict. Run an analysis to populate actors and activity.
+                    </p>
                   )}
                 </div>
               </section>

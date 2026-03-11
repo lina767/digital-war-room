@@ -106,6 +106,19 @@ export interface ConflictData {
     fetched_at?: string;
     error?: string;
   };
+  /** Iran conflict: actors with activity and optional intelligence (official position, verified actions, signals, military profile). */
+  actors?: Array<{
+    id: string;
+    name: string;
+    role: string;
+    activity: number;
+    intelligence?: {
+      official_position?: string;
+      verified_actions?: string[];
+      signals?: string[];
+      military_profile?: string;
+    };
+  }>;
 }
 
 interface UseConflictWebSocketOptions {

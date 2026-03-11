@@ -159,6 +159,53 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+# Iran conflict actors (aligned with conflicts.app). Activity derived from key_findings mentions.
+_IRAN_ACTORS = [
+    {"id": "israel", "name": "Israel", "role": "aggressor"},
+    {"id": "united_states", "name": "United States", "role": "aggressor"},
+    {"id": "iran", "name": "Iran", "role": "retaliating"},
+    {"id": "irgc", "name": "IRGC", "role": "retaliating"},
+    {"id": "nato", "name": "NATO", "role": "defender"},
+    {"id": "hezbollah", "name": "Hezbollah", "role": "retaliating"},
+    {"id": "us_il_joint", "name": "US–IL Joint", "role": "aggressor"},
+    {"id": "russia", "name": "Russia", "role": "neutral"},
+    {"id": "houthis", "name": "Houthis", "role": "retaliating"},
+    {"id": "iraqi_pmf", "name": "Iraqi PMF", "role": "neutral"},
+]
+
+
+def _actor_activity_from_findings(actor_id: str, actor_name: str, key_findings: List[str]) -> int:
+    """Compute activity 0–100 from key_findings mention count."""
+    text = " ".join(key_findings).lower()
+    terms = []
+    if actor_id == "us_il_joint":
+        terms = ["us", "israel", "joint", "strike"]
+    elif actor_id == "irgc":
+        terms = ["irgc", "revolutionary guard"]
+    elif actor_id == "iraqi_pmf":
+        terms = ["pmf", "iraqi", "popular mobilization"]
+    else:
+        terms = [actor_name.lower(), actor_id.replace("_", " ")]
+    count = sum(1 for t in terms if t in text)
+    if count == 0:
+        return 40
+    return min(100, 40 + count * 15)
+
+
+def _build_iran_actors(key_findings: List[str]) -> List[Dict[str, Any]]:
+    """Build actors list for Iran conflict with activity from key_findings."""
+    out = []
+    for a in _IRAN_ACTORS:
+        activity = _actor_activity_from_findings(a["id"], a["name"], key_findings)
+        out.append({
+            "id": a["id"],
+            "name": a["name"],
+            "role": a["role"],
+            "activity": activity,
+        })
+    return out
+
+
 def _rule_based_fallback(combined_score: float) -> Dict[str, Any]:
     if combined_score >= 80: tl = "CRITICAL"
     elif combined_score >= 60: tl = "HIGH"
@@ -393,12 +440,16 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(ref, dict) and ref.get("title") and "error" not in str(ref.get("excerpt", ""))[:50]:
             key_findings.append(f"ACLED reference – {ref.get('title', '')[:70]}")
 
+    # ── Iran conflict: actors with activity from key_findings ─────────────────────
+    actors = _build_iran_actors(key_findings) if conflict and "iran" in conflict.lower() else []
+
     return {
         "escalation_score": combined_score,
         "threat_level": threat_level,
         "key_findings": key_findings,
         "scenarios": scenarios,
         "summary": summary,
+        "actors": actors,
         **{k: v for k, v in agent_results.items() if k != "acled_refs"},
     }
 
@@ -428,4 +479,5 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "key_findings":     synthesis.get("key_findings", []),
         "scenarios":        synthesis.get("scenarios", []),
         "summary":          synthesis.get("summary", ""),
+        "actors":           synthesis.get("actors", []),
     }
