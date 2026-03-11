@@ -27,7 +27,7 @@ export interface ConflictData {
   };
   finint?: {
     brent?: { price: string; change_pct: string; as_of: string } | null;
-    polymarket?: Array<{ question?: string; probability?: number; url?: string }>;
+    polymarket?: Array<{ question?: string; probability?: number; volume?: number; url?: string }>;
   };
   geoint?: {
     anomalies: any[];
@@ -83,7 +83,13 @@ export interface ConflictData {
   /** Signal Framework: state vs exile/independent media comparison (Iran). */
   narrative?: {
     conflict?: string;
-    source_comparison_table?: Array<{ point: string; state_narrative: string; exile_narrative: string }>;
+    source_comparison_table?: Array<{
+      point: string;
+      state_narrative: string;
+      exile_narrative: string;
+      state_narrative_en?: string | null;
+      exile_narrative_en?: string | null;
+    }>;
     signal_assessment?: { latency?: string; credibility_gaps?: string };
     signals?: {
       lexical?: { state_terms?: string[]; exile_terms?: string[]; interpretation?: string };

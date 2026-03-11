@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
-import { runProximityAnalysis, fetchTunnelSites } from "@/lib/proximityAnalyzerService";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
@@ -70,35 +69,11 @@ const Dashboard = () => {
     return n;
   }, [conflictData]);
 
-  // Proximity Analyzer: strike–civilian correlation
-  const [proximityEvidence, setProximityEvidence] = useState<ProximityEvidence[]>([]);
-  const [proximityLoading, setProximityLoading] = useState(false);
-  const [proximityError, setProximityError] = useState<string | null>(null);
-  const conflictToRegion = (c: string): string => {
-    const lower = c.toLowerCase();
-    if (lower.includes("iran") || lower.includes("israel") || lower.includes("gaza") || lower.includes("yemen") || lower.includes("syria") || lower.includes("iraq") || lower.includes("lebanon")) return "middle_east";
-    if (lower.includes("ukraine") || lower.includes("russia")) return "eastern_europe";
-    if (lower.includes("taiwan") || lower.includes("korea") || lower.includes("myanmar")) return "east_asia";
-    if (lower.includes("sudan") || lower.includes("ethiopia") || lower.includes("sahel") || lower.includes("drc")) return "africa";
-    return "middle_east";
-  };
-  const runProximity = useCallback(async () => {
-    setProximityLoading(true);
-    setProximityError(null);
-    try {
-      const region = conflictToRegion(selectedConflict);
-      // For Iran: load tunnel/sites GeoJSON to flag PROBABLE_HUMAN_SHIELD (IRGC tunnels vs. schools/hospitals)
-      const useTunnelSites = selectedConflict.toLowerCase().includes("iran");
-      const tunnelSites = useTunnelSites ? await fetchTunnelSites() : null;
-      const evidence = await runProximityAnalysis(region, 3, tunnelSites ?? undefined);
-      setProximityEvidence(evidence);
-    } catch (e) {
-      setProximityError(e instanceof Error ? e.message : String(e));
-      setProximityEvidence([]);
-    } finally {
-      setProximityLoading(false);
-    }
-  }, [selectedConflict]);
+  // Proximity Analyzer: uses evidence from main analysis (runs automatically with other agents)
+  const proximityEvidence: ProximityEvidence[] = useMemo(
+    () => (conflictData?.proximity?.evidence ?? []).filter((e): e is ProximityEvidence => e != null && typeof e === "object"),
+    [conflictData?.proximity?.evidence]
+  );
 
   return (
     <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
@@ -256,9 +231,6 @@ const Dashboard = () => {
           displayConflictLabel={displayConflictLabel}
           analysisLoading={initialLoadPending}
           proximityEvidence={proximityEvidence}
-          proximityLoading={proximityLoading}
-          proximityError={proximityError}
-          runProximity={runProximity}
         />
       </div>
 

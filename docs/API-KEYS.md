@@ -43,10 +43,31 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **CLOUDFLARE_RADAR_API_TOKEN** | `backend/agents/techint_agent.py` – Outage-Annotations | [dash.cloudflare.com](https://dash.cloudflare.com/) → Radar / API. |
 | **WIGLE_API_NAME** / **WIGLE_API_TOKEN** | `backend/agents/techint_agent.py` – Wigle.net WLAN-Datenbank (TECHINT) | [wigle.net](https://wigle.net/) – Account anlegen, API-Token im Profil; Username + Token als Basic Auth. |
 | **SPIRE_MARITIME_API_KEY** | `backend/agents/sigint_agent.py` – Spire Maritime (Schiffe/AIS) | [spire.com](https://spire.com/) – Maritime API. |
+| **ADSBEXCHANGE_RAPIDAPI_KEY** | `backend/agents/sigint_agent.py` – ADSBexchange (Flugzeuge/Target-Tracking) via RapidAPI | [RapidAPI: ADSBexchange](https://rapidapi.com/adsbx/api/adsbexchange-com1) – Key nach Anmeldung. Alternativ: **RAPIDAPI_KEY** (falls nur eine RapidAPI-App). Host optional: **ADSBEXCHANGE_RAPIDAPI_HOST** (Default: `adsbexchange-com1.p.rapidapi.com`). **Kostenanalyse siehe unten.** |
 | **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program (GED events) | Bei UCDP anfragen ([ucdp.uu.se](https://ucdp.uu.se/), [API-Doku](https://ucdp.uu.se/apidocs/)). Header: `x-ucdp-access-token`. **Limit:** 5.000 Requests/Tag (Mitternacht UTC); jeder paginierte Request zählt. |
 | **LIVEUAMAP_API_KEY** | GEOINT (Liveuamap, falls integriert) | Liveuamap – oft kostenpflichtig. |
 | **NOTAM_API_KEY** | `backend/agents/iaea_tracker.py` – NOTAM (Autorouter.aero) | [autorouter.aero](https://www.autorouter.aero/) – falls der Endpunkt Auth verlangt. |
 | **FIRECRAWL_API_KEY** | `backend/agents/acled_reference.py` – ACLED-Referenzseiten (robustes Scraping) | [firecrawl.dev](https://firecrawl.dev) – Free Plan: 500 Credits einmalig, 2 gleichzeitige Requests. Ohne Key: Fallback auf httpx. |
+
+---
+
+## ADSBexchange RapidAPI – Kostenanalyse für dieses Projekt
+
+| Faktor | Wert in diesem Projekt |
+|--------|-------------------------|
+| **Aufrufer** | Nur `get_target_aircraft("OE-III")` im SIGINT-Agent, pro Analyse-Lauf **1×** ausgeführt. |
+| **Requests pro Lauf** | **1–2** (zuerst ICAO-Lookup, falls leer: ein Region-Call 35°N/25°E, 100 nm). |
+| **Automatische Läufe** | `main.py`: periodische Analyse alle **6 h** (Default `AUTO_ANALYZE_INTERVAL_SEC=21600`). → **4 Läufe/Tag** ≈ **120 Läufe/Monat**. |
+| **Manuelle/API-Läufe** | `/api/analyze/refresh`, Trigger, Sync – je nach Nutzung grob **0–50** zusätzliche Läufe/Monat. |
+| **RapidAPI-Requests/Monat** | **~120–350** (bei 6-h-Intervall + wenig manuell). Selbst bei 1-h-Intervall: ≈ 720–1 500. |
+
+**Basic-Plan (10 $/Monat, 10 000 Requests):** Für dieses Projekt **deutlich überdimensioniert** – du bleibst fast immer unter 500–1 500 Requests/Monat. Das Limit ist also kein Entscheidungskriterium.
+
+**Lohnt sich der Plan trotzdem?**  
+- **Ja**, wenn du **stabile, ungefilterte** ADSBexchange-Daten für OE-III (oder andere Ziele) willst und adsb.fi/adsb.lol im Betrieb zu oft ausfallen oder filtern.  
+- **Nein**, wenn du erst testest oder die kostenlosen Quellen (adsb.fi, adsb.lol, ggf. direkter ADSBX-Key) ausreichen. Ohne `ADSBEXCHANGE_RAPIDAPI_KEY` nutzt der Code automatisch die Fallbacks.
+
+**Empfehlung:** Zuerst **ohne** RapidAPI-Key betreiben. OE-III wird nun zuerst per **kostenloser** Registration-Abfrage (adsb.fi, adsb.lol) und Regions-Scan (Wien, Ost-Mittelmeer, Golf) ermittelt; RapidAPI/ADSBX dienen als Verstärkung. Für noch bessere Trefferquote **OEIII_HEX** in `.env` setzen (ICAO-Hex der Maschine), falls bekannt.
 
 ---
 
@@ -90,6 +111,9 @@ ACLED_PASSWORD=dein_myACLED_passwort
 
 # Optional – GEOINT: UCDP (Uppsala Conflict Data Program). Header: x-ucdp-access-token. Limit: 5.000 Requests/Tag.
 # UCDP_API_TOKEN=...
+
+# Optional – SIGINT: ADSBexchange via RapidAPI (Flugzeug-Tracking, z. B. OE-III). https://rapidapi.com/adsbx/api/adsbexchange-com1
+# ADSBEXCHANGE_RAPIDAPI_KEY=...
 
 # Optional – FININT: Gold, On-Chain-Wallets (TRACKED_ETH_ADDRESSES in finint_agent.py)
 # METALS_API_KEY=...

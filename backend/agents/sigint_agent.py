@@ -6,6 +6,9 @@ ADS-B sources (no API key needed):
   - opendata.adsb.fi  (primary)
   - api.adsb.lol      (fallback)
 
+Optional: ADSBexchange via RapidAPI (ADSBEXCHANGE_RAPIDAPI_KEY) for target tracking (e.g. OE-III).
+  - https://rapidapi.com/adsbx/api/adsbexchange-com1
+
 Ship sources:
   - VesselFinder public endpoint (multiple bounding boxes)
   - Spire Maritime (subagent; optional SPIRE_MARITIME_API_KEY) – AIS/vessels in Persian Gulf, Red Sea, etc.
@@ -75,18 +78,36 @@ SPIRE_REGIONS = [
 ]  # (label, lat_lo, lat_hi, lon_lo, lon_hi)
 
 # Optional target aircraft profile (IAEA jet OE-III)
+# OEIII_HEX: set in .env if known (e.g. from ADSBexchange) for reliable ICAO lookup
 TARGET_AIRCRAFT: Dict[str, Dict[str, Any]] = {
     "OE-III": {
-        # ICAO hex can be configured via env to avoid hard-coding
         "hex": (os.getenv("OEIII_HEX") or "").lower() or None,
-        "regs": ["OE-III", "OEIII"],
+        "regs": ["OE-III", "OEIII", "OE III"],
         "notes": "IAEA / diplomatic jet",
     },
 }
 
+# Free ADS-B registration/region endpoints (no key) – used for OE-III before paid APIs
+ADSB_REGISTRATION_URLS = [
+    "https://opendata.adsb.fi/api/v2/registration/{reg}",
+    "https://api.adsb.lol/v2/registration/{reg}",
+]
+ADSB_REGIONS_OEIII = [
+    ("Vienna/Austria", 48.2, 16.4, 350),
+    ("Eastern Med", 33.0, 35.0, 400),
+    ("Persian Gulf", 26.0, 55.0, 450),
+]
+ADSB_LATLON_URLS = [
+    "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}",
+    "https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{dist}",
+]
+
 # Optional external APIs for target tracking (can be left unset in .env)
 ADSBX_BASE_URL = os.getenv("ADSBX_BASE_URL", "").rstrip("/") or None
 ADSBX_API_KEY = (os.getenv("ADSBX_API_KEY") or "").strip() or None
+# ADSBexchange via RapidAPI: https://rapidapi.com/adsbx/api/adsbexchange-com1
+ADSBEXCHANGE_RAPIDAPI_KEY = (os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY") or os.getenv("RAPIDAPI_KEY") or "").strip() or None
+ADSBEXCHANGE_RAPIDAPI_HOST = (os.getenv("ADSBEXCHANGE_RAPIDAPI_HOST") or "adsbexchange-com1.p.rapidapi.com").strip()
 OPENSKY_USERNAME = (os.getenv("OPENSKY_USERNAME") or "").strip() or None
 OPENSKY_PASSWORD = (os.getenv("OPENSKY_PASSWORD") or "").strip() or None
 
@@ -96,6 +117,105 @@ def _safe_float(v: Any) -> float | None:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _adsbexchange_rapidapi_headers() -> Dict[str, str]:
+    """Headers for ADSBexchange via RapidAPI (https://rapidapi.com/adsbx/api/adsbexchange-com1)."""
+    return {
+        "X-RapidAPI-Key": ADSBEXCHANGE_RAPIDAPI_KEY or "",
+        "X-RapidAPI-Host": ADSBEXCHANGE_RAPIDAPI_HOST,
+        "User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)",
+    }
+
+
+async def _fetch_adsbexchange_rapidapi(
+    client: httpx.AsyncClient,
+    *,
+    icao: Optional[str] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    dist_nm: int = 100,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch aircraft from ADSBexchange via RapidAPI.
+    Either icao=HEX for one aircraft, or (lat, lon, dist_nm) for region (max 100 nm per request).
+    """
+    if not ADSBEXCHANGE_RAPIDAPI_KEY:
+        return []
+    base = f"https://{ADSBEXCHANGE_RAPIDAPI_HOST}"
+    headers = _adsbexchange_rapidapi_headers()
+    ac_list: List[Dict[str, Any]] = []
+    try:
+        if icao:
+            url = f"{base}/api/aircraft/icao/{icao.strip().upper()}"
+            resp = await client.get(url, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                if isinstance(ac, list):
+                    ac_list = ac
+                elif isinstance(ac, dict):
+                    ac_list = [ac]
+        elif lat is not None and lon is not None:
+            dist = min(100, max(1, int(dist_nm)))
+            url = f"{base}/api/aircraft/lat/{lat}/lon/{lon}/dist/{dist}"
+            resp = await client.get(url, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                if isinstance(ac, list):
+                    ac_list = ac
+    except Exception as e:
+        logger.debug("SIGINT: ADSBexchange RapidAPI fetch failed: %s", e)
+    return ac_list
+
+
+async def _fetch_adsb_by_registration(client: httpx.AsyncClient, reg: str) -> List[Dict[str, Any]]:
+    """Free OE-III lookup by registration (adsb.fi, adsb.lol). Reg without hyphen, e.g. OEIII."""
+    reg_clean = (reg or "").replace("-", "").replace(" ", "").strip().upper()
+    if not reg_clean:
+        return []
+    for tpl in ADSB_REGISTRATION_URLS:
+        try:
+            url = tpl.format(reg=reg_clean)
+            resp = await client.get(url, timeout=12.0)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            ac = data if isinstance(data, list) else (data.get("ac") or data.get("aircraft") or [])
+            if isinstance(ac, list) and ac:
+                return ac
+            if isinstance(ac, dict):
+                return [ac]
+        except Exception as e:
+            logger.debug("SIGINT: adsb registration %s failed: %s", tpl[:40], e)
+    return []
+
+
+async def _fetch_adsb_regions_for_target(
+    client: httpx.AsyncClient, cfg: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Scan Vienna, Eastern Med, Gulf via adsb.fi/adsb.lol and return aircraft matching target."""
+    candidates: List[Dict[str, Any]] = []
+    for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
+        for tpl in ADSB_LATLON_URLS:
+            try:
+                url = tpl.format(lat=lat, lon=lon, dist=min(500, dist))
+                resp = await client.get(url, timeout=12.0)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                ac_list = data if isinstance(data, list) else (data.get("ac") or data.get("aircraft") or [])
+                if isinstance(ac_list, list):
+                    for ac in ac_list:
+                        if _match_target_aircraft(ac, cfg):
+                            candidates.append(ac)
+                    if candidates:
+                        return candidates
+            except Exception:
+                continue
+        await asyncio.sleep(0.35)
+    return candidates
 
 
 def _classify_aircraft(callsign: str, ac_type: str) -> str | None:
@@ -474,70 +594,110 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
     """
     Track a specific high-value aircraft (e.g. IAEA jet OE-III) across multiple SIGINT layers.
 
-    Combines:
-    - ADSB-Exchange (unfiltered) when ADSBX_* env vars are set
-    - OpenSky historical pattern (optional)
-    - Existing ADS-B-based get_military_aircraft as a fallback
+    Order: (0) Free registration lookup adsb.fi/adsb.lol, (0b) free region scan,
+    (1a) RapidAPI, (1b) ADSB-Exchange direct, (2) OpenSky, (3) military list.
+    Set OEIII_HEX in .env for reliable ICAO lookups when known.
     """
     target_key = target.upper()
     cfg = TARGET_AIRCRAFT.get(target_key)
     if not cfg:
         return {"target": target, "error": "unknown_target"}
 
+    def _ac_to_position(ac: Dict[str, Any], source: str) -> Dict[str, Any]:
+        return {
+            "lat": _safe_float(ac.get("lat")),
+            "lon": _safe_float(ac.get("lon")),
+            "alt_baro": _safe_float(ac.get("alt_baro") or ac.get("altitude")),
+            "gs": _safe_float(ac.get("gs") or ac.get("groundspeed") or ac.get("speed")),
+            "track": _safe_float(ac.get("track") or ac.get("heading")),
+            "hex": ac.get("hex") or ac.get("icao24"),
+            "callsign": ac.get("flight") or ac.get("callsign"),
+            "registration": ac.get("r") or ac.get("registration"),
+            "seen": ac.get("seen") or ac.get("timestamp"),
+            "position_source": source,
+        }
+
     async def _run() -> Dict[str, Any]:
         result: Dict[str, Any] = {"target": target_key}
         latest_adsbx: Optional[Dict[str, Any]] = None
         opensky_hint: Optional[Dict[str, Any]] = None
+        fallback_match: Optional[Dict[str, Any]] = None
 
         async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
-            # 1. ADSB-Exchange live position (if configured)
-            if ADSBX_BASE_URL and ADSBX_API_KEY:
+            # 0. Free registration lookup first (adsb.fi / adsb.lol) – works well for OE-III
+            for reg in (cfg.get("regs") or []):
+                if not reg or not isinstance(reg, str):
+                    continue
+                ac_list_reg = await _fetch_adsb_by_registration(client, reg)
+                if ac_list_reg:
+                    ac = ac_list_reg[0]
+                    if _match_target_aircraft(ac, cfg):
+                        latest_adsbx = _ac_to_position(ac, "adsb_registration")
+                        break
+                await asyncio.sleep(0.2)
+
+            # 0b. Free region scan (Vienna, Eastern Med, Gulf) if registration had no hit
+            if not latest_adsbx:
+                region_candidates = await _fetch_adsb_regions_for_target(client, cfg)
+                if region_candidates:
+                    latest_adsbx = _ac_to_position(region_candidates[0], "adsb_region")
+
+            # 1a. ADSBexchange via RapidAPI – ICAO then multi-region
+            if ADSBEXCHANGE_RAPIDAPI_KEY and not latest_adsbx:
                 try:
-                    # Broad Middle East / Europe search radius around eastern Med
-                    url = f"{ADSBX_BASE_URL.rstrip('/')}/v2/lat/35/lon/25/dist/3000"
-                    resp = await client.get(
-                        url,
-                        headers={"api-key": ADSBX_API_KEY},
-                        timeout=15.0,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        ac_list = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
-                        if isinstance(ac_list, list):
-                            candidates = [ac for ac in ac_list if _match_target_aircraft(ac, cfg)]
-                            if candidates:
-                                # take the most recently seen
-                                ac = candidates[0]
-                                lat = _safe_float(ac.get("lat"))
-                                lon = _safe_float(ac.get("lon"))
-                                latest_adsbx = {
-                                    "lat": lat,
-                                    "lon": lon,
-                                    "alt_baro": _safe_float(ac.get("alt_baro") or ac.get("altitude")),
-                                    "gs": _safe_float(ac.get("gs") or ac.get("groundspeed") or ac.get("speed")),
-                                    "track": _safe_float(ac.get("track") or ac.get("heading")),
-                                    "hex": ac.get("hex") or ac.get("icao24"),
-                                    "callsign": ac.get("flight") or ac.get("callsign"),
-                                    "registration": ac.get("r") or ac.get("registration"),
-                                    "seen": ac.get("seen") or ac.get("timestamp"),
-                                    "position_source": "adsbx",
-                                }
+                    ac_list_rapid: List[Dict[str, Any]] = []
+                    if (cfg.get("hex") or "").strip():
+                        ac_list_rapid = await _fetch_adsbexchange_rapidapi(client, icao=(cfg.get("hex") or "").strip())
+                    if not ac_list_rapid:
+                        for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
+                            ac_list_rapid = await _fetch_adsbexchange_rapidapi(client, lat=lat, lon=lon, dist_nm=min(100, dist))
+                            if ac_list_rapid:
+                                candidates = [ac for ac in ac_list_rapid if _match_target_aircraft(ac, cfg)]
+                                if candidates:
+                                    latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
+                                    break
+                    else:
+                        candidates = [ac for ac in ac_list_rapid if _match_target_aircraft(ac, cfg)]
+                        if candidates:
+                            latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
+                except Exception as e:
+                    logger.debug("SIGINT: ADSBexchange RapidAPI target fetch failed: %s", e)
+
+            # 1b. ADSB-Exchange direct – multi-region
+            if ADSBX_BASE_URL and ADSBX_API_KEY and not latest_adsbx:
+                try:
+                    for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
+                        url = f"{ADSBX_BASE_URL.rstrip('/')}/v2/lat/{lat}/lon/{lon}/dist/{min(3000, dist)}"
+                        resp = await client.get(url, headers={"api-key": ADSBX_API_KEY}, timeout=15.0)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            ac_list = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                            if isinstance(ac_list, list):
+                                candidates = [ac for ac in ac_list if _match_target_aircraft(ac, cfg)]
+                                if candidates:
+                                    latest_adsbx = _ac_to_position(candidates[0], "adsbx")
+                                    break
+                    if not latest_adsbx:
+                        url = f"{ADSBX_BASE_URL.rstrip('/')}/v2/lat/35/lon/25/dist/3000"
+                        resp = await client.get(url, headers={"api-key": ADSBX_API_KEY}, timeout=15.0)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            ac_list = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                            if isinstance(ac_list, list):
+                                candidates = [ac for ac in ac_list if _match_target_aircraft(ac, cfg)]
+                                if candidates:
+                                    latest_adsbx = _ac_to_position(candidates[0], "adsbx")
                 except Exception as e:
                     logger.debug("SIGINT: ADSB-Exchange target fetch failed: %s", e)
 
-            # 2. OpenSky history (optional; good for pattern/historical last-seen)
-            if OPENSKY_USERNAME and OPENSKY_PASSWORD and (cfg.get("hex") or "").lower():
+            # 2. OpenSky history (optional)
+            if OPENSKY_USERNAME and OPENSKY_PASSWORD and (cfg.get("hex") or "").strip():
                 try:
                     now_ts = int(datetime.now(timezone.utc).timestamp())
                     from_ts = now_ts - 24 * 3600
-                    params = {
-                        "icao24": (cfg.get("hex") or "").lower(),
-                        "begin": from_ts,
-                        "end": now_ts,
-                    }
                     resp = await client.get(
                         "https://opensky-network.org/api/flights/aircraft",
-                        params=params,
+                        params={"icao24": (cfg.get("hex") or "").lower(), "begin": from_ts, "end": now_ts},
                         auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD),
                         timeout=20.0,
                     )
@@ -554,24 +714,24 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
                 except Exception as e:
                     logger.debug("SIGINT: OpenSky history fetch failed: %s", e)
 
-        # 3. Fallback: use existing ADS-B based military aircraft list and try to match target
-        fallback_match: Optional[Dict[str, Any]] = None
-        try:
-            mil = get_military_aircraft() or []
-            for ac in mil:
-                if _match_target_aircraft(ac, cfg):
-                    fallback_match = {
-                        "flight": ac.get("flight"),
-                        "lat": ac.get("lat"),
-                        "lon": ac.get("lon"),
-                        "type": ac.get("type"),
-                        "category": ac.get("category"),
-                        "source": ac.get("source", "mil-global"),
-                        "position_source": "adsb",
-                    }
-                    break
-        except Exception as e:
-            logger.debug("SIGINT: fallback aircraft list for target failed: %s", e)
+            # 3. Fallback: if still no position, use military list (rare for OE-III) or leave fallback_match None
+            if not latest_adsbx:
+                try:
+                    mil = get_military_aircraft() or []
+                    for ac in mil:
+                        if _match_target_aircraft(ac, cfg):
+                            fallback_match = {
+                                "flight": ac.get("flight"),
+                                "lat": ac.get("lat"),
+                                "lon": ac.get("lon"),
+                                "type": ac.get("type"),
+                                "category": ac.get("category"),
+                                "source": ac.get("source", "mil-global"),
+                                "position_source": "adsb",
+                            }
+                            break
+                except Exception as e:
+                    logger.debug("SIGINT: fallback aircraft list for target failed: %s", e)
 
         result["adsbx"] = latest_adsbx
         result["opensky"] = opensky_hint

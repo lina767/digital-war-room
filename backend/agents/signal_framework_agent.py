@@ -11,20 +11,27 @@ All output in English for frontend.
 """
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import feedparser
+import httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+# Exile source that provides English content (prioritized for display)
+ENGLISH_EXILE_SOURCE = "Iran International"
+FEED_REQUEST_TIMEOUT = 18
 
 # ── Source groups (Iran narrative comparison) ────────────────────────────────
 
 STATE_SOURCES: List[Dict[str, str]] = [
     {"name": "IRNA", "url": "https://www.irna.ir/en/rss.aspx?kind=-1"},
-    {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss"},  # fallback: https://www.farsnews.com/rss/politics
+    {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss"},
+    {"name": "Fars News (alt)", "url": "https://www.farsnews.com/rss/politics"},  # fallback if .ir is blocked
     {"name": "Tasnim", "url": "https://www.tasnimnews.ir/en/rss"},
     {"name": "Press TV", "url": "https://www.presstv.ir/rss/world.xml"},
 ]
@@ -52,47 +59,57 @@ def _utc_iso() -> str:
 
 
 def _parse_feed_item_published(entry: Any) -> Optional[float]:
-    """Return Unix timestamp for feed entry published/updated time, or None."""
+    """Return Unix timestamp for feed entry; try published_parsed, updated_parsed, dc/dcterms, then raw date strings."""
     try:
-        published = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
-        if published:
-            from time import mktime
-            return mktime(published)
-        raw = getattr(entry, "published", None) or getattr(entry, "updated", None)
-        if raw and isinstance(raw, str):
-            from dateutil import parser as date_parser
-            dt = date_parser.parse(raw)
-            return dt.timestamp()
+        for attr in ("published_parsed", "updated_parsed", "created_parsed"):
+            parsed = getattr(entry, attr, None)
+            if parsed:
+                return time.mktime(parsed)
+        for key in ("dc_date", "dcterms_modified", "published", "updated", "created"):
+            raw = getattr(entry, key, None) or (entry.get(key) if isinstance(entry, dict) else None)
+            if raw and isinstance(raw, str):
+                from dateutil import parser as date_parser
+                dt = date_parser.parse(raw)
+                return dt.timestamp()
     except Exception:
         pass
     return None
 
 
 def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
-    """Fetch single RSS feed and return list of items with title, link, published_ts, source_name, text."""
+    """Fetch RSS via httpx (timeout, browser UA) then parse; each item gets published_ts or fallback fetch time."""
     items: List[Dict[str, Any]] = []
+    fallback_ts = time.time()
     try:
-        parsed = feedparser.parse(
-            url,
-            request_headers={"User-Agent": "Mozilla/5.0 (compatible; SignalFramework/1.0)"},
-        )
-        for entry in getattr(parsed, "entries", [])[:25]:
-            title = (getattr(entry, "title", None) or "").strip()
-            link = getattr(entry, "link", None) or ""
-            summary = (getattr(entry, "summary", None) or getattr(entry, "description", None) or "").strip()
-            if not title and not link:
-                continue
-            ts = _parse_feed_item_published(entry)
-            text = f"{title} {summary}"
-            items.append({
-                "title": title[:500],
-                "link": link,
-                "published_ts": ts,
-                "source_name": source_name,
-                "text": text[:2000],
-            })
+        with httpx.Client(timeout=FEED_REQUEST_TIMEOUT, follow_redirects=True) as client:
+            r = client.get(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0"},
+            )
+            r.raise_for_status()
+            parsed = feedparser.parse(r.content)
     except Exception as e:
-        logger.debug("SignalFramework: feed %s failed: %s", url[:50], e)
+        logger.warning("SignalFramework: fetch failed for %s (%s): %s", source_name, url[:50], e)
+        return items
+    for entry in getattr(parsed, "entries", [])[:25]:
+        title = (getattr(entry, "title", None) or "").strip()
+        link = getattr(entry, "link", None) or ""
+        summary = (getattr(entry, "summary", None) or getattr(entry, "description", None) or "").strip()
+        if not title and not link:
+            continue
+        ts = _parse_feed_item_published(entry)
+        if ts is None:
+            ts = fallback_ts
+        text = f"{title} {summary}"
+        items.append({
+            "title": title[:500],
+            "link": link,
+            "published_ts": ts,
+            "source_name": source_name,
+            "text": text[:2000],
+        })
+    if not items and source_name in (s["name"] for s in STATE_SOURCES):
+        logger.warning("SignalFramework: state source %s returned 0 items (may be geo-restricted).", source_name)
     return items
 
 
@@ -170,6 +187,8 @@ class SourceComparisonRow(BaseModel):
     point: str
     state_narrative: str
     exile_narrative: str
+    state_narrative_en: Optional[str] = None  # English; state feeds are usually EN
+    exile_narrative_en: Optional[str] = None   # English; from Iran International or translated
 
 
 class SignalAssessment(BaseModel):
@@ -234,44 +253,60 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
                 except Exception as e:
                     logger.debug("SignalFramework: exile feed failed: %s", e)
 
+        # Prefer English exile source (Iran International) for display so UI can show English first
+        exile_items_sorted = sorted(exile_items, key=lambda x: (0 if x.get("source_name") == ENGLISH_EXILE_SOURCE else 1, -(x.get("published_ts") or 0)))
+        english_exile_items = [i for i in exile_items if i.get("source_name") == ENGLISH_EXILE_SOURCE]
+
         # Lexical signal
         state_terms = _extract_key_terms(state_items)
         exile_terms = _extract_key_terms(exile_items)
-        state_framing = [t for t in state_terms if t in STATE_FRAMING_TERMS or any(t in ft for ft in STATE_FRAMING_TERMS)]
-        exile_framing = [t for t in exile_terms if t in EXILE_FRAMING_TERMS or any(t in ft for ft in EXILE_FRAMING_TERMS)]
+        exile_terms_en = _extract_key_terms(english_exile_items) if english_exile_items else exile_terms
 
         main_state = state_items[0].get("title", "") if state_items else ""
-        main_exile = exile_items[0].get("title", "") if exile_items else ""
+        main_exile = (exile_items_sorted[0].get("title", "") if exile_items_sorted else "")[:400]
+        main_exile_en = (english_exile_items[0].get("title", "") if english_exile_items else main_exile)[:400]
+        if not main_exile_en and main_exile:
+            main_exile_en = main_exile  # fallback to any
 
         table = [
             SourceComparisonRow(
                 point="Main claim",
                 state_narrative=main_state[:400] if main_state else "No state coverage retrieved.",
-                exile_narrative=main_exile[:400] if main_exile else "No exile/independent coverage retrieved.",
+                exile_narrative=main_exile or "No exile/independent coverage retrieved.",
+                state_narrative_en=main_state[:400] if main_state else None,
+                exile_narrative_en=main_exile_en or None,
             ),
             SourceComparisonRow(
                 point="Key terms",
                 state_narrative=", ".join(state_terms[:15]) if state_terms else "—",
                 exile_narrative=", ".join(exile_terms[:15]) if exile_terms else "—",
+                state_narrative_en=", ".join(state_terms[:15]) if state_terms else None,
+                exile_narrative_en=", ".join(exile_terms_en[:15]) if exile_terms_en else None,
             ),
         ]
 
-        # Latency signal
+        # Latency signal (timestamps now have fallback to fetch time, so we get values when we have items)
         ts_state = _first_mention_ts(state_items)
         ts_exile = _first_mention_ts(exile_items)
-        latency_str = "Not enough timestamps to compare."
+        latency_str = "Not enough timestamps to compare (need items from both state and exile feeds)."
         latency_hours: Optional[float] = None
         if ts_state is not None and ts_exile is not None:
             diff_sec = abs(ts_state - ts_exile)
             latency_hours = diff_sec / 3600.0
+            t_state_utc = datetime.fromtimestamp(ts_state, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts_state else ""
+            t_exile_utc = datetime.fromtimestamp(ts_exile, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts_exile else ""
             if ts_state < ts_exile:
-                latency_str = f"State media reported first (≈{latency_hours:.1f}h before exile sources)."
+                latency_str = f"State media reported first (≈{latency_hours:.1f}h before exile). Earliest state: {t_state_utc} UTC, exile: {t_exile_utc} UTC."
             else:
-                latency_str = f"Exile/independent media reported first (≈{latency_hours:.1f}h before state). Information vacuum on state side possible."
-        elif ts_state is None and state_items:
-            latency_str = "State sources: publication times missing or unparseable."
-        elif ts_exile is None and exile_items:
-            latency_str = "Exile sources: publication times missing or unparseable."
+                latency_str = f"Exile/independent media reported first (≈{latency_hours:.1f}h before state). Earliest exile: {t_exile_utc} UTC, state: {t_state_utc} UTC. Information vacuum on state side possible."
+        elif ts_state is not None and state_items:
+            t = datetime.fromtimestamp(ts_state, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+            latency_str = f"State earliest: {t} UTC. No exile timestamps to compare (exile feeds may lack dates)."
+        elif ts_exile is not None and exile_items:
+            t = datetime.fromtimestamp(ts_exile, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+            latency_str = f"Exile earliest: {t} UTC. No state coverage—state feeds returned no items."
+        elif not state_items and exile_items:
+            latency_str = "No state coverage; cannot compute latency. State feeds (IRNA, Fars, Tasnim, Press TV) returned no items (often geo-restricted)."
 
         # Reaction signal
         reaction_signals = _detect_reaction_signals(state_items)
@@ -283,14 +318,17 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
         # Synthesis
         prob, synth_text = _synthesis_confidence(state_items, exile_items, latency_hours, reaction_signals)
 
-        # Anomalies: logical but unmentioned (placeholder)
+        # Anomalies: explain state vs exile availability
         anomalies: List[str] = []
         if not state_items and not exile_items:
             anomalies.append("No items from either camp—check feed availability or filters.")
         elif state_items and not exile_items:
             anomalies.append("Only state-side coverage available; exile/independent feeds may be blocked or down.")
         elif exile_items and not state_items:
-            anomalies.append("Only exile-side coverage available; state feeds may be restricted.")
+            anomalies.append(
+                "Only exile-side coverage available. State feeds (IRNA, Fars, Tasnim, Press TV) returned no items—"
+                "often geo-restricted outside Iran or temporarily unavailable."
+            )
 
         signals = SignalSummary(
             lexical={

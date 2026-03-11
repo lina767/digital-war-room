@@ -78,19 +78,23 @@ export function NarrativeSignalPanel({ data, conflictLabel }: NarrativeSignalPan
                   </tr>
                 </thead>
                 <tbody>
-                  {table.map((row, i) => (
-                    <tr key={i} className="border-b border-border/60">
-                      <td className="py-1.5 px-2 align-top font-medium">{row.point}</td>
-                      <td className="py-1.5 px-2 align-top text-foreground/90 max-w-[140px] sm:max-w-[200px]">
-                        {(row.state_narrative || "—").slice(0, 200)}
-                        {(row.state_narrative?.length ?? 0) > 200 ? "…" : ""}
-                      </td>
-                      <td className="py-1.5 px-2 align-top text-foreground/90 max-w-[140px] sm:max-w-[200px]">
-                        {(row.exile_narrative || "—").slice(0, 200)}
-                        {(row.exile_narrative?.length ?? 0) > 200 ? "…" : ""}
-                      </td>
-                    </tr>
-                  ))}
+                  {table.map((row, i) => {
+                    const stateText = (row.state_narrative_en ?? row.state_narrative) || "—";
+                    const exileText = (row.exile_narrative_en ?? row.exile_narrative) || "—";
+                    return (
+                      <tr key={i} className="border-b border-border/60">
+                        <td className="py-1.5 px-2 align-top font-medium">{row.point}</td>
+                        <td className="py-1.5 px-2 align-top text-foreground/90 max-w-[140px] sm:max-w-[200px]">
+                          {stateText.slice(0, 200)}
+                          {stateText.length > 200 ? "…" : ""}
+                        </td>
+                        <td className="py-1.5 px-2 align-top text-foreground/90 max-w-[140px] sm:max-w-[200px]">
+                          {exileText.slice(0, 200)}
+                          {exileText.length > 200 ? "…" : ""}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

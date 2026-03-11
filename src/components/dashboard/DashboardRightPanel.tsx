@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing";
 import { GlobalImpactPanel } from "@/components/dashboard/GlobalImpactPanel";
 import { LatestHeadlines } from "@/components/dashboard/LatestHeadlines";
@@ -20,10 +19,8 @@ interface DashboardRightPanelProps {
   displayConflictLabel: string;
   /** True while initial load of cached analysis is in progress */
   analysisLoading?: boolean;
+  /** Proximity evidence from main analysis (runs automatically with other agents) */
   proximityEvidence: ProximityEvidence[];
-  proximityLoading: boolean;
-  proximityError: string | null;
-  runProximity: () => void;
 }
 
 export function DashboardRightPanel({
@@ -34,9 +31,6 @@ export function DashboardRightPanel({
   displayConflictLabel,
   analysisLoading,
   proximityEvidence,
-  proximityLoading,
-  proximityError,
-  runProximity,
 }: DashboardRightPanelProps) {
   return (
     <aside
@@ -68,29 +62,19 @@ export function DashboardRightPanel({
         <EventsTimeline data={conflictData} />
       </div>
 
-      {/* Proximity Analyzer: strike–civilian correlation */}
+      {/* Proximity Analyzer: strike–civilian correlation (runs automatically with main analysis) */}
       <div className="pt-4 border-t border-border">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5">
-            <Target className="h-3.5 w-3.5" />
-            PROXIMITY ANALYZER
-          </h3>
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs min-h-9 sm:min-h-7 touch-manipulation"
-            disabled={proximityLoading}
-            onClick={runProximity}
-            title="Correlate FIRMS strikes with civilian infrastructure (Overpass)"
-          >
-            {proximityLoading ? "Running…" : "Run"}
-          </Button>
-        </div>
-        {proximityError && <p className="text-xs text-destructive mb-2">{proximityError}</p>}
+        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5 mb-2">
+          <Target className="h-3.5 w-3.5" />
+          PROXIMITY ANALYZER
+        </h3>
         <div className="space-y-2 max-h-64 overflow-y-auto">
-          {proximityEvidence.length === 0 && !proximityLoading && !proximityError && (
+          {analysisLoading && proximityEvidence.length === 0 && (
+            <p className="text-xs text-muted-foreground py-2 italic">Running with analysis…</p>
+          )}
+          {!analysisLoading && proximityEvidence.length === 0 && (
             <p className="text-xs text-muted-foreground py-2">
-              Click Run to correlate thermal anomalies with schools, hospitals, etc.
+              Strike–civilian correlation from latest analysis. No proximity evidence in current window.
             </p>
           )}
           {proximityEvidence.map((e, i) => (
