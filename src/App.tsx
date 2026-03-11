@@ -10,6 +10,7 @@ import NotFound from "./pages/NotFound";
 import HowItWorks from "./pages/HowItWorks";
 import Impressum from "./pages/Impressum";
 import SourceDirectory from "./pages/SourceDirectory";
+import DailyIntelligenceBriefing from "./pages/DailyIntelligenceBriefing";
 import Privacy from "./pages/Privacy";
 import Support from "./pages/Support";
 import SupportReturn from "./pages/SupportReturn";
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/app/dashboard" element={<Dashboard />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/sources" element={<SourceDirectory />} />
+            <Route path="/daily-briefing" element={<DailyIntelligenceBriefing />} />
             <Route path="/impressum" element={<Impressum />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/support" element={<Support />} />

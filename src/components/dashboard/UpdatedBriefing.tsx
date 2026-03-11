@@ -1,6 +1,6 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 
-interface DailyBriefingProps {
+interface UpdatedBriefingProps {
   data: ConflictData | null;
   conflictLabel: string;
   lastUpdated: Date | null;
@@ -17,7 +17,7 @@ function formatTimeAgo(date: Date | null): string {
   return `${Math.floor(sec / 86400)}d ago`;
 }
 
-export function DailyBriefing({ data, conflictLabel, lastUpdated, isLoading }: DailyBriefingProps) {
+export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }: UpdatedBriefingProps) {
   const summary = data?.summary ?? null;
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
@@ -26,7 +26,7 @@ export function DailyBriefing({ data, conflictLabel, lastUpdated, isLoading }: D
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between">
-        <h3 className="font-mono text-xs text-muted-foreground tracking-wider">DAILY BRIEFING</h3>
+        <h3 className="font-mono text-xs text-muted-foreground tracking-wider">UPDATED BRIEFING</h3>
         <span className="text-[10px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>
       </div>
       <div className="p-3 space-y-3">

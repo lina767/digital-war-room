@@ -218,7 +218,7 @@ const HowItWorks = () => {
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
                 <h3 className="font-mono text-xs tracking-wider text-primary">Intelligence feed &amp; Global Impact</h3>
                 <p className="text-xs sm:text-[13px] text-muted-foreground">
-                  The right panel contains the daily briefing, a <strong className="text-foreground">Global Impact</strong> panel
+                  The right panel contains the updated briefing, a <strong className="text-foreground">Global Impact</strong> panel
                   (when available: oil/Hormuz risk for Iran from ENERGY and key findings), latest headlines, events
                   timeline, proximity analyzer (FIRMS vs. civilian infrastructure), connectivity signals and
                   prediction markets.

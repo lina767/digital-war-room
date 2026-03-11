@@ -1,4 +1,4 @@
-import { DailyBriefing } from "@/components/dashboard/DailyBriefing";
+import { UpdatedBriefing } from "@/components/dashboard/UpdatedBriefing";
 import { GlobalImpactPanel } from "@/components/dashboard/GlobalImpactPanel";
 import { LatestHeadlines } from "@/components/dashboard/LatestHeadlines";
 import { EventsTimeline } from "@/components/dashboard/EventsTimeline";
@@ -55,7 +55,7 @@ export function DashboardRightPanel({
       </div>
 
       <div className="space-y-4">
-        <DailyBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+        <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
         <GlobalImpactPanel data={conflictData} />
         <NarrativeSignalPanel data={conflictData} conflictLabel={displayConflictLabel} />
         <LatestHeadlines data={conflictData} maxItems={15} />
