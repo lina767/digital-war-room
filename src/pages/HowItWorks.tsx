@@ -132,7 +132,7 @@ const HowItWorks = () => {
                 <h3 className="font-mono text-xs tracking-wider text-primary">DIPLO – Diplomacy / Legal</h3>
                 <ul className="text-xs sm:text-[13px] text-muted-foreground space-y-1.5 list-disc list-inside">
                   <li>OFAC SDN, EU sanctions, UN/ICJ press</li>
-                  <li>Diplomatic and legal signals for the conflict</li>
+                  <li>Diplomatic and legal signals; feeds Sanctions Compliance risk score</li>
                 </ul>
               </div>
               <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
@@ -222,6 +222,14 @@ const HowItWorks = () => {
                   (when available: oil/Hormuz risk for Iran from ENERGY and key findings), latest headlines, events
                   timeline, proximity analyzer (FIRMS vs. civilian infrastructure), connectivity signals and
                   prediction markets.
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-card/40 p-4 space-y-2">
+                <h3 className="font-mono text-xs tracking-wider text-primary">Sanctions Compliance</h3>
+                <p className="text-xs sm:text-[13px] text-muted-foreground">
+                  OFAC SDN and EU sanctions (from DIPLO), geofencing (SIGINT ships/aircraft vs sanctions zones),
+                  AIS anomaly detection (spoofing, dark activity), and a compliance risk score (LOW/MEDIUM/HIGH/CRITICAL).
+                  Conflict-level sanctions awareness (e.g. Iran) elevates risk. On-demand sanctions search for firms/partners.
                 </p>
               </div>
             </div>

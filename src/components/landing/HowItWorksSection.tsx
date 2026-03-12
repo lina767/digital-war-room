@@ -3,8 +3,8 @@ import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 const steps = [
   { icon: Target, num: "01", title: "Select Your Conflict", description: "Choose from active conflicts or add a custom scenario." },
-  { icon: Cpu, num: "02", title: "Agents Collect & Analyze", description: "Five AI agents run in parallel, pulling from 20+ open sources." },
-  { icon: FileText, num: "03", title: "Receive Your Brief", description: "Structured BLUF brief with escalation score and scenarios." },
+  { icon: Cpu, num: "02", title: "Agents Collect & Analyze", description: "11 intelligence agents run in parallel, pulling from 30+ open sources." },
+  { icon: FileText, num: "03", title: "Receive Your Brief", description: "Structured BLUF brief with escalation score, scenarios, and sanctions compliance." },
 ];
 
 export function HowItWorksSection() {

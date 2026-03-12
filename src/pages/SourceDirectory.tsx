@@ -60,8 +60,9 @@ const SourceDirectory = () => {
             A transparent, searchable directory of all data sources used by the platform, with reliability ratings.
             Each source is linked to the intelligence agents that use it. Derived outputs (e.g. the{" "}
             <strong className="text-foreground">Global Impact</strong> panel for Iran — oil moves, Strait of Hormuz /
-            chokepoint risk from ENERGY and key findings) are shown on the dashboard but do not appear as separate
-            sources here.
+            chokepoint risk from ENERGY and key findings;{" "}
+            <strong className="text-foreground">Sanctions Compliance</strong> — risk score from OFAC/EU via DIPLO,
+            geofencing and AIS anomalies from SIGINT) are shown on the dashboard but do not appear as separate sources here.
           </p>
         </header>
 
