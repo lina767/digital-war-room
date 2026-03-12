@@ -25,6 +25,7 @@ from .proximity_agent import run_proximity_agent
 from .signal_framework_agent import run_signal_framework_agent
 from .predictive import build_predictive_block
 from .acled_reference import fetch_acled_reference_analyses_sync
+from compliance.geofencing import check_sigint_for_sanctions
 
 
 # Per-agent timeout (seconds). Prevents one slow API from blocking the whole run.
@@ -461,6 +462,18 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
     predictive = build_predictive_block(conflict, combined_score, agent_scores_for_predictive)
 
+    # ── Compliance: geofencing alerts from SIGINT positions vs sanctions zones ──
+    sigint_data = agent_results.get("sigint") or {}
+    geofencing_alerts = check_sigint_for_sanctions(sigint_data)
+
+    compliance = {
+        "geofencing_alerts": geofencing_alerts,
+        "disclaimer": (
+            "Intelligence signals only – not legal advice. "
+            "Supports due diligence but does not replace legal review."
+        ),
+    }
+
     return {
         "escalation_score": combined_score,
         "threat_level": threat_level,
@@ -469,6 +482,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         "summary": summary,
         "actors": actors,
         "predictive": predictive,
+        "compliance": compliance,
         **{k: v for k, v in agent_results.items() if k != "acled_refs"},
     }
 
@@ -500,4 +514,5 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "summary":          synthesis.get("summary", ""),
         "actors":           synthesis.get("actors", []),
         "predictive":       synthesis.get("predictive", {}),
+        "compliance":       synthesis.get("compliance", {}),
     }

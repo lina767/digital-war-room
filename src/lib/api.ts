@@ -33,6 +33,7 @@ export interface AnalyzeResponse {
   diplo?: Record<string, unknown>;
   proximity?: Record<string, unknown>;
   predictive?: Record<string, unknown>;
+  compliance?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

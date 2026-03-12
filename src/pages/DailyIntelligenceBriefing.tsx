@@ -318,10 +318,43 @@ export default function DailyIntelligenceBriefing() {
                 </div>
               </section>
 
-              {/* 6. Sources */}
+              {/* 6. Sanctions Compliance */}
               <section>
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
-                  6. Sources
+                  6. Sanctions Compliance
+                </h2>
+                <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-2">
+                  {(data.compliance?.geofencing_alerts as any[])?.length > 0 ? (
+                    <>
+                      <p>
+                        <span className="font-semibold">{(data.compliance!.geofencing_alerts as any[]).length}</span> geofencing alert(s) from current SIGINT window:
+                      </p>
+                      <ul className="space-y-1">
+                        {(data.compliance!.geofencing_alerts as any[]).slice(0, 10).map((a: any, i: number) => (
+                          <li key={i} className="flex gap-2 text-xs">
+                            <span className="text-orange-400 shrink-0">⚠</span>
+                            <span>
+                              <span className="font-mono">{a.asset_name}</span> ({a.asset_type}) in{" "}
+                              <span className="font-mono">{(a.zone_name || "").replace(/_/g, " ")}</span>{" "}
+                              <span className="text-muted-foreground">({a.zone_type})</span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground italic">No geofencing alerts in current SIGINT window.</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
+                    Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.
+                  </p>
+                </div>
+              </section>
+
+              {/* 7. Sources */}
+              <section>
+                <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
+                  7. Sources
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4">
                   <p className="text-xs text-muted-foreground mb-3">

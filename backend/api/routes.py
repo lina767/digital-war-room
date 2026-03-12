@@ -14,6 +14,8 @@ from agents.iaea_tracker import run_iaea_tracker, fetch_notams
 from api.proximity_correlation import run_correlation_for_events
 from services.http_client import get_http_client
 from services.job_queue import JobQueue, Job
+from compliance.sanctions_search import search_sanctions, get_threshold_policy
+from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
 
 router = APIRouter()
 
@@ -385,3 +387,58 @@ async def get_proximity_job_status(request: Request, job_id: str):
         "started_at": job.started_at,
         "finished_at": job.finished_at,
     }
+
+
+# ── Sanctions Compliance ─────────────────────────────────────────────────────
+
+class SanctionsCheckRequest(BaseModel):
+    query: str
+    include_ownership_chains: bool = False
+
+
+@router.post("/compliance/sanctions-check")
+async def sanctions_check(body: SanctionsCheckRequest):
+    """
+    POST /api/compliance/sanctions-check
+    Screen a firm/partner name against OFAC SDN (and later EU/UN) sanctions lists.
+    Returns matches with match_level (EXACT/STRONG_FUZZY/WEAK_FUZZY/REVIEW), score, source.
+
+    DISCLAIMER: Intelligence signals only – not legal advice.
+    """
+    try:
+        results = await search_sanctions(
+            body.query,
+            include_ownership_chains=body.include_ownership_chains,
+        )
+        return {
+            "query": body.query,
+            "matches": results,
+            "threshold_policy": get_threshold_policy(),
+            "disclaimer": (
+                "Intelligence signals only – not legal advice. "
+                "Supports due diligence but does not replace legal review."
+            ),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/compliance/zones")
+async def get_compliance_zones():
+    """
+    GET /api/compliance/zones
+    Returns all configured sanctions and conflict zones (bounding boxes).
+    """
+    return {
+        "sanctions_zones": [z.to_dict() for z in SANCTIONS_ZONES],
+        "all_zones": [z.to_dict() for z in ALL_ZONES],
+    }
+
+
+@router.get("/compliance/threshold-policy")
+async def get_compliance_threshold_policy():
+    """
+    GET /api/compliance/threshold-policy
+    Returns the current fuzzy matching threshold policy for transparency.
+    """
+    return get_threshold_policy()

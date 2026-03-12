@@ -236,7 +236,8 @@ def _classify_aircraft(callsign: str, ac_type: str) -> str | None:
 
 
 def _in_conflict_zone(lat: float, lon: float) -> bool:
-    return (10 <= lat <= 42) and (25 <= lon <= 65)
+    from compliance.zones import in_conflict_zone
+    return in_conflict_zone(lat, lon)
 
 
 # ── Tools ──────────────────────────────────────────────────────────────────

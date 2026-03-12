@@ -160,6 +160,25 @@ export interface ConflictData {
     };
   }>;
   predictive?: PredictiveBlock;
+  compliance?: ComplianceBlock;
+}
+
+export interface GeofencingAlert {
+  asset_type: string;
+  asset_id: string;
+  asset_name: string;
+  lat: number;
+  lon: number;
+  zone_name: string;
+  zone_type: string;
+  zone_source: string;
+  timestamp: number;
+  source: string;
+}
+
+export interface ComplianceBlock {
+  geofencing_alerts?: GeofencingAlert[];
+  disclaimer?: string;
 }
 
 interface UseConflictWebSocketOptions {
