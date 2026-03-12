@@ -12,11 +12,10 @@ from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from api.stripe_checkout import router as stripe_router
 from agents.supervisor import analyze_conflict
+from agents.config import CORS_ORIGINS
 from agents.otel_callbacks import init_otel
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
-
-load_dotenv()
 
 # Konflikt, der alle 6 Stunden automatisch analysiert wird (unabhängig von Aufrufen)
 # Standard: nur "Iran"
@@ -73,7 +72,7 @@ app = FastAPI(title="Conflict Analysis Backend", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -101,24 +100,23 @@ def root() -> dict:
 # ── WebSocket Manager ──────────────────────────────────────────────────────
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: list[WebSocket] = []
+        self.active_connections: set[WebSocket] = set()
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        self.active_connections.append(websocket)
+        self.active_connections.add(websocket)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        self.active_connections.discard(websocket)
 
     async def broadcast(self, data: dict):
-        dead = []
+        dead: list[WebSocket] = []
         for connection in self.active_connections:
             try:
                 await connection.send_json(data)
             except Exception:
                 dead.append(connection)
-        for d in dead:
-            self.active_connections.remove(d)
+        self.active_connections -= set(dead)
 
 
 manager = ConnectionManager()
@@ -138,8 +136,6 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
         else:
             await websocket.send_json({"status": "analyzing", "conflict": conflict})
 
-        # Alle 60 s gecachtes Ergebnis pushen (wird stündlich vom Hintergrund-Job aktualisiert)
-        loop = asyncio.get_running_loop()
         while True:
             await asyncio.sleep(60)
             cache = getattr(app.state, "analysis_cache", {})

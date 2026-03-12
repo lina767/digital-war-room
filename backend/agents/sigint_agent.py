@@ -28,7 +28,9 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import BaseModel, Field
 
-from .llm import run_tool_agent
+from .config import USER_AGENT, DEFAULT_TIMEOUT
+from .llm import run_agent_with_fallback
+from .utils import safe_float, utc_now_iso, parse_adsb_response, ScoreConfidence
 
 logger = logging.getLogger(__name__)
 
@@ -184,35 +186,22 @@ ADSB_TARGET_SCAN_REGIONS = [
 ]
 # Backwards compat alias
 ADSB_REGIONS_OEIII = ADSB_TARGET_SCAN_REGIONS
-ADSB_LATLON_URLS = [
-    "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}",
-    "https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{dist}",
-]
 
 # Optional external APIs for target tracking (can be left unset in .env)
 ADSBX_BASE_URL = os.getenv("ADSBX_BASE_URL", "").rstrip("/") or None
 ADSBX_API_KEY = (os.getenv("ADSBX_API_KEY") or "").strip() or None
-# ADSBexchange via RapidAPI: https://rapidapi.com/adsbx/api/adsbexchange-com1
 ADSBEXCHANGE_RAPIDAPI_KEY = (os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY") or os.getenv("RAPIDAPI_KEY") or "").strip() or None
-RAPIDAPI_KEY = os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY")
 ADSBEXCHANGE_RAPIDAPI_HOST = (os.getenv("ADSBEXCHANGE_RAPIDAPI_HOST") or "adsbexchange-com1.p.rapidapi.com").strip()
 OPENSKY_USERNAME = (os.getenv("OPENSKY_USERNAME") or "").strip() or None
 OPENSKY_PASSWORD = (os.getenv("OPENSKY_PASSWORD") or "").strip() or None
 
 
-def _safe_float(v: Any) -> float | None:
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
 
 def _adsbexchange_rapidapi_headers() -> Dict[str, str]:
-    """Headers for ADSBexchange via RapidAPI (https://rapidapi.com/adsbx/api/adsbexchange-com1)."""
     return {
         "X-RapidAPI-Key": ADSBEXCHANGE_RAPIDAPI_KEY or "",
         "X-RapidAPI-Host": ADSBEXCHANGE_RAPIDAPI_HOST,
-        "User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)",
+        "User-Agent": USER_AGENT,
     }
 
 
@@ -249,10 +238,7 @@ async def _fetch_adsbexchange_rapidapi(
             url = f"{base}/api/aircraft/lat/{lat}/lon/{lon}/dist/{dist}"
             resp = await client.get(url, headers=headers, timeout=15.0)
             if resp.status_code == 200:
-                data = resp.json()
-                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
-                if isinstance(ac, list):
-                    ac_list = ac
+                ac_list = parse_adsb_response(resp.json())
     except Exception as e:
         logger.debug("SIGINT: ADSBexchange RapidAPI fetch failed: %s", e)
     return ac_list
@@ -269,12 +255,9 @@ async def _fetch_adsb_by_registration(client: httpx.AsyncClient, reg: str) -> Li
             resp = await client.get(url, timeout=12.0)
             if resp.status_code != 200:
                 continue
-            data = resp.json()
-            ac = data if isinstance(data, list) else (data.get("ac") or data.get("aircraft") or [])
-            if isinstance(ac, list) and ac:
+            ac = parse_adsb_response(resp.json())
+            if ac:
                 return ac
-            if isinstance(ac, dict):
-                return [ac]
         except Exception as e:
             logger.debug("SIGINT: adsb registration %s failed: %s", tpl[:40], e)
     return []
@@ -286,15 +269,14 @@ async def _fetch_adsb_regions_for_target(
     """Scan Vienna, Eastern Med, Gulf via adsb.fi/adsb.lol and return aircraft matching target."""
     candidates: List[Dict[str, Any]] = []
     for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
-        for tpl in ADSB_LATLON_URLS:
+        for tpl in ADSB_ENDPOINTS:
             try:
                 url = tpl.format(lat=lat, lon=lon, dist=min(500, dist))
                 resp = await client.get(url, timeout=12.0)
                 if resp.status_code != 200:
                     continue
-                data = resp.json()
-                ac_list = data if isinstance(data, list) else (data.get("ac") or data.get("aircraft") or [])
-                if isinstance(ac_list, list):
+                ac_list = parse_adsb_response(resp.json())
+                if ac_list:
                     for ac in ac_list:
                         if _match_target_aircraft(ac, cfg):
                             candidates.append(ac)
@@ -375,8 +357,8 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
             # Try global military endpoint first
             mil = await _fetch_mil_global(client)
             for ac in mil:
-                lat = _safe_float(ac.get("lat"))
-                lon = _safe_float(ac.get("lon"))
+                lat = safe_float(ac.get("lat"))
+                lon = safe_float(ac.get("lon"))
                 if lat is None or lon is None or not _in_conflict_zone(lat, lon):
                     continue
                 icao = str(ac.get("hex") or "").upper()
@@ -410,8 +392,8 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                     if icao in seen_icao:
                         continue
                     seen_icao.add(icao)
-                    lat = _safe_float(ac.get("lat"))
-                    lon = _safe_float(ac.get("lon"))
+                    lat = safe_float(ac.get("lat"))
+                    lon = safe_float(ac.get("lon"))
                     if lat is None or lon is None:
                         continue
                     results.append({
@@ -436,8 +418,8 @@ def _normalize_vessel(v: dict, label: str) -> dict | None:
     ).strip()
     ship_type_raw = v.get("type") or v.get("TYPE") or v.get("shiptype") or v.get("vesselType")
     ship_type = str(ship_type_raw or "").strip()
-    lat = _safe_float(v.get("lat") or v.get("latitude") or v.get("LAT"))
-    lon = _safe_float(v.get("lon") or v.get("longitude") or v.get("LON"))
+    lat = safe_float(v.get("lat") or v.get("latitude") or v.get("LAT"))
+    lon = safe_float(v.get("lon") or v.get("longitude") or v.get("LON"))
     # AIS military type codes 30-39
     try:
         t = int(float(ship_type_raw)) if ship_type_raw is not None else None
@@ -553,8 +535,8 @@ def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
                 if not isinstance(vessels, list):
                     return []
                 for v in vessels:
-                    lat = _safe_float(v.get("latitude") or v.get("lat"))
-                    lon = _safe_float(v.get("longitude") or v.get("lon"))
+                    lat = safe_float(v.get("latitude") or v.get("lat"))
+                    lon = safe_float(v.get("longitude") or v.get("lon"))
                     if lat is None or lon is None:
                         continue
                     for label, lat_lo, lat_hi, lon_lo, lon_hi in SPIRE_REGIONS:
@@ -618,8 +600,8 @@ def get_spire_airsafe_targets(hours_back: float = 1.0) -> List[Dict[str, Any]]:
                 for t in targets:
                     if not isinstance(t, dict):
                         continue
-                    lat = _safe_float(t.get("latitude") or t.get("lat"))
-                    lon = _safe_float(t.get("longitude") or t.get("lon"))
+                    lat = safe_float(t.get("latitude") or t.get("lat"))
+                    lon = safe_float(t.get("longitude") or t.get("lon"))
                     if lat is None or lon is None or not _in_conflict_zone(lat, lon):
                         continue
                     out.append({
@@ -627,7 +609,7 @@ def get_spire_airsafe_targets(hours_back: float = 1.0) -> List[Dict[str, Any]]:
                         "type": t.get("aircraft_type") or t.get("type") or "",
                         "lat": lat,
                         "lon": lon,
-                        "alt_baro": _safe_float(t.get("altitude") or t.get("alt_baro")),
+                        "alt_baro": safe_float(t.get("altitude") or t.get("alt_baro")),
                         "hex": t.get("icao_address") or t.get("hex"),
                         "source": "spire_airsafe",
                     })
@@ -701,16 +683,6 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
 
 # ── Structured result models ────────────────────────────────────────────────
 
-def _utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-class ScoreConfidence(BaseModel):
-    level: str = "low"
-    sources_ok: List[str] = Field(default_factory=list)
-    sources_missing: List[str] = Field(default_factory=list)
-
-
 class SigintResult(BaseModel):
     conflict: str
     aircraft: List[Dict[str, Any]] = Field(default_factory=list)
@@ -721,7 +693,7 @@ class SigintResult(BaseModel):
     alerts: List[str] = Field(default_factory=list)
     summary: str = ""
     score_confidence: ScoreConfidence = Field(default_factory=ScoreConfidence)
-    fetched_at: str = Field(default_factory=_utc_iso)
+    fetched_at: str = Field(default_factory=utc_now_iso)
     target_tracks: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -762,11 +734,11 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
 
     def _ac_to_position(ac: Dict[str, Any], source: str) -> Dict[str, Any]:
         return {
-            "lat": _safe_float(ac.get("lat")),
-            "lon": _safe_float(ac.get("lon")),
-            "alt_baro": _safe_float(ac.get("alt_baro") or ac.get("altitude")),
-            "gs": _safe_float(ac.get("gs") or ac.get("groundspeed") or ac.get("speed")),
-            "track": _safe_float(ac.get("track") or ac.get("heading")),
+            "lat": safe_float(ac.get("lat")),
+            "lon": safe_float(ac.get("lon")),
+            "alt_baro": safe_float(ac.get("alt_baro") or ac.get("altitude")),
+            "gs": safe_float(ac.get("gs") or ac.get("groundspeed") or ac.get("speed")),
+            "track": safe_float(ac.get("track") or ac.get("heading")),
             "hex": ac.get("hex") or ac.get("icao24"),
             "callsign": ac.get("flight") or ac.get("callsign"),
             "registration": ac.get("r") or ac.get("registration"),
@@ -1137,45 +1109,29 @@ Scoring:
 No markdown, no explanation, just JSON."""
 
 
-def run_sigint_agent(conflict: str) -> Dict[str, Any]:
-    """Run SIGINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
-    import json
-    from .config import USE_RULE_BASED_AGENTS
-    if USE_RULE_BASED_AGENTS:
-        return _run_rule_based_sigint(conflict)
+_SIGINT_TOOL_FNS = {
+    "get_military_aircraft": get_military_aircraft,
+    "get_naval_vessels": get_naval_vessels,
+    "get_spire_vessels": get_spire_vessels,
+    "get_spire_airsafe_targets": get_spire_airsafe_targets,
+    "get_conflict_reports": get_conflict_reports,
+}
+_SIGINT_TOOL_SCHEMAS = [
+    {"name": "get_military_aircraft", "description": "Fetch military aircraft in conflict regions via ADS-B.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "get_naval_vessels", "description": "Fetch naval vessels in conflict regions.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "get_spire_vessels", "description": "Fetch Spire Maritime AIS vessel data.", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "get_spire_airsafe_targets", "description": "Fetch aircraft targets from Spire Airsafe tracking stream (Bearer token).", "input_schema": {"type": "object", "properties": {}}},
+    {"name": "get_conflict_reports", "description": "Fetch conflict intelligence reports from RSS feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+]
 
-    TOOL_FNS = {
-        "get_military_aircraft": get_military_aircraft,
-        "get_naval_vessels": get_naval_vessels,
-        "get_spire_vessels": get_spire_vessels,
-        "get_spire_airsafe_targets": get_spire_airsafe_targets,
-        "get_conflict_reports": get_conflict_reports,
-    }
-    TOOL_SCHEMAS = [
-        {"name": "get_military_aircraft", "description": "Fetch military aircraft in conflict regions via ADS-B.", "input_schema": {"type": "object", "properties": {}}},
-        {"name": "get_naval_vessels", "description": "Fetch naval vessels in conflict regions.", "input_schema": {"type": "object", "properties": {}}},
-        {"name": "get_spire_vessels", "description": "Fetch Spire Maritime AIS vessel data.", "input_schema": {"type": "object", "properties": {}}},
-        {"name": "get_spire_airsafe_targets", "description": "Fetch aircraft targets from Spire Airsafe tracking stream (Bearer token).", "input_schema": {"type": "object", "properties": {}}},
-        {"name": "get_conflict_reports", "description": "Fetch conflict intelligence reports from RSS feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-    ]
-    text = run_tool_agent(
-        system=SIGINT_SYSTEM,
-        user_content=f"Monitor military movements for conflict: {conflict}",
-        tool_fns=TOOL_FNS,
-        tool_schemas=TOOL_SCHEMAS,
+
+def run_sigint_agent(conflict: str) -> Dict[str, Any]:
+    return run_agent_with_fallback(
+        conflict,
+        rule_based_fn=_run_rule_based_sigint,
+        system_prompt=SIGINT_SYSTEM,
+        user_content_template="Monitor military movements for conflict: {conflict}",
+        tool_fns=_SIGINT_TOOL_FNS,
+        tool_schemas=_SIGINT_TOOL_SCHEMAS,
         max_rounds=6,
     )
-    if text:
-        text = text.strip()
-        for p in ("```json", "```"):
-            if text.startswith(p):
-                text = text[len(p):].strip()
-        if text.endswith("```"):
-            text = text[:-3].strip()
-        try:
-            result = json.loads(text)
-            result["conflict"] = conflict
-            return result
-        except Exception:
-            pass
-    return _run_rule_based_sigint(conflict)

@@ -13,7 +13,8 @@ from urllib.parse import urlparse
 
 import feedparser
 import httpx
-from .llm import run_tool_agent
+from .config import USER_AGENT
+from .llm import run_agent_with_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -370,7 +371,7 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
         try:
             parsed = feedparser.parse(
                 feed_url,
-                request_headers={"User-Agent": "Mozilla/5.0 (compatible; NewsAgent/1.0)"},
+                request_headers={"User-Agent": USER_AGENT},
             )
             for entry in getattr(parsed, "entries", [])[:15]:
                 title = (entry.get("title") or "").strip()
@@ -435,7 +436,7 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
         try:
             parsed = feedparser.parse(
                 feed_url,
-                request_headers={"User-Agent": "Mozilla/5.0 (compatible; NewsAgent/1.0)"},
+                request_headers={"User-Agent": USER_AGENT},
             )
             cl = conflict.lower()
             keywords_en: List[str]
@@ -514,7 +515,7 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
             with httpx.Client(timeout=12.0) as client:
                 resp = client.get(
                     FOREIGN_POLICY_IRAN_PROJECT_URL,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; NewsAgent/1.0)"},
+                    headers={"User-Agent": USER_AGENT},
                 )
                 resp.raise_for_status()
                 html = resp.text
@@ -646,6 +647,16 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
         # Wire escalation_score slightly into news_score without breaking range/semantics
         adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
 
+        if (
+            not newsapi_res.get("articles")
+            and not gdelt_res.get("articles")
+            and not rss_res.get("articles")
+        ):
+            logger.warning(
+                "NEWS: All three sources (NewsAPI, GDELT, RSS) returned 0 articles for conflict '%s'",
+                conflict,
+            )
+
         return {
             "conflict": conflict,
             "articles": fusion.get("articles", []),
@@ -665,15 +676,6 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             "escalation_headlines": escalation_meta.get("escalation_headlines", []),
             "escalation_score": escalation_meta.get("escalation_score", 0.0),
         }
-        if (
-            not newsapi_res.get("articles")
-            and not gdelt_res.get("articles")
-            and not rss_res.get("articles")
-        ):
-            logger.warning(
-                "NEWS: All three sources (NewsAPI, GDELT, RSS) returned 0 articles for conflict '%s'",
-                conflict,
-            )
     except Exception as e:
         logger.exception("NEWS: rule-based news pipeline failed for conflict '%s': %s", conflict, e)
     return {
@@ -720,41 +722,25 @@ Return ONLY valid JSON (no markdown, no explanation):
 }"""
 
 
-def run_news_agent(conflict: str) -> Dict[str, Any]:
-    """Run NEWS: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
-    import json
-    from .config import USE_RULE_BASED_AGENTS
-    if USE_RULE_BASED_AGENTS:
-        return _run_rule_based_news(conflict)
+_NEWS_TOOL_FNS = {
+    "search_conflict_news": search_conflict_news,
+    "search_gdelt_news": search_gdelt_news,
+    "search_rss_feeds": search_rss_feeds,
+}
+_NEWS_TOOL_SCHEMAS = [
+    {"name": "search_conflict_news", "description": "Search NewsAPI for conflict-related articles.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}, "hours_back": {"type": "integer"}}, "required": ["conflict"]}},
+    {"name": "search_gdelt_news", "description": "Search GDELT for conflict news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {"name": "search_rss_feeds", "description": "Search curated RSS/think-tank feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+]
 
-    TOOL_FNS = {
-        "search_conflict_news": search_conflict_news,
-        "search_gdelt_news": search_gdelt_news,
-        "search_rss_feeds": search_rss_feeds,
-    }
-    TOOL_SCHEMAS = [
-        {"name": "search_conflict_news", "description": "Search NewsAPI for conflict-related articles.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}, "hours_back": {"type": "integer"}}, "required": ["conflict"]}},
-        {"name": "search_gdelt_news", "description": "Search GDELT for conflict news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "search_rss_feeds", "description": "Search curated RSS/think-tank feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-    ]
-    text = run_tool_agent(
-        system=NEWS_SYSTEM,
-        user_content=f"Analyze news coverage for conflict: {conflict}",
-        tool_fns=TOOL_FNS,
-        tool_schemas=TOOL_SCHEMAS,
+
+def run_news_agent(conflict: str) -> Dict[str, Any]:
+    return run_agent_with_fallback(
+        conflict,
+        rule_based_fn=_run_rule_based_news,
+        system_prompt=NEWS_SYSTEM,
+        user_content_template="Analyze news coverage for conflict: {conflict}",
+        tool_fns=_NEWS_TOOL_FNS,
+        tool_schemas=_NEWS_TOOL_SCHEMAS,
     )
-    if text:
-        text = text.strip()
-        for prefix in ("```json", "```"):
-            if text.startswith(prefix):
-                text = text[len(prefix):].strip()
-        if text.endswith("```"):
-            text = text[:-3].strip()
-        try:
-            result = json.loads(text)
-            result["conflict"] = conflict
-            return result
-        except Exception:
-            pass
-    return _run_rule_based_news(conflict)
 

@@ -3,19 +3,29 @@ Direct LLM calls via Anthropic or OpenAI SDK.
 No frameworks – just simple API calls.
 
 Usage:
-    from agents.llm import call_llm, run_tool_agent, get_model_name
+    from agents.llm import call_llm, run_tool_agent, run_agent_with_fallback, get_model_name
 
     # Simple call (e.g. supervisor synthesis)
     text = call_llm(system="...", user_content="...", model=get_model_name("supervisor"))
 
     # Tool-calling agent loop (e.g. FININT, SIGINT, ...)
     text = run_tool_agent(system="...", user_content="...", tool_fns={...}, tool_schemas=[...])
-    if text:
-        result = json.loads(text)
+
+    # Full agent entry point with LLM → fallback to rule-based
+    result = run_agent_with_fallback(
+        conflict="Iran",
+        rule_based_fn=_run_rule_based_sigint,
+        system_prompt=SIGINT_SYSTEM,
+        user_content_template="Monitor military movements for conflict: {conflict}",
+        tool_fns={...}, tool_schemas=[...],
+    )
 """
 import json
+import logging
 import os
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _get_provider() -> str:
@@ -220,3 +230,42 @@ def _run_openai_loop(
             })
 
     return None
+
+
+# ── Generic agent entry point ────────────────────────────────────────────
+
+def run_agent_with_fallback(
+    conflict: str,
+    *,
+    rule_based_fn: Callable[[str], Dict[str, Any]],
+    system_prompt: str,
+    user_content_template: str,
+    tool_fns: Dict[str, Callable],
+    tool_schemas: List[Dict],
+    max_rounds: int = 5,
+) -> Dict[str, Any]:
+    """
+    Unified agent entry point: rule-based when USE_RULE_BASED_AGENTS is set,
+    otherwise LLM tool-calling loop with automatic fallback to rule-based on failure.
+    """
+    from .config import USE_RULE_BASED_AGENTS
+    from .utils import parse_llm_json
+
+    if USE_RULE_BASED_AGENTS:
+        return rule_based_fn(conflict)
+
+    text = run_tool_agent(
+        system=system_prompt,
+        user_content=user_content_template.format(conflict=conflict),
+        tool_fns=tool_fns,
+        tool_schemas=tool_schemas,
+        max_rounds=max_rounds,
+    )
+    if text:
+        result = parse_llm_json(text)
+        if result is not None:
+            result.setdefault("conflict", conflict)
+            return result
+        logger.warning("LLM returned unparseable JSON, falling back to rule-based")
+
+    return rule_based_fn(conflict)

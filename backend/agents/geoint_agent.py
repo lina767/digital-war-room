@@ -6,13 +6,17 @@ Uses area-specific API (no world download). Supplemented by ReliefWeb/ACLED, UCD
 import asyncio
 import csv
 import io
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
 import httpx
+
+logger = logging.getLogger(__name__)
 from services.acled_auth import get_acled_token_async, has_acled_oauth
-from .llm import run_tool_agent
+from .llm import run_agent_with_fallback
+from .utils import safe_float
 
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
@@ -51,10 +55,9 @@ SUB_REGIONS_FOR_REGION = {
 
 
 def _safe_float(v: Any, default: float = 0.0) -> float:
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
+    """Local wrapper: geoint always wants a non-None float default."""
+    result = safe_float(v)
+    return result if result is not None else default
 
 
 def _confidence(raw: Any) -> str:
@@ -893,50 +896,34 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             "eo_browser_links": eo_links,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included. Score {score:.0f}.",
         }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception("GEOINT: rule-based pipeline failed for '%s': %s", conflict, e)
     return _empty_result(conflict)
 
 
-def run_geoint_agent(conflict: str) -> Dict[str, Any]:
-    """Run GEOINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
-    import json
-    from .config import USE_RULE_BASED_AGENTS
-    if USE_RULE_BASED_AGENTS:
-        return _run_rule_based_geoint(conflict)
+_GEOINT_TOOL_FNS = {
+    "get_conflict_region": get_conflict_region,
+    "get_thermal_anomalies": get_thermal_anomalies,
+    "get_conflict_hotspot_news": get_conflict_hotspot_news,
+    "get_ucdp_events": get_ucdp_events,
+    "get_eo_browser_links": get_eo_browser_links,
+}
+_GEOINT_TOOL_SCHEMAS = [
+    {"name": "get_conflict_region", "description": "Map conflict to a geographic region.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {"name": "get_thermal_anomalies", "description": "Fetch NASA FIRMS thermal anomalies.", "input_schema": {"type": "object", "properties": {"region": {"type": "string"}, "days": {"type": "integer"}}, "required": ["region"]}},
+    {"name": "get_conflict_hotspot_news", "description": "Fetch ReliefWeb/ACLED hotspot news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {"name": "get_ucdp_events", "description": "Fetch UCDP conflict events.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {"name": "get_eo_browser_links", "description": "Generate EO Browser links.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+]
 
-    TOOL_FNS = {
-        "get_conflict_region": get_conflict_region,
-        "get_thermal_anomalies": get_thermal_anomalies,
-        "get_conflict_hotspot_news": get_conflict_hotspot_news,
-        "get_ucdp_events": get_ucdp_events,
-        "get_eo_browser_links": get_eo_browser_links,
-    }
-    TOOL_SCHEMAS = [
-        {"name": "get_conflict_region", "description": "Map conflict to a geographic region.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "get_thermal_anomalies", "description": "Fetch NASA FIRMS thermal anomalies.", "input_schema": {"type": "object", "properties": {"region": {"type": "string"}, "days": {"type": "integer"}}, "required": ["region"]}},
-        {"name": "get_conflict_hotspot_news", "description": "Fetch ReliefWeb/ACLED hotspot news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "get_ucdp_events", "description": "Fetch UCDP conflict events.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "get_eo_browser_links", "description": "Generate EO Browser links.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-    ]
-    text = run_tool_agent(
-        system=GEOINT_SYSTEM,
-        user_content=f"Detect thermal anomalies for conflict: {conflict}",
-        tool_fns=TOOL_FNS,
-        tool_schemas=TOOL_SCHEMAS,
+
+def run_geoint_agent(conflict: str) -> Dict[str, Any]:
+    return run_agent_with_fallback(
+        conflict,
+        rule_based_fn=_run_rule_based_geoint,
+        system_prompt=GEOINT_SYSTEM,
+        user_content_template="Detect thermal anomalies for conflict: {conflict}",
+        tool_fns=_GEOINT_TOOL_FNS,
+        tool_schemas=_GEOINT_TOOL_SCHEMAS,
         max_rounds=6,
     )
-    if text:
-        text = text.strip()
-        for prefix in ("```json", "```"):
-            if text.startswith(prefix):
-                text = text[len(prefix):].strip()
-        if text.endswith("```"):
-            text = text[:-3].strip()
-        try:
-            result = json.loads(text)
-            result["conflict"] = conflict
-            return result
-        except Exception:
-            pass
-    return _run_rule_based_geoint(conflict)
