@@ -54,13 +54,43 @@ ADSB_REGIONS = [
 MILITARY_CALLSIGN_PREFIXES = [
     "RCH", "USAF", "NAVY", "DUKE", "REACH", "JAKE", "EVAC", "SAM",
     "HAVOC", "VIPER", "SKULL", "IRON", "DOOM", "GHOST", "ATLAS", "SPAR",
+    "FORTE",    # RQ-4 Global Hawk (FORTE11, FORTE12, etc.)
+    "TACAMO",   # E-6B Mercury (nuclear C3)
+    "NCHO",     # E-6B / TACAMO alternate
 ]
 SURVEILLANCE_TYPES = [
     "RC-135", "E-3", "E-8", "P-8", "EP-3", "RQ-4", "MQ-9", "U-2",
     "E-2", "E-6", "RC12", "MC-12", "P-3",
+    "E-7",      # E-7A Wedgetail (drone/cruise missile detection)
+    "E7A",
+    "E6B",      # E-6B Mercury (TACAMO – nuclear C3, doomsday plane)
 ]
-TANKER_TYPES = ["KC-135", "KC-10", "KC-46", "KC130"]
+TANKER_TYPES = [
+    "KC-135", "KC-10", "KC-46", "KC130",
+    "A330",     # A330 MRTT (Israel/NATO/UAE – long-range refueling)
+    "MRTT",
+    "A310",     # A310 MRTT (Luftwaffe)
+    "KC-30",    # RAAF A330 MRTT designation
+]
 FIGHTER_TYPES = ["F-16", "F-15", "F-35", "F/A-18", "FA18", "B-52", "B-2", "B1"]
+TRANSPORT_TYPES = [
+    "C-17", "C-130", "C-5", "C-40", "C-37", "C-32",
+    "Il-76", "IL76",   # Pouya Air / Iranian military transport
+    "An-124", "AN124",
+    "747",              # Qeshm Fars Air 747F (EP-FAA, EP-FAB)
+]
+DOOMSDAY_TYPES = [
+    "E-6",  "E6B",     # E-6B Mercury (TACAMO – nuclear C3)
+    "E-4",  "E4B",     # E-4B Nightwatch (NAOC)
+]
+# Callsign patterns that indicate high-priority intel events
+HIGH_PRIORITY_CALLSIGNS = [
+    "FORTE",            # RQ-4 Global Hawk ISR
+    "TACAMO",           # E-6B Mercury
+    "NCHO",             # E-6B alternate
+    "DARKSTAR",         # classified ISR
+    "GORDO",            # RQ-4 alternate
+]
 WARSHIP_KEYWORDS = [
     "warship", "destroyer", "frigate", "carrier", "corvette",
     "navy", "patrol", "amphibious", "cruiser", "military", "naval", "combat", "guard",
@@ -80,26 +110,80 @@ SPIRE_REGIONS = [
     ("Gulf of Aden", 10, 16, 42, 52),
 ]  # (label, lat_lo, lat_hi, lon_lo, lon_hi)
 
-# Optional target aircraft profile (IAEA jet OE-III)
+# Optional target aircraft profiles – track multiple high-value aircraft via ADSBexchange/RapidAPI + free ADS-B.
+# Add entries here or via env (e.g. OEIII_HEX for ICAO). Each key = target name, value = { hex?, regs?, notes? }.
 # OEIII_HEX: set in .env if known (e.g. from ADSBexchange) for reliable ICAO lookup
-TARGET_AIRCRAFT: Dict[str, Dict[str, Any]] = {
-    "OE-III": {
-        "hex": (os.getenv("OEIII_HEX") or "").lower() or None,
-        "regs": ["OE-III", "OEIII", "OE III"],
-        "notes": "IAEA / diplomatic jet",
-    },
-}
+def _target_aircraft_from_env() -> Dict[str, Dict[str, Any]]:
+    targets: Dict[str, Dict[str, Any]] = {
+        # ── IAEA / Diplomatic ────────────────────────────────────────
+        "OE-III": {
+            "hex": (os.getenv("OEIII_HEX") or "").lower() or None,
+            "regs": ["OE-III", "OEIII", "OE III"],
+            "notes": "IAEA / diplomatic jet (Rafael Grossi)",
+        },
+        # ── Iranian high-value (arms logistics, government) ──────────
+        "EP-FAA": {
+            "hex": (os.getenv("TARGET_EPFAA_HEX") or "").lower() or None,
+            "regs": ["EP-FAA", "EPFAA"],
+            "notes": "Qeshm Fars Air 747F – linked to IRGC arms shipments (Syria corridor)",
+        },
+        "EP-FAB": {
+            "hex": (os.getenv("TARGET_EPFAB_HEX") or "").lower() or None,
+            "regs": ["EP-FAB", "EPFAB"],
+            "notes": "Qeshm Fars Air 747F – linked to IRGC arms shipments",
+        },
+        "EP-IGA": {
+            "hex": (os.getenv("TARGET_EPIGA_HEX") or "").lower() or None,
+            "regs": ["EP-IGA", "EPIGA"],
+            "notes": "Iran government A340 – senior leadership transport",
+        },
+        "EP-IGC": {
+            "hex": (os.getenv("TARGET_EPIGC_HEX") or "").lower() or None,
+            "regs": ["EP-IGC", "EPIGC"],
+            "notes": "Iran government Falcon 900 – leadership transport",
+        },
+    }
+    # Pouya Air Il-76 – no fixed reg known publicly; match by operator callsign if available
+    targets["POUYA"] = {
+        "hex": (os.getenv("TARGET_POUYA_HEX") or "").lower() or None,
+        "regs": ["IRZ", "POUYA"],  # IRZ = Pouya Air ICAO code
+        "notes": "Pouya Air Il-76 – military transport within region",
+    }
+    # Custom targets from env (e.g. TARGET_AIRCRAFT_EXTRA=AF1,RAFSHADOW1)
+    extra = (os.getenv("TARGET_AIRCRAFT_EXTRA") or "").strip()
+    for name in [x.strip().upper() for x in extra.split(",") if x.strip()]:
+        if name in targets:
+            continue
+        hex_val = (os.getenv(f"TARGET_{name.replace('-', '_')}_HEX") or "").lower() or None
+        targets[name] = {"hex": hex_val, "regs": [name, name.replace("-", "")], "notes": "Custom target"}
+    return targets
+
+
+TARGET_AIRCRAFT: Dict[str, Dict[str, Any]] = _target_aircraft_from_env()
 
 # Free ADS-B registration/region endpoints (no key) – used for OE-III before paid APIs
 ADSB_REGISTRATION_URLS = [
     "https://opendata.adsb.fi/api/v2/registration/{reg}",
     "https://api.adsb.lol/v2/registration/{reg}",
 ]
-ADSB_REGIONS_OEIII = [
+# Scan regions for target aircraft tracking – covers key bases and corridors
+ADSB_TARGET_SCAN_REGIONS = [
+    # Original IAEA/OE-III corridors
     ("Vienna/Austria", 48.2, 16.4, 350),
     ("Eastern Med", 33.0, 35.0, 400),
     ("Persian Gulf", 26.0, 55.0, 450),
+    # Key military bases & transit corridors
+    ("Al Udeid/Qatar", 25.1, 51.3, 200),      # CENTCOM forward HQ
+    ("Al Dhafra/UAE", 24.2, 54.5, 200),        # US/French air base
+    ("Akrotiri/Cyprus", 34.6, 33.0, 250),      # RAF base (staging)
+    ("Jordan corridor", 31.5, 36.5, 300),      # transit corridor → Iran
+    ("Northern Iraq", 36.0, 44.0, 300),         # Erbil/Kirkuk corridor
+    ("Strait of Hormuz", 26.5, 56.3, 200),     # maritime ISR (P-8)
+    ("Tehran FIR", 35.7, 51.4, 400),           # Iranian airspace
+    ("Syria corridor", 34.5, 38.5, 300),       # Damascus/Aleppo (arms flights)
 ]
+# Backwards compat alias
+ADSB_REGIONS_OEIII = ADSB_TARGET_SCAN_REGIONS
 ADSB_LATLON_URLS = [
     "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}",
     "https://api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{dist}",
@@ -110,6 +194,7 @@ ADSBX_BASE_URL = os.getenv("ADSBX_BASE_URL", "").rstrip("/") or None
 ADSBX_API_KEY = (os.getenv("ADSBX_API_KEY") or "").strip() or None
 # ADSBexchange via RapidAPI: https://rapidapi.com/adsbx/api/adsbexchange-com1
 ADSBEXCHANGE_RAPIDAPI_KEY = (os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY") or os.getenv("RAPIDAPI_KEY") or "").strip() or None
+RAPIDAPI_KEY = os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY")
 ADSBEXCHANGE_RAPIDAPI_HOST = (os.getenv("ADSBEXCHANGE_RAPIDAPI_HOST") or "adsbexchange-com1.p.rapidapi.com").strip()
 OPENSKY_USERNAME = (os.getenv("OPENSKY_USERNAME") or "").strip() or None
 OPENSKY_PASSWORD = (os.getenv("OPENSKY_PASSWORD") or "").strip() or None
@@ -221,17 +306,26 @@ async def _fetch_adsb_regions_for_target(
     return candidates
 
 
-def _classify_aircraft(callsign: str, ac_type: str) -> str | None:
+def _classify_aircraft(callsign: str, ac_type: str, reg: str = "") -> str | None:
     cs = (callsign or "").upper().strip()
     t = (ac_type or "").upper().strip()
+    r = (reg or "").upper().strip()
+    if any(x in t for x in DOOMSDAY_TYPES) or any(cs.startswith(p) for p in ("TACAMO", "NCHO")):
+        return "doomsday"
     if any(x in t for x in FIGHTER_TYPES):
         return "fighter"
     if any(x in t for x in SURVEILLANCE_TYPES):
         return "surveillance"
+    if any(cs.startswith(p) for p in HIGH_PRIORITY_CALLSIGNS):
+        return "surveillance"
     if any(x in t for x in TANKER_TYPES):
         return "tanker"
-    if any(cs.startswith(p) for p in MILITARY_CALLSIGN_PREFIXES):
+    if any(x in t for x in TRANSPORT_TYPES):
         return "transport"
+    if r.startswith("EP-") and any(x in t for x in ("747", "A340", "F900", "IL76")):
+        return "iranian_gov"
+    if any(cs.startswith(p) for p in MILITARY_CALLSIGN_PREFIXES):
+        return "military"
     return None
 
 
@@ -308,7 +402,8 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                 for ac in ac_list:
                     callsign = str(ac.get("flight") or "").strip()
                     ac_type = str(ac.get("t") or ac.get("type") or "").strip()
-                    cat = _classify_aircraft(callsign, ac_type)
+                    reg = str(ac.get("r") or ac.get("reg") or "").strip()
+                    cat = _classify_aircraft(callsign, ac_type, reg)
                     if not cat:
                         continue
                     icao = str(ac.get("hex") or "").upper()
@@ -323,6 +418,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                         "flight": callsign or ac_type or icao,
                         "type": ac_type, "lat": lat, "lon": lon,
                         "category": cat, "region": label,
+                        "reg": reg or None,
                     })
         return results
 
@@ -829,7 +925,9 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             fut_spire_airsafe = executor.submit(get_spire_airsafe_targets)
             fut_reports = executor.submit(get_conflict_reports, conflict)
             fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
-            fut_target = executor.submit(get_target_aircraft, "OE-III")
+            # Track all configured target aircraft (OE-III + any from TARGET_AIRCRAFT_EXTRA)
+            target_names = list(TARGET_AIRCRAFT.keys())
+            fut_targets = [executor.submit(get_target_aircraft, name) for name in target_names]
 
             try:
                 raw_aircraft = fut_air.result(timeout=40)
@@ -867,11 +965,14 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 logger.exception("SIGINT: NOTAM fetch failed: %s", e)
                 notam_result = {"notams": [], "error": str(e)}
 
-            try:
-                target_track = fut_target.result(timeout=40)
-            except Exception as e:
-                logger.debug("SIGINT: target aircraft tracking failed: %s", e)
-                target_track = {"target": "OE-III", "error": str(e)}
+            target_tracks_dict: Dict[str, Any] = {}
+            for name, fut in zip(target_names, fut_targets):
+                try:
+                    target_tracks_dict[name] = fut.result(timeout=40)
+                except Exception as e:
+                    logger.debug("SIGINT: target aircraft %s tracking failed: %s", name, e)
+                    target_tracks_dict[name] = {"target": name, "error": str(e)}
+            target_track = target_tracks_dict
 
         aircraft = [
             a for a in (raw_aircraft or [])
@@ -913,6 +1014,11 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         base += min(40, sum(10 for a in aircraft if a.get("category") == "surveillance"))
         base += sum(8 for a in aircraft if a.get("category") == "tanker")
         base += sum(12 for a in aircraft if a.get("category") == "fighter")
+        base += sum(6 for a in aircraft if a.get("category") == "transport")
+        base += sum(8 for a in aircraft if a.get("category") == "iranian_gov")
+        # Doomsday planes (E-6B, E-4B) = highest escalation signal
+        doomsday_count = sum(1 for a in aircraft if a.get("category") == "doomsday")
+        base += doomsday_count * 25
         base += min(25, len(ships) * 5)
         base += min(30, len(reports) * 8)
         score = max(0.0, min(100.0, base))
@@ -922,7 +1028,19 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             by_cat: Dict[str, List] = {}
             for a in aircraft:
                 by_cat.setdefault(a.get("category", "?"), []).append(a.get("flight", "?"))
+            if "doomsday" in by_cat:
+                alerts.append(
+                    f"⚠ {len(by_cat['doomsday'])} DOOMSDAY/NUCLEAR C3 aircraft: "
+                    f"{', '.join(by_cat['doomsday'][:5])} — highest escalation signal"
+                )
+            if "iranian_gov" in by_cat:
+                alerts.append(
+                    f"🇮🇷 {len(by_cat['iranian_gov'])} Iranian gov/IRGC aircraft: "
+                    f"{', '.join(by_cat['iranian_gov'][:5])}"
+                )
             for cat, flights in by_cat.items():
+                if cat in ("doomsday", "iranian_gov"):
+                    continue
                 alerts.append(f"{len(flights)} {cat} aircraft: {', '.join(flights[:3])}")
         if ships:
             alerts.append(f"{len(ships)} warship(s) in region")
@@ -946,10 +1064,11 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 sources_ok.append(name)
             else:
                 sources_missing.append(name)
-        if isinstance(target_track, dict) and not target_track.get("error") and (
-            target_track.get("adsbx") or target_track.get("fallback_sigint") or target_track.get("opensky")
-        ):
-            sources_ok.append("target_OE-III")
+        for tname, tdata in (target_track if isinstance(target_track, dict) else {}).items():
+            if isinstance(tdata, dict) and not tdata.get("error") and (
+                tdata.get("adsbx") or tdata.get("adsbexchange_rapidapi") or tdata.get("fallback_sigint") or tdata.get("opensky")
+            ):
+                sources_ok.append(f"target_{tname}")
         score_confidence = ScoreConfidence(
             level="high" if len(sources_ok) >= 2 else "low",
             sources_ok=sources_ok,
@@ -976,7 +1095,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 f"Score {score:.0f}."
             ),
             score_confidence=score_confidence,
-            target_tracks={"OE-III": target_track} if isinstance(target_track, dict) else {},
+            target_tracks=target_track if isinstance(target_track, dict) else {},
         )
         return result.model_dump(mode="json")
     except Exception as e:
