@@ -23,6 +23,7 @@ from .protest_agent import run_protest_agent
 from .diplo_agent import run_diplo_agent
 from .proximity_agent import run_proximity_agent
 from .signal_framework_agent import run_signal_framework_agent
+from .predictive import build_predictive_block
 from .acled_reference import fetch_acled_reference_analyses_sync
 
 
@@ -258,6 +259,20 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         proximity_score * 0.10
     )
 
+    agent_scores_for_predictive = {
+        "finint": finint_score,
+        "sigint": sigint_score,
+        "news": news_score,
+        "geoint": geoint_score,
+        "socmint": socmint_score,
+        "techint": techint_score,
+        "cyber": cyber_score,
+        "energy": energy_score,
+        "protest": protest_score,
+        "diplo": diplo_score,
+        "proximity": proximity_score,
+    }
+
     use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
 
     if use_rule_based:
@@ -443,6 +458,9 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     # ── Iran conflict: actors with activity from key_findings ─────────────────────
     actors = _build_iran_actors(key_findings) if conflict and "iran" in conflict.lower() else []
 
+    # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
+    predictive = build_predictive_block(conflict, combined_score, agent_scores_for_predictive)
+
     return {
         "escalation_score": combined_score,
         "threat_level": threat_level,
@@ -450,6 +468,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         "scenarios": scenarios,
         "summary": summary,
         "actors": actors,
+        "predictive": predictive,
         **{k: v for k, v in agent_results.items() if k != "acled_refs"},
     }
 
@@ -480,4 +499,5 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "scenarios":        synthesis.get("scenarios", []),
         "summary":          synthesis.get("summary", ""),
         "actors":           synthesis.get("actors", []),
+        "predictive":       synthesis.get("predictive", {}),
     }

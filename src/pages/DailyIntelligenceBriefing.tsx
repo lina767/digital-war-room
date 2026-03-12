@@ -76,6 +76,11 @@ export default function DailyIntelligenceBriefing() {
   );
   const globalNote = data?.energy?.global_impact_note ?? null;
 
+  const baselineForecast = data?.predictive?.baseline_escalation;
+  const escalation24h =
+    data?.predictive?.escalation?.find((f) => f.horizon === "24h") ??
+    data?.predictive?.escalation?.[0];
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
@@ -183,10 +188,93 @@ export default function DailyIntelligenceBriefing() {
                 </div>
               </section>
 
-              {/* 3. Global Impact */}
+              {/* 3. Predictive Outlook */}
               <section>
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
-                  3. Global Impact
+                  3. Predictive Outlook
+                </h2>
+                <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-3">
+                  {!baselineForecast && !escalation24h && (
+                    <p className="text-muted-foreground italic">
+                      No predictive outlook available for this period.
+                    </p>
+                  )}
+                  {baselineForecast && (
+                    <div>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                        Baseline (null hypothesis)
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Expected escalation level without current signals:
+                        {" "}
+                        <span className="font-mono text-foreground">{baselineForecast.level}</span>
+                        {baselineForecast.range && (
+                          <>
+                            {" "}
+                            (band{" "}
+                            <span className="font-mono">
+                              {Math.round(baselineForecast.range.min * 100)}–{Math.round(baselineForecast.range.max * 100)}%
+                            </span>
+                            ).
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                  {escalation24h && (
+                    <div>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                        Escalation – {escalation24h.horizon}
+                      </p>
+                      <p className="text-xs">
+                        Level:
+                        {" "}
+                        <span className="font-mono">{escalation24h.level}</span>
+                        {escalation24h.range && (
+                          <>
+                            {" "}
+                            (band{" "}
+                            <span className="font-mono">
+                              {Math.round(escalation24h.range.min * 100)}–{Math.round(escalation24h.range.max * 100)}%
+                            </span>
+                            ).
+                          </>
+                        )}
+                        {baselineForecast && (
+                          <>
+                            {" "}
+                            Relative to baseline:
+                            {" "}
+                            <span className="font-mono uppercase text-muted-foreground">
+                              {escalation24h.vs_baseline}
+                            </span>
+                            .
+                          </>
+                        )}
+                      </p>
+                      {escalation24h.drivers && escalation24h.drivers.length > 0 && (
+                        <ul className="mt-1 space-y-0.5">
+                          {escalation24h.drivers.slice(0, 3).map((d, i) => (
+                            <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                              <span className="mt-[6px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
+                              <span>{d}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    Levels and bands are coarse indicators derived from existing agent scores and a conflict-specific baseline.
+                    They are not precise probabilities.
+                  </p>
+                </div>
+              </section>
+
+              {/* 4. Global Impact */}
+              <section>
+                <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
+                  4. Global Impact
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed">
                   {globalNote && <p className="mb-3">{globalNote}</p>}
@@ -205,10 +293,10 @@ export default function DailyIntelligenceBriefing() {
                 </div>
               </section>
 
-              {/* 4. Things to Watch */}
+              {/* 5. Things to Watch */}
               <section>
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
-                  4. Things to Watch
+                  5. Things to Watch
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4">
                   {(data.scenarios?.length ?? 0) > 0 ? (
@@ -230,10 +318,10 @@ export default function DailyIntelligenceBriefing() {
                 </div>
               </section>
 
-              {/* 5. Sources */}
+              {/* 6. Sources */}
               <section>
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
-                  5. Sources
+                  6. Sources
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4">
                   <p className="text-xs text-muted-foreground mb-3">

@@ -32,6 +32,7 @@ export interface AnalyzeResponse {
   protest?: Record<string, unknown>;
   diplo?: Record<string, unknown>;
   proximity?: Record<string, unknown>;
+  predictive?: Record<string, unknown>;
   [key: string]: unknown;
 }
 

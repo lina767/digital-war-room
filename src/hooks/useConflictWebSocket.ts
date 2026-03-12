@@ -12,6 +12,46 @@ export interface NewsArticle {
   sentiment_score?: number;
 }
 
+export type PredictiveLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type PredictiveBasis = "baseline" | "data" | "markets" | "mixed";
+export type PredictiveConfidence = "LOW" | "MEDIUM" | "HIGH";
+
+export interface ProbabilityRange {
+  min: number;
+  max: number;
+}
+
+export interface EscalationForecast {
+  horizon: string;
+  level: PredictiveLevel;
+  range?: ProbabilityRange;
+  basis: PredictiveBasis;
+  confidence: PredictiveConfidence;
+  drivers: string[];
+  vs_baseline: "higher" | "similar" | "lower";
+  notes?: string;
+}
+
+export interface MarketForecast {
+  instrument: string;
+  horizon: string;
+  level: PredictiveLevel;
+  direction: "UP" | "DOWN" | "FLAT";
+  range?: ProbabilityRange;
+  basis: PredictiveBasis;
+  confidence: PredictiveConfidence;
+  drivers: string[];
+  vs_baseline: "higher" | "similar" | "lower";
+  notes?: string;
+}
+
+export interface PredictiveBlock {
+  baseline_escalation?: EscalationForecast;
+  escalation?: EscalationForecast[];
+  markets?: MarketForecast[];
+  market_benchmark?: MarketForecast[];
+}
+
 export interface ConflictData {
   conflict: string;
   escalation_score: number | null;
@@ -119,6 +159,7 @@ export interface ConflictData {
       military_profile?: string;
     };
   }>;
+  predictive?: PredictiveBlock;
 }
 
 interface UseConflictWebSocketOptions {
