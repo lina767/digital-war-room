@@ -98,7 +98,7 @@ const Dashboard = () => {
           >
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <div className="font-mono font-bold text-primary text-glow text-xs sm:text-sm tracking-wider truncate">
+          <div className="font-mono font-bold text-primary text-glow-intense text-xs sm:text-sm tracking-[0.25em] truncate">
             DIGITAL WAR ROOM
           </div>
         </div>

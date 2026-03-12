@@ -70,10 +70,25 @@
     font-family: 'JetBrains Mono', monospace;
   }
   .text-glow {
-    text-shadow: 0 0 10px hsl(135 100% 50% / 0.5), 0 0 20px hsl(135 100% 50% / 0.2);
+    text-shadow:
+      0 0 7px hsl(135 100% 50% / 0.8),
+      0 0 20px hsl(135 100% 50% / 0.5),
+      0 0 40px hsl(135 100% 50% / 0.25),
+      0 0 80px hsl(135 100% 50% / 0.1);
+  }
+  .text-glow-intense {
+    text-shadow:
+      0 0 4px hsl(135 100% 60% / 1),
+      0 0 11px hsl(135 100% 50% / 0.9),
+      0 0 24px hsl(135 100% 50% / 0.6),
+      0 0 50px hsl(135 100% 50% / 0.35),
+      0 0 100px hsl(135 100% 45% / 0.15);
   }
   .border-glow {
-    box-shadow: 0 0 10px hsl(135 100% 50% / 0.15), inset 0 0 10px hsl(135 100% 50% / 0.05);
+    box-shadow:
+      0 0 8px hsl(135 100% 50% / 0.2),
+      0 0 20px hsl(135 100% 50% / 0.08),
+      inset 0 0 8px hsl(135 100% 50% / 0.06);
   }
   .scanline {
     background: repeating-linear-gradient(
