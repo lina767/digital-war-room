@@ -1,16 +1,20 @@
 """
 Configurable geographic zones – single source of truth for SIGINT filtering and sanctions geofencing.
 
-Each zone is a named bounding box (lat_min, lat_max, lon_min, lon_max).
+Supports two geometry types:
+- Bounding box: Zone(name, lat_min, lat_max, lon_min, lon_max, ...)
+- Polygon: PolygonZone(name, vertices=[(lat, lon), ...], ...)
+
 Zone sets group zones by purpose: "conflict" zones are used by the SIGINT agent to filter
 military aircraft/ships; "sanctions" zones are used by the geofencing wrapper to generate
 compliance alerts.
 
 Zones are Iran-focused but the architecture is conflict-agnostic; add regions as needed.
 """
-from typing import Dict, List, Literal, Tuple, Optional
+from typing import Dict, List, Literal, Sequence, Tuple, Optional
 
 ZoneType = Literal["sanctions", "high_risk", "embargo"]
+
 
 class Zone:
     """A named geographic bounding box with metadata."""
@@ -40,6 +44,7 @@ class Zone:
     def to_dict(self):
         return {
             "name": self.name,
+            "geometry": "bbox",
             "lat_min": self.lat_min,
             "lat_max": self.lat_max,
             "lon_min": self.lon_min,
@@ -49,10 +54,87 @@ class Zone:
         }
 
 
+class PolygonZone:
+    """A named geographic polygon zone (list of (lat, lon) vertices)."""
+    __slots__ = ("name", "vertices", "zone_type", "source",
+                 "_lat_min", "_lat_max", "_lon_min", "_lon_max")
+
+    def __init__(
+        self,
+        name: str,
+        vertices: Sequence[Tuple[float, float]],
+        zone_type: ZoneType = "high_risk",
+        source: str = "internal",
+    ):
+        self.name = name
+        self.vertices = list(vertices)
+        self.zone_type = zone_type
+        self.source = source
+        lats = [v[0] for v in self.vertices]
+        lons = [v[1] for v in self.vertices]
+        self._lat_min = min(lats)
+        self._lat_max = max(lats)
+        self._lon_min = min(lons)
+        self._lon_max = max(lons)
+
+    def contains(self, lat: float, lon: float) -> bool:
+        if not (self._lat_min <= lat <= self._lat_max and self._lon_min <= lon <= self._lon_max):
+            return False
+        return _point_in_polygon(lat, lon, self.vertices)
+
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "geometry": "polygon",
+            "vertices": self.vertices,
+            "zone_type": self.zone_type,
+            "source": self.source,
+        }
+
+
+def _point_in_polygon(lat: float, lon: float, vertices: List[Tuple[float, float]]) -> bool:
+    """Ray-casting algorithm for point-in-polygon test. Vertices are (lat, lon) pairs."""
+    n = len(vertices)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        vlat_i, vlon_i = vertices[i]
+        vlat_j, vlon_j = vertices[j]
+        if ((vlon_i > lon) != (vlon_j > lon)) and (
+            lat < (vlat_j - vlat_i) * (lon - vlon_i) / (vlon_j - vlon_i) + vlat_i
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+AnyZone = Zone | PolygonZone
+
+
 # ── Iran-focused zones (Kernfeature) ─────────────────────────────────────────
 
 IRAN_TERRITORIAL_WATERS = Zone("IRAN_TERRITORIAL_WATERS", 24.0, 30.5, 48.0, 62.0, "sanctions", "OFAC/EU")
-STRAIT_OF_HORMUZ = Zone("STRAIT_OF_HORMUZ", 25.5, 27.5, 55.0, 57.5, "sanctions", "OFAC maritime guidance 2025")
+
+# Strait of Hormuz: polygon for more precise geometry (narrowest point ~33 km)
+STRAIT_OF_HORMUZ = PolygonZone(
+    "STRAIT_OF_HORMUZ",
+    vertices=[
+        (26.0, 55.5), (27.2, 55.0), (27.0, 56.5),
+        (26.5, 57.5), (25.8, 57.0), (25.5, 56.0),
+    ],
+    zone_type="sanctions",
+    source="OFAC maritime guidance 2025",
+)
+
+# Fujairah anchorage: known STS transfer area
+FUJAIRAH_ANCHORAGE = PolygonZone(
+    "FUJAIRAH_ANCHORAGE",
+    vertices=[
+        (25.0, 56.2), (25.4, 56.2), (25.4, 56.6), (25.0, 56.6),
+    ],
+    zone_type="high_risk",
+    source="OFAC maritime advisory 2025 (STS transfer zone)",
+)
 
 # ── Broader Middle East / conflict zones ──────────────────────────────────────
 
@@ -72,21 +154,21 @@ LUHANSK_DONETSK = Zone("LUHANSK_DONETSK", 47.0, 50.0, 37.0, 41.0, "embargo", "EU
 
 # ── Zone sets ─────────────────────────────────────────────────────────────────
 
-CONFLICT_ZONES: List[Zone] = [
+CONFLICT_ZONES: List[AnyZone] = [
     PERSIAN_GULF, RED_SEA, EASTERN_MED, GULF_OF_ADEN, IRAQ_IRAN,
     IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ,
 ]
 
-SANCTIONS_ZONES: List[Zone] = [
-    IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ,
+SANCTIONS_ZONES: List[AnyZone] = [
+    IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ, FUJAIRAH_ANCHORAGE,
     BLACK_SEA, CRIMEA, LUHANSK_DONETSK,
     VENEZUELA_WATERS, NORTH_KOREA_WATERS,
 ]
 
-ALL_ZONES: List[Zone] = list({z.name: z for z in CONFLICT_ZONES + SANCTIONS_ZONES}.values())
+ALL_ZONES: List[AnyZone] = list({z.name: z for z in CONFLICT_ZONES + SANCTIONS_ZONES}.values())
 
 
-def in_zone_set(lat: float, lon: float, zones: List[Zone]) -> Optional[Zone]:
+def in_zone_set(lat: float, lon: float, zones: List[AnyZone]) -> Optional[AnyZone]:
     """Return the first matching zone, or None."""
     for z in zones:
         if z.contains(lat, lon):
@@ -94,7 +176,7 @@ def in_zone_set(lat: float, lon: float, zones: List[Zone]) -> Optional[Zone]:
     return None
 
 
-def all_matching_zones(lat: float, lon: float, zones: List[Zone]) -> List[Zone]:
+def all_matching_zones(lat: float, lon: float, zones: List[AnyZone]) -> List[AnyZone]:
     """Return all zones that contain the point."""
     return [z for z in zones if z.contains(lat, lon)]
 
@@ -104,6 +186,6 @@ def in_conflict_zone(lat: float, lon: float) -> bool:
     return in_zone_set(lat, lon, CONFLICT_ZONES) is not None
 
 
-def in_sanctions_zone(lat: float, lon: float) -> Optional[Zone]:
+def in_sanctions_zone(lat: float, lon: float) -> Optional[AnyZone]:
     """Check if point is in any sanctions zone; return the zone or None."""
     return in_zone_set(lat, lon, SANCTIONS_ZONES)

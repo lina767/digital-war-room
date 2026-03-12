@@ -1,16 +1,29 @@
 import { useState } from "react";
-import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight } from "lucide-react";
+import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, Eye, ExternalLink } from "lucide-react";
 import { getApiBase } from "@/lib/api";
-import type { ConflictData, GeofencingAlert } from "@/hooks/useConflictWebSocket";
+import type { ConflictData, GeofencingAlert, AISAnomaly, ComplianceRiskScore } from "@/hooks/useConflictWebSocket";
 
 const DISCLAIMER =
   "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.";
+
+const OFAC_MARITIME_GUIDANCE = {
+  title: "OFAC Maritime Advisory – Iran Oil Sanctions Evasion (April 2025)",
+  url: "https://ofac.treasury.gov/media/932436/download?inline",
+  summary: "Guidance for shipping, energy, and insurance sectors on deceptive practices used to evade Iran-related sanctions, including STS transfers, AIS manipulation, and flag-hopping.",
+};
 
 const MATCH_LEVEL_STYLES: Record<string, string> = {
   EXACT: "bg-destructive text-destructive-foreground",
   STRONG_FUZZY: "bg-orange-500/90 text-black",
   WEAK_FUZZY: "bg-yellow-400/80 text-black",
   REVIEW: "bg-muted text-muted-foreground",
+};
+
+const RISK_LEVEL_STYLES: Record<string, string> = {
+  CRITICAL: "bg-destructive text-destructive-foreground",
+  HIGH: "bg-orange-500/90 text-black",
+  MEDIUM: "bg-yellow-400/80 text-black",
+  LOW: "bg-emerald-500/80 text-black",
 };
 
 interface SanctionsResult {
@@ -46,9 +59,21 @@ function ZoneTypeBadge({ type }: { type: string }) {
   );
 }
 
-function GeofencingAlerts({ alerts }: { alerts: GeofencingAlert[] }) {
-  const [expanded, setExpanded] = useState(true);
-  if (!alerts.length) return null;
+function CollapsibleSection({
+  icon,
+  label,
+  count,
+  defaultOpen = true,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(defaultOpen);
+  if (count === 0) return null;
 
   return (
     <div className="space-y-1.5">
@@ -58,36 +83,109 @@ function GeofencingAlerts({ alerts }: { alerts: GeofencingAlert[] }) {
         className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground w-full"
       >
         {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        <AlertTriangle className="h-3 w-3 text-orange-400" />
-        <span>GEOFENCING ALERTS ({alerts.length})</span>
+        {icon}
+        <span>{label} ({count})</span>
       </button>
-      {expanded && (
-        <div className="space-y-1.5 pl-4">
-          {alerts.slice(0, 15).map((a, i) => (
-            <div key={`${a.asset_id}-${a.zone_name}-${i}`} className="rounded border border-border bg-background/50 px-2.5 py-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-semibold truncate">
-                  {a.asset_name}
-                </span>
-                <ZoneTypeBadge type={a.zone_type} />
-              </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground mt-1">
-                <span>Zone</span>
-                <span className="text-right font-mono">{a.zone_name.replace(/_/g, " ")}</span>
-                <span>Type</span>
-                <span className="text-right">{a.asset_type}</span>
-                <span>Position</span>
-                <span className="text-right font-mono">
-                  {a.lat.toFixed(1)}° {a.lon.toFixed(1)}°
-                </span>
-                <span>Source</span>
-                <span className="text-right">{a.source}</span>
-              </div>
-            </div>
+      {expanded && <div className="space-y-1.5 pl-4">{children}</div>}
+    </div>
+  );
+}
+
+function RiskScoreDisplay({ riskScore }: { riskScore: ComplianceRiskScore }) {
+  const bandText = `${Math.round(riskScore.band.min * 100)}–${Math.round(riskScore.band.max * 100)}%`;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+          Compliance Risk
+        </span>
+        <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${RISK_LEVEL_STYLES[riskScore.level] ?? "bg-muted text-muted-foreground"}`}>
+          {riskScore.level}
+        </span>
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono text-lg font-bold text-primary">{riskScore.numeric_score}</span>
+        <span className="text-[10px] text-muted-foreground">/100 · Band: {bandText}</span>
+      </div>
+      {riskScore.drivers.length > 0 && (
+        <ul className="space-y-0.5">
+          {riskScore.drivers.slice(0, 5).map((d, i) => (
+            <li key={i} className="text-[10px] text-muted-foreground flex gap-1.5">
+              <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
+              <span>
+                <span className="font-mono text-foreground/80">{d.factor}</span>: {d.detail}
+              </span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
+  );
+}
+
+function AISAnomaliesSection({ anomalies }: { anomalies: AISAnomaly[] }) {
+  return (
+    <CollapsibleSection
+      icon={<Radio className="h-3 w-3 text-red-400" />}
+      label="AIS ANOMALIES"
+      count={anomalies.length}
+      defaultOpen={true}
+    >
+      {anomalies.slice(0, 10).map((a, i) => (
+        <div key={`${a.asset_id}-${a.anomaly_type}-${i}`} className="rounded border border-border bg-background/50 px-2.5 py-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold truncate">{a.asset_name}</span>
+            <div className="flex items-center gap-1">
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${a.anomaly_type === "spoofing" ? "bg-red-500/80 text-white" : "bg-purple-500/80 text-white"}`}>
+                {a.anomaly_type === "spoofing" ? "SPOOF" : "DARK"}
+              </span>
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${a.severity === "HIGH" ? "bg-orange-500/80 text-black" : "bg-yellow-400/60 text-black"}`}>
+                {a.severity}
+              </span>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1 leading-snug">{a.detail}</p>
+          {a.zone_name && (
+            <p className="text-[9px] text-muted-foreground mt-0.5">
+              Zone: <span className="font-mono">{a.zone_name.replace(/_/g, " ")}</span>
+            </p>
+          )}
+        </div>
+      ))}
+    </CollapsibleSection>
+  );
+}
+
+function GeofencingAlerts({ alerts }: { alerts: GeofencingAlert[] }) {
+  return (
+    <CollapsibleSection
+      icon={<AlertTriangle className="h-3 w-3 text-orange-400" />}
+      label="GEOFENCING ALERTS"
+      count={alerts.length}
+      defaultOpen={true}
+    >
+      {alerts.slice(0, 15).map((a, i) => (
+        <div key={`${a.asset_id}-${a.zone_name}-${i}`} className="rounded border border-border bg-background/50 px-2.5 py-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-semibold truncate">{a.asset_name}</span>
+            <ZoneTypeBadge type={a.zone_type} />
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground mt-1">
+            <span>Zone</span>
+            <span className="text-right font-mono">{a.zone_name.replace(/_/g, " ")}</span>
+            <span>Type</span>
+            <span className="text-right">{a.asset_type}</span>
+            <span>Position</span>
+            <span className="text-right font-mono">
+              {a.lat.toFixed(1)}° {a.lon.toFixed(1)}°
+            </span>
+            <span>Source</span>
+            <span className="text-right">{a.source}</span>
+          </div>
+        </div>
+      ))}
+    </CollapsibleSection>
   );
 }
 
@@ -195,6 +293,10 @@ interface CompliancePanelProps {
 export function CompliancePanel({ data }: CompliancePanelProps) {
   const compliance = data?.compliance;
   const alerts = compliance?.geofencing_alerts ?? [];
+  const anomalies = compliance?.ais_anomalies ?? [];
+  const riskScore = compliance?.risk_score;
+
+  const hasSignals = alerts.length > 0 || anomalies.length > 0;
 
   return (
     <div className="rounded-lg border border-border bg-card/60 p-3 space-y-3">
@@ -203,15 +305,35 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
         SANCTIONS COMPLIANCE
       </h3>
 
+      {riskScore && <RiskScoreDisplay riskScore={riskScore} />}
+
       <SanctionsSearch />
 
       <GeofencingAlerts alerts={alerts} />
 
-      {alerts.length === 0 && (
+      <AISAnomaliesSection anomalies={anomalies} />
+
+      {!hasSignals && (
         <p className="text-[10px] text-muted-foreground">
-          No geofencing alerts in current SIGINT window.
+          No geofencing or AIS anomaly alerts in current SIGINT window.
         </p>
       )}
+
+      <div className="border-t border-border/50 pt-2 space-y-1.5">
+        <a
+          href={OFAC_MARITIME_GUIDANCE.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-start gap-1.5 text-[10px] text-muted-foreground hover:text-foreground group"
+        >
+          <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0 group-hover:text-primary" />
+          <span>
+            <span className="font-semibold">{OFAC_MARITIME_GUIDANCE.title}</span>
+            <br />
+            <span className="text-[9px]">{OFAC_MARITIME_GUIDANCE.summary}</span>
+          </span>
+        </a>
+      </div>
 
       <p className="text-[9px] text-muted-foreground border-t border-border/50 pt-2">
         {DISCLAIMER}

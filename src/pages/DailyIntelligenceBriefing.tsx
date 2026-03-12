@@ -323,11 +323,30 @@ export default function DailyIntelligenceBriefing() {
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   6. Sanctions Compliance
                 </h2>
-                <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-2">
+                <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-3">
+                  {/* Risk Score */}
+                  {(data.compliance as any)?.risk_score && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground">Compliance Risk:</span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
+                        (data.compliance as any).risk_score.level === "CRITICAL" ? "bg-destructive text-destructive-foreground"
+                        : (data.compliance as any).risk_score.level === "HIGH" ? "bg-orange-500/90 text-black"
+                        : (data.compliance as any).risk_score.level === "MEDIUM" ? "bg-yellow-400/80 text-black"
+                        : "bg-emerald-500/80 text-black"
+                      }`}>
+                        {(data.compliance as any).risk_score.level}
+                      </span>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {(data.compliance as any).risk_score.numeric_score}/100
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Geofencing */}
                   {(data.compliance?.geofencing_alerts as any[])?.length > 0 ? (
                     <>
                       <p>
-                        <span className="font-semibold">{(data.compliance!.geofencing_alerts as any[]).length}</span> geofencing alert(s) from current SIGINT window:
+                        <span className="font-semibold">{(data.compliance!.geofencing_alerts as any[]).length}</span> geofencing alert(s):
                       </p>
                       <ul className="space-y-1">
                         {(data.compliance!.geofencing_alerts as any[]).slice(0, 10).map((a: any, i: number) => (
@@ -343,8 +362,30 @@ export default function DailyIntelligenceBriefing() {
                       </ul>
                     </>
                   ) : (
-                    <p className="text-muted-foreground italic">No geofencing alerts in current SIGINT window.</p>
+                    <p className="text-muted-foreground italic text-xs">No geofencing alerts in current SIGINT window.</p>
                   )}
+
+                  {/* AIS Anomalies */}
+                  {((data.compliance as any)?.ais_anomalies as any[])?.length > 0 && (
+                    <>
+                      <p className="text-xs">
+                        <span className="font-semibold">{((data.compliance as any).ais_anomalies as any[]).length}</span> AIS anomal(y/ies) detected:
+                      </p>
+                      <ul className="space-y-1">
+                        {((data.compliance as any).ais_anomalies as any[]).slice(0, 5).map((a: any, i: number) => (
+                          <li key={i} className="flex gap-2 text-xs">
+                            <span className={a.anomaly_type === "spoofing" ? "text-red-400 shrink-0" : "text-purple-400 shrink-0"}>
+                              {a.anomaly_type === "spoofing" ? "⚡" : "◉"}
+                            </span>
+                            <span>
+                              <span className="font-mono">{a.asset_name}</span>: {a.detail}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+
                   <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
                     Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.
                   </p>

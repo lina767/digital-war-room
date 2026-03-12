@@ -176,8 +176,34 @@ export interface GeofencingAlert {
   source: string;
 }
 
+export interface AISAnomaly {
+  asset_id: string;
+  asset_name: string;
+  anomaly_type: "spoofing" | "dark_activity";
+  severity: string;
+  detail: string;
+  lat?: number;
+  lon?: number;
+  zone_name?: string;
+}
+
+export interface ComplianceRiskScore {
+  level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  band: { min: number; max: number };
+  numeric_score: number;
+  drivers: Array<{
+    factor: string;
+    detail: string;
+    impact: string;
+    rule: string;
+  }>;
+  disclaimer: string;
+}
+
 export interface ComplianceBlock {
   geofencing_alerts?: GeofencingAlert[];
+  ais_anomalies?: AISAnomaly[];
+  risk_score?: ComplianceRiskScore;
   disclaimer?: string;
 }
 

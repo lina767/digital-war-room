@@ -16,6 +16,8 @@ from services.http_client import get_http_client
 from services.job_queue import JobQueue, Job
 from compliance.sanctions_search import search_sanctions, get_threshold_policy
 from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
+from compliance.supply_chain import screen_route, get_intermediary_policy
+from compliance.risk_score import compute_compliance_risk
 
 router = APIRouter()
 
@@ -442,3 +444,82 @@ async def get_compliance_threshold_policy():
     Returns the current fuzzy matching threshold policy for transparency.
     """
     return get_threshold_policy()
+
+
+class RouteScreeningWaypoint(BaseModel):
+    label: str
+    lat: float
+    lon: float
+    country_code: str = ""
+    port_type: str = "port"
+
+
+class RouteScreeningRequest(BaseModel):
+    route_label: str
+    waypoints: List[RouteScreeningWaypoint]
+
+
+@router.post("/compliance/route-screening")
+async def route_screening(body: RouteScreeningRequest):
+    """
+    POST /api/compliance/route-screening
+    Screen a trade route against sanctions zones and intermediary policy.
+
+    DISCLAIMER: Intelligence signals only – not legal advice.
+    """
+    try:
+        wps = [w.model_dump() for w in body.waypoints]
+        result = screen_route(body.route_label, wps)
+        return {
+            **result,
+            "disclaimer": (
+                "Intelligence signals only – not legal advice. "
+                "Supports due diligence but does not replace legal review."
+            ),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@router.get("/compliance/intermediary-policy")
+async def get_intermediary_policy_route():
+    """
+    GET /api/compliance/intermediary-policy
+    Returns the active intermediary (middlemen) policy for transparency and audit.
+    """
+    return {
+        "policy": get_intermediary_policy(),
+        "note": (
+            "This policy defines which transit hubs are flagged for review. "
+            "It is configurable and documented; no country is automatically blocked."
+        ),
+    }
+
+
+class RiskScoreRequest(BaseModel):
+    sanctions_matches: Optional[List[Dict[str, Any]]] = None
+    geofencing_alerts: Optional[List[Dict[str, Any]]] = None
+    supply_chain_result: Optional[Dict[str, Any]] = None
+    ais_anomalies: Optional[List[Dict[str, Any]]] = None
+    escalation_level: Optional[str] = None
+
+
+@router.post("/compliance/risk-score")
+async def compliance_risk_score(body: RiskScoreRequest):
+    """
+    POST /api/compliance/risk-score
+    Compute compliance risk score from provided signals.
+
+    DISCLAIMER: Intelligence signals only – not legal advice.
+    """
+    try:
+        result = compute_compliance_risk(
+            sanctions_matches=body.sanctions_matches,
+            geofencing_alerts=body.geofencing_alerts,
+            supply_chain_result=body.supply_chain_result,
+            ais_anomalies=body.ais_anomalies,
+            escalation_level=body.escalation_level,
+        )
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
