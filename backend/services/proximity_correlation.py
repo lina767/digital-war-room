@@ -2,6 +2,7 @@
 Proximity correlation: Overpass (schools/hospitals) + optional tunnel/sites GeoJSON.
 Shared by api routes and PROXIMITY agent. Used for IRGC tunnel vs. civilian infrastructure (human shield).
 """
+import asyncio
 import logging
 import math
 from urllib.parse import quote
@@ -15,6 +16,7 @@ RADIUS_M = 300
 CRITICAL_M = 50
 HIGH_RISK_M = 150
 HUMAN_SHIELD_NEAR_M = 100
+OVERPASS_DELAY_S = 1.1
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -40,30 +42,36 @@ out body center;
 """.strip()
 
 
-async def fetch_overpass_context(lat: float, lon: float) -> List[Dict[str, Any]]:
+async def fetch_overpass_context(lat: float, lon: float, _retries: int = 2) -> List[Dict[str, Any]]:
     """Return list of {id, name, lat, lon, amenity?, office?} for civilian facilities in radius."""
     query = _overpass_query(lat, lon, RADIUS_M)
-    try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            resp = await client.post(
-                OVERPASS_URL,
-                content=f"data={quote(query)}",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            logger.info(
-                "Overpass API rate limit (429); skipping facility context. "
-                "Consider a self-hosted Overpass instance for higher throughput."
-            )
-        else:
-            logger.warning("Overpass API error %s: %s", e.response.status_code, e)
-        return []
-    except Exception as e:
-        logger.warning("Overpass request failed: %s", e)
-        return []
+    attempt = 0
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                resp = await client.post(
+                    OVERPASS_URL,
+                    content=f"data={quote(query)}",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            break
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 and attempt < _retries:
+                wait = OVERPASS_DELAY_S * (attempt + 2)
+                logger.info("Overpass 429 – retrying in %.1fs (attempt %d/%d)", wait, attempt + 1, _retries)
+                await asyncio.sleep(wait)
+                attempt += 1
+                continue
+            if e.response.status_code == 429:
+                logger.warning("Overpass 429 – exhausted retries")
+            else:
+                logger.warning("Overpass API error %s: %s", e.response.status_code, e)
+            return []
+        except Exception as e:
+            logger.warning("Overpass request failed: %s", e)
+            return []
     elements = data.get("elements") or []
     facilities = []
     seen = set()
@@ -164,11 +172,13 @@ async def run_correlation_for_events(
     tunnel_points = _tunnel_sites_from_geojson(tunnel_sites_geojson) if tunnel_sites_geojson else None
     evidence = []
     seen = set()
-    for ev in events:
+    for i, ev in enumerate(events):
         lat = ev.get("lat")
         lon = ev.get("lon")
         if lat is None or lon is None:
             continue
+        if i > 0:
+            await asyncio.sleep(OVERPASS_DELAY_S)
         try:
             facilities = await fetch_overpass_context(float(lat), float(lon))
         except Exception:
