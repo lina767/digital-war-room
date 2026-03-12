@@ -106,7 +106,7 @@ export function DashboardRightPanel({
         <div className="space-y-3">
           <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
           <InternetConnectivity />
-          <FlightRadar />
+          <FlightRadar sigint={conflictData?.sigint} />
           <PredictionMarkets polymarket={conflictData?.finint?.polymarket} />
         </div>
       </div>
