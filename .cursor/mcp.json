@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "RapidAPI Hub - ADSBexchange.com": {
+      "command": "node",
+      "args": ["scripts/mcp-adsbexchange.mjs"]
+    }
+  }
+}
