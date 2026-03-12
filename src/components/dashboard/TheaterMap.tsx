@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, memo } from "react";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, X } from "lucide-react";
 import {
   ComposableMap,
   Geographies,
@@ -56,6 +56,7 @@ export function TheaterMap({
   sigintShips = [],
 }: TheaterMapProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<TheaterEvent | null>(null);
   const [animPhase, setAnimPhase] = useState(0);
   const [zoom, setZoom] = useState(4);
   const [center, setCenter] = useState<[number, number]>([53, 32]);
@@ -98,6 +99,7 @@ export function TheaterMap({
   useEffect(() => {
     if (!activeConflict) {
       setTheaterEvents([]);
+      setSelectedEvent(null);
       return;
     }
     setTheaterLoading(true);
@@ -217,6 +219,7 @@ export function TheaterMap({
                 <Marker key={`theater-${i}`} coordinates={[evt.lon, evt.lat]}>
                   <g
                     className="cursor-pointer"
+                    onClick={() => setSelectedEvent(evt)}
                     onMouseEnter={() => setHoveredId(`theater-${i}`)}
                     onMouseLeave={() => setHoveredId(null)}
                   >
@@ -455,6 +458,51 @@ export function TheaterMap({
           <Minus size={12} />
         </button>
       </div>
+
+      {selectedEvent && (
+        <div className="absolute bottom-24 right-2 max-w-xs w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col">
+              <span className="font-mono text-[10px] text-muted-foreground tracking-wider uppercase">
+                Escalation detail
+              </span>
+              <span className="text-xs font-semibold">
+                {THEATER_EVENT_STYLE[selectedEvent.event_type]?.label ?? selectedEvent.event_type}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-label="Close escalation details"
+              className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              onClick={() => setSelectedEvent(null)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {selectedEvent.label && (
+            <p className="text-[11px] leading-snug text-foreground/90">
+              {selectedEvent.label}
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <span>Source</span>
+            <span className="text-right">
+              {selectedEvent.source ?? "Mixed (FIRMS/ACLED/UCDP)"}
+            </span>
+            <span>Confidence</span>
+            <span className="text-right">
+              {selectedEvent.confidence ?? "n/a"}
+            </span>
+            <span>Location</span>
+            <span className="text-right">
+              {selectedEvent.lon.toFixed(1)}E · {selectedEvent.lat.toFixed(1)}N
+            </span>
+          </div>
+          <p className="text-[9px] text-muted-foreground">
+            Unified escalation event from GEOINT/SIGINT feeds. Use key findings and news panel for full narrative.
+          </p>
+        </div>
+      )}
 
       <div className="absolute bottom-12 left-2 flex items-center gap-3 flex-wrap">
         <button

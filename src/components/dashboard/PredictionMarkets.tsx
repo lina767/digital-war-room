@@ -1,4 +1,4 @@
-import { ExternalLink, BarChart3 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 const FALLBACK_MARKETS = [
   { question: "US military strike on Iran in 2025?", probability: 0.34, volume: 0 },
@@ -27,29 +27,22 @@ function formatVolume(vol: number): string {
   return "$0";
 }
 
-/** Mini trend curve (no backend history; deterministic from current probability). */
-function TrendSparklineFixed({ probability }: { probability: number }) {
-  const pct = Math.min(100, Math.max(0, probability * 100));
-  const points: number[] = [];
-  const steps = 10;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const y = 85 - pct * 0.75 * t * (1 + t * 0.3);
-    points.push(y);
-  }
-  const pathD = points.map((y, i) => `${(i / steps) * 100},${y}`).join(" L ");
+function ProbabilityBar({ pct }: { pct: number }) {
+  const value = Math.max(0, Math.min(100, pct));
   return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-12 text-primary">
-      <path
-        d={`M ${pathD}`}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity={0.85}
-      />
-    </svg>
+    <div className="w-full">
+      <div className="h-1.5 rounded-full bg-muted relative overflow-hidden">
+        <div
+          className="h-full rounded-full bg-emerald-500"
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
+        <span>0%</span>
+        <span>50%</span>
+        <span>100%</span>
+      </div>
+    </div>
   );
 }
 
@@ -95,19 +88,15 @@ export function PredictionMarkets({ polymarket }: PredictionMarketsProps) {
               ) : null}
             </div>
             <p className="text-xs font-semibold leading-tight line-clamp-2 mb-2">{m.question}</p>
-            <div className="flex items-start gap-2 mb-2">
-              <div className="flex-shrink-0 w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
-                <BarChart3 className="h-4 w-4 text-primary" />
+            <div className="mt-auto space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-mono text-xl font-bold text-primary">{m.pct}%</span>
+                <span className="text-[10px] text-muted-foreground text-right">
+                  {formatVolume(m.volume)} Vol.
+                </span>
               </div>
-              <div className="flex-1 min-w-0 h-12">
-                <TrendSparklineFixed probability={m.probability} />
-              </div>
-            </div>
-            <div className="mt-auto flex items-end justify-between gap-2">
-              <span className="text-[10px] text-muted-foreground">
-                {formatVolume(m.volume)} Vol.
-              </span>
-              <span className="font-mono text-lg font-bold text-primary">{m.pct}%</span>
+              <ProbabilityBar pct={m.pct} />
+              <p className="text-[9px] text-muted-foreground">Implied YES probability</p>
             </div>
             <p className="text-[9px] text-muted-foreground mt-1">All time</p>
           </div>

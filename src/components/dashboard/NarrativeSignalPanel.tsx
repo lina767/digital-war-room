@@ -43,13 +43,6 @@ export function NarrativeSignalPanel({ data, conflictLabel }: NarrativeSignalPan
           State {stateCount} · Exile {exileCount}
         </span>
       </div>
-
-      {stateCount === 0 && exileCount > 0 && (
-        <p className="px-3 py-1.5 text-[10px] text-muted-foreground bg-muted/30 border-b border-border">
-          State feeds (IRNA, Fars, Tasnim, Press TV) often return no items when accessed from outside Iran (geo-restriction).
-        </p>
-      )}
-
       <div className="p-3 space-y-4">
         {/* Synthesis (Bayesian-style) */}
         {(synthesisText || typeof prob === "number") && (
