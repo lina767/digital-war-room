@@ -464,21 +464,36 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
     predictive = build_predictive_block(conflict, combined_score, agent_scores_for_predictive)
 
-    # ── Compliance: geofencing, AIS anomalies, risk score ────────────────────
+    # ── Compliance: geofencing, AIS anomalies, OFAC/EU data, risk score ────
     sigint_data = agent_results.get("sigint") or {}
     geofencing_alerts = check_sigint_for_sanctions(sigint_data)
     ais_anomalies = analyze_ais_anomalies(sigint_data)
+
+    ofac_sdn = diplo_result.get("ofac_sdn") or {}
+    eu_sanctions = diplo_result.get("eu_sanctions") or {}
 
     risk_score = compute_compliance_risk(
         geofencing_alerts=geofencing_alerts,
         ais_anomalies=ais_anomalies,
         escalation_level=threat_level,
+        conflict=conflict,
+        ofac_sdn=ofac_sdn,
+        eu_sanctions=eu_sanctions,
     )
 
     compliance = {
         "geofencing_alerts": geofencing_alerts,
         "ais_anomalies": ais_anomalies,
         "risk_score": risk_score,
+        "ofac_sdn": {
+            "total_matches": ofac_sdn.get("total_matches", 0),
+            "sample": (ofac_sdn.get("sample") or [])[:10],
+            "error": ofac_sdn.get("error"),
+        },
+        "eu_sanctions": {
+            "keyword_mentions": eu_sanctions.get("keyword_mentions", 0),
+            "error": eu_sanctions.get("error"),
+        },
         "disclaimer": (
             "Intelligence signals only – not legal advice. "
             "Supports due diligence but does not replace legal review."

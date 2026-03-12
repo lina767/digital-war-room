@@ -13,6 +13,8 @@ from typing import Any, Dict, List
 
 import httpx
 
+from .utils import run_async
+
 # OFAC SDN list (bulk CSV – free, no key)
 OFAC_SDN_CSV_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 # EU consolidated list (open data) – XML or CSV
@@ -180,7 +182,7 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
         }
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return {
             "diplo_score": 28.0,

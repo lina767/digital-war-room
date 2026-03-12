@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from .config import DEFAULT_TIMEOUT
 from .llm import run_agent_with_fallback
-from .utils import safe_float, utc_now_iso, ScoreConfidence
+from .utils import run_async, safe_float, utc_now_iso, ScoreConfidence
 from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
@@ -255,7 +255,7 @@ def get_brent_price() -> Dict[str, Any]:
             return resp.json()
 
     try:
-        data = asyncio.run(_fetch())
+        data = run_async(_fetch())
         series = data.get("data", [])
         if len(series) < 2:
             return {"error": "Insufficient data"}
@@ -288,7 +288,7 @@ def get_wti_price() -> Dict[str, Any]:
             return resp.json()
 
     try:
-        data = asyncio.run(_fetch())
+        data = run_async(_fetch())
         series = data.get("data", [])
         if len(series) < 2:
             return {"error": "Insufficient data"}
@@ -390,10 +390,10 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
         return results
 
     try:
-        tracked = asyncio.run(_fetch_tracked())
+        tracked = run_async(_fetch_tracked())
         tracked_questions = {str(t.get("question", ""))[:80] for t in tracked if t.get("question")}
 
-        data = asyncio.run(_fetch_all())
+        data = run_async(_fetch_all())
         relevant = []
         seen = set()
 
@@ -470,7 +470,7 @@ def get_metaculus_conflict_questions(conflict: str) -> List[Dict[str, Any]]:
         return out[:10]
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -492,7 +492,7 @@ def get_gold_price() -> Dict[str, Any]:
             return resp.json()
 
     try:
-        data = asyncio.run(_fetch())
+        data = run_async(_fetch())
         if isinstance(data, dict) and "error" in data:
             return data
         rates = (data.get("rates") or {}) if isinstance(data, dict) else {}
@@ -560,7 +560,7 @@ def get_tracked_chain_wallets() -> List[Dict[str, Any]]:
         return out
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -1059,7 +1059,7 @@ def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:
     Same Treasury CSV as DIPLO; FININT uses this for sanctions exposure and market risk.
     """
     try:
-        return asyncio.run(_fetch_ofac_cached(get_http_client(), conflict))
+        return run_async(_fetch_ofac_cached(get_http_client(), conflict))
     except Exception as e:
         return {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": datetime.now(timezone.utc).isoformat()}
 
@@ -1106,7 +1106,7 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
                     out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
         return out
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -1116,7 +1116,7 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
 def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
     """Execute FININT via async parallel fetches; returns result with fetched_at and score_confidence."""
     try:
-        return asyncio.run(_run_all_parallel(conflict))
+        return run_async(_run_all_parallel(conflict))
     except Exception as e:
         utc = datetime.now(timezone.utc).isoformat()
         return {

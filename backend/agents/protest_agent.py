@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 
 import httpx
 
+from .utils import run_async
 from services.acled_auth import get_acled_token_async, has_acled_oauth
 
 # ACLED API: OAuth uses acleddata.com; legacy key used api.acleddata.com
@@ -184,7 +185,7 @@ def run_protest_agent(conflict: str) -> Dict[str, Any]:
         }
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return {
             "protest_score": 25.0,

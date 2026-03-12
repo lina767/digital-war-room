@@ -12,6 +12,8 @@ from typing import Any, Dict, List
 
 import httpx
 
+from .utils import run_async
+
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 # IODA v2 API – outages, signals (BGP/Ping/Telescope), alerts, entities (ASNs)
@@ -878,7 +880,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         }
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return {
             "tech_indicators": [],

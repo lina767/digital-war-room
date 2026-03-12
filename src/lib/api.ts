@@ -108,6 +108,24 @@ export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
   }
 }
 
+/** GET /api/analyze/refresh – trigger a background analysis and poll for result. */
+export async function triggerRefreshAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(
+      `${getApiBase()}/api/analyze/refresh?conflict=${encodeURIComponent(conflict)}`,
+      { method: "GET", signal: controller.signal }
+    );
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    return null;
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
 /** Normalize backend response: ensure top-level and nested shapes match frontend (e.g. articles with publishedAt). Exported for WebSocket use. */
 export function normalizeAnalysisResponse(raw: Record<string, unknown>): AnalyzeResponse {
   const out = { ...raw } as AnalyzeResponse;

@@ -14,6 +14,8 @@ from typing import Any, Dict, List
 
 import httpx
 
+from .utils import run_async
+
 # Curated ACLED analysis URLs (updates, expert comments, reports) – used when conflict is Iran/Middle East
 ACLED_REFERENCE_URLS = [
     "https://acleddata.com/update/middle-east-special-issue-march-2026",
@@ -139,4 +141,4 @@ async def fetch_acled_reference_analyses_async(conflict: str) -> List[Dict[str, 
 
 def fetch_acled_reference_analyses_sync(conflict: str) -> List[Dict[str, Any]]:
     """Sync wrapper for use from supervisor (runs in executor)."""
-    return asyncio.run(fetch_acled_reference_analyses_async(conflict))
+    return run_async(fetch_acled_reference_analyses_async(conflict))

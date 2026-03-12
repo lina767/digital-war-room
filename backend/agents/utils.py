@@ -2,6 +2,8 @@
 Shared utilities for all backend agents.
 Eliminates duplication of common helpers across sigint, finint, geoint, news agents.
 """
+import asyncio
+import concurrent.futures
 import json
 import logging
 from datetime import datetime, timezone
@@ -10,6 +12,26 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+# Shared pool for run_async fallback (when asyncio.run() can't be used).
+_ASYNC_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=6, thread_name_prefix="async-runner"
+)
+
+
+def run_async(coro):
+    """Run an async coroutine from synchronous code.
+
+    Works even when an event loop is already running in the current thread
+    (Python 3.13 ThreadPoolExecutor edge case). Falls back to executing
+    ``asyncio.run()`` in a separate clean thread.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    future = _ASYNC_POOL.submit(asyncio.run, coro)
+    return future.result(timeout=120)
 
 
 # ── Type-safe conversions ─────────────────────────────────────────────────

@@ -325,33 +325,89 @@ export default function DailyIntelligenceBriefing() {
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-3">
                   {/* Risk Score */}
-                  {(data.compliance as any)?.risk_score && (
+                  {data.compliance?.risk_score && (
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-muted-foreground">Compliance Risk:</span>
                       <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold ${
-                        (data.compliance as any).risk_score.level === "CRITICAL" ? "bg-destructive text-destructive-foreground"
-                        : (data.compliance as any).risk_score.level === "HIGH" ? "bg-orange-500/90 text-black"
-                        : (data.compliance as any).risk_score.level === "MEDIUM" ? "bg-yellow-400/80 text-black"
+                        data.compliance.risk_score.level === "CRITICAL" ? "bg-destructive text-destructive-foreground"
+                        : data.compliance.risk_score.level === "HIGH" ? "bg-orange-500/90 text-black"
+                        : data.compliance.risk_score.level === "MEDIUM" ? "bg-yellow-400/80 text-black"
                         : "bg-emerald-500/80 text-black"
                       }`}>
-                        {(data.compliance as any).risk_score.level}
+                        {data.compliance.risk_score.level}
                       </span>
                       <span className="text-xs text-muted-foreground font-mono">
-                        {(data.compliance as any).risk_score.numeric_score}/100
+                        {data.compliance.risk_score.numeric_score}/100
                       </span>
                     </div>
                   )}
 
-                  {/* Geofencing */}
-                  {(data.compliance?.geofencing_alerts as any[])?.length > 0 ? (
-                    <>
-                      <p>
-                        <span className="font-semibold">{(data.compliance!.geofencing_alerts as any[]).length}</span> geofencing alert(s):
+                  {/* Risk Drivers */}
+                  {(data.compliance?.risk_score?.drivers?.length ?? 0) > 0 &&
+                    data.compliance!.risk_score!.drivers[0].factor !== "NO_SIGNALS" && (
+                    <div>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                        Risk Drivers
                       </p>
                       <ul className="space-y-1">
-                        {(data.compliance!.geofencing_alerts as any[]).slice(0, 10).map((a: any, i: number) => (
+                        {data.compliance!.risk_score!.drivers.map((d, i) => (
                           <li key={i} className="flex gap-2 text-xs">
-                            <span className="text-orange-400 shrink-0">⚠</span>
+                            <span className="text-primary shrink-0 mt-0.5">-</span>
+                            <span>
+                              <span className="font-mono text-muted-foreground">[{d.factor}]</span>{" "}
+                              {d.detail}
+                              <span className="text-muted-foreground ml-1">({d.impact})</span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* OFAC / EU Sanctions Data */}
+                  {((data.compliance?.ofac_sdn?.total_matches ?? 0) > 0 || (data.compliance?.eu_sanctions?.keyword_mentions ?? 0) > 0) && (
+                    <div>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                        Sanctions Lists
+                      </p>
+                      <ul className="space-y-1 text-xs">
+                        {(data.compliance?.ofac_sdn?.total_matches ?? 0) > 0 && (
+                          <li className="flex gap-2">
+                            <span className="text-orange-400 shrink-0">SDN</span>
+                            <span>
+                              <span className="font-semibold">{data.compliance!.ofac_sdn!.total_matches}</span>{" "}
+                              OFAC SDN entries match conflict entities
+                              {(data.compliance!.ofac_sdn!.sample?.length ?? 0) > 0 && (
+                                <span className="text-muted-foreground">
+                                  {" "}(e.g. {data.compliance!.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).join(", ")})
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        )}
+                        {(data.compliance?.eu_sanctions?.keyword_mentions ?? 0) > 0 && (
+                          <li className="flex gap-2">
+                            <span className="text-blue-400 shrink-0">EU</span>
+                            <span>
+                              <span className="font-semibold">{data.compliance!.eu_sanctions!.keyword_mentions}</span>{" "}
+                              keyword mentions in EU consolidated sanctions list
+                            </span>
+                          </li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Geofencing */}
+                  {(data.compliance?.geofencing_alerts?.length ?? 0) > 0 ? (
+                    <>
+                      <p>
+                        <span className="font-semibold">{data.compliance!.geofencing_alerts!.length}</span> geofencing alert(s):
+                      </p>
+                      <ul className="space-y-1">
+                        {data.compliance!.geofencing_alerts!.slice(0, 10).map((a, i) => (
+                          <li key={i} className="flex gap-2 text-xs">
+                            <span className="text-orange-400 shrink-0">W</span>
                             <span>
                               <span className="font-mono">{a.asset_name}</span> ({a.asset_type}) in{" "}
                               <span className="font-mono">{(a.zone_name || "").replace(/_/g, " ")}</span>{" "}
@@ -366,16 +422,16 @@ export default function DailyIntelligenceBriefing() {
                   )}
 
                   {/* AIS Anomalies */}
-                  {((data.compliance as any)?.ais_anomalies as any[])?.length > 0 && (
+                  {(data.compliance?.ais_anomalies?.length ?? 0) > 0 && (
                     <>
                       <p className="text-xs">
-                        <span className="font-semibold">{((data.compliance as any).ais_anomalies as any[]).length}</span> AIS anomal(y/ies) detected:
+                        <span className="font-semibold">{data.compliance!.ais_anomalies!.length}</span> AIS anomal(y/ies) detected:
                       </p>
                       <ul className="space-y-1">
-                        {((data.compliance as any).ais_anomalies as any[]).slice(0, 5).map((a: any, i: number) => (
+                        {data.compliance!.ais_anomalies!.slice(0, 5).map((a, i) => (
                           <li key={i} className="flex gap-2 text-xs">
                             <span className={a.anomaly_type === "spoofing" ? "text-red-400 shrink-0" : "text-purple-400 shrink-0"}>
-                              {a.anomaly_type === "spoofing" ? "⚡" : "◉"}
+                              {a.anomaly_type === "spoofing" ? "!" : "O"}
                             </span>
                             <span>
                               <span className="font-mono">{a.asset_name}</span>: {a.detail}

@@ -16,7 +16,7 @@ import httpx
 logger = logging.getLogger(__name__)
 from services.acled_auth import get_acled_token_async, has_acled_oauth
 from .llm import run_agent_with_fallback
-from .utils import safe_float
+from .utils import run_async, safe_float
 
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
@@ -242,7 +242,7 @@ def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Di
         return all_anomalies
 
     try:
-        all_anomalies = asyncio.run(_fetch_all())
+        all_anomalies = run_async(_fetch_all())
         # Deduplicate by (lat, lon) rounded to 2 decimals
         seen = set()
         deduped = []
@@ -379,7 +379,7 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
         return reports[:15]
 
     try:
-        reports = asyncio.run(_reliefweb())
+        reports = run_async(_reliefweb())
     except Exception as e:
         reports = [{"error": str(e)}]
 
@@ -414,7 +414,7 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                                 "source": "ACLED",
                                 "country": rec.get("country", acled_country),
                             })
-            asyncio.run(_acled())
+            run_async(_acled())
         except Exception:
             pass
     return reports if isinstance(reports, list) else [{"error": "unknown"}]
@@ -498,7 +498,7 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
                     })
             return out
 
-        events = asyncio.run(_fetch())
+        events = run_async(_fetch())
     except Exception:
         pass
     return events
@@ -725,7 +725,7 @@ def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
         return events
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception:
         return []
 

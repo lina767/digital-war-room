@@ -11,7 +11,9 @@ from typing import Any, Dict, List
 
 import feedparser
 import httpx
+
 from .llm import run_tool_agent
+from .utils import run_async
 
 # Telegram public channels (scraped via t.me/s/)
 TELEGRAM_CHANNELS = {
@@ -231,7 +233,7 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
             return posts
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -295,7 +297,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             return posts[:15]
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -359,7 +361,7 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
             return posts[:20]
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -494,7 +496,7 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
         return results[:15]
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         return [{"error": str(e)}]
 

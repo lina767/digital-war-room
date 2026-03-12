@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, triggerRefreshAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
 
@@ -204,6 +204,8 @@ export interface ComplianceBlock {
   geofencing_alerts?: GeofencingAlert[];
   ais_anomalies?: AISAnomaly[];
   risk_score?: ComplianceRiskScore;
+  ofac_sdn?: { total_matches?: number; sample?: Array<{ name?: string; type?: string; program?: string }>; error?: string | null };
+  eu_sanctions?: { keyword_mentions?: number; error?: string | null };
   disclaimer?: string;
 }
 
@@ -277,41 +279,56 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     };
   }, [enabled]);
 
-  // Beim Laden gecachtes Ergebnis holen; initialLoadPending bleibt true bis Antwort (unabhängig vom WebSocket-Status)
+  // Beim Laden gecachtes Ergebnis holen; mit Retry falls noch kein Cache existiert
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     setAnalysisError(null);
     setInitialLoadPending(true);
-    getLatestAnalysis(conflict).then((cached) => {
-      if (cancelled) return;
-      if (cached) {
-        setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
-        setLastUpdated(new Date());
-        setAnalysisError(null);
-      } else {
-        getAnalyzeStatus(conflict).then((statusRes) => {
-          if (cancelled) return;
-          if (statusRes === null) {
-            setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
-          } else if (!statusRes.cached) {
-            setAnalysisError("First analysis still running – data will appear automatically shortly.");
-          }
-        }).catch(() => { /* keep pending false */ });
-      }
-      setInitialLoadPending(false);
-    }).catch(() => {
-      if (!cancelled) setInitialLoadPending(false);
-    });
-    return () => { cancelled = true; };
+
+    const attempt = (retryCount: number) => {
+      getLatestAnalysis(conflict).then((cached) => {
+        if (cancelled) return;
+        if (cached) {
+          setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
+          setLastUpdated(new Date());
+          setAnalysisError(null);
+          setInitialLoadPending(false);
+        } else {
+          getAnalyzeStatus(conflict).then((statusRes) => {
+            if (cancelled) return;
+            if (statusRes === null) {
+              setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+              setInitialLoadPending(false);
+            } else if (!statusRes.cached) {
+              setAnalysisError("First analysis still running – data will appear automatically shortly.");
+              setInitialLoadPending(false);
+              if (retryCount < 12) {
+                const delay = Math.min(10_000, 3_000 + retryCount * 1_000);
+                retryTimer = setTimeout(() => attempt(retryCount + 1), delay);
+              }
+            } else {
+              setInitialLoadPending(false);
+            }
+          }).catch(() => { if (!cancelled) setInitialLoadPending(false); });
+        }
+      }).catch(() => {
+        if (!cancelled) setInitialLoadPending(false);
+      });
+    };
+
+    attempt(0);
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
   }, [conflict]);
 
-  // Alle 2 Min gecachtes Ergebnis abrufen (zeigt Updates vom 10-Min-Auto-Run)
+  // Alle 2 Min gecachtes Ergebnis abrufen (zeigt Updates vom Auto-Run)
   useEffect(() => {
     const interval = setInterval(() => {
       getLatestAnalysis(conflict).then((cached) => {
         if (cached) {
           setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
           setLastUpdated(new Date());
+          setAnalysisError(null);
         }
       });
     }, 120_000);
@@ -333,7 +350,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     connect();
   }, [connect]);
 
-  /** Holt die gecachte Analyse (GET /api/analyze/latest). Wie beim Start – keine neue Analyse, nur Cache. */
+  /** Holt gecachte Analyse; falls kein Cache, triggert Background-Refresh und pollt. */
   const runAnalysis = useCallback(async (): Promise<AnalyzeResponse | null> => {
     if (!enabled) return null;
     setAnalysisError(null);
@@ -347,11 +364,27 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         setAnalysisError(null);
         return result;
       }
-      setStatus("connected");
-      const status = await getAnalyzeStatus(conflictRef.current);
-      if (status === null) {
+      const statusRes = await getAnalyzeStatus(conflictRef.current);
+      if (statusRes === null) {
         setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+        setStatus("error");
+        return null;
       }
+      setAnalysisError("Analysis triggered – loading data…");
+      await triggerRefreshAnalysis(conflictRef.current);
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 5_000));
+        const fresh = await getLatestAnalysis(conflictRef.current);
+        if (fresh) {
+          setData(fresh as unknown as ConflictData);
+          setLastUpdated(new Date());
+          setStatus("connected");
+          setAnalysisError(null);
+          return fresh;
+        }
+      }
+      setAnalysisError("Analysis is taking longer than expected. Data will appear when ready.");
+      setStatus("connected");
       return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

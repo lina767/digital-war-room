@@ -290,13 +290,46 @@ interface CompliancePanelProps {
   data: ConflictData | null;
 }
 
+function OFACEUSummary({ compliance }: { compliance: NonNullable<ConflictData["compliance"]> }) {
+  const ofacTotal = compliance.ofac_sdn?.total_matches ?? 0;
+  const euMentions = compliance.eu_sanctions?.keyword_mentions ?? 0;
+  if (ofacTotal === 0 && euMentions === 0) return null;
+
+  return (
+    <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 space-y-1">
+      <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+        Sanctions Lists (DIPLO Agent)
+      </span>
+      <div className="space-y-0.5">
+        {ofacTotal > 0 && (
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] text-muted-foreground">OFAC SDN entries</span>
+            <span className="font-mono text-xs font-semibold text-foreground">{ofacTotal}</span>
+          </div>
+        )}
+        {euMentions > 0 && (
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[10px] text-muted-foreground">EU sanctions mentions</span>
+            <span className="font-mono text-xs font-semibold text-foreground">{euMentions}</span>
+          </div>
+        )}
+      </div>
+      {(compliance.ofac_sdn?.sample?.length ?? 0) > 0 && (
+        <p className="text-[9px] text-muted-foreground leading-snug">
+          Sample: {compliance.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).filter(Boolean).join(" · ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function CompliancePanel({ data }: CompliancePanelProps) {
   const compliance = data?.compliance;
   const alerts = compliance?.geofencing_alerts ?? [];
   const anomalies = compliance?.ais_anomalies ?? [];
   const riskScore = compliance?.risk_score;
 
-  const hasSignals = alerts.length > 0 || anomalies.length > 0;
+  const hasRealtimeSignals = alerts.length > 0 || anomalies.length > 0;
 
   return (
     <div className="rounded-lg border border-border bg-card/60 p-3 space-y-3">
@@ -307,13 +340,15 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
 
       {riskScore && <RiskScoreDisplay riskScore={riskScore} />}
 
+      {compliance && <OFACEUSummary compliance={compliance} />}
+
       <SanctionsSearch />
 
       <GeofencingAlerts alerts={alerts} />
 
       <AISAnomaliesSection anomalies={anomalies} />
 
-      {!hasSignals && (
+      {!hasRealtimeSignals && (
         <p className="text-[10px] text-muted-foreground">
           No geofencing or AIS anomaly alerts in current SIGINT window.
         </p>

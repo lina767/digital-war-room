@@ -36,7 +36,7 @@ def _get_provider() -> str:
 _MODEL_DEFAULTS = {
     "anthropic": {
         "agent": ("ANTHROPIC_AGENT_MODEL", "claude-haiku-4-5-20251001"),
-        "supervisor": ("SUPERVISOR_MODEL", "claude-haiku-4-5-20251001"),
+        "supervisor": ("SUPERVISOR_MODEL", "claude-sonnet-4-6"),
         "supervisor_fallback": ("SUPERVISOR_FALLBACK_MODEL", "claude-sonnet-4-6"),
     },
     "openai": {

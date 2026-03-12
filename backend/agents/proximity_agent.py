@@ -8,6 +8,7 @@ import asyncio
 import os
 from typing import Any, Dict, List
 
+from .utils import run_async
 from agents.geoint_agent import get_thermal_anomalies
 from services.proximity_correlation import run_correlation_for_events
 from services.http_client import get_http_client
@@ -112,7 +113,7 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
         }
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return {
             "proximity_score": 0.0,

@@ -9,6 +9,8 @@ from typing import Any, Dict, List
 
 import httpx
 
+from .utils import run_async
+
 # AGSI+ API (free with registration) – EU gas storage
 AGSI_BASE = "https://agsi.gie.eu/api"
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
@@ -172,7 +174,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         }
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return {
             "energy_score": 30.0,

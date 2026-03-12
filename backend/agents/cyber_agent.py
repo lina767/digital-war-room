@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from .utils import run_async
 from services.http_client import get_http_client
 from agents.otel_callbacks import traced
 
@@ -554,7 +555,7 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
 
     with traced("analysis.agent.cyber", {"conflict": conflict}):
         try:
-            result = asyncio.run(_run())
+            result = run_async(_run())
             return result.model_dump(mode="json")
         except Exception as e:
             logger.exception("CYBER agent run failed")

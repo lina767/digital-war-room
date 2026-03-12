@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 
 from .config import USER_AGENT, DEFAULT_TIMEOUT
 from .llm import run_agent_with_fallback
-from .utils import safe_float, utc_now_iso, parse_adsb_response, ScoreConfidence
+from .utils import safe_float, utc_now_iso, parse_adsb_response, ScoreConfidence, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -405,7 +405,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
         return results
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         logger.exception("SIGINT: get_military_aircraft failed: %s", e)
         return [{"error": str(e)}]
@@ -500,7 +500,7 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return results
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         logger.exception("SIGINT: get_naval_vessels failed: %s", e)
         return [{"error": str(e)}]
@@ -561,7 +561,7 @@ def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return out[:80]
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         logger.exception("SIGINT: get_spire_vessels failed: %s", e)
         return []
@@ -618,7 +618,7 @@ def get_spire_airsafe_targets(hours_back: float = 1.0) -> List[Dict[str, Any]]:
         return out[:100]
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         logger.exception("SIGINT: get_spire_airsafe_targets failed: %s", e)
         return []
@@ -675,7 +675,7 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
         return results[:10]
 
     try:
-        return asyncio.run(_fetch())
+        return run_async(_fetch())
     except Exception as e:
         logger.exception("SIGINT: get_conflict_reports failed: %s", e)
         return [{"error": str(e)}]
@@ -877,7 +877,7 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
         return result
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         logger.exception("SIGINT: get_target_aircraft failed for %s: %s", target, e)
         return {"target": target, "error": str(e)}

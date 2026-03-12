@@ -15,6 +15,7 @@ import feedparser
 import httpx
 from .config import USER_AGENT
 from .llm import run_agent_with_fallback
+from .utils import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
             return resp.json()
 
     try:
-        data = asyncio.run(_fetch(hours_back))
+        data = run_async(_fetch(hours_back))
         articles = []
         for art in data.get("articles", []):
             title = art.get("title") or ""
@@ -234,7 +235,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                 "source_type": "newsapi",
             })
         if not articles and hours_back == 48:
-            data = asyncio.run(_fetch(72))
+            data = run_async(_fetch(72))
             articles = []
             for art in data.get("articles", []):
                 title = art.get("title") or ""
@@ -294,7 +295,7 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
             return resp.json()
 
     try:
-        data = asyncio.run(_fetch())
+        data = run_async(_fetch())
         raw_list = _gdelt_article_list(data)
         articles = []
         for art in raw_list:

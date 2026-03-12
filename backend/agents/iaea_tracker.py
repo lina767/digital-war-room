@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional
 import feedparser
 import httpx
 
+from .utils import run_async
+
 # OE-III: österreichische Registration, typisch für das IAEA-DG-Flugzeug
 OEIII_REGISTRATION = "OE-III"
 OEIII_CALLSIGN_VARIANTS = ("OE-III", "OEIII", "OE III")
@@ -140,7 +142,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
         }
 
     try:
-        return asyncio.run(_run())
+        return run_async(_run())
     except Exception as e:
         return {"registration": OEIII_REGISTRATION, "aircraft": [], "count": 0, "error": str(e), "source": "adsb"}
 
@@ -221,7 +223,7 @@ def fetch_notams(
             return []
 
     try:
-        out = asyncio.run(_get())
+        out = run_async(_get())
     except Exception:
         out = []
 

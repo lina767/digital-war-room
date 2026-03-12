@@ -61,12 +61,25 @@ def _max_level(a: ComplianceLevel, b: ComplianceLevel) -> ComplianceLevel:
     return a if LEVEL_ORDER[a] >= LEVEL_ORDER[b] else b
 
 
+COMPREHENSIVE_SANCTIONS_COUNTRIES: Dict[str, str] = {
+    "iran": "Iran – comprehensive US (OFAC/EO), EU, and UN sanctions regime",
+    "north korea": "North Korea – comprehensive UN/OFAC sanctions regime",
+    "dprk": "North Korea – comprehensive UN/OFAC sanctions regime",
+    "syria": "Syria – comprehensive US/EU sanctions regime",
+    "cuba": "Cuba – comprehensive US embargo",
+    "russia": "Russia – extensive sectoral US/EU sanctions (post-2022)",
+}
+
+
 def compute_compliance_risk(
     sanctions_matches: Optional[List[Dict[str, Any]]] = None,
     geofencing_alerts: Optional[List[Dict[str, Any]]] = None,
     supply_chain_result: Optional[Dict[str, Any]] = None,
     ais_anomalies: Optional[List[Dict[str, Any]]] = None,
     escalation_level: Optional[str] = None,
+    conflict: Optional[str] = None,
+    ofac_sdn: Optional[Dict[str, Any]] = None,
+    eu_sanctions: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Compute compliance risk score from all available signals.
@@ -76,6 +89,70 @@ def compute_compliance_risk(
     numeric = 0.0
     floor: ComplianceLevel = "LOW"
     drivers: List[Dict[str, Any]] = []
+
+    # ── Rule 0: Conflict-level sanctions regime ───────────────────────────
+    conflict_lower = (conflict or "").lower()
+    for country_key, description in COMPREHENSIVE_SANCTIONS_COUNTRIES.items():
+        if country_key in conflict_lower:
+            floor = _max_level(floor, "MEDIUM")
+            numeric += 20
+            drivers.append({
+                "factor": "CONFLICT_SANCTIONS_REGIME",
+                "detail": description,
+                "impact": "MEDIUM floor + 20",
+                "rule": "Conflict involves comprehensively sanctioned country → at least MEDIUM",
+            })
+            break
+
+    # ── Rule 0b: OFAC SDN list hits from DIPLO agent ─────────────────────
+    ofac_total = int((ofac_sdn or {}).get("total_matches") or 0)
+    if ofac_total > 0:
+        if ofac_total > 200:
+            floor = _max_level(floor, "HIGH")
+            numeric += 20
+            drivers.append({
+                "factor": "OFAC_SDN_EXTENSIVE",
+                "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
+                "impact": "HIGH floor + 20",
+                "rule": "Extensive OFAC SDN coverage (>200 entries) → at least HIGH",
+            })
+        elif ofac_total > 50:
+            floor = _max_level(floor, "MEDIUM")
+            numeric += 15
+            drivers.append({
+                "factor": "OFAC_SDN_SIGNIFICANT",
+                "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
+                "impact": "MEDIUM floor + 15",
+                "rule": "Significant OFAC SDN coverage (>50 entries) → at least MEDIUM",
+            })
+        else:
+            numeric += 10
+            drivers.append({
+                "factor": "OFAC_SDN_PRESENT",
+                "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
+                "impact": "+10",
+                "rule": "OFAC SDN matches present → score increment",
+            })
+
+    # ── Rule 0c: EU sanctions list hits from DIPLO agent ──────────────────
+    eu_mentions = int((eu_sanctions or {}).get("keyword_mentions") or 0)
+    if eu_mentions > 0:
+        if eu_mentions > 500:
+            numeric += 10
+            drivers.append({
+                "factor": "EU_SANCTIONS_EXTENSIVE",
+                "detail": f"{eu_mentions} keyword mentions in EU consolidated sanctions list",
+                "impact": "+10",
+                "rule": "Extensive EU sanctions coverage → score increment",
+            })
+        elif eu_mentions > 50:
+            numeric += 5
+            drivers.append({
+                "factor": "EU_SANCTIONS_PRESENT",
+                "detail": f"{eu_mentions} keyword mentions in EU consolidated sanctions list",
+                "impact": "+5",
+                "rule": "EU sanctions mentions present → score increment",
+            })
 
     # ── Rule 1: Direct sanctions match → at least HIGH ────────────────────
     if sanctions_matches:
