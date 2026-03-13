@@ -146,11 +146,15 @@ interface HeatmapLayerProps {
 }
 
 const HeatmapLayer = memo(function HeatmapLayer({ events, s }: HeatmapLayerProps) {
+  const valid = useMemo(
+    () => events.filter((e) => typeof e.lat === "number" && typeof e.lon === "number" && isFinite(e.lat) && isFinite(e.lon)),
+    [events],
+  );
   const markers = useMemo(
     () =>
-      events.map((evt, i) => {
-        const r = (2 + evt.intensity * 5) * s;
-        const opacity = 0.15 + evt.intensity * 0.35;
+      valid.map((evt, i) => {
+        const r = (2 + (evt.intensity ?? 0) * 5) * s;
+        const opacity = 0.15 + (evt.intensity ?? 0) * 0.35;
         return (
           <Marker
             key={`heat-${evt.lat.toFixed(4)}-${evt.lon.toFixed(4)}-${i}`}
@@ -167,7 +171,7 @@ const HeatmapLayer = memo(function HeatmapLayer({ events, s }: HeatmapLayerProps
           </Marker>
         );
       }),
-    [events, s],
+    [valid, s],
   );
   return <>{markers}</>;
 });
@@ -189,9 +193,13 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
   onTooltipHide,
   onEventSelect,
 }: TheaterEventsLayerProps) {
+  const valid = useMemo(
+    () => events.filter((e) => typeof e.lat === "number" && typeof e.lon === "number" && isFinite(e.lat) && isFinite(e.lon)),
+    [events],
+  );
   const markers = useMemo(
     () =>
-      events.map((evt, i) => {
+      valid.map((evt, i) => {
         const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
         const r = 3 * s;
         const sw = 0.25 * s;
@@ -221,7 +229,7 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
           </Marker>
         );
       }),
-    [events, s, onTooltipShow, onTooltipHide, onEventSelect],
+    [valid, s, onTooltipShow, onTooltipHide, onEventSelect],
   );
   return <>{markers}</>;
 });
@@ -241,12 +249,16 @@ const GeointLayer = memo(function GeointLayer({
   onTooltipShow,
   onTooltipHide,
 }: GeointLayerProps) {
+  const valid = useMemo(
+    () => anomalies.filter((a) => typeof a.latitude === "number" && typeof a.longitude === "number" && isFinite(a.latitude) && isFinite(a.longitude)),
+    [anomalies],
+  );
   const markers = useMemo(
     () =>
-      anomalies.map((anomaly, i) => {
+      valid.map((anomaly, i) => {
         const intensity = anomaly.frp > 1000 ? 1 : anomaly.frp > 100 ? 0.7 : 0.4;
-        const r = Math.min(3 + anomaly.frp / 200, 8) * s;
-        const label = `${anomaly.classification} · FRP ${Math.round(anomaly.frp)} MW`;
+        const r = Math.min(3 + (anomaly.frp ?? 0) / 200, 8) * s;
+        const label = `${anomaly.classification ?? "unknown"} · FRP ${Math.round(anomaly.frp ?? 0)} MW`;
 
         return (
           <Marker
@@ -277,7 +289,7 @@ const GeointLayer = memo(function GeointLayer({
           </Marker>
         );
       }),
-    [anomalies, s, onTooltipShow, onTooltipHide],
+    [valid, s, onTooltipShow, onTooltipHide],
   );
   return <>{markers}</>;
 });
@@ -297,9 +309,13 @@ const SigintAircraftLayer = memo(function SigintAircraftLayer({
   onTooltipShow,
   onTooltipHide,
 }: SigintAircraftLayerProps) {
+  const valid = useMemo(
+    () => aircraft.filter((a) => typeof a.lat === "number" && typeof a.lon === "number" && isFinite(a.lat) && isFinite(a.lon)),
+    [aircraft],
+  );
   const markers = useMemo(
     () =>
-      aircraft.map((ac) => (
+      valid.map((ac) => (
         <Marker
           key={`ac-${ac.lat.toFixed(4)}-${ac.lon.toFixed(4)}-${ac.flight}`}
           coordinates={[ac.lon, ac.lat]}
@@ -321,7 +337,7 @@ const SigintAircraftLayer = memo(function SigintAircraftLayer({
           </g>
         </Marker>
       )),
-    [aircraft, s, onTooltipShow, onTooltipHide],
+    [valid, s, onTooltipShow, onTooltipHide],
   );
   return <>{markers}</>;
 });
@@ -341,9 +357,13 @@ const SigintShipsLayer = memo(function SigintShipsLayer({
   onTooltipShow,
   onTooltipHide,
 }: SigintShipsLayerProps) {
+  const valid = useMemo(
+    () => ships.filter((sh) => typeof sh.lat === "number" && typeof sh.lon === "number" && isFinite(sh.lat) && isFinite(sh.lon)),
+    [ships],
+  );
   const markers = useMemo(
     () =>
-      ships.map((ship) => (
+      valid.map((ship) => (
         <Marker
           key={`ship-${ship.lat.toFixed(4)}-${ship.lon.toFixed(4)}-${ship.name}`}
           coordinates={[ship.lon, ship.lat]}
@@ -365,7 +385,7 @@ const SigintShipsLayer = memo(function SigintShipsLayer({
           </g>
         </Marker>
       )),
-    [ships, s, onTooltipShow, onTooltipHide],
+    [valid, s, onTooltipShow, onTooltipHide],
   );
   return <>{markers}</>;
 });
