@@ -6,6 +6,7 @@ import { EvidenceCard } from "@/components/dashboard/EvidenceCard";
 import { NewsSentiment } from "@/components/dashboard/NewsSentiment";
 import { InternetConnectivity } from "@/components/dashboard/InternetConnectivity";
 import { FlightRadar } from "@/components/dashboard/FlightRadar";
+import { GreyNoisePanel } from "@/components/dashboard/GreyNoisePanel";
 import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
 import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
 import { CompliancePanel } from "@/components/dashboard/CompliancePanel";
@@ -104,6 +105,7 @@ export function DashboardRightPanel({
       <div className="mt-4 pt-4 border-t border-border">
         <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider mb-3">ACTIVITY & CONNECTIVITY</h3>
         <div className="space-y-3">
+          <GreyNoisePanel conflict={activeConflict || "Iran"} />
           <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
           <InternetConnectivity />
           <FlightRadar sigint={conflictData?.sigint} />
@@ -112,7 +114,7 @@ export function DashboardRightPanel({
       </div>
 
       <p className="mt-4 pt-3 border-t border-border text-[10px] text-muted-foreground">
-        Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA
+        Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise
       </p>
     </aside>
   );

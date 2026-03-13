@@ -11,8 +11,9 @@ from starlette.middleware.gzip import GZipMiddleware
 from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from api.stripe_checkout import router as stripe_router
+from api.greynoise import router as greynoise_router
 from agents.supervisor import analyze_conflict
-from agents.config import CORS_ORIGINS
+from agents.config import CORS_ORIGINS, GREYNOISE_API_KEY, GREYNOISE_SCHEDULER_INTERVAL_SEC
 from agents.otel_callbacks import init_otel
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
@@ -52,12 +53,45 @@ async def lifespan(app: FastAPI):
     analysis_task = asyncio.create_task(run_periodic_analysis())
     worker_task = asyncio.create_task(app.state.job_queue.worker())
 
+    # GreyNoise Emerging Threats scheduler (6h cycle + daily tag discovery)
+    greynoise_task = None
+    greynoise_discovery_task = None
+    if GREYNOISE_API_KEY:
+        async def run_greynoise_scheduler():
+            from agents.greynoise_agent import run_greynoise_scheduler_cycle
+            await asyncio.sleep(15)
+            while True:
+                try:
+                    await run_greynoise_scheduler_cycle()
+                    print("[greynoise] Scheduler cycle complete.")
+                except Exception as e:
+                    print(f"[greynoise] Scheduler error: {e}")
+                await asyncio.sleep(GREYNOISE_SCHEDULER_INTERVAL_SEC)
+
+        async def run_greynoise_tag_discovery():
+            from agents.greynoise_agent import run_tag_discovery_cycle
+            await asyncio.sleep(60)
+            while True:
+                try:
+                    await run_tag_discovery_cycle()
+                except Exception as e:
+                    print(f"[greynoise] Tag discovery error: {e}")
+                await asyncio.sleep(86400)  # once daily
+
+        greynoise_task = asyncio.create_task(run_greynoise_scheduler())
+        greynoise_discovery_task = asyncio.create_task(run_greynoise_tag_discovery())
+
     # Ensure shared HTTP client is created early (so DNS pools etc. warm up)
     get_http_client()
 
     yield
 
-    for task in (analysis_task, worker_task):
+    tasks_to_cancel = [analysis_task, worker_task]
+    if greynoise_task:
+        tasks_to_cancel.append(greynoise_task)
+    if greynoise_discovery_task:
+        tasks_to_cancel.append(greynoise_discovery_task)
+    for task in tasks_to_cancel:
         task.cancel()
         try:
             await task
@@ -81,6 +115,7 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 app.include_router(pdf_router, prefix="/api")
 app.include_router(stripe_router, prefix="/api")
+app.include_router(greynoise_router, prefix="/api")
 
 
 @app.get("/health")

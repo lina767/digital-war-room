@@ -29,3 +29,13 @@ LONG_TIMEOUT = 25.0
 SHORT_TIMEOUT = 10.0
 
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+
+# ── GreyNoise (Emerging Threats agent) ────────────────────────────────────
+
+GREYNOISE_API_KEY = (os.getenv("GREYNOISE_API_KEY") or "").strip() or None
+GREYNOISE_BASE_URL = os.getenv("GREYNOISE_BASE_URL", "https://api.greynoise.io").rstrip("/")
+GREYNOISE_TIMEOUT = float(os.getenv("GREYNOISE_TIMEOUT", "20"))
+GREYNOISE_SCHEDULER_INTERVAL_SEC = int(os.getenv("GREYNOISE_SCHEDULER_INTERVAL_SEC", "21600"))  # 6h
+GREYNOISE_SCHEDULER_CONFLICTS = [
+    c.strip() for c in os.getenv("GREYNOISE_CONFLICTS", "Iran,Gaza/Israel,Lebanon,Yemen,Middle East").split(",") if c.strip()
+]
