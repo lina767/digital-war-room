@@ -200,12 +200,21 @@ export interface ComplianceRiskScore {
   disclaimer: string;
 }
 
+export interface OFACRecentAction {
+  title?: string;
+  url?: string;
+  published?: string;
+  source?: string;
+  summary?: string;
+}
+
 export interface ComplianceBlock {
   geofencing_alerts?: GeofencingAlert[];
   ais_anomalies?: AISAnomaly[];
   risk_score?: ComplianceRiskScore;
   ofac_sdn?: { total_matches?: number; sample?: Array<{ name?: string; type?: string; program?: string }>; programs?: Array<{ name?: string; count?: number }>; error?: string | null };
   eu_sanctions?: { keyword_mentions?: number; error?: string | null };
+  ofac_recent_actions?: OFACRecentAction[];
   disclaimer?: string;
 }
 

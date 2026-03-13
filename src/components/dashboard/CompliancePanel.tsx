@@ -6,11 +6,6 @@ import type { ConflictData, GeofencingAlert, AISAnomaly, ComplianceRiskScore } f
 const DISCLAIMER =
   "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.";
 
-const OFAC_MARITIME_GUIDANCE = {
-  title: "OFAC Maritime Advisory – Iran Oil Sanctions Evasion (April 2025)",
-  url: "https://ofac.treasury.gov/media/932436/download?inline",
-  summary: "Guidance for shipping, energy, and insurance sectors on deceptive practices used to evade Iran-related sanctions, including STS transfers, AIS manipulation, and flag-hopping.",
-};
 
 const MATCH_LEVEL_STYLES: Record<string, string> = {
   EXACT: "bg-destructive text-destructive-foreground",
@@ -384,21 +379,36 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
         </p>
       )}
 
-      <div className="border-t border-border/50 pt-2 space-y-1.5">
-        <a
-          href={OFAC_MARITIME_GUIDANCE.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-start gap-1.5 text-[10px] text-muted-foreground hover:text-foreground group"
-        >
-          <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0 group-hover:text-primary" />
-          <span>
-            <span className="font-semibold">{OFAC_MARITIME_GUIDANCE.title}</span>
-            <br />
-            <span className="text-[9px]">{OFAC_MARITIME_GUIDANCE.summary}</span>
+      {(compliance?.ofac_recent_actions?.length ?? 0) > 0 && (
+        <div className="border-t border-border/50 pt-2 space-y-1.5">
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+            Recent OFAC / Treasury Actions
           </span>
-        </a>
-      </div>
+          {compliance!.ofac_recent_actions!.slice(0, 3).map((action, i) => (
+            <a
+              key={i}
+              href={action.url ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-start gap-1.5 text-[10px] text-muted-foreground hover:text-foreground group"
+            >
+              <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0 group-hover:text-primary" />
+              <span>
+                <span className="font-semibold">{action.title}</span>
+                {action.published && (
+                  <span className="text-[9px] text-muted-foreground/60 ml-1">({action.published})</span>
+                )}
+                {action.summary && (
+                  <>
+                    <br />
+                    <span className="text-[9px]">{action.summary}</span>
+                  </>
+                )}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
 
       <p className="text-[9px] text-muted-foreground border-t border-border/50 pt-2">
         {DISCLAIMER}
