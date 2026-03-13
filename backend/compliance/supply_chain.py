@@ -144,10 +144,19 @@ def screen_route(
     touches = False
 
     for wp_data in waypoints:
+        try:
+            wp_lat = float(wp_data.get("lat"))  # type: ignore[arg-type]
+            wp_lon = float(wp_data.get("lon"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            logger.warning("Skipping waypoint %r: invalid lat/lon", wp_data.get("label"))
+            continue
+        if not (-90 <= wp_lat <= 90 and -180 <= wp_lon <= 180):
+            logger.warning("Skipping waypoint %r: lat/lon out of range", wp_data.get("label"))
+            continue
         wp = Waypoint(
             label=wp_data.get("label", ""),
-            lat=float(wp_data.get("lat", 0)),
-            lon=float(wp_data.get("lon", 0)),
+            lat=wp_lat,
+            lon=wp_lon,
             country_code=wp_data.get("country_code", ""),
             port_type=wp_data.get("port_type", "port"),
         )

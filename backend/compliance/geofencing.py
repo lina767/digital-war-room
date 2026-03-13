@@ -75,18 +75,19 @@ def check_sigint_for_sanctions(
     for ac in sigint_result.get("aircraft") or []:
         if not isinstance(ac, dict) or "error" in ac:
             continue
-        lat = ac.get("lat")
-        lon = ac.get("lon")
-        if lat is None or lon is None:
+        try:
+            lat = float(ac.get("lat"))  # type: ignore[arg-type]
+            lon = float(ac.get("lon"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
             continue
-        matched = all_matching_zones(float(lat), float(lon), zone_list)
+        matched = all_matching_zones(lat, lon, zone_list)
         for zone in matched:
             alerts.append(GeofencingAlert(
                 asset_type="aircraft",
                 asset_id=ac.get("flight") or ac.get("hex") or "unknown",
                 asset_name=ac.get("flight") or ac.get("type") or "Aircraft",
-                lat=float(lat),
-                lon=float(lon),
+                lat=lat,
+                lon=lon,
                 zone=zone,
                 source=ac.get("source") or "ADSB",
             ))
@@ -94,18 +95,19 @@ def check_sigint_for_sanctions(
     for ship in sigint_result.get("ships") or []:
         if not isinstance(ship, dict) or "error" in ship:
             continue
-        lat = ship.get("lat")
-        lon = ship.get("lon")
-        if lat is None or lon is None:
+        try:
+            lat = float(ship.get("lat"))  # type: ignore[arg-type]
+            lon = float(ship.get("lon"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
             continue
-        matched = all_matching_zones(float(lat), float(lon), zone_list)
+        matched = all_matching_zones(lat, lon, zone_list)
         for zone in matched:
             alerts.append(GeofencingAlert(
                 asset_type="ship",
                 asset_id=ship.get("mmsi") or ship.get("name") or "unknown",
                 asset_name=ship.get("name") or "Vessel",
-                lat=float(lat),
-                lon=float(lon),
+                lat=lat,
+                lon=lon,
                 zone=zone,
                 source=ship.get("source") or "AIS",
             ))

@@ -386,15 +386,22 @@ export default function DailyIntelligenceBriefing() {
                         {(data.compliance?.ofac_sdn?.total_matches ?? 0) > 0 && (
                           <li className="flex gap-2">
                             <span className="text-orange-400 shrink-0">SDN</span>
-                            <span>
-                              <span className="font-semibold">{data.compliance!.ofac_sdn!.total_matches}</span>{" "}
-                              OFAC SDN entries match conflict entities
-                              {(data.compliance!.ofac_sdn!.sample?.length ?? 0) > 0 && (
-                                <span className="text-muted-foreground">
-                                  {" "}(e.g. {data.compliance!.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).join(", ")})
-                                </span>
+                            <div>
+                              <span>
+                                <span className="font-semibold">{data.compliance!.ofac_sdn!.total_matches}</span>{" "}
+                                OFAC SDN entries match conflict entities
+                                {(data.compliance!.ofac_sdn!.sample?.length ?? 0) > 0 && (
+                                  <span className="text-muted-foreground">
+                                    {" "}(e.g. {data.compliance!.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).join(", ")})
+                                  </span>
+                                )}
+                              </span>
+                              {(data.compliance!.ofac_sdn!.programs?.length ?? 0) > 0 && (
+                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                  Programs: {data.compliance!.ofac_sdn!.programs!.slice(0, 6).map(p => `${p.name} (${p.count})`).join(", ")}
+                                </p>
                               )}
-                            </span>
+                            </div>
                           </li>
                         )}
                         {(data.compliance?.eu_sanctions?.keyword_mentions ?? 0) > 0 && (
@@ -406,6 +413,29 @@ export default function DailyIntelligenceBriefing() {
                             </span>
                           </li>
                         )}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* OFAC / Treasury Recent Actions */}
+                  {(data.compliance?.ofac_recent_actions?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                        Recent OFAC / Treasury Actions
+                      </p>
+                      <ul className="space-y-1 text-xs">
+                        {data.compliance!.ofac_recent_actions!.filter(a => a.url).slice(0, 5).map((action, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className="text-primary shrink-0">→</span>
+                            <span>
+                              <a href={action.url!} target="_blank" rel="noopener noreferrer"
+                                className="underline hover:text-primary">{action.title}</a>
+                              {action.published && (
+                                <span className="text-muted-foreground ml-1">({action.published})</span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
                       </ul>
                     </div>
                   )}

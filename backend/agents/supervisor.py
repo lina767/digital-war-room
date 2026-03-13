@@ -28,10 +28,15 @@ from .acled_reference import fetch_acled_reference_analyses_sync
 from compliance.geofencing import check_sigint_for_sanctions
 from compliance.ais_anomaly import analyze_ais_anomalies
 from compliance.risk_score import compute_compliance_risk
+from compliance.supply_chain import screen_route
 
 
 # Per-agent timeout (seconds). Prevents one slow API from blocking the whole run.
 _AGENT_TIMEOUT = 75
+
+# Previous SIGINT data for AIS dark-activity detection across runs.
+# Keyed by conflict name, stores last SIGINT result.
+_previous_sigint: Dict[str, Dict[str, Any]] = {}
 
 
 def _result_or_fallback(future, agent_name: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
@@ -233,7 +238,6 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     protest_result   = agent_results.get("protest") or {}
     diplo_result     = agent_results.get("diplo") or {}
     proximity_result = agent_results.get("proximity") or {}
-    narrative_result = agent_results.get("narrative") or {}
     narrative_result = agent_results.get("narrative") or {}
 
     finint_score    = float(finint_result.get("escalation_score", 0.0))
@@ -464,10 +468,38 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
     predictive = build_predictive_block(conflict, combined_score, agent_scores_for_predictive)
 
-    # ── Compliance: geofencing, AIS anomalies, OFAC/EU data, risk score ────
+    # ── Compliance: geofencing, AIS anomalies, supply chain, OFAC/EU, risk ──
     sigint_data = agent_results.get("sigint") or {}
+    prev_sigint = _previous_sigint.get(conflict)
     geofencing_alerts = check_sigint_for_sanctions(sigint_data)
-    ais_anomalies = analyze_ais_anomalies(sigint_data)
+    ais_anomalies = analyze_ais_anomalies(sigint_data, previous_sigint=prev_sigint)
+    if sigint_data.get("ships"):
+        _previous_sigint[conflict] = sigint_data
+
+    # Auto-screen SIGINT ships as waypoints for supply-chain zone hits
+    supply_chain_result = None
+    ships_for_screening = [
+        s for s in (sigint_data.get("ships") or [])
+        if isinstance(s, dict) and s.get("lat") is not None and s.get("lon") is not None
+    ]
+    if ships_for_screening:
+        waypoints = [
+            {
+                "label": s.get("name") or s.get("mmsi") or "vessel",
+                "lat": s.get("lat"),
+                "lon": s.get("lon"),
+                "country_code": (s.get("flag") or "")[:2],
+                "port_type": "vessel",
+            }
+            for s in ships_for_screening[:30]
+        ]
+        try:
+            supply_chain_result = screen_route(
+                route_label=f"SIGINT auto-screen ({conflict})",
+                waypoints=waypoints,
+            )
+        except Exception:
+            supply_chain_result = None
 
     ofac_sdn = diplo_result.get("ofac_sdn") or {}
     eu_sanctions = diplo_result.get("eu_sanctions") or {}
@@ -475,6 +507,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     risk_score = compute_compliance_risk(
         geofencing_alerts=geofencing_alerts,
         ais_anomalies=ais_anomalies,
+        supply_chain_result=supply_chain_result,
         escalation_level=threat_level,
         conflict=conflict,
         ofac_sdn=ofac_sdn,

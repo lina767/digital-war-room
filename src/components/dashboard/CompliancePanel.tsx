@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, Eye, ExternalLink } from "lucide-react";
+import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, ExternalLink } from "lucide-react";
 import { getApiBase } from "@/lib/api";
 import type { ConflictData, GeofencingAlert, AISAnomaly, ComplianceRiskScore } from "@/hooks/useConflictWebSocket";
 
-const DISCLAIMER =
+const FALLBACK_DISCLAIMER =
   "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.";
 
 
@@ -384,10 +384,10 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
           <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
             Recent OFAC / Treasury Actions
           </span>
-          {compliance!.ofac_recent_actions!.slice(0, 3).map((action, i) => (
+          {compliance!.ofac_recent_actions!.filter(a => a.url).slice(0, 3).map((action, i) => (
             <a
               key={i}
-              href={action.url ?? "#"}
+              href={action.url!}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-start gap-1.5 text-[10px] text-muted-foreground hover:text-foreground group"
@@ -411,7 +411,7 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
       )}
 
       <p className="text-[9px] text-muted-foreground border-t border-border/50 pt-2">
-        {DISCLAIMER}
+        {compliance?.disclaimer ?? FALLBACK_DISCLAIMER}
       </p>
     </div>
   );
