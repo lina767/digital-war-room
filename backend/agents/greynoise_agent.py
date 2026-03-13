@@ -1,7 +1,8 @@
 """
 GreyNoise Emerging Threats Agent – GNQL Stats, CVE Enrichment, Tag Discovery.
 
-Monitors cyber threat landscape for conflict zones (focus: Iran / Middle East).
+Monitors cyber threat landscape for conflict zones across the Middle East and
+key state actors (Israel, Iran, USA, UAE, Saudi Arabia, Lebanon, Jordan).
 Uses GNQL Stats as primary data source with bidirectional geo-mapping (outbound
 scanners from region + inbound scans targeting region infrastructure).
 
@@ -46,15 +47,19 @@ MAX_CVE_LOOKUPS = 5
 
 GREYNOISE_COUNTRY_FILTERS: Dict[str, List[str]] = {
     "iran": ["Iran", "Iraq", "Syria", "Lebanon"],
+    "israel": ["Israel", "Palestine", "Lebanon"],
     "gaza/israel": ["Israel", "Palestine", "Lebanon"],
     "gaza": ["Israel", "Palestine", "Lebanon"],
-    "israel": ["Israel", "Palestine", "Lebanon"],
+    "usa": ["United States", "Canada"],
+    "uae": ["United Arab Emirates", "Bahrain", "Qatar"],
+    "saudi arabia": ["Saudi Arabia", "Bahrain", "Kuwait"],
     "lebanon": ["Lebanon", "Syria", "Israel"],
+    "jordan": ["Jordan", "Syria", "Iraq"],
     "yemen": ["Yemen", "Saudi Arabia"],
     "middle east": [
         "Iran", "Iraq", "Syria", "Lebanon", "Israel", "Palestine",
         "Yemen", "Saudi Arabia", "Bahrain", "Qatar", "United Arab Emirates",
-        "Kuwait", "Oman", "Jordan",
+        "Kuwait", "Oman", "Jordan", "United States",
     ],
     "ukraine": ["Ukraine", "Russia"],
 }
@@ -63,8 +68,12 @@ GREYNOISE_COUNTRY_FILTERS: Dict[str, List[str]] = {
 MIDDLE_EAST_CRITICAL_ASNS: Dict[str, List[str]] = {
     "iran": ["AS12880", "AS44244", "AS197207", "AS48159"],  # TCI, Irancell, MCI, IRIB
     "iraq": ["AS51684", "AS203214"],
-    "israel": ["AS1680", "AS8551"],
-    "lebanon": ["AS9051"],
+    "israel": ["AS1680", "AS8551", "AS378"],  # Bezeq, Bezeq International, IEC
+    "usa": ["AS7922", "AS22773", "AS7018", "AS701"],  # Comcast, Cox, AT&T, Verizon
+    "uae": ["AS5384", "AS15802", "AS8966"],  # Etisalat, du, Emirates Telecom
+    "saudi arabia": ["AS25019", "AS39891", "AS35753"],  # STC, Mobily, ITC
+    "lebanon": ["AS9051", "AS42020"],  # OGERO, LibanCell
+    "jordan": ["AS8697", "AS9038"],  # JTC, Orange Jordan
 }
 
 
@@ -93,6 +102,28 @@ CONFLICT_TAG_TAXONOMY: Dict[str, Dict[str, Dict[str, Any]]] = {
             "weight": 1.0,
         },
     },
+    "israel": {
+        "critical_infra": {
+            "tags": ["ICS", "SCADA", "Modbus", "DNP3", "BACnet"],
+            "weight": 3.0,
+        },
+        "vpn_exploit": {
+            "tags": ["Cisco", "Fortinet", "Palo Alto", "Check Point", "VPN"],
+            "weight": 2.5,
+        },
+        "apt_tooling": {
+            "tags": ["Cobalt Strike", "Meterpreter", "Sliver"],
+            "weight": 2.0,
+        },
+        "router_exploit": {
+            "tags": ["MikroTik", "Netgear", "TP-Link", "Ubiquiti"],
+            "weight": 1.8,
+        },
+        "generic_scan": {
+            "tags": ["Mirai", "SSH Bruteforce", "RDP Bruteforce"],
+            "weight": 1.0,
+        },
+    },
     "gaza/israel": {
         "critical_infra": {
             "tags": ["ICS", "SCADA", "Modbus", "DNP3"],
@@ -108,6 +139,98 @@ CONFLICT_TAG_TAXONOMY: Dict[str, Dict[str, Dict[str, Any]]] = {
         },
         "generic_scan": {
             "tags": ["Mirai", "SSH Bruteforce"],
+            "weight": 1.0,
+        },
+    },
+    "usa": {
+        "critical_infra": {
+            "tags": ["ICS", "SCADA", "Modbus", "DNP3", "BACnet", "S7comm", "EtherNet/IP", "OPC"],
+            "weight": 3.0,
+        },
+        "vpn_exploit": {
+            "tags": ["Cisco", "Fortinet", "FortiGate", "Palo Alto", "Pulse Secure", "SonicWall", "Citrix", "Ivanti", "VPN"],
+            "weight": 2.5,
+        },
+        "apt_tooling": {
+            "tags": ["Cobalt Strike", "Meterpreter", "Brute Ratel", "Sliver", "Havoc"],
+            "weight": 2.0,
+        },
+        "cloud_exploit": {
+            "tags": ["AWS", "Azure", "Exchange", "Microsoft", "VMware", "Confluence", "Atlassian"],
+            "weight": 2.2,
+        },
+        "router_exploit": {
+            "tags": ["MikroTik", "Netgear", "TP-Link", "D-Link", "Zyxel", "Ubiquiti", "Juniper"],
+            "weight": 1.8,
+        },
+        "generic_scan": {
+            "tags": ["Mirai", "SSH Bruteforce", "Telnet", "RDP Bruteforce"],
+            "weight": 1.0,
+        },
+    },
+    "uae": {
+        "critical_infra": {
+            "tags": ["ICS", "SCADA", "Modbus", "DNP3", "BACnet", "OPC"],
+            "weight": 3.0,
+        },
+        "vpn_exploit": {
+            "tags": ["Cisco", "Fortinet", "FortiGate", "Palo Alto", "SonicWall", "VPN"],
+            "weight": 2.5,
+        },
+        "apt_tooling": {
+            "tags": ["Cobalt Strike", "Meterpreter", "Brute Ratel"],
+            "weight": 2.0,
+        },
+        "router_exploit": {
+            "tags": ["MikroTik", "Netgear", "TP-Link", "D-Link", "Zyxel"],
+            "weight": 1.8,
+        },
+        "generic_scan": {
+            "tags": ["Mirai", "SSH Bruteforce", "Telnet", "RDP Bruteforce"],
+            "weight": 1.0,
+        },
+    },
+    "saudi arabia": {
+        "critical_infra": {
+            "tags": ["ICS", "SCADA", "Modbus", "DNP3", "S7comm", "OPC", "Triton", "TRISIS"],
+            "weight": 3.0,
+        },
+        "vpn_exploit": {
+            "tags": ["Cisco", "Fortinet", "FortiGate", "Palo Alto", "SonicWall", "VPN"],
+            "weight": 2.5,
+        },
+        "apt_tooling": {
+            "tags": ["Cobalt Strike", "Meterpreter", "Shamoon", "Brute Ratel"],
+            "weight": 2.5,
+        },
+        "router_exploit": {
+            "tags": ["MikroTik", "Netgear", "TP-Link", "D-Link", "Zyxel"],
+            "weight": 1.8,
+        },
+        "generic_scan": {
+            "tags": ["Mirai", "SSH Bruteforce", "Telnet", "RDP Bruteforce"],
+            "weight": 1.0,
+        },
+    },
+    "jordan": {
+        "critical_infra": {
+            "tags": ["ICS", "SCADA", "Modbus", "DNP3"],
+            "weight": 3.0,
+        },
+        "vpn_exploit": {
+            "tags": ["Cisco", "Fortinet", "Palo Alto", "VPN"],
+            "weight": 2.5,
+        },
+        "apt_tooling": {
+            "tags": ["Cobalt Strike", "Meterpreter"],
+            "weight": 2.0,
+        },
+        "router_exploit": {
+            "tags": ["MikroTik", "Netgear", "TP-Link"],
+            "weight": 1.8,
+        },
+        "generic_scan": {
+            "tags": ["Mirai", "SSH Bruteforce", "RDP Bruteforce"],
             "weight": 1.0,
         },
     },
@@ -132,7 +255,6 @@ CONFLICT_TAG_TAXONOMY: Dict[str, Dict[str, Dict[str, Any]]] = {
 }
 
 # Fallback taxonomy for conflicts not explicitly mapped
-CONFLICT_TAG_TAXONOMY["israel"] = CONFLICT_TAG_TAXONOMY["gaza/israel"]
 CONFLICT_TAG_TAXONOMY["gaza"] = CONFLICT_TAG_TAXONOMY["gaza/israel"]
 CONFLICT_TAG_TAXONOMY["lebanon"] = CONFLICT_TAG_TAXONOMY["iran"]
 CONFLICT_TAG_TAXONOMY["yemen"] = CONFLICT_TAG_TAXONOMY["iran"]
@@ -583,13 +705,21 @@ def _rule_based_summary(result: GreynoiseResult) -> str:
 
 DISCOVERY_KEYWORDS = [
     "iran", "iranian", "irgc", "apt33", "apt34", "apt35", "muddywater",
-    "charming kitten", "oilrig", "hezbollah", "hamas",
+    "charming kitten", "oilrig",
+    "israel", "israeli", "gaza", "check point",
+    "usa", "united states", "apt28", "apt29", "lazarus", "volt typhoon",
+    "salt typhoon", "sandworm",
+    "uae", "emirates", "abu dhabi",
+    "saudi", "aramco", "shamoon", "triton", "trisis",
+    "lebanon", "hezbollah",
+    "jordan", "jordanian",
+    "hamas", "houthi", "yemen",
     "ics", "scada", "modbus", "dnp3", "plc",
-    "cobalt strike", "meterpreter", "brute ratel",
-    "ukraine", "sandworm", "gamaredon",
-    "israel", "gaza", "lebanon",
-    "fortinet", "cisco", "palo alto", "vpn",
+    "cobalt strike", "meterpreter", "brute ratel", "sliver", "havoc",
+    "ukraine", "gamaredon",
+    "fortinet", "cisco", "palo alto", "ivanti", "vpn",
     "wiper", "destructive",
+    "exchange", "vmware", "confluence",
 ]
 
 

@@ -37,5 +37,8 @@ GREYNOISE_BASE_URL = os.getenv("GREYNOISE_BASE_URL", "https://api.greynoise.io")
 GREYNOISE_TIMEOUT = float(os.getenv("GREYNOISE_TIMEOUT", "20"))
 GREYNOISE_SCHEDULER_INTERVAL_SEC = int(os.getenv("GREYNOISE_SCHEDULER_INTERVAL_SEC", "21600"))  # 6h
 GREYNOISE_SCHEDULER_CONFLICTS = [
-    c.strip() for c in os.getenv("GREYNOISE_CONFLICTS", "Iran,Gaza/Israel,Lebanon,Yemen,Middle East").split(",") if c.strip()
+    c.strip() for c in os.getenv(
+        "GREYNOISE_CONFLICTS",
+        "Iran,Israel,USA,UAE,Saudi Arabia,Lebanon,Jordan,Gaza/Israel,Yemen,Middle East",
+    ).split(",") if c.strip()
 ]
