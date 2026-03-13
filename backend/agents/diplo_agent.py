@@ -44,42 +44,77 @@ def _conflict_to_keywords(conflict: str) -> List[str]:
     return CONFLICT_SANCTION_KEYWORDS["default"]
 
 
+_ofac_cache: Dict[str, Any] = {"text": None, "ts": 0.0}
+_OFAC_CACHE_TTL = 6 * 3600
+
+
 async def _fetch_ofac_sdn(conflict: str) -> Dict[str, Any]:
-    """Fetch OFAC SDN list and count/filter by conflict-relevant entities (CSV bulk)."""
+    """Fetch OFAC SDN list and count/filter by conflict-relevant entities (CSV bulk).
+    Caches raw CSV for 6h to avoid repeated downloads of the ~30MB file."""
+    import time
     keywords = _conflict_to_keywords(conflict)
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(OFAC_SDN_CSV_URL)
-            resp.raise_for_status()
-            text = resp.text
+        now = time.time()
+        if _ofac_cache["text"] and (now - _ofac_cache["ts"]) < _OFAC_CACHE_TTL:
+            text = _ofac_cache["text"]
+        else:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.get(OFAC_SDN_CSV_URL)
+                resp.raise_for_status()
+                text = resp.text
+            _ofac_cache["text"] = text
+            _ofac_cache["ts"] = now
         reader = csv.DictReader(io.StringIO(text))
         matches: List[Dict[str, Any]] = []
+        programs_seen: Dict[str, int] = {}
         for row in reader:
             if not row:
                 continue
-            # SDN CSV: name, type, program, title, etc.
             name = (row.get("name") or row.get("firstName", "") + " " + row.get("lastName", "")).lower()
             program = (row.get("programs") or row.get("program", "") or "").lower()
             combined = name + " " + program
             if any(k in combined for k in keywords):
+                prog_raw = row.get("programs") or row.get("program") or ""
                 matches.append({
                     "name": row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip(),
                     "type": row.get("type"),
-                    "program": row.get("programs") or row.get("program"),
+                    "program": prog_raw,
                 })
-        return {"total_matches": len(matches), "sample": matches[:20], "error": None}
+                for p in prog_raw.replace(";", ",").split(","):
+                    p = p.strip()
+                    if p:
+                        programs_seen[p] = programs_seen.get(p, 0) + 1
+        top_programs = sorted(programs_seen.items(), key=lambda x: -x[1])[:10]
+        return {
+            "total_matches": len(matches),
+            "sample": matches[:20],
+            "programs": [{"name": p, "count": c} for p, c in top_programs],
+            "error": None,
+        }
     except Exception as e:
-        return {"total_matches": 0, "sample": [], "error": str(e)}
+        return {"total_matches": 0, "sample": [], "programs": [], "error": str(e)}
+
+
+_eu_cache: Dict[str, Any] = {"text": None, "ts": 0.0}
+_EU_CACHE_TTL = 6 * 3600
 
 
 async def _fetch_eu_sanctions(conflict: str) -> Dict[str, Any]:
-    """Fetch EU consolidated list (XML) and count conflict-relevant entries."""
+    """Fetch EU consolidated list (XML) and count conflict-relevant entries.
+    Caches raw XML for 6h to avoid repeated downloads."""
+    import time
     keywords = _conflict_to_keywords(conflict)
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            resp = await client.get(EU_SANCTIONS_URL)
-            resp.raise_for_status()
-            text = resp.text
+        now = time.time()
+        if _eu_cache["text"] and (now - _eu_cache["ts"]) < _EU_CACHE_TTL:
+            text = _eu_cache["text"]
+        else:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.get(EU_SANCTIONS_URL)
+                resp.raise_for_status()
+                text = resp.text
+            _eu_cache["text"] = text
+            _eu_cache["ts"] = now
         # Simple tag-based count; full parsing would use xml.etree
         count = 0
         for k in keywords:

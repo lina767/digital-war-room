@@ -488,6 +488,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         "ofac_sdn": {
             "total_matches": ofac_sdn.get("total_matches", 0),
             "sample": (ofac_sdn.get("sample") or [])[:10],
+            "programs": (ofac_sdn.get("programs") or [])[:10],
             "error": ofac_sdn.get("error"),
         },
         "eu_sanctions": {

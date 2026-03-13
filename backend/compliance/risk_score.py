@@ -61,14 +61,48 @@ def _max_level(a: ComplianceLevel, b: ComplianceLevel) -> ComplianceLevel:
     return a if LEVEL_ORDER[a] >= LEVEL_ORDER[b] else b
 
 
-COMPREHENSIVE_SANCTIONS_COUNTRIES: Dict[str, str] = {
-    "iran": "Iran – comprehensive US (OFAC/EO), EU, and UN sanctions regime",
-    "north korea": "North Korea – comprehensive UN/OFAC sanctions regime",
-    "dprk": "North Korea – comprehensive UN/OFAC sanctions regime",
-    "syria": "Syria – comprehensive US/EU sanctions regime",
-    "cuba": "Cuba – comprehensive US embargo",
-    "russia": "Russia – extensive sectoral US/EU sanctions (post-2022)",
-}
+_COMPREHENSIVE_REGIMES: List[Dict[str, Any]] = [
+    {
+        "keys": ["iran"],
+        "level": "HIGH",
+        "score": 35,
+        "detail": "Iran – comprehensive US (OFAC EO 13846/13902), EU, and UN sanctions regime",
+        "programs": "IRAN, IRAN-HR, IRGC, SDGT, NPWMD, ISA",
+        "note": "Covers energy, finance, shipping, military, WMD. OFAC Maritime Advisory active.",
+    },
+    {
+        "keys": ["north korea", "dprk"],
+        "level": "HIGH",
+        "score": 35,
+        "detail": "North Korea – comprehensive UN/OFAC sanctions regime",
+        "programs": "DPRK, DPRK2, DPRK3, DPRK4",
+        "note": "Near-total embargo; all trade restricted.",
+    },
+    {
+        "keys": ["syria"],
+        "level": "HIGH",
+        "score": 30,
+        "detail": "Syria – comprehensive US (Caesar Act) and EU sanctions regime",
+        "programs": "SYRIA, SDGT",
+        "note": "Broad sanctions covering government, military, energy sector.",
+    },
+    {
+        "keys": ["cuba"],
+        "level": "HIGH",
+        "score": 30,
+        "detail": "Cuba – comprehensive US embargo (OFAC)",
+        "programs": "CUBA",
+        "note": "Near-total US embargo; limited EU restrictions.",
+    },
+    {
+        "keys": ["russia", "ukraine"],
+        "level": "MEDIUM",
+        "score": 20,
+        "detail": "Russia – extensive sectoral US/EU sanctions (post-2022); partial oil price cap; some waivers active",
+        "programs": "RUSSIA-EO14024, RUSSIA-EO14066, UKRAINE-EO13660, SSI",
+        "note": "Sectoral (energy, finance, tech); oil price cap with enforcement gaps. Temporary waivers possible.",
+    },
+]
 
 
 def compute_compliance_risk(
@@ -92,15 +126,18 @@ def compute_compliance_risk(
 
     # ── Rule 0: Conflict-level sanctions regime ───────────────────────────
     conflict_lower = (conflict or "").lower()
-    for country_key, description in COMPREHENSIVE_SANCTIONS_COUNTRIES.items():
-        if country_key in conflict_lower:
-            floor = _max_level(floor, "MEDIUM")
-            numeric += 20
+    for regime in _COMPREHENSIVE_REGIMES:
+        if any(k in conflict_lower for k in regime["keys"]):
+            regime_level: ComplianceLevel = regime["level"]
+            floor = _max_level(floor, regime_level)
+            numeric += regime["score"]
             drivers.append({
                 "factor": "CONFLICT_SANCTIONS_REGIME",
-                "detail": description,
-                "impact": "MEDIUM floor + 20",
-                "rule": "Conflict involves comprehensively sanctioned country → at least MEDIUM",
+                "detail": regime["detail"],
+                "impact": f"{regime_level} floor + {regime['score']}",
+                "rule": f"Active sanctions regime → at least {regime_level}",
+                "programs": regime["programs"],
+                "note": regime["note"],
             })
             break
 

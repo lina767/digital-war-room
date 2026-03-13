@@ -109,13 +109,25 @@ function RiskScoreDisplay({ riskScore }: { riskScore: ComplianceRiskScore }) {
         <span className="text-[10px] text-muted-foreground">/100 · Band: {bandText}</span>
       </div>
       {riskScore.drivers.length > 0 && (
-        <ul className="space-y-0.5">
-          {riskScore.drivers.slice(0, 5).map((d, i) => (
-            <li key={i} className="text-[10px] text-muted-foreground flex gap-1.5">
-              <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
-              <span>
-                <span className="font-mono text-foreground/80">{d.factor}</span>: {d.detail}
-              </span>
+        <ul className="space-y-1">
+          {riskScore.drivers.slice(0, 6).map((d, i) => (
+            <li key={i} className="text-[10px] text-muted-foreground">
+              <div className="flex gap-1.5">
+                <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
+                <div>
+                  <span className="font-mono text-foreground/80">{d.factor}</span>: {d.detail}
+                  {(d as any).programs && (
+                    <span className="ml-1 text-[9px] text-muted-foreground/70">
+                      [{(d as any).programs}]
+                    </span>
+                  )}
+                  {(d as any).note && (
+                    <p className="text-[9px] text-muted-foreground/60 mt-0.5 leading-tight">
+                      {(d as any).note}
+                    </p>
+                  )}
+                </div>
+              </div>
             </li>
           ))}
         </ul>
@@ -293,7 +305,11 @@ interface CompliancePanelProps {
 function OFACEUSummary({ compliance }: { compliance: NonNullable<ConflictData["compliance"]> }) {
   const ofacTotal = compliance.ofac_sdn?.total_matches ?? 0;
   const euMentions = compliance.eu_sanctions?.keyword_mentions ?? 0;
-  if (ofacTotal === 0 && euMentions === 0) return null;
+  const ofacPrograms = compliance.ofac_sdn?.programs ?? [];
+  const ofacError = compliance.ofac_sdn?.error;
+  const euError = compliance.eu_sanctions?.error;
+
+  if (ofacTotal === 0 && euMentions === 0 && !ofacError && !euError) return null;
 
   return (
     <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 space-y-1">
@@ -307,13 +323,27 @@ function OFACEUSummary({ compliance }: { compliance: NonNullable<ConflictData["c
             <span className="font-mono text-xs font-semibold text-foreground">{ofacTotal}</span>
           </div>
         )}
+        {ofacError && ofacTotal === 0 && (
+          <p className="text-[9px] text-orange-400">OFAC SDN fetch failed (large CSV download). Regime-level scoring still active.</p>
+        )}
         {euMentions > 0 && (
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[10px] text-muted-foreground">EU sanctions mentions</span>
             <span className="font-mono text-xs font-semibold text-foreground">{euMentions}</span>
           </div>
         )}
+        {euError && euMentions === 0 && (
+          <p className="text-[9px] text-orange-400">EU sanctions fetch failed.</p>
+        )}
       </div>
+      {ofacPrograms.length > 0 && (
+        <div className="mt-0.5">
+          <span className="text-[9px] text-muted-foreground">Programs: </span>
+          <span className="text-[9px] text-muted-foreground/80">
+            {ofacPrograms.slice(0, 6).map(p => `${p.name} (${p.count})`).join(", ")}
+          </span>
+        </div>
+      )}
       {(compliance.ofac_sdn?.sample?.length ?? 0) > 0 && (
         <p className="text-[9px] text-muted-foreground leading-snug">
           Sample: {compliance.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).filter(Boolean).join(" · ")}

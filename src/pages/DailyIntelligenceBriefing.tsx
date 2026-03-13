@@ -349,15 +349,27 @@ export default function DailyIntelligenceBriefing() {
                       <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
                         Risk Drivers
                       </p>
-                      <ul className="space-y-1">
+                      <ul className="space-y-1.5">
                         {data.compliance!.risk_score!.drivers.map((d, i) => (
                           <li key={i} className="flex gap-2 text-xs">
                             <span className="text-primary shrink-0 mt-0.5">-</span>
-                            <span>
-                              <span className="font-mono text-muted-foreground">[{d.factor}]</span>{" "}
-                              {d.detail}
-                              <span className="text-muted-foreground ml-1">({d.impact})</span>
-                            </span>
+                            <div>
+                              <span>
+                                <span className="font-mono text-muted-foreground">[{d.factor}]</span>{" "}
+                                {d.detail}
+                                <span className="text-muted-foreground ml-1">({d.impact})</span>
+                              </span>
+                              {(d as any).programs && (
+                                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                                  Programs: {(d as any).programs}
+                                </p>
+                              )}
+                              {(d as any).note && (
+                                <p className="text-[10px] text-muted-foreground/60 mt-0.5 italic">
+                                  {(d as any).note}
+                                </p>
+                              )}
+                            </div>
                           </li>
                         ))}
                       </ul>

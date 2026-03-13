@@ -204,7 +204,7 @@ export interface ComplianceBlock {
   geofencing_alerts?: GeofencingAlert[];
   ais_anomalies?: AISAnomaly[];
   risk_score?: ComplianceRiskScore;
-  ofac_sdn?: { total_matches?: number; sample?: Array<{ name?: string; type?: string; program?: string }>; error?: string | null };
+  ofac_sdn?: { total_matches?: number; sample?: Array<{ name?: string; type?: string; program?: string }>; programs?: Array<{ name?: string; count?: number }>; error?: string | null };
   eu_sanctions?: { keyword_mentions?: number; error?: string | null };
   disclaimer?: string;
 }
