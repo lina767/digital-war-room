@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, memo } from "react";
-import { Plus, Minus, X } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo, useReducer, memo } from "react";
+import { Plus, Minus, X, AlertTriangle } from "lucide-react";
 import {
   ComposableMap,
   Geographies,
@@ -19,6 +19,102 @@ import {
   type SigintShip,
 } from "./mapConfig";
 import { SAM_RINGS, AIR_ROUTES, SEA_LANES, circlePoints } from "./mapOverlaysData";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface TooltipData {
+  content: string;
+  color: string;
+  x: number;
+  y: number;
+}
+
+interface LayerVisibility {
+  geoint: boolean;
+  sigint: boolean;
+  heatmap: boolean;
+  samRings: boolean;
+  airRoutes: boolean;
+  seaLanes: boolean;
+}
+
+type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
+
+const INITIAL_LAYERS: LayerVisibility = {
+  geoint: true,
+  sigint: true,
+  heatmap: false,
+  samRings: false,
+  airRoutes: false,
+  seaLanes: false,
+};
+
+function layerReducer(state: LayerVisibility, action: LayerAction): LayerVisibility {
+  return { ...state, [action.layer]: !state[action.layer] };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Logarithmic marker scale — visually consistent across zoom 2..8 */
+function markerScale(zoom: number): number {
+  return Math.max(0.15, 1 / Math.sqrt(zoom));
+}
+
+/* ------------------------------------------------------------------ */
+/*  Shape registry                                                     */
+/* ------------------------------------------------------------------ */
+
+type ShapeRenderer = (
+  r: number,
+  sw: number,
+  style: { fill: string; stroke: string },
+) => React.JSX.Element;
+
+const EVENT_SHAPES: Record<string, ShapeRenderer> = {
+  airstrike: (r, sw, st) => (
+    <polygon
+      points={`0,${-r * 1.2} ${r * 0.7},${r * 0.4} ${r * 0.5},${r} 0,${r * 0.6} ${-r * 0.5},${r} ${-r * 1.2},${r * 0.4}`}
+      fill={st.fill}
+      stroke={st.stroke}
+      strokeWidth={sw}
+    />
+  ),
+  missile: (r, sw, st) => (
+    <polygon
+      points={`0,${-r * 1.4} ${-r * 0.45},${r} ${r * 0.45},${r}`}
+      fill={st.fill}
+      stroke={st.stroke}
+      strokeWidth={sw}
+    />
+  ),
+  drone: (r, sw, st) => (
+    <polygon
+      points={`0,${-r} ${r},0 0,${r} ${-r},0`}
+      fill={st.fill}
+      stroke={st.stroke}
+      strokeWidth={sw}
+    />
+  ),
+  naval: (r, sw, st) => (
+    <g fill={st.fill} stroke={st.stroke} strokeWidth={sw * 1.2}>
+      <circle r={r * 0.5} fill="none" />
+      <line x1={0} y1={-r * 0.5} x2={0} y2={r * 0.8} />
+      <path d={`M ${-r * 0.6} ${r * 0.5} L ${r * 0.6} ${r * 0.5}`} fill="none" />
+    </g>
+  ),
+};
+
+const DEFAULT_SHAPE: ShapeRenderer = (r, sw, st) => (
+  <circle r={r * 0.7} fill={st.fill} stroke={st.stroke} strokeWidth={sw} />
+);
+
+/* ------------------------------------------------------------------ */
+/*  Memoized layer components                                          */
+/* ------------------------------------------------------------------ */
 
 const TheaterGeographies = memo(() => (
   <Geographies geography={GEO_URL}>
@@ -42,6 +138,260 @@ const TheaterGeographies = memo(() => (
 ));
 TheaterGeographies.displayName = "TheaterGeographies";
 
+/* ---- HeatmapLayer ------------------------------------------------ */
+
+interface HeatmapLayerProps {
+  events: ConflictEventForHeatmap[];
+  s: number;
+}
+
+const HeatmapLayer = memo(function HeatmapLayer({ events, s }: HeatmapLayerProps) {
+  const markers = useMemo(
+    () =>
+      events.map((evt, i) => {
+        const r = (2 + evt.intensity * 5) * s;
+        const opacity = 0.15 + evt.intensity * 0.35;
+        return (
+          <Marker
+            key={`heat-${evt.lat.toFixed(4)}-${evt.lon.toFixed(4)}-${i}`}
+            coordinates={[evt.lon, evt.lat]}
+          >
+            <circle
+              r={r}
+              fill="#dc2626"
+              fillOpacity={opacity}
+              stroke="rgba(220,38,38,0.4)"
+              strokeWidth={0.2 * s}
+              pointerEvents="none"
+            />
+          </Marker>
+        );
+      }),
+    [events, s],
+  );
+  return <>{markers}</>;
+});
+
+/* ---- TheaterEventsLayer ------------------------------------------ */
+
+interface TheaterEventsLayerProps {
+  events: TheaterEvent[];
+  s: number;
+  onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
+  onTooltipHide: () => void;
+  onEventSelect: (evt: TheaterEvent) => void;
+}
+
+const TheaterEventsLayer = memo(function TheaterEventsLayer({
+  events,
+  s,
+  onTooltipShow,
+  onTooltipHide,
+  onEventSelect,
+}: TheaterEventsLayerProps) {
+  const markers = useMemo(
+    () =>
+      events.map((evt, i) => {
+        const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
+        const r = 3 * s;
+        const sw = 0.25 * s;
+        const shape = (EVENT_SHAPES[evt.event_type] ?? DEFAULT_SHAPE)(r, sw, style);
+
+        return (
+          <Marker
+            key={`theater-${evt.lat.toFixed(4)}-${evt.lon.toFixed(4)}-${evt.event_type}-${i}`}
+            coordinates={[evt.lon, evt.lat]}
+          >
+            <g
+              className="cursor-pointer"
+              onClick={() => onEventSelect(evt)}
+              onMouseEnter={(e) => onTooltipShow(evt.label ?? evt.event_type, style.stroke, e)}
+              onMouseLeave={onTooltipHide}
+            >
+              <circle
+                className="theater-pulse"
+                style={{ animationDelay: `${(i % 20) * 0.1}s` }}
+                r={r * 2}
+                fill="none"
+                stroke={style.stroke}
+                strokeWidth={0.3 * s}
+              />
+              {shape}
+            </g>
+          </Marker>
+        );
+      }),
+    [events, s, onTooltipShow, onTooltipHide, onEventSelect],
+  );
+  return <>{markers}</>;
+});
+
+/* ---- GeointLayer ------------------------------------------------- */
+
+interface GeointLayerProps {
+  anomalies: GeointAnomaly[];
+  s: number;
+  onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
+  onTooltipHide: () => void;
+}
+
+const GeointLayer = memo(function GeointLayer({
+  anomalies,
+  s,
+  onTooltipShow,
+  onTooltipHide,
+}: GeointLayerProps) {
+  const markers = useMemo(
+    () =>
+      anomalies.map((anomaly, i) => {
+        const intensity = anomaly.frp > 1000 ? 1 : anomaly.frp > 100 ? 0.7 : 0.4;
+        const r = Math.min(3 + anomaly.frp / 200, 8) * s;
+        const label = `${anomaly.classification} · FRP ${Math.round(anomaly.frp)} MW`;
+
+        return (
+          <Marker
+            key={`geoint-${anomaly.latitude.toFixed(4)}-${anomaly.longitude.toFixed(4)}-${i}`}
+            coordinates={[anomaly.longitude, anomaly.latitude]}
+          >
+            <g
+              filter="url(#theater-glow-geoint)"
+              className="cursor-pointer"
+              onMouseEnter={(e) => onTooltipShow(label, "#ff4400", e)}
+              onMouseLeave={onTooltipHide}
+            >
+              <circle
+                className="geoint-pulse"
+                style={{ animationDelay: `${(i % 15) * 0.17}s` }}
+                r={r * 2.5}
+                fill="none"
+                stroke="#ff4400"
+                strokeWidth={0.4 * s}
+              />
+              <polygon
+                points={`0,${-r * 1.8} ${r * 1.2},${r * 0.9} ${-r * 1.2},${r * 0.9}`}
+                fill={`rgba(255, ${Math.floor(68 + (1 - intensity) * 100)}, 0, ${0.7 + intensity * 0.3})`}
+                stroke="#ff2200"
+                strokeWidth={0.3 * s}
+              />
+            </g>
+          </Marker>
+        );
+      }),
+    [anomalies, s, onTooltipShow, onTooltipHide],
+  );
+  return <>{markers}</>;
+});
+
+/* ---- SigintAircraftLayer ----------------------------------------- */
+
+interface SigintAircraftLayerProps {
+  aircraft: SigintAircraft[];
+  s: number;
+  onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
+  onTooltipHide: () => void;
+}
+
+const SigintAircraftLayer = memo(function SigintAircraftLayer({
+  aircraft,
+  s,
+  onTooltipShow,
+  onTooltipHide,
+}: SigintAircraftLayerProps) {
+  const markers = useMemo(
+    () =>
+      aircraft.map((ac) => (
+        <Marker
+          key={`ac-${ac.lat.toFixed(4)}-${ac.lon.toFixed(4)}-${ac.flight}`}
+          coordinates={[ac.lon, ac.lat]}
+        >
+          <g
+            className="cursor-pointer"
+            onMouseEnter={(e) => onTooltipShow(ac.flight, "#60a5fa", e)}
+            onMouseLeave={onTooltipHide}
+          >
+            <text
+              textAnchor="middle"
+              fontSize={12 * s}
+              fill="#60a5fa"
+              opacity={0.9}
+              style={{ userSelect: "none" }}
+            >
+              ✈
+            </text>
+          </g>
+        </Marker>
+      )),
+    [aircraft, s, onTooltipShow, onTooltipHide],
+  );
+  return <>{markers}</>;
+});
+
+/* ---- SigintShipsLayer -------------------------------------------- */
+
+interface SigintShipsLayerProps {
+  ships: SigintShip[];
+  s: number;
+  onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
+  onTooltipHide: () => void;
+}
+
+const SigintShipsLayer = memo(function SigintShipsLayer({
+  ships,
+  s,
+  onTooltipShow,
+  onTooltipHide,
+}: SigintShipsLayerProps) {
+  const markers = useMemo(
+    () =>
+      ships.map((ship) => (
+        <Marker
+          key={`ship-${ship.lat.toFixed(4)}-${ship.lon.toFixed(4)}-${ship.name}`}
+          coordinates={[ship.lon, ship.lat]}
+        >
+          <g
+            className="cursor-pointer"
+            onMouseEnter={(e) => onTooltipShow(ship.name, "#34d399", e)}
+            onMouseLeave={onTooltipHide}
+          >
+            <text
+              textAnchor="middle"
+              fontSize={11 * s}
+              fill="#34d399"
+              opacity={0.9}
+              style={{ userSelect: "none" }}
+            >
+              ⚓
+            </text>
+          </g>
+        </Marker>
+      )),
+    [ships, s, onTooltipShow, onTooltipHide],
+  );
+  return <>{markers}</>;
+});
+
+/* ---- MapTooltip (HTML portal) ------------------------------------ */
+
+function MapTooltip({ tooltip }: { tooltip: TooltipData | null }) {
+  if (!tooltip) return null;
+  return (
+    <div
+      className="fixed z-50 pointer-events-none px-2.5 py-1 rounded border bg-card/95 backdrop-blur-sm shadow-lg text-[11px] font-mono text-foreground whitespace-nowrap"
+      style={{
+        left: tooltip.x + 14,
+        top: tooltip.y - 12,
+        borderColor: tooltip.color,
+      }}
+    >
+      {tooltip.content}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                     */
+/* ------------------------------------------------------------------ */
+
 export interface TheaterMapProps {
   activeConflict?: string | null;
   geointAnomalies?: GeointAnomaly[];
@@ -55,22 +405,45 @@ export function TheaterMap({
   sigintAircraft = [],
   sigintShips = [],
 }: TheaterMapProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  /* ---- layer visibility (useReducer instead of 6× useState) ------ */
+  const [layers, dispatchLayers] = useReducer(layerReducer, INITIAL_LAYERS);
+  const toggleLayer = useCallback(
+    (layer: keyof LayerVisibility) => dispatchLayers({ type: "TOGGLE", layer }),
+    [],
+  );
+
+  /* ---- core UI state --------------------------------------------- */
   const [selectedEvent, setSelectedEvent] = useState<TheaterEvent | null>(null);
-  const [animPhase, setAnimPhase] = useState(0);
+  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4);
   const [center, setCenter] = useState<[number, number]>([53, 32]);
-  const [showGeoint, setShowGeoint] = useState(true);
-  const [showSigint, setShowSigint] = useState(true);
-  const [showHeatmap, setShowHeatmap] = useState(false);
-  const [heatmapEvents, setHeatmapEvents] = useState<ConflictEventForHeatmap[]>([]);
-  const [heatmapLoading, setHeatmapLoading] = useState(false);
-  const [showSamRings, setShowSamRings] = useState(false);
-  const [showAirRoutes, setShowAirRoutes] = useState(false);
-  const [showSeaLanes, setShowSeaLanes] = useState(false);
+
+  /* ---- async data + error states --------------------------------- */
   const [theaterEvents, setTheaterEvents] = useState<TheaterEvent[]>([]);
   const [theaterLoading, setTheaterLoading] = useState(false);
+  const [theaterError, setTheaterError] = useState<string | null>(null);
 
+  const [heatmapEvents, setHeatmapEvents] = useState<ConflictEventForHeatmap[]>([]);
+  const [heatmapLoading, setHeatmapLoading] = useState(false);
+  const [heatmapError, setHeatmapError] = useState<string | null>(null);
+
+  /* ---- derived: logarithmic marker scale ------------------------- */
+  const s = markerScale(zoom);
+
+  /* ---- stable tooltip callbacks for memo children ---------------- */
+  const handleTooltipShow = useCallback(
+    (content: string, color: string, e: React.MouseEvent) => {
+      setTooltip({ content, color, x: e.clientX, y: e.clientY });
+    },
+    [],
+  );
+  const handleTooltipHide = useCallback(() => setTooltip(null), []);
+  const handleEventSelect = useCallback((evt: TheaterEvent) => {
+    setSelectedEvent(evt);
+    setTooltip(null);
+  }, []);
+
+  /* ---- conflict center navigation -------------------------------- */
   useEffect(() => {
     if (!activeConflict) return;
     const key = matchConflict(activeConflict);
@@ -81,44 +454,66 @@ export function TheaterMap({
     }
   }, [activeConflict]);
 
+  /* ---- heatmap data ---------------------------------------------- */
   useEffect(() => {
-    if (!showHeatmap || !activeConflict) {
+    if (!layers.heatmap || !activeConflict) {
       setHeatmapEvents([]);
+      setHeatmapError(null);
       return;
     }
     setHeatmapLoading(true);
+    setHeatmapError(null);
     getConflictEvents(activeConflict, 200)
-      .then((data) => {
-        if (data?.events) setHeatmapEvents(data.events);
-        else setHeatmapEvents([]);
+      .then((data) => setHeatmapEvents(data?.events ?? []))
+      .catch((err) => {
+        setHeatmapEvents([]);
+        setHeatmapError(err?.message ?? "Failed to load heatmap data");
       })
-      .catch(() => setHeatmapEvents([]))
       .finally(() => setHeatmapLoading(false));
-  }, [showHeatmap, activeConflict]);
+  }, [layers.heatmap, activeConflict]);
 
+  /* ---- theater events data --------------------------------------- */
   useEffect(() => {
     if (!activeConflict) {
       setTheaterEvents([]);
       setSelectedEvent(null);
+      setTheaterError(null);
       return;
     }
     setTheaterLoading(true);
+    setTheaterError(null);
     getTheaterEvents(activeConflict, 400)
-      .then((data) => {
-        if (data?.events) setTheaterEvents(data.events);
-        else setTheaterEvents([]);
+      .then((data) => setTheaterEvents(data?.events ?? []))
+      .catch((err) => {
+        setTheaterEvents([]);
+        setTheaterError(err?.message ?? "Failed to load theater events");
       })
-      .catch(() => setTheaterEvents([]))
       .finally(() => setTheaterLoading(false));
   }, [activeConflict]);
 
-  useEffect(() => {
-    const interval = setInterval(() => setAnimPhase((p) => (p + 1) % 60), 50);
-    return () => clearInterval(interval);
-  }, []);
+  /* ---- memoized overlay data ------------------------------------- */
+  const samRingLines = useMemo(
+    () =>
+      SAM_RINGS.map((sam) => ({
+        ...sam,
+        coords: circlePoints(sam.center[0], sam.center[1], sam.radius_km),
+      })),
+    [],
+  );
 
-  const s = 1 / zoom;
+  const eventLegendItems = useMemo(() => {
+    if (theaterLoading || theaterEvents.length === 0) return [];
+    return (Object.entries(THEATER_EVENT_STYLE) as [string, { label: string; fill: string }][])
+      .map(([key, { label, fill }]) => ({
+        key,
+        label,
+        fill,
+        count: theaterEvents.filter((e) => e.event_type === key).length,
+      }))
+      .filter((item) => item.count > 0);
+  }, [theaterEvents, theaterLoading]);
 
+  /* ---- render ---------------------------------------------------- */
   return (
     <div className="absolute inset-0">
       <ComposableMap
@@ -151,22 +546,19 @@ export function TheaterMap({
         >
           <TheaterGeographies />
 
-          {showSamRings &&
-            SAM_RINGS.map((sam) => {
-              const coords = circlePoints(sam.center[0], sam.center[1], sam.radius_km);
-              return (
-                <Line
-                  key={sam.id}
-                  coordinates={coords}
-                  stroke="hsl(var(--destructive) / 0.6)"
-                  strokeWidth={0.5}
-                  fill="none"
-                  strokeDasharray="2 2"
-                />
-              );
-            })}
+          {layers.samRings &&
+            samRingLines.map((sam) => (
+              <Line
+                key={sam.id}
+                coordinates={sam.coords}
+                stroke="hsl(var(--destructive) / 0.6)"
+                strokeWidth={0.5}
+                fill="none"
+                strokeDasharray="2 2"
+              />
+            ))}
 
-          {showAirRoutes &&
+          {layers.airRoutes &&
             AIR_ROUTES.map((route) => (
               <Line
                 key={route.id}
@@ -178,7 +570,7 @@ export function TheaterMap({
               />
             ))}
 
-          {showSeaLanes &&
+          {layers.seaLanes &&
             SEA_LANES.map((lane) => (
               <Line
                 key={lane.id}
@@ -189,257 +581,52 @@ export function TheaterMap({
               />
             ))}
 
-          {showHeatmap &&
-            !heatmapLoading &&
-            heatmapEvents.map((evt, i) => {
-              const r = (2 + evt.intensity * 5) * s;
-              const opacity = 0.15 + evt.intensity * 0.35;
-              return (
-                <Marker key={`heat-${i}`} coordinates={[evt.lon, evt.lat]}>
-                  <g pointerEvents="none">
-                    <circle
-                      r={r}
-                      fill="#dc2626"
-                      fillOpacity={opacity}
-                      stroke="rgba(220,38,38,0.4)"
-                      strokeWidth={0.2 * s}
-                    />
-                  </g>
-                </Marker>
-              );
-            })}
+          {layers.heatmap && !heatmapLoading && (
+            <HeatmapLayer events={heatmapEvents} s={s} />
+          )}
 
-          {!theaterLoading &&
-            theaterEvents.map((evt, i) => {
-              const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
-              const r = 3 * s;
-              const pulseScale = 1 + 0.2 * Math.sin((animPhase + i * 5) * 0.15);
-              const isHovered = hoveredId === `theater-${i}`;
-              return (
-                <Marker key={`theater-${i}`} coordinates={[evt.lon, evt.lat]}>
-                  <g
-                    className="cursor-pointer"
-                    onClick={() => setSelectedEvent(evt)}
-                    onMouseEnter={() => setHoveredId(`theater-${i}`)}
-                    onMouseLeave={() => setHoveredId(null)}
-                  >
-                    <circle
-                      r={r * 2 * pulseScale}
-                      fill="none"
-                      stroke={style.stroke}
-                      strokeWidth={0.3 * s}
-                      opacity={0.35}
-                    />
-                    {evt.event_type === "airstrike" && (
-                      <polygon
-                        points={`0,${-r * 1.2} ${r * 0.7},${r * 0.4} ${r * 0.5},${r} ${0},${r * 0.6} ${-r * 0.5},${r} ${-r * 1.2},${r * 0.4}`}
-                        fill={style.fill}
-                        stroke={style.stroke}
-                        strokeWidth={0.25 * s}
-                      />
-                    )}
-                    {evt.event_type === "missile" && (
-                      <polygon
-                        points={`0,${-r * 1.4} ${-r * 0.45},${r * 1} ${r * 0.45},${r * 1}`}
-                        fill={style.fill}
-                        stroke={style.stroke}
-                        strokeWidth={0.25 * s}
-                      />
-                    )}
-                    {evt.event_type === "drone" && (
-                      <polygon
-                        points={`0,${-r} ${r},${0} ${0},${r} ${-r},${0}`}
-                        fill={style.fill}
-                        stroke={style.stroke}
-                        strokeWidth={0.25 * s}
-                      />
-                    )}
-                    {(evt.event_type === "explosion" || evt.event_type === "fire" || evt.event_type === "other") && (
-                      <circle r={r * 0.7} fill={style.fill} stroke={style.stroke} strokeWidth={0.25 * s} />
-                    )}
-                    {evt.event_type === "naval" && (
-                      <g fill={style.fill} stroke={style.stroke} strokeWidth={0.3 * s}>
-                        <circle r={r * 0.5} fill="none" />
-                        <line x1={0} y1={-r * 0.5} x2={0} y2={r * 0.8} />
-                        <path d={`M ${-r * 0.6} ${r * 0.5} L ${r * 0.6} ${r * 0.5}`} fill="none" />
-                      </g>
-                    )}
-                    {isHovered && evt.label && (
-                      <g>
-                        <rect
-                          x={6 * s}
-                          y={-12 * s}
-                          width={Math.min(evt.label.length * 5 + 12, 120) * s}
-                          height={18 * s}
-                          rx={2 * s}
-                          fill="hsl(var(--card))"
-                          stroke={style.stroke}
-                          strokeWidth={0.5 * s}
-                          opacity={0.95}
-                        />
-                        <text
-                          x={10 * s}
-                          y={-1 * s}
-                          fill="hsl(var(--foreground))"
-                          fontSize={8 * s}
-                          fontFamily="JetBrains Mono, monospace"
-                        >
-                          {evt.label.length > 22 ? evt.label.slice(0, 22) + "…" : evt.label}
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                </Marker>
-              );
-            })}
+          {!theaterLoading && (
+            <TheaterEventsLayer
+              events={theaterEvents}
+              s={s}
+              onTooltipShow={handleTooltipShow}
+              onTooltipHide={handleTooltipHide}
+              onEventSelect={handleEventSelect}
+            />
+          )}
 
-          {showGeoint &&
-            geointAnomalies.map((anomaly, i) => {
-              const intensity = anomaly.frp > 1000 ? 1 : anomaly.frp > 100 ? 0.7 : 0.4;
-              const r = Math.min(3 + anomaly.frp / 200, 8) * s;
-              const pulseScale = 1 + 0.3 * Math.sin((animPhase + i * 7) * 0.2);
-              return (
-                <Marker key={`geoint-${i}`} coordinates={[anomaly.longitude, anomaly.latitude]}>
-                  <g
-                    filter="url(#theater-glow-geoint)"
-                    className="cursor-pointer"
-                    onMouseEnter={() => setHoveredId(`geoint-${i}`)}
-                    onMouseLeave={() => setHoveredId(null)}
-                  >
-                    <circle
-                      r={r * 2.5 * pulseScale}
-                      fill="none"
-                      stroke="#ff4400"
-                      strokeWidth={0.4 * s}
-                      opacity={0.25 / pulseScale}
-                    />
-                    <polygon
-                      points={`0,${-r * 1.8} ${r * 1.2},${r * 0.9} ${-r * 1.2},${r * 0.9}`}
-                      fill={`rgba(255, ${Math.floor(68 + (1 - intensity) * 100)}, 0, ${0.7 + intensity * 0.3})`}
-                      stroke="#ff2200"
-                      strokeWidth={0.3 * s}
-                    />
-                    {hoveredId === `geoint-${i}` && (
-                      <g>
-                        <rect
-                          x={6 * s}
-                          y={-14 * s}
-                          width={110 * s}
-                          height={22 * s}
-                          rx={3 * s}
-                          fill="hsl(var(--card))"
-                          stroke="#ff4400"
-                          strokeWidth={0.5 * s}
-                          opacity={0.95}
-                        />
-                        <text
-                          x={10 * s}
-                          y={-1 * s}
-                          fill="hsl(var(--foreground))"
-                          fontSize={9 * s}
-                          fontFamily="JetBrains Mono, monospace"
-                        >
-                          {anomaly.classification} · FRP {Math.round(anomaly.frp)} MW
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                </Marker>
-              );
-            })}
+          {layers.geoint && (
+            <GeointLayer
+              anomalies={geointAnomalies}
+              s={s}
+              onTooltipShow={handleTooltipShow}
+              onTooltipHide={handleTooltipHide}
+            />
+          )}
 
-          {showSigint &&
-            sigintAircraft.map((ac, i) => (
-              <Marker key={`ac-${i}`} coordinates={[ac.lon, ac.lat]}>
-                <g
-                  className="cursor-pointer"
-                  onMouseEnter={() => setHoveredId(`ac-${i}`)}
-                  onMouseLeave={() => setHoveredId(null)}
-                >
-                  <text
-                    textAnchor="middle"
-                    fontSize={12 * s}
-                    fill="#60a5fa"
-                    opacity={0.9}
-                    style={{ userSelect: "none" }}
-                  >
-                    ✈
-                  </text>
-                  {hoveredId === `ac-${i}` && (
-                    <g>
-                      <rect
-                        x={8 * s}
-                        y={-14 * s}
-                        width={(ac.flight.length * 7 + 16) * s}
-                        height={20 * s}
-                        rx={3 * s}
-                        fill="hsl(var(--card))"
-                        stroke="#60a5fa"
-                        strokeWidth={0.5 * s}
-                        opacity={0.95}
-                      />
-                      <text
-                        x={12 * s}
-                        y={-1 * s}
-                        fill="hsl(var(--foreground))"
-                        fontSize={9 * s}
-                        fontFamily="JetBrains Mono, monospace"
-                      >
-                        {ac.flight}
-                      </text>
-                    </g>
-                  )}
-                </g>
-              </Marker>
-            ))}
-
-          {showSigint &&
-            sigintShips.map((ship, i) => (
-              <Marker key={`ship-${i}`} coordinates={[ship.lon, ship.lat]}>
-                <g
-                  className="cursor-pointer"
-                  onMouseEnter={() => setHoveredId(`ship-${i}`)}
-                  onMouseLeave={() => setHoveredId(null)}
-                >
-                  <text
-                    textAnchor="middle"
-                    fontSize={11 * s}
-                    fill="#34d399"
-                    opacity={0.9}
-                    style={{ userSelect: "none" }}
-                  >
-                    ⚓
-                  </text>
-                  {hoveredId === `ship-${i}` && (
-                    <g>
-                      <rect
-                        x={8 * s}
-                        y={-14 * s}
-                        width={(ship.name.length * 7 + 16) * s}
-                        height={20 * s}
-                        rx={3 * s}
-                        fill="hsl(var(--card))"
-                        stroke="#34d399"
-                        strokeWidth={0.5 * s}
-                        opacity={0.95}
-                      />
-                      <text
-                        x={12 * s}
-                        y={-1 * s}
-                        fill="hsl(var(--foreground))"
-                        fontSize={9 * s}
-                        fontFamily="JetBrains Mono, monospace"
-                      >
-                        {ship.name}
-                      </text>
-                    </g>
-                  )}
-                </g>
-              </Marker>
-            ))}
+          {layers.sigint && (
+            <>
+              <SigintAircraftLayer
+                aircraft={sigintAircraft}
+                s={s}
+                onTooltipShow={handleTooltipShow}
+                onTooltipHide={handleTooltipHide}
+              />
+              <SigintShipsLayer
+                ships={sigintShips}
+                s={s}
+                onTooltipShow={handleTooltipShow}
+                onTooltipHide={handleTooltipHide}
+              />
+            </>
+          )}
         </ZoomableGroup>
       </ComposableMap>
 
+      {/* HTML tooltip portal — single instance for all layers */}
+      <MapTooltip tooltip={tooltip} />
+
+      {/* Zoom controls */}
       <div className="absolute top-2 right-2 flex flex-col gap-1">
         <button
           type="button"
@@ -459,6 +646,7 @@ export function TheaterMap({
         </button>
       </div>
 
+      {/* Escalation detail panel */}
       {selectedEvent && (
         <div className="absolute bottom-24 right-2 max-w-xs w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
@@ -504,82 +692,84 @@ export function TheaterMap({
         </div>
       )}
 
+      {/* Layer toggle bar */}
       <div className="absolute bottom-12 left-2 flex items-center gap-3 flex-wrap">
         <button
           type="button"
-          onClick={() => setShowGeoint((v) => !v)}
+          onClick={() => toggleLayer("geoint")}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
-          <span style={{ color: showGeoint ? "#ff4400" : undefined }}>△</span>
+          <span style={{ color: layers.geoint ? "#ff4400" : undefined }}>△</span>
           GEOINT
         </button>
         <button
           type="button"
-          onClick={() => setShowSigint((v) => !v)}
+          onClick={() => toggleLayer("sigint")}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
-          <span style={{ color: showSigint ? "#60a5fa" : undefined }}>✈</span>
-          <span style={{ color: showSigint ? "#34d399" : undefined }}>⚓</span>
+          <span style={{ color: layers.sigint ? "#60a5fa" : undefined }}>✈</span>
+          <span style={{ color: layers.sigint ? "#34d399" : undefined }}>⚓</span>
           SIGINT
         </button>
         <button
           type="button"
-          onClick={() => setShowHeatmap((v) => !v)}
+          onClick={() => toggleLayer("heatmap")}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Conflict intensity from ACLED"
         >
           <span
-            className={`w-2.5 h-2.5 rounded-full border ${showHeatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
+            className={`w-2.5 h-2.5 rounded-full border ${layers.heatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
           />
           HEATMAP
-          {heatmapLoading && showHeatmap && <span className="animate-pulse">…</span>}
+          {heatmapLoading && layers.heatmap && <span className="animate-pulse">…</span>}
         </button>
         <button
           type="button"
-          onClick={() => setShowSamRings((v) => !v)}
+          onClick={() => toggleLayer("samRings")}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="SAM engagement zones"
         >
           <span
-            className={`w-2.5 h-2.5 rounded-full border ${showSamRings ? "border-destructive" : "border-border"}`}
-            style={showSamRings ? { borderColor: "hsl(var(--destructive))", background: "hsl(var(--destructive) / 0.2)" } : {}}
+            className={`w-2.5 h-2.5 rounded-full border ${layers.samRings ? "border-destructive" : "border-border"}`}
+            style={
+              layers.samRings
+                ? { borderColor: "hsl(var(--destructive))", background: "hsl(var(--destructive) / 0.2)" }
+                : {}
+            }
           />
           SAM
         </button>
         <button
           type="button"
-          onClick={() => setShowAirRoutes((v) => !v)}
+          onClick={() => toggleLayer("airRoutes")}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Main air corridors"
         >
-          <span style={{ color: showAirRoutes ? "hsl(210 80% 55%)" : undefined }}>✈</span>
+          <span style={{ color: layers.airRoutes ? "hsl(210 80% 55%)" : undefined }}>✈</span>
           AIR
         </button>
         <button
           type="button"
-          onClick={() => setShowSeaLanes((v) => !v)}
+          onClick={() => toggleLayer("seaLanes")}
           className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Sea lanes"
         >
-          <span style={{ color: showSeaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
+          <span style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
           SEA
         </button>
-        {!theaterLoading && theaterEvents.length > 0 && (
+        {eventLegendItems.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
-            {(Object.entries(THEATER_EVENT_STYLE) as [string, { label: string; fill: string }][]).map(([key, { label, fill }]) => {
-              const count = theaterEvents.filter((e) => e.event_type === key).length;
-              if (count === 0) return null;
-              return (
-                <div key={key} className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: fill }} title={label} />
-                  <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
-                </div>
-              );
-            })}
+            {eventLegendItems.map(({ key, label, fill }) => (
+              <div key={key} className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: fill }} title={label} />
+                <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
+      {/* Live feed indicator */}
       {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && (
         <div className="absolute top-2 left-2 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
@@ -593,6 +783,15 @@ export function TheaterMap({
         </div>
       )}
 
+      {/* Error banner */}
+      {(theaterError || heatmapError) && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-destructive/90 text-destructive-foreground rounded px-3 py-1.5 shadow-lg">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="text-[11px] font-mono">{theaterError ?? heatmapError}</span>
+        </div>
+      )}
+
+      {/* Loading overlay */}
       {theaterLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none">
           <span className="text-xs font-mono text-muted-foreground animate-pulse">Loading theater…</span>
