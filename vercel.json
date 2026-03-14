@@ -1,6 +1,9 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!favicon\\.ico)(?!favicon\\.png)(?!apple-touch-icon\\.png)(?!og-image\\.png)(?!robots\\.txt)(?!placeholder\\.svg)(?!assets/).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     { "source": "/favicon.ico", "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }] },
