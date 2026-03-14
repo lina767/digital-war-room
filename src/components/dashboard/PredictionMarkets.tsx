@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 
 const FALLBACK_MARKETS = [
@@ -12,19 +13,54 @@ interface PolymarketItem {
   probability?: number;
   volume?: number;
   url?: string;
+  end_date_iso?: string;
 }
 
 interface PredictionMarketsProps {
-  /** From FININT: polymarket array (probability 0–1). Show top 4 by importance (volume, then probability). */
   polymarket?: PolymarketItem[] | null;
+  fetchedAt?: string | null;
 }
 
+type SortMode = "volume" | "probability";
 const TOP_N = 4;
+
+function normalizePct(probability: number | undefined): number {
+  let p = probability ?? 0;
+  if (p > 1) p = p / 100;
+  return Math.max(0, Math.min(100, Math.round(p * 100)));
+}
 
 function formatVolume(vol: number): string {
   if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(0)}m`;
   if (vol >= 1_000) return `$${(vol / 1_000).toFixed(0)}k`;
   return "$0";
+}
+
+function formatEndDate(iso: string | undefined): string | null {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return null;
+  }
+}
+
+function formatTimeAgo(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  try {
+    const diff = Date.now() - new Date(iso).getTime();
+    if (diff < 0) return "just now";
+    const mins = Math.floor(diff / 60_000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  } catch {
+    return null;
+  }
 }
 
 function ProbabilityBar({ pct }: { pct: number }) {
@@ -46,32 +82,60 @@ function ProbabilityBar({ pct }: { pct: number }) {
   );
 }
 
-export function PredictionMarkets({ polymarket }: PredictionMarketsProps) {
+export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsProps) {
+  const [sortMode, setSortMode] = useState<SortMode>("volume");
+
   const raw =
     polymarket && polymarket.length > 0
       ? polymarket
-      : FALLBACK_MARKETS.map((m) => ({ ...m, url: undefined as string | undefined }));
+      : FALLBACK_MARKETS.map((m) => ({ ...m, url: undefined as string | undefined, end_date_iso: undefined as string | undefined }));
 
   const list = raw
     .slice()
-    .sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0) || (b.probability ?? 0) - (a.probability ?? 0))
+    .sort((a, b) =>
+      sortMode === "volume"
+        ? (b.volume ?? 0) - (a.volume ?? 0) || normalizePct(b.probability) - normalizePct(a.probability)
+        : normalizePct(b.probability) - normalizePct(a.probability) || (b.volume ?? 0) - (a.volume ?? 0),
+    )
     .slice(0, TOP_N)
     .map((m) => ({
       question: m.question || "Market",
-      probability: m.probability ?? 0,
-      pct: Math.round((m.probability ?? 0) * 100),
+      pct: normalizePct(m.probability),
       volume: m.volume ?? 0,
       url: m.url,
+      endLabel: formatEndDate(m.end_date_iso),
     }));
+
+  const timeAgo = formatTimeAgo(fetchedAt);
 
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-      <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider">PREDICTION MARKETS</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider">PREDICTION MARKETS</h3>
+        <div className="flex gap-1">
+          {(["volume", "probability"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setSortMode(mode)}
+              className={`font-mono text-[9px] px-1.5 py-0.5 rounded transition-colors ${
+                sortMode === mode
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              }`}
+            >
+              {mode === "volume" ? "Vol" : "Prob"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {list.map((m, i) => (
           <div
             key={i}
             className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col min-h-[180px]"
+            role="article"
+            aria-label={`${m.question} – ${m.pct}% YES probability`}
           >
             <div className="flex items-center justify-between gap-2 mb-2">
               <span className="font-mono text-[10px] text-muted-foreground">Polymarket</span>
@@ -98,11 +162,20 @@ export function PredictionMarkets({ polymarket }: PredictionMarketsProps) {
               <ProbabilityBar pct={m.pct} />
               <p className="text-[9px] text-muted-foreground">Implied YES probability</p>
             </div>
-            <p className="text-[9px] text-muted-foreground mt-1">All time</p>
+            <p className="text-[9px] text-muted-foreground mt-1">
+              {m.endLabel ? `Ends ${m.endLabel}` : "All time"}
+            </p>
           </div>
         ))}
       </div>
-      <p className="text-[9px] text-muted-foreground">Source: Polymarket · Top 4 by volume</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[9px] text-muted-foreground">
+          Source: Polymarket · Top {TOP_N} by {sortMode}
+        </p>
+        {timeAgo && (
+          <p className="text-[9px] text-muted-foreground">Updated {timeAgo}</p>
+        )}
+      </div>
     </div>
   );
 }

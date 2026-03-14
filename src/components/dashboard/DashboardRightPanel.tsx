@@ -111,7 +111,7 @@ export function DashboardRightPanel({
           <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
           <InternetConnectivity />
           <FlightRadar sigint={conflictData?.sigint} />
-          <PredictionMarkets polymarket={conflictData?.finint?.polymarket} />
+          <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} />
         </div>
       </div>
 

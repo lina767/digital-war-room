@@ -215,8 +215,30 @@ def _format_pct(change: float | None) -> str:
     return f"{change:+.1f}%"
 
 
+def _clamp_prob(prob: float) -> float:
+    """Normalize probability to 0–1 range (Gamma API returns 0–1, guard against 0–100)."""
+    if prob > 1.0:
+        prob = prob / 100.0
+    return max(0.0, min(1.0, prob))
+
+
+def _extract_end_date(m: dict) -> str | None:
+    """Extract ISO end-date string from a Gamma API event/market dict."""
+    raw = m.get("endDate") or m.get("end_date") or m.get("closedTime") or m.get("end_date_iso")
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, (int, float)):
+            return datetime.fromtimestamp(raw, tz=timezone.utc).isoformat()
+        s = str(raw).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        return dt.isoformat()
+    except Exception:
+        return str(raw)
+
+
 def _normalize_polymarket_item(m: dict, slug: str = "") -> dict | None:
-    """Build {question, probability, volume, url} from Gamma API event or market object."""
+    """Build {question, probability, volume, url, end_date_iso} from Gamma API event or market object."""
     question = str(m.get("question") or m.get("title") or m.get("name") or "").strip()
     if not question:
         return None
@@ -228,6 +250,7 @@ def _normalize_polymarket_item(m: dict, slug: str = "") -> dict | None:
         p = safe_float(token.get("price"))
         if p and p > prob:
             prob = p
+    prob = _clamp_prob(prob)
     volume = safe_float(m.get("volume") or m.get("volumeNum") or m.get("liquidity") or 0) or 0
     url_slug = slug or m.get("slug") or ""
     return {
@@ -235,6 +258,7 @@ def _normalize_polymarket_item(m: dict, slug: str = "") -> dict | None:
         "probability": round(prob, 3),
         "volume": round(volume, 0),
         "url": f"https://polymarket.com/event/{url_slug}" if url_slug else "",
+        "end_date_iso": _extract_end_date(m),
     }
 
 
@@ -346,6 +370,7 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
                             v = safe_float(token.get("price"))
                             if v and v > prob:
                                 prob = v
+                    prob = _clamp_prob(prob)
                     volume = safe_float(
                         event.get("volume") or event.get("volumeNum") or event.get("liquidity") or 0
                     ) or 0
@@ -354,6 +379,7 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
                         "probability": round(prob, 3),
                         "volume": round(volume, 0),
                         "url": f"https://polymarket.com/event/{slug}",
+                        "end_date_iso": _extract_end_date(event),
                     })
                 except Exception:
                     continue
@@ -734,8 +760,9 @@ async def _fetch_polymarket(client: Any, conflict: str) -> Dict[str, Any]:
                     v = safe_float(token.get("price"))
                     if v and v > prob:
                         prob = v
+            prob = _clamp_prob(prob)
             volume = safe_float(event.get("volume") or event.get("volumeNum") or event.get("liquidity") or 0) or 0
-            item = {"question": question, "probability": round(prob, 3), "volume": round(volume, 0), "url": f"https://polymarket.com/event/{slug}"}
+            item = {"question": question, "probability": round(prob, 3), "volume": round(volume, 0), "url": f"https://polymarket.com/event/{slug}", "end_date_iso": _extract_end_date(event)}
             if item.get("probability", 0) > 0:
                 tracked.append(item)
     except Exception:

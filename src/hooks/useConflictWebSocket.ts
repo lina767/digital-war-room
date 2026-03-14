@@ -67,7 +67,8 @@ export interface ConflictData {
   };
   finint?: {
     brent?: { price: string; change_pct: string; as_of: string } | null;
-    polymarket?: Array<{ question?: string; probability?: number; volume?: number; url?: string }>;
+    polymarket?: Array<{ question?: string; probability?: number; volume?: number; url?: string; end_date_iso?: string }>;
+    polymarket_fetched_at?: string;
   };
   geoint?: {
     anomalies: any[];
