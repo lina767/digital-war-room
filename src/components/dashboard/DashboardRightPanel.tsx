@@ -13,12 +13,13 @@ import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
 import { CompliancePanel } from "@/components/dashboard/CompliancePanel";
 import { WorldMap } from "@/components/dashboard/WorldMap";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
+import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Target, X, Globe } from "lucide-react";
 
 interface DashboardRightPanelProps {
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
-  conflictData: any;
+  conflictData: ConflictData | null;
   lastUpdated: Date | null;
   displayConflictLabel: string;
   /** Current conflict for world map highlight */

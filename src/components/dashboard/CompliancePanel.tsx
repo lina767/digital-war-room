@@ -111,14 +111,14 @@ function RiskScoreDisplay({ riskScore }: { riskScore: ComplianceRiskScore }) {
                 <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
                 <div>
                   <span className="font-mono text-foreground/80">{d.factor}</span>: {d.detail}
-                  {(d as any).programs && (
+                  {d.programs && (
                     <span className="ml-1 text-[9px] text-muted-foreground/70">
-                      [{(d as any).programs}]
+                      [{d.programs}]
                     </span>
                   )}
-                  {(d as any).note && (
+                  {d.note && (
                     <p className="text-[9px] text-muted-foreground/60 mt-0.5 leading-tight">
-                      {(d as any).note}
+                      {d.note}
                     </p>
                   )}
                 </div>
@@ -218,8 +218,8 @@ function SanctionsSearch() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data: SanctionsResponse = await resp.json();
       setResults(data);
-    } catch (err: any) {
-      setError(err.message || "Request failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Request failed");
     } finally {
       setLoading(false);
     }

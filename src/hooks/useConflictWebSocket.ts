@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, triggerRefreshAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/components/dashboard/mapConfig";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
 
@@ -71,13 +72,13 @@ export interface ConflictData {
     polymarket_fetched_at?: string;
   };
   geoint?: {
-    anomalies: any[];
+    anomalies: GeointAnomaly[];
     geoint_score: number;
   };
   sigint?: {
-    aircraft: any[];
-    ships: any[];
-    hormuz_tankers?: any[];
+    aircraft: SigintAircraft[];
+    ships: SigintShip[];
+    hormuz_tankers?: SigintShip[];
     hormuz_tanker_count?: number;
     conflict_reports?: { title: string; date?: string; url?: string; source?: string }[];
     sigint_score: number;
@@ -219,6 +220,8 @@ export interface ComplianceRiskScore {
     detail: string;
     impact: string;
     rule: string;
+    programs?: string;
+    note?: string;
   }>;
   disclaimer: string;
 }

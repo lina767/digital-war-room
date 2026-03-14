@@ -359,14 +359,14 @@ export default function DailyIntelligenceBriefing() {
                                 {d.detail}
                                 <span className="text-muted-foreground ml-1">({d.impact})</span>
                               </span>
-                              {(d as any).programs && (
+                              {d.programs && (
                                 <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                                  Programs: {(d as any).programs}
+                                  Programs: {d.programs}
                                 </p>
                               )}
-                              {(d as any).note && (
+                              {d.note && (
                                 <p className="text-[10px] text-muted-foreground/60 mt-0.5 italic">
-                                  {(d as any).note}
+                                  {d.note}
                                 </p>
                               )}
                             </div>
