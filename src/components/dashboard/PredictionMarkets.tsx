@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 
 const FALLBACK_MARKETS = [
   { question: "US military strike on Iran in 2025?", probability: 0.34, volume: 0 },
@@ -73,7 +74,7 @@ function ProbabilityBar({ pct }: { pct: number }) {
           style={{ width: `${value}%` }}
         />
       </div>
-      <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
+      <div className="flex justify-between text-[11px] text-muted-foreground mt-0.5">
         <span>0%</span>
         <span>50%</span>
         <span>100%</span>
@@ -109,16 +110,16 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
   const timeAgo = formatTimeAgo(fetchedAt);
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider">PREDICTION MARKETS</h3>
+    <IntelPanel
+      title="PREDICTION MARKETS"
+      headerRight={
         <div className="flex gap-1">
           {(["volume", "probability"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
               onClick={() => setSortMode(mode)}
-              className={`font-mono text-[9px] px-1.5 py-0.5 rounded transition-colors ${
+              className={`font-mono text-[11px] px-1.5 py-0.5 rounded transition-colors ${
                 sortMode === mode
                   ? "bg-primary/15 text-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -128,7 +129,8 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
             </button>
           ))}
         </div>
-      </div>
+      }
+    >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {list.map((m, i) => (
           <div
@@ -138,13 +140,13 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
             aria-label={`${m.question} – ${m.pct}% YES probability`}
           >
             <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="font-mono text-[10px] text-muted-foreground">Polymarket</span>
+              <span className="font-mono text-[11px] text-muted-foreground">Polymarket</span>
               {m.url ? (
                 <a
                   href={m.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
+                  className="text-[11px] text-primary hover:underline inline-flex items-center gap-0.5"
                 >
                   View Market
                   <ExternalLink className="h-3 w-3" />
@@ -155,27 +157,27 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
             <div className="mt-auto space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-mono text-xl font-bold text-primary">{m.pct}%</span>
-                <span className="text-[10px] text-muted-foreground text-right">
+                <span className="text-[11px] text-muted-foreground text-right">
                   {formatVolume(m.volume)} Vol.
                 </span>
               </div>
               <ProbabilityBar pct={m.pct} />
-              <p className="text-[9px] text-muted-foreground">Implied YES probability</p>
+              <p className="text-[11px] text-muted-foreground">Implied YES probability</p>
             </div>
-            <p className="text-[9px] text-muted-foreground mt-1">
+            <p className="text-[11px] text-muted-foreground mt-1">
               {m.endLabel ? `Ends ${m.endLabel}` : "All time"}
             </p>
           </div>
         ))}
       </div>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[9px] text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground">
           Source: Polymarket · Top {TOP_N} by {sortMode}
         </p>
         {timeAgo && (
-          <p className="text-[9px] text-muted-foreground">Updated {timeAgo}</p>
+          <p className="text-[11px] text-muted-foreground">Updated {timeAgo}</p>
         )}
       </div>
-    </div>
+    </IntelPanel>
   );
 }

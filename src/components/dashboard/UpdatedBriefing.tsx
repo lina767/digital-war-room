@@ -1,4 +1,5 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 
 interface UpdatedBriefingProps {
   data: ConflictData | null;
@@ -24,13 +25,11 @@ export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }:
   const hasContent = summary || scenarios.length > 0 || keyFindings.length > 0;
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between">
-        <h3 className="font-mono text-xs text-muted-foreground tracking-wider">UPDATED BRIEFING</h3>
-        <span className="text-[10px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>
-      </div>
-      <div className="p-3 space-y-3">
-        {isLoading && !hasContent && (
+    <IntelPanel
+      title="UPDATED BRIEFING"
+      headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
+    >
+      {isLoading && !hasContent && (
           <p className="text-xs text-muted-foreground italic animate-pulse">Loading analysis…</p>
         )}
         {!hasContent && !isLoading && (
@@ -38,13 +37,13 @@ export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }:
         )}
         {summary && (
           <div>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">Recap</p>
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">Recap</p>
             <p className="text-sm leading-relaxed">{summary}</p>
           </div>
         )}
         {scenarios.length > 0 && (
           <div>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Things to Watch</p>
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Things to Watch</p>
             <ol className="space-y-2 list-decimal list-inside">
               {scenarios.slice(0, 5).map((s, i) => (
                 <li key={i} className="text-xs leading-relaxed">
@@ -59,7 +58,7 @@ export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }:
         )}
         {hasContent && !summary && scenarios.length === 0 && keyFindings.length > 0 && (
           <div>
-            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Key findings</p>
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Key findings</p>
             <ul className="space-y-1.5">
               {keyFindings.slice(0, 6).map((f, i) => (
                 <li key={i} className="text-xs leading-relaxed">• {f}</li>
@@ -67,7 +66,6 @@ export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }:
             </ul>
           </div>
         )}
-      </div>
-    </div>
+    </IntelPanel>
   );
 }

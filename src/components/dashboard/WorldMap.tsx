@@ -218,7 +218,7 @@ export function WorldMap({ activeConflict = null }: WorldMapProps) {
         <button
           type="button"
           onClick={() => setShowLinks((v) => !v)}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
           <div
             className={`w-2.5 h-0.5 ${showLinks ? "bg-primary" : "bg-muted-foreground/40"}`}
@@ -230,7 +230,7 @@ export function WorldMap({ activeConflict = null }: WorldMapProps) {
           <button
             type="button"
             onClick={() => setHiddenLinks(new Set())}
-            className="text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+            className="text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           >
             RESET
           </button>

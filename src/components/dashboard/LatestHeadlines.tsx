@@ -1,4 +1,5 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 
 interface LatestHeadlinesProps {
   data: ConflictData | null;
@@ -24,13 +25,10 @@ export function LatestHeadlines({ data, maxItems = 15 }: LatestHeadlinesProps) {
   const display = articles.slice(0, maxItems);
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between">
-        <h3 className="font-mono text-xs text-muted-foreground tracking-wider">LATEST HEADLINES</h3>
-        {articles.length > 0 && (
-          <span className="text-[10px] text-muted-foreground">{articles.length} stories</span>
-        )}
-      </div>
+    <IntelPanel
+      title="LATEST HEADLINES"
+      headerRight={articles.length > 0 ? <span className="text-[11px] text-muted-foreground">{articles.length} stories</span> : undefined}
+    >
       <ul className="divide-y divide-border/60 max-h-64 overflow-y-auto">
         {display.length === 0 && (
           <li className="px-3 py-4 text-xs text-muted-foreground italic">Run analysis to load headlines.</li>
@@ -45,7 +43,7 @@ export function LatestHeadlines({ data, maxItems = 15 }: LatestHeadlinesProps) {
             >
               {art.title || "Untitled"}
             </a>
-            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
               {art.source && <span>{art.source}</span>}
               {(art.source || art.publishedAt) && <span>·</span>}
               {art.publishedAt && <span>{formatArticleTime(art.publishedAt)} ago</span>}
@@ -53,6 +51,6 @@ export function LatestHeadlines({ data, maxItems = 15 }: LatestHeadlinesProps) {
           </li>
         ))}
       </ul>
-    </div>
+    </IntelPanel>
   );
 }

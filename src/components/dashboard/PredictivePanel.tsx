@@ -1,3 +1,4 @@
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import type { ConflictData, EscalationForecast, PredictiveBlock } from "@/hooks/useConflictWebSocket";
 
 function levelBadgeClass(level: string | undefined): string {
@@ -42,21 +43,17 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
   if (!baseline && !forecast24h) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card/60 p-3 space-y-3">
-      <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center justify-between gap-2">
-        <span>PREDICTIVE OUTLOOK</span>
-        {forecast24h?.horizon && (
-          <span className="text-[9px] text-muted-foreground">Next {forecast24h.horizon}</span>
-        )}
-      </h3>
-
+    <IntelPanel
+      title="PREDICTIVE OUTLOOK"
+      headerRight={forecast24h?.horizon ? <span className="text-[11px] text-muted-foreground">Next {forecast24h.horizon}</span> : undefined}
+    >
       {baseline && (
         <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+            <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
               Baseline (Null hypothesis)
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${levelBadgeClass(baseline.level)}`}>
+            <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${levelBadgeClass(baseline.level)}`}>
               {baseline.level}
             </span>
           </div>
@@ -72,10 +69,10 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
       {forecast24h && (
         <div className="rounded-md border border-border/60 bg-background/70 px-3 py-2 space-y-1">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+            <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
               Escalation – {forecast24h.horizon}
             </span>
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${levelBadgeClass(forecast24h.level)}`}>
+            <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${levelBadgeClass(forecast24h.level)}`}>
               {forecast24h.level}
             </span>
           </div>
@@ -94,7 +91,7 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
           {forecast24h.drivers && forecast24h.drivers.length > 0 && (
             <ul className="mt-1 space-y-0.5">
               {forecast24h.drivers.slice(0, 3).map((d, i) => (
-                <li key={i} className="text-[10px] text-muted-foreground flex gap-1.5">
+                <li key={i} className="text-[11px] text-muted-foreground flex gap-1.5">
                   <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
                   <span>{d}</span>
                 </li>
@@ -104,10 +101,10 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
         </div>
       )}
 
-      <p className="text-[9px] text-muted-foreground">
+      <p className="text-[11px] text-muted-foreground">
         Levels and bands are coarse; they aggregate existing agent scores relative to a historical baseline, not precise probabilities.
       </p>
-    </div>
+    </IntelPanel>
   );
 }
 

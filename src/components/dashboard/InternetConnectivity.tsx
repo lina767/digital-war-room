@@ -1,3 +1,5 @@
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
+
 const countries = [
   { name: "Iran", status: "DEGRADED", ok: false },
   { name: "Israel", status: "NORMAL", ok: true },
@@ -6,8 +8,7 @@ const countries = [
 
 export function InternetConnectivity() {
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-      <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider">INTERNET CONNECTIVITY</h3>
+    <IntelPanel title="INTERNET CONNECTIVITY">
       <div className="space-y-1.5">
         {countries.map((c) => (
           <div key={c.name} className="flex items-center justify-between text-xs font-mono">
@@ -19,7 +20,7 @@ export function InternetConnectivity() {
           </div>
         ))}
       </div>
-      <p className="text-[9px] text-muted-foreground">Source: NetBlocks / IODA</p>
-    </div>
+      <p className="text-[11px] text-muted-foreground">Source: NetBlocks / IODA</p>
+    </IntelPanel>
   );
 }

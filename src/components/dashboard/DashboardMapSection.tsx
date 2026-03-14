@@ -80,7 +80,7 @@ export function DashboardMapSection({
       {/* Bottom Escalation Timeline – touch-friendly padding on mobile */}
       <div className="flex-shrink-0 border-t border-border bg-background/95 backdrop-blur-sm p-3 sm:p-3 supports-[padding:env(safe-area-inset-bottom)]:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[10px] sm:text-xs text-muted-foreground shrink-0">[ Escalation Timeline ]</span>
+          <span className="font-mono text-[11px] sm:text-xs text-muted-foreground shrink-0">[ Escalation Timeline ]</span>
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             {["06:00", "08:00", "10:00", "12:00", "14:00"].map((t, i) => (
               <div key={t} className="flex flex-col items-center gap-1">
@@ -89,7 +89,7 @@ export function DashboardMapSection({
                     i === 4 ? "bg-threat" : i >= 2 ? "bg-warning" : "bg-primary"
                   }`}
                 />
-                <span className="font-mono text-[10px] sm:text-[10px] text-muted-foreground whitespace-nowrap">{t}</span>
+                <span className="font-mono text-[11px] sm:text-[11px] text-muted-foreground whitespace-nowrap">{t}</span>
               </div>
             ))}
           </div>

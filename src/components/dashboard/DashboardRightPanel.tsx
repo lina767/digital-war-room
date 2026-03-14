@@ -15,6 +15,7 @@ import { WorldMap } from "@/components/dashboard/WorldMap";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Target, X, Globe } from "lucide-react";
+import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 
 interface DashboardRightPanelProps {
   rightPanelOpen: boolean;
@@ -45,7 +46,7 @@ export function DashboardRightPanel({
       className={`
           ${rightPanelOpen ? "translate-x-0" : "translate-x-full"}
           md:translate-x-0
-          w-[min(18rem,90vw)] sm:w-72 md:min-w-[380px] md:flex-[1_1_40%] md:min-w-0 border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto bg-background
+          w-[min(18rem,90vw)] sm:w-72 md:min-w-[380px] md:flex-[1_1_40%] md:min-w-0 border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto overscroll-contain bg-background
           absolute md:relative inset-y-0 right-0 z-20
           transition-transform duration-300 ease-in-out
         `}
@@ -66,7 +67,7 @@ export function DashboardRightPanel({
       <div className="mb-4 rounded-lg border border-border overflow-hidden bg-card/30">
         <div className="px-2 py-1.5 border-b border-border flex items-center gap-1.5">
           <Globe className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="font-mono text-[10px] text-muted-foreground tracking-wider">WORLD OVERVIEW</span>
+          <span className="font-mono text-[11px] text-muted-foreground tracking-wider">WORLD OVERVIEW</span>
         </div>
         <div className="h-40 sm:h-44 relative">
           <WorldMap activeConflict={activeConflict} />
@@ -74,22 +75,33 @@ export function DashboardRightPanel({
       </div>
 
       <div className="space-y-4">
-        <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
-        <PredictivePanel data={conflictData} />
-        <CompliancePanel data={conflictData} />
-        <ChokePointPanel data={conflictData} />
-        <GlobalImpactPanel data={conflictData} />
-        <LatestHeadlines data={conflictData} maxItems={15} />
-        <EventsTimeline data={conflictData} />
+        {analysisLoading && !conflictData ? (
+          <>
+            <IntelPanelSkeleton lines={4} />
+            <IntelPanelSkeleton lines={3} />
+            <IntelPanelSkeleton lines={3} />
+            <IntelPanelSkeleton lines={2} />
+          </>
+        ) : (
+          <>
+            <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+            <PredictivePanel data={conflictData} />
+            <CompliancePanel data={conflictData} />
+            <ChokePointPanel data={conflictData} />
+            <GlobalImpactPanel data={conflictData} />
+            <LatestHeadlines data={conflictData} maxItems={15} />
+            <EventsTimeline data={conflictData} />
+          </>
+        )}
       </div>
 
       {/* Proximity Analyzer: strike–civilian correlation (runs automatically with main analysis) */}
       <div className="pt-4 border-t border-border">
-        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5 mb-2">
+        <h3 className="font-mono text-[11px] text-muted-foreground tracking-wider flex items-center gap-1.5 mb-2">
           <Target className="h-3.5 w-3.5" />
           PROXIMITY ANALYZER
         </h3>
-        <div className="space-y-2 max-h-64 overflow-y-auto">
+        <div className="space-y-2 max-h-64 overflow-y-auto overscroll-contain">
           {analysisLoading && proximityEvidence.length === 0 && (
             <p className="text-xs text-muted-foreground py-2 italic">Running with analysis…</p>
           )}
@@ -106,7 +118,7 @@ export function DashboardRightPanel({
 
       {/* Activity & Connectivity (Iran Monitor style) */}
       <div className="mt-4 pt-4 border-t border-border">
-        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider mb-3">ACTIVITY & CONNECTIVITY</h3>
+        <h3 className="font-mono text-[11px] text-muted-foreground tracking-wider mb-3">ACTIVITY & CONNECTIVITY</h3>
         <div className="space-y-3">
           <GreyNoisePanel conflict={activeConflict || "Iran"} />
           <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
@@ -116,7 +128,7 @@ export function DashboardRightPanel({
         </div>
       </div>
 
-      <p className="mt-4 pt-3 border-t border-border text-[10px] text-muted-foreground">
+      <p className="mt-4 pt-3 border-t border-border text-[11px] text-muted-foreground">
         Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise · FAO · EIA · AIS
       </p>
     </aside>

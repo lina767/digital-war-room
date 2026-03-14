@@ -1,5 +1,6 @@
 import { Plane, Ship, ChevronDown, ChevronRight, Radar, AlertTriangle, Shield } from "lucide-react";
 import { useState } from "react";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 
 interface Aircraft {
   flight?: string;
@@ -109,24 +110,22 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
   );
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5">
-          <Radar className="h-3 w-3" />
-          SIGINT TRACKER
-        </h3>
-        {typeof sigint?.sigint_score === "number" && (
-          <span className="font-mono text-[10px] text-muted-foreground">
+    <IntelPanel
+      title="SIGINT TRACKER"
+      icon={<Radar className="h-3.5 w-3.5 text-muted-foreground" />}
+      headerRight={
+        typeof sigint?.sigint_score === "number" ? (
+          <span className="font-mono text-[11px] text-muted-foreground">
             Score {sigint.sigint_score.toFixed(0)}
           </span>
-        )}
-      </div>
-
+        ) : undefined
+      }
+    >
       {/* High-priority banner: doomsday planes */}
       {hasDoomsday && (
         <div className="flex items-center gap-2 px-2 py-1.5 rounded border bg-red-500/10 border-red-500/30 animate-pulse">
           <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-          <span className="text-[10px] font-bold text-red-400">
+          <span className="text-[11px] font-bold text-red-400">
             DOOMSDAY / NUCLEAR C3 AIRCRAFT DETECTED — {byCategory["doomsday"]!.map((a) => a.flight || "?").join(", ")}
           </span>
         </div>
@@ -136,14 +135,14 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
       {hasIranianGov && (
         <div className="flex items-center gap-2 px-2 py-1.5 rounded border bg-orange-400/10 border-orange-400/30">
           <Shield className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-          <span className="text-[10px] font-bold text-orange-300">
+          <span className="text-[11px] font-bold text-orange-300">
             IRANIAN GOV / IRGC AIRCRAFT — {byCategory["iranian_gov"]!.map((a) => a.flight || "?").join(", ")}
           </span>
         </div>
       )}
 
       {noData && (
-        <p className="text-[10px] text-muted-foreground italic">No SIGINT data in current window.</p>
+        <p className="text-[11px] text-muted-foreground italic">No SIGINT data in current window.</p>
       )}
 
       {/* Aircraft summary */}
@@ -152,12 +151,12 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
           <button
             type="button"
             onClick={() => setShowAircraft(!showAircraft)}
-            className="flex items-center gap-1.5 w-full text-left"
+            className="flex items-center gap-1.5 w-full text-left rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
           >
             {showAircraft ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
             <Plane className="h-3.5 w-3.5 text-primary" />
             <span className="font-mono text-sm font-bold text-foreground">{acCount}</span>
-            <span className="text-[10px] text-muted-foreground">military aircraft</span>
+            <span className="text-[11px] text-muted-foreground">military aircraft</span>
           </button>
 
           {/* Category breakdown (always visible, sorted by priority) */}
@@ -165,7 +164,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
             {sortedCategories.map(([cat, items]) => (
               <span
                 key={cat}
-                className={`text-[10px] ${CATEGORY_BG[cat] ? `px-1 rounded border ${CATEGORY_BG[cat]}` : ""}`}
+                className={`text-[11px] ${CATEGORY_BG[cat] ? `px-1 rounded border ${CATEGORY_BG[cat]}` : ""}`}
               >
                 <span className={CATEGORY_COLORS[cat] || "text-muted-foreground"}>{items.length}</span>
                 <span className="text-muted-foreground ml-0.5">{CATEGORY_LABELS[cat] || cat}</span>
@@ -182,7 +181,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
                 .map((ac, i) => (
                   <div
                     key={`${ac.flight}-${i}`}
-                    className={`flex items-center justify-between gap-2 text-[10px] ${
+                    className={`flex items-center justify-between gap-2 text-[11px] ${
                       ac.category === "doomsday" ? "bg-red-500/5 rounded px-1" :
                       ac.category === "iranian_gov" ? "bg-orange-400/5 rounded px-1" : ""
                     }`}
@@ -201,7 +200,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
                   </div>
                 ))}
               {acCount > 30 && (
-                <p className="text-[9px] text-muted-foreground">+{acCount - 30} more</p>
+                <p className="text-[11px] text-muted-foreground">+{acCount - 30} more</p>
               )}
             </div>
           )}
@@ -214,12 +213,12 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
           <button
             type="button"
             onClick={() => setShowTargets(!showTargets)}
-            className="flex items-center gap-1.5 w-full text-left"
+            className="flex items-center gap-1.5 w-full text-left rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
           >
             {showTargets ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
             <Shield className="h-3.5 w-3.5 text-amber-400" />
             <span className="font-mono text-sm font-bold text-foreground">{targetEntries.length}</span>
-            <span className="text-[10px] text-muted-foreground">tracked targets</span>
+            <span className="text-[11px] text-muted-foreground">tracked targets</span>
           </button>
           {showTargets && (
             <div className="pl-5 space-y-1 max-h-36 overflow-y-auto">
@@ -227,7 +226,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
                 const d = data as Record<string, unknown>;
                 const found = !!(d?.adsbx || d?.adsbexchange_rapidapi || d?.opensky || d?.fallback_sigint);
                 return (
-                  <div key={name} className="flex items-center justify-between text-[10px]">
+                  <div key={name} className="flex items-center justify-between text-[11px]">
                     <span className="font-mono text-foreground/90">{name}</span>
                     <span className={found ? "text-green-400" : "text-muted-foreground"}>
                       {found ? "ACTIVE" : "no signal"}
@@ -246,19 +245,19 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
           <button
             type="button"
             onClick={() => setShowShips(!showShips)}
-            className="flex items-center gap-1.5 w-full text-left"
+            className="flex items-center gap-1.5 w-full text-left rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
           >
             {showShips ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
             <Ship className="h-3.5 w-3.5 text-blue-400" />
             <span className="font-mono text-sm font-bold text-foreground">{shipCount}</span>
-            <span className="text-[10px] text-muted-foreground">warships tracked</span>
+            <span className="text-[11px] text-muted-foreground">warships tracked</span>
           </button>
 
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 pl-5">
             {Object.entries(byRegion)
               .sort(([, a], [, b]) => b.length - a.length)
               .map(([region, items]) => (
-                <span key={region} className="text-[10px]">
+                <span key={region} className="text-[11px]">
                   <span className="text-blue-400">{items.length}</span>
                   <span className="text-muted-foreground ml-0.5">{region}</span>
                 </span>
@@ -268,7 +267,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
           {showShips && (
             <div className="pl-5 space-y-0.5 max-h-36 overflow-y-auto">
               {ships.slice(0, 20).map((s, i) => (
-                <div key={`${s.name}-${i}`} className="flex items-center justify-between gap-2 text-[10px]">
+                <div key={`${s.name}-${i}`} className="flex items-center justify-between gap-2 text-[11px]">
                   <span className="font-mono text-foreground/90 truncate">
                     {s.name || "—"}
                   </span>
@@ -278,7 +277,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
                 </div>
               ))}
               {shipCount > 20 && (
-                <p className="text-[9px] text-muted-foreground">+{shipCount - 20} more</p>
+                <p className="text-[11px] text-muted-foreground">+{shipCount - 20} more</p>
               )}
             </div>
           )}
@@ -289,7 +288,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
       {alerts.length > 0 && (
         <div className="space-y-0.5 pt-1 border-t border-border/40">
           {alerts.slice(0, 5).map((alert, i) => (
-            <p key={i} className={`text-[10px] ${
+            <p key={i} className={`text-[11px] ${
               alert.includes("DOOMSDAY") || alert.includes("⚠") ? "text-red-400 font-medium" :
               alert.includes("🇮🇷") || alert.includes("Iranian") ? "text-orange-400 font-medium" :
               "text-muted-foreground"
@@ -301,10 +300,10 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
       )}
 
       <div className="flex items-center justify-between pt-1 border-t border-border/40">
-        <span className="text-[9px] text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           ADS-B (opendata.adsb.fi, ADSBexchange) · AIS (VesselFinder, Spire)
         </span>
       </div>
-    </div>
+    </IntelPanel>
   );
 }

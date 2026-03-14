@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
+import { ContentPageLayout } from "@/components/ContentPageLayout";
 
 const CONTACT = {
   name: "Lina Braun",
@@ -13,60 +13,41 @@ const Privacy = () => {
   const [lang, setLang] = useState<"de" | "en">("de");
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
-        <div className="mb-6 sm:mb-8 flex items-center justify-between gap-3 flex-wrap">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
+    <ContentPageLayout
+      label={lang === "de" ? "RECHTLICHES" : "LEGAL"}
+      title={lang === "de" ? "Datenschutzerklärung" : "Privacy Policy"}
+      icon={<Shield className="h-5 w-5 text-muted-foreground" />}
+      maxWidth="3xl"
+    >
+      <div className="mb-6 flex items-center justify-end gap-2">
+        <span className="text-xs text-muted-foreground font-mono hidden sm:inline">Language:</span>
+        <div className="flex rounded-md border border-border overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setLang("de")}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors touch-manipulation ${
+              lang === "de"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }`}
           >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Back to dashboard</span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground font-mono hidden sm:inline">Language:</span>
-            <div className="flex rounded-md border border-border overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setLang("de")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors touch-manipulation ${
-                  lang === "de"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                }`}
-              >
-                Deutsch
-              </button>
-              <button
-                type="button"
-                onClick={() => setLang("en")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors touch-manipulation ${
-                  lang === "en"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                }`}
-              >
-                English
-              </button>
-            </div>
-          </div>
+            Deutsch
+          </button>
+          <button
+            type="button"
+            onClick={() => setLang("en")}
+            className={`px-3 py-1.5 text-xs font-medium transition-colors touch-manipulation ${
+              lang === "en"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }`}
+          >
+            English
+          </button>
         </div>
+      </div>
 
-        <header className="mb-8 sm:mb-10 flex items-center gap-3">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border">
-            <Shield className="h-5 w-5 text-muted-foreground" />
-          </span>
-          <div>
-            <p className="font-mono text-[11px] sm:text-xs tracking-[0.28em] text-muted-foreground uppercase mb-1">
-              {lang === "de" ? "RECHTLICHES" : "LEGAL"}
-            </p>
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-              {lang === "de" ? "Datenschutzerklärung" : "Privacy Policy"}
-            </h1>
-          </div>
-        </header>
-
-        <main className="space-y-8 text-sm sm:text-[15px] text-muted-foreground leading-relaxed">
+      <div className="space-y-8 text-sm sm:text-[15px] text-muted-foreground leading-relaxed">
           {lang === "de" ? (
             <>
               <section>
@@ -220,9 +201,8 @@ const Privacy = () => {
               </section>
             </>
           )}
-        </main>
       </div>
-    </div>
+    </ContentPageLayout>
   );
 };
 

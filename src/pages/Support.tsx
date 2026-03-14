@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Heart } from "lucide-react";
+import { Heart } from "lucide-react";
+import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { getApiBase } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
@@ -38,52 +38,28 @@ const Support = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
-        <div className="mb-6 flex items-center justify-between gap-3">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Back to dashboard</span>
-          </Link>
-        </div>
-
-        <header className="mb-6 sm:mb-8">
-          <p className="font-mono text-[11px] sm:text-xs tracking-[0.28em] text-muted-foreground uppercase mb-2">
-            SUPPORT
+    <ContentPageLayout
+      label="SUPPORT"
+      title="Support the Mission"
+      icon={<Heart className="h-5 w-5 text-primary" />}
+      description="This project is intentionally free and open: no paywall, no partisan framing, no sensationalism — just structured insights that anyone can use. To keep the Digital War Room online and up to date, I need help covering the basic operating costs (API usage, including the Claude API: Haiku and Sonnet). One-time donation via Stripe. You will be redirected to Stripe's secure checkout page."
+      maxWidth="2xl"
+    >
+      <div className="rounded-lg border border-border bg-card/40 p-6 sm:p-8">
+        {error && (
+          <p className="text-sm text-destructive mb-4" role="alert">
+            {error}
           </p>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Heart className="h-5 w-5 text-primary" aria-hidden />
-            Support the Mission
-          </h1>
-          <p className="text-sm text-muted-foreground mt-3 max-w-xl">
-            This project is intentionally free and open: no paywall, no partisan framing, no sensationalism — just
-            structured insights that anyone can use. To keep the Digital War Room online and up to date, I need help
-            covering the basic operating costs (API usage, including the Claude API: Haiku and Sonnet).
-          </p>
-          <p className="text-sm text-muted-foreground mt-2">
-            One-time donation via Stripe. You will be redirected to Stripe’s secure checkout page.
-          </p>
-        </header>
-
-        <div className="rounded-lg border border-border bg-card/40 p-6 sm:p-8">
-          {error && (
-            <p className="text-sm text-destructive mb-4" role="alert">
-              {error}
-            </p>
-          )}
-          <Button
-            onClick={handleCheckout}
-            disabled={loading}
-            className="w-full sm:w-auto"
-          >
-            {loading ? "Redirecting…" : "Support the Mission"}
-          </Button>
-        </div>
+        )}
+        <Button
+          onClick={handleCheckout}
+          disabled={loading}
+          className="w-full sm:w-auto"
+        >
+          {loading ? "Redirecting…" : "Support the Mission"}
+        </Button>
       </div>
-    </div>
+    </ContentPageLayout>
   );
 };
 

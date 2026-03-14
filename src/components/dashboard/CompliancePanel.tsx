@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, ExternalLink } from "lucide-react";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { getApiBase } from "@/lib/api";
 import type { ConflictData, GeofencingAlert, AISAnomaly, ComplianceRiskScore } from "@/hooks/useConflictWebSocket";
 
@@ -48,7 +49,7 @@ function ZoneTypeBadge({ type }: { type: string }) {
         ? "bg-orange-500/80 text-black"
         : "bg-yellow-400/60 text-black";
   return (
-    <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono uppercase ${cls}`}>
+    <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono uppercase ${cls}`}>
       {type}
     </span>
   );
@@ -75,7 +76,7 @@ function CollapsibleSection({
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground w-full"
+        className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground w-full"
       >
         {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         {icon}
@@ -92,32 +93,32 @@ function RiskScoreDisplay({ riskScore }: { riskScore: ComplianceRiskScore }) {
   return (
     <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 space-y-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+        <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
           Compliance Risk
         </span>
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${RISK_LEVEL_STYLES[riskScore.level] ?? "bg-muted text-muted-foreground"}`}>
+        <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${RISK_LEVEL_STYLES[riskScore.level] ?? "bg-muted text-muted-foreground"}`}>
           {riskScore.level}
         </span>
       </div>
       <div className="flex items-baseline gap-2">
         <span className="font-mono text-lg font-bold text-primary">{riskScore.numeric_score}</span>
-        <span className="text-[10px] text-muted-foreground">/100 · Band: {bandText}</span>
+        <span className="text-[11px] text-muted-foreground">/100 · Band: {bandText}</span>
       </div>
       {riskScore.drivers.length > 0 && (
         <ul className="space-y-1">
           {riskScore.drivers.slice(0, 6).map((d, i) => (
-            <li key={i} className="text-[10px] text-muted-foreground">
+            <li key={i} className="text-[11px] text-muted-foreground">
               <div className="flex gap-1.5">
                 <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
                 <div>
                   <span className="font-mono text-foreground/80">{d.factor}</span>: {d.detail}
                   {d.programs && (
-                    <span className="ml-1 text-[9px] text-muted-foreground/70">
+                    <span className="ml-1 text-[11px] text-muted-foreground/70">
                       [{d.programs}]
                     </span>
                   )}
                   {d.note && (
-                    <p className="text-[9px] text-muted-foreground/60 mt-0.5 leading-tight">
+                    <p className="text-[11px] text-muted-foreground/60 mt-0.5 leading-tight">
                       {d.note}
                     </p>
                   )}
@@ -144,17 +145,17 @@ function AISAnomaliesSection({ anomalies }: { anomalies: AISAnomaly[] }) {
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] font-semibold truncate">{a.asset_name}</span>
             <div className="flex items-center gap-1">
-              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${a.anomaly_type === "spoofing" ? "bg-red-500/80 text-white" : "bg-purple-500/80 text-white"}`}>
+              <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${a.anomaly_type === "spoofing" ? "bg-red-500/80 text-white" : "bg-purple-500/80 text-white"}`}>
                 {a.anomaly_type === "spoofing" ? "SPOOF" : "DARK"}
               </span>
-              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${a.severity === "HIGH" ? "bg-orange-500/80 text-black" : "bg-yellow-400/60 text-black"}`}>
+              <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${a.severity === "HIGH" ? "bg-orange-500/80 text-black" : "bg-yellow-400/60 text-black"}`}>
                 {a.severity}
               </span>
             </div>
           </div>
-          <p className="text-[10px] text-muted-foreground mt-1 leading-snug">{a.detail}</p>
+          <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{a.detail}</p>
           {a.zone_name && (
-            <p className="text-[9px] text-muted-foreground mt-0.5">
+            <p className="text-[11px] text-muted-foreground mt-0.5">
               Zone: <span className="font-mono">{a.zone_name.replace(/_/g, " ")}</span>
             </p>
           )}
@@ -178,7 +179,7 @@ function GeofencingAlerts({ alerts }: { alerts: GeofencingAlert[] }) {
             <span className="text-[11px] font-semibold truncate">{a.asset_name}</span>
             <ZoneTypeBadge type={a.zone_type} />
           </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground mt-1">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-1">
             <span>Zone</span>
             <span className="text-right font-mono">{a.zone_name.replace(/_/g, " ")}</span>
             <span>Type</span>
@@ -245,7 +246,7 @@ function SanctionsSearch() {
         </button>
       </form>
 
-      {error && <p className="text-[10px] text-destructive">{error}</p>}
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
 
       {results && (
         <div className="space-y-1.5">
@@ -258,11 +259,11 @@ function SanctionsSearch() {
             <div key={`${m.entity_name}-${i}`} className="rounded border border-border bg-background/50 px-2.5 py-1.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-semibold truncate">{m.entity_name}</span>
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${MATCH_LEVEL_STYLES[m.match_level] ?? "bg-muted text-muted-foreground"}`}>
+                <span className={`px-1.5 py-0.5 rounded text-[11px] font-mono ${MATCH_LEVEL_STYLES[m.match_level] ?? "bg-muted text-muted-foreground"}`}>
                   {m.match_level}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground mt-1">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-1">
                 <span>Matched name</span>
                 <span className="text-right truncate">{m.matched_name}</span>
                 <span>Score</span>
@@ -276,9 +277,9 @@ function SanctionsSearch() {
               </div>
               {m.ownership_chain && m.ownership_chain.length > 0 && (
                 <div className="mt-1 pt-1 border-t border-border/50">
-                  <span className="text-[9px] text-muted-foreground font-mono">50%-Rule chain:</span>
+                  <span className="text-[11px] text-muted-foreground font-mono">50%-Rule chain:</span>
                   {m.ownership_chain.map((c, j) => (
-                    <p key={j} className="text-[10px] text-muted-foreground ml-2">
+                    <p key={j} className="text-[11px] text-muted-foreground ml-2">
                       {c.entity} → {c.parent}
                       {c.ownership_pct != null && ` (${c.ownership_pct}%)`}
                     </p>
@@ -308,39 +309,39 @@ function OFACEUSummary({ compliance }: { compliance: NonNullable<ConflictData["c
 
   return (
     <div className="rounded-md border border-border/60 bg-background/50 px-3 py-2 space-y-1">
-      <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+      <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
         Sanctions Lists (DIPLO Agent)
       </span>
       <div className="space-y-0.5">
         {ofacTotal > 0 && (
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[10px] text-muted-foreground">OFAC SDN entries</span>
+            <span className="text-[11px] text-muted-foreground">OFAC SDN entries</span>
             <span className="font-mono text-xs font-semibold text-foreground">{ofacTotal}</span>
           </div>
         )}
         {ofacError && ofacTotal === 0 && (
-          <p className="text-[9px] text-orange-400">OFAC SDN fetch failed (large CSV download). Regime-level scoring still active.</p>
+          <p className="text-[11px] text-orange-400">OFAC SDN fetch failed (large CSV download). Regime-level scoring still active.</p>
         )}
         {euMentions > 0 && (
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-[10px] text-muted-foreground">EU sanctions mentions</span>
+            <span className="text-[11px] text-muted-foreground">EU sanctions mentions</span>
             <span className="font-mono text-xs font-semibold text-foreground">{euMentions}</span>
           </div>
         )}
         {euError && euMentions === 0 && (
-          <p className="text-[9px] text-orange-400">EU sanctions fetch failed.</p>
+          <p className="text-[11px] text-orange-400">EU sanctions fetch failed.</p>
         )}
       </div>
       {ofacPrograms.length > 0 && (
         <div className="mt-0.5">
-          <span className="text-[9px] text-muted-foreground">Programs: </span>
-          <span className="text-[9px] text-muted-foreground/80">
+          <span className="text-[11px] text-muted-foreground">Programs: </span>
+          <span className="text-[11px] text-muted-foreground/80">
             {ofacPrograms.slice(0, 6).map(p => `${p.name} (${p.count})`).join(", ")}
           </span>
         </div>
       )}
       {(compliance.ofac_sdn?.sample?.length ?? 0) > 0 && (
-        <p className="text-[9px] text-muted-foreground leading-snug">
+        <p className="text-[11px] text-muted-foreground leading-snug">
           Sample: {compliance.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).filter(Boolean).join(" · ")}
         </p>
       )}
@@ -357,12 +358,10 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
   const hasRealtimeSignals = alerts.length > 0 || anomalies.length > 0;
 
   return (
-    <div className="rounded-lg border border-border bg-card/60 p-3 space-y-3">
-      <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5">
-        <Shield className="h-3.5 w-3.5" />
-        SANCTIONS COMPLIANCE
-      </h3>
-
+    <IntelPanel
+      title="SANCTIONS COMPLIANCE"
+      icon={<Shield className="h-3.5 w-3.5 text-muted-foreground" />}
+    >
       {riskScore && <RiskScoreDisplay riskScore={riskScore} />}
 
       {compliance && <OFACEUSummary compliance={compliance} />}
@@ -374,14 +373,14 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
       <AISAnomaliesSection anomalies={anomalies} />
 
       {!hasRealtimeSignals && (
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground">
           No geofencing or AIS anomaly alerts in current SIGINT window.
         </p>
       )}
 
       {(compliance?.ofac_recent_actions?.length ?? 0) > 0 && (
         <div className="border-t border-border/50 pt-2 space-y-1.5">
-          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+          <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
             Recent OFAC / Treasury Actions
           </span>
           {compliance!.ofac_recent_actions!.filter(a => a.url).slice(0, 3).map((action, i) => (
@@ -390,18 +389,18 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
               href={action.url!}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-start gap-1.5 text-[10px] text-muted-foreground hover:text-foreground group"
+              className="flex items-start gap-1.5 text-[11px] text-muted-foreground hover:text-foreground group"
             >
               <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0 group-hover:text-primary" />
               <span>
                 <span className="font-semibold">{action.title}</span>
                 {action.published && (
-                  <span className="text-[9px] text-muted-foreground/60 ml-1">({action.published})</span>
+                  <span className="text-[11px] text-muted-foreground/60 ml-1">({action.published})</span>
                 )}
                 {action.summary && (
                   <>
                     <br />
-                    <span className="text-[9px]">{action.summary}</span>
+                    <span className="text-[11px]">{action.summary}</span>
                   </>
                 )}
               </span>
@@ -410,9 +409,9 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
         </div>
       )}
 
-      <p className="text-[9px] text-muted-foreground border-t border-border/50 pt-2">
+      <p className="text-[11px] text-muted-foreground border-t border-border/50 pt-2">
         {compliance?.disclaimer ?? FALLBACK_DISCLAIMER}
       </p>
-    </div>
+    </IntelPanel>
   );
 }

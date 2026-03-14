@@ -20,7 +20,7 @@ export function DashboardLeftPanel({
       className={`
           ${leftPanelOpen ? "translate-x-0" : "-translate-x-full"}
           lg:translate-x-0
-          w-[min(14rem,85vw)] sm:w-56 border-r border-border flex-shrink-0 p-4 overflow-y-auto bg-background
+          w-[min(14rem,85vw)] sm:w-56 border-r border-border flex-shrink-0 p-4 overflow-y-auto overscroll-contain bg-background
           absolute lg:relative inset-y-0 left-0 z-20
           transition-transform duration-300 ease-in-out
         `}
@@ -47,7 +47,7 @@ export function DashboardLeftPanel({
               <span className="h-2 w-2 rounded-full flex-shrink-0 bg-primary animate-pulse-dot" />
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-xs font-medium">{agent.name}</div>
-                <div className="text-[10px] text-muted-foreground">{agent.fullName}</div>
+                <div className="text-[11px] text-muted-foreground">{agent.fullName}</div>
               </div>
               <ChevronRight
                 className={`h-3 w-3 flex-shrink-0 text-muted-foreground transition-transform ${
@@ -57,12 +57,12 @@ export function DashboardLeftPanel({
             </button>
             {agentExpanded === agent.name && (
               <div className="border-t border-border/60 px-2 py-2 space-y-1.5 bg-background/50">
-                <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Data sources</div>
+                <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Data sources</div>
                 {agent.sources.map((src, i) => (
                   <div key={i} className="text-xs">
                     <span className="font-medium text-foreground">{src.name}</span>
                     {src.description && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-tight">{src.description}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">{src.description}</p>
                     )}
                   </div>
                 ))}

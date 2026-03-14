@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IntelPanel, IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 import {
   Shield,
   ChevronDown,
@@ -79,7 +80,7 @@ function ScoreSparkline({ data }: { data: GreynoiseTrendPoint[] }) {
 function ThreatRow({ threat }: { threat: GreynoiseEmergingThreat }) {
   const cat = CATEGORY_LABELS[threat.category] || threat.category;
   return (
-    <div className="flex items-center justify-between gap-2 text-[10px]">
+    <div className="flex items-center justify-between gap-2 text-[11px]">
       <div className="flex items-center gap-1.5 truncate min-w-0">
         <span
           className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -95,7 +96,7 @@ function ThreatRow({ threat }: { threat: GreynoiseEmergingThreat }) {
       <div className="flex items-center gap-2 shrink-0">
         <span className="text-muted-foreground">{cat}</span>
         <span
-          className={`px-1 rounded text-[9px] border ${
+          className={`px-1 rounded text-[11px] border ${
             threat.direction === "inbound"
               ? "text-red-400 border-red-500/30 bg-red-500/10"
               : "text-blue-400 border-blue-500/30 bg-blue-500/10"
@@ -129,33 +130,14 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
   const [showThreats, setShowThreats] = useState(false);
 
   if (isLoading && !data) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-        <div className="flex items-center gap-1.5">
-          <Shield className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-[10px] text-muted-foreground tracking-wider">
-            EMERGING CYBER THREATS
-          </span>
-        </div>
-        <div className="space-y-1.5">
-          <div className="h-3 w-3/4 bg-muted/50 rounded animate-pulse" />
-          <div className="h-3 w-1/2 bg-muted/50 rounded animate-pulse" />
-        </div>
-      </div>
-    );
+    return <IntelPanelSkeleton lines={2} />;
   }
 
   if (error && !data) {
     return (
-      <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-        <div className="flex items-center gap-1.5">
-          <Shield className="h-3 w-3 text-muted-foreground" />
-          <span className="font-mono text-[10px] text-muted-foreground tracking-wider">
-            EMERGING CYBER THREATS
-          </span>
-        </div>
-        <p className="text-[10px] text-muted-foreground italic">{error}</p>
-      </div>
+      <IntelPanel title="EMERGING CYBER THREATS" icon={<Shield className="h-3 w-3 text-muted-foreground" />}>
+        <p className="text-[11px] text-muted-foreground italic">{error}</p>
+      </IntelPanel>
     );
   }
 
@@ -174,29 +156,26 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="font-mono text-[10px] text-muted-foreground tracking-wider flex items-center gap-1.5">
-          <Shield className="h-3 w-3" />
-          EMERGING CYBER THREATS
-        </h3>
+    <IntelPanel
+      title="EMERGING CYBER THREATS"
+      icon={<Shield className="h-3 w-3 text-muted-foreground" />}
+      headerRight={
         <div className="flex items-center gap-2">
           <ScoreSparkline data={trendData} />
           <div className="flex items-center gap-1">
             <TrendIcon trend={data.trend} />
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="font-mono text-[11px] text-muted-foreground">
               {data.greynoise_score.toFixed(0)}
             </span>
           </div>
         </div>
-      </div>
-
+      }
+    >
       {/* High-priority inbound banner */}
       {hasHighInbound && (
         <div className="flex items-center gap-2 px-2 py-1.5 rounded border bg-red-500/10 border-red-500/30">
           <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
-          <span className="text-[10px] font-bold text-red-400">
+          <span className="text-[11px] font-bold text-red-400">
             HIGH-PRIORITY INBOUND SCANS —{" "}
             {threats
               .filter((t) => t.direction === "inbound" && t.priority === "high")
@@ -209,13 +188,13 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
 
       {/* Summary */}
       {data.summary && (
-        <p className="text-[10px] text-muted-foreground leading-relaxed">
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
           {data.summary}
         </p>
       )}
 
       {/* Counts */}
-      <div className="flex items-center gap-4 text-[10px]">
+      <div className="flex items-center gap-4 text-[11px]">
         <span className="flex items-center gap-1">
           <Wifi className="h-3 w-3 text-blue-400" />
           <span className="font-mono font-bold text-foreground">
@@ -238,7 +217,7 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
           {Object.entries(byCategory)
             .sort(([, a], [, b]) => b - a)
             .map(([cat, count]) => (
-              <span key={cat} className="text-[10px]">
+              <span key={cat} className="text-[11px]">
                 <span className="text-primary">{count}</span>
                 <span className="text-muted-foreground ml-0.5">
                   {CATEGORY_LABELS[cat] || cat}
@@ -254,7 +233,7 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
           <button
             type="button"
             onClick={() => setShowThreats(!showThreats)}
-            className="flex items-center gap-1.5 w-full text-left"
+            className="flex items-center gap-1.5 w-full text-left rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
           >
             {showThreats ? (
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -264,11 +243,11 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
             <span className="font-mono text-sm font-bold text-foreground">
               {threats.length}
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               emerging threat{threats.length !== 1 ? "s" : ""}
             </span>
             {highThreats.length > 0 && (
-              <span className="text-[10px] text-red-400 font-medium">
+              <span className="text-[11px] text-red-400 font-medium">
                 ({highThreats.length} high)
               </span>
             )}
@@ -283,7 +262,7 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
                   <ThreatRow key={`${t.tag}-${t.direction}-${i}`} threat={t} />
                 ))}
               {threats.length > 25 && (
-                <p className="text-[9px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   +{threats.length - 25} more
                 </p>
               )}
@@ -298,7 +277,7 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
           {data.alerts.slice(0, 5).map((alert, i) => (
             <p
               key={i}
-              className={`text-[10px] ${
+              className={`text-[11px] ${
                 alert.includes("HIGH-PRIORITY") || alert.includes("Critical CVE")
                   ? "text-red-400 font-medium"
                   : alert.includes("ICS/SCADA")
@@ -314,10 +293,10 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
 
       {/* Footer */}
       <div className="flex items-center justify-between pt-1 border-t border-border/40">
-        <span className="text-[9px] text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           GreyNoise GNQL Stats · CVE Lookup · {data.fetched_at ? new Date(data.fetched_at).toLocaleTimeString() : ""}
         </span>
       </div>
-    </div>
+    </IntelPanel>
   );
 }

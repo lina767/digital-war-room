@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 
 type TimelineFilter = "all" | "conflict" | "diplomacy" | "economy" | "tech";
 
@@ -33,16 +34,16 @@ export function EventsTimeline({ data }: EventsTimelineProps) {
       : findings.filter((f) => categorizeFinding(f) === filter);
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between flex-wrap gap-2">
-        <h3 className="font-mono text-xs text-muted-foreground tracking-wider">EVENTS TIMELINE</h3>
+    <IntelPanel
+      title="EVENTS TIMELINE"
+      headerRight={
         <div className="flex flex-wrap gap-1">
           {(Object.keys(FILTER_LABELS) as TimelineFilter[]).map((key) => (
             <button
               key={key}
               type="button"
               onClick={() => setFilter(key)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
+              className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
                 filter === key
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted/50 text-muted-foreground hover:bg-muted"
@@ -52,7 +53,8 @@ export function EventsTimeline({ data }: EventsTimelineProps) {
             </button>
           ))}
         </div>
-      </div>
+      }
+    >
       <ul className="divide-y divide-border/60 max-h-48 overflow-y-auto px-3 py-2">
         {filtered.length === 0 && (
           <li className="py-3 text-xs text-muted-foreground italic">
@@ -66,6 +68,6 @@ export function EventsTimeline({ data }: EventsTimelineProps) {
           </li>
         ))}
       </ul>
-    </div>
+    </IntelPanel>
   );
 }

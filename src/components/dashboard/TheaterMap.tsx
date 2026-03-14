@@ -708,7 +708,7 @@ export function TheaterMap({
         <div className="absolute bottom-24 right-2 max-w-xs w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex flex-col">
-              <span className="font-mono text-[10px] text-muted-foreground tracking-wider uppercase">
+              <span className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase">
                 Escalation detail
               </span>
               <span className="text-xs font-semibold">
@@ -729,7 +729,7 @@ export function TheaterMap({
               {selectedEvent.label}
             </p>
           )}
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span>Source</span>
             <span className="text-right">
               {selectedEvent.source ?? "Mixed (FIRMS/ACLED/UCDP)"}
@@ -743,7 +743,7 @@ export function TheaterMap({
               {selectedEvent.lon.toFixed(1)}E · {selectedEvent.lat.toFixed(1)}N
             </span>
           </div>
-          <p className="text-[9px] text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             Unified escalation event from GEOINT/SIGINT feeds. Use key findings and news panel for full narrative.
           </p>
         </div>
@@ -754,7 +754,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("geoint")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
           <span style={{ color: layers.geoint ? "#ff4400" : undefined }}>△</span>
           GEOINT
@@ -762,7 +762,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("sigint")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
         >
           <span style={{ color: layers.sigint ? "#60a5fa" : undefined }}>✈</span>
           <span style={{ color: layers.sigint ? "#34d399" : undefined }}>⚓</span>
@@ -771,7 +771,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("heatmap")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Conflict intensity from ACLED"
         >
           <span
@@ -783,7 +783,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("samRings")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="SAM engagement zones"
         >
           <span
@@ -799,7 +799,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("airRoutes")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Main air corridors"
         >
           <span style={{ color: layers.airRoutes ? "hsl(210 80% 55%)" : undefined }}>✈</span>
@@ -808,7 +808,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("seaLanes")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Sea lanes"
         >
           <span style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
@@ -817,7 +817,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("chokepoints")}
-          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Chokepoint zones"
         >
           <span
@@ -835,7 +835,7 @@ export function TheaterMap({
             {eventLegendItems.map(({ key, label, fill }) => (
               <div key={key} className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: fill }} title={label} />
-                <span className="text-[10px] font-mono text-muted-foreground">{label}</span>
+                <span className="text-[11px] font-mono text-muted-foreground">{label}</span>
               </div>
             ))}
           </div>
@@ -846,7 +846,7 @@ export function TheaterMap({
       {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && (
         <div className="absolute top-2 left-2 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-          <span className="text-[10px] font-mono text-muted-foreground">
+          <span className="text-[11px] font-mono text-muted-foreground">
             {geointAnomalies.length > 0 && `${geointAnomalies.length} THERMAL`}
             {geointAnomalies.length > 0 && (sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
             {sigintAircraft.length > 0 && `${sigintAircraft.length} AC`}

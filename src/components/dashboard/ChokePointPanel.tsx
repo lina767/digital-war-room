@@ -1,4 +1,5 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { Anchor, Droplets, Wheat, AlertTriangle, Shield } from "lucide-react";
 
 interface ChokePointPanelProps {
@@ -47,7 +48,7 @@ function RiskGauge({ value }: { value: number }) {
         <span className={`text-2xl font-bold font-mono ${riskColor(value)}`}>
           {Math.round(value)}
         </span>
-        <span className="text-[9px] text-muted-foreground uppercase tracking-wider">risk</span>
+        <span className="text-[11px] text-muted-foreground uppercase tracking-wider">risk</span>
       </div>
     </div>
   );
@@ -86,21 +87,17 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
     : score;
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
-      {/* Header */}
-      <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center gap-1.5">
-        <Anchor className="h-3.5 w-3.5 text-muted-foreground" />
-        <h3 className="font-mono text-xs text-muted-foreground tracking-wider">CHOKEPOINT MONITOR</h3>
-      </div>
-
-      <div className="p-3 space-y-3">
+    <IntelPanel
+      title="CHOKEPOINT MONITOR"
+      icon={<Anchor className="h-3.5 w-3.5 text-muted-foreground" />}
+    >
         {/* Status badges row */}
         {chokepoints.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {chokepoints.map((cp) => (
               <div
                 key={cp.name}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border ${STATUS_COLORS[cp.status] || STATUS_COLORS.OPEN}`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${STATUS_COLORS[cp.status] || STATUS_COLORS.OPEN}`}
               >
                 <span>{cp.name.replace("Strait of ", "").replace(" Canal", "")}</span>
                 <span className="font-bold">{cp.status}</span>
@@ -121,7 +118,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
           <div className="space-y-2">
             <div className="flex items-center gap-1 mb-1">
               <Droplets className="h-3 w-3 text-blue-400" />
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Oil / Energy</span>
+              <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Oil / Energy</span>
             </div>
             {oilCommodities.map((c) => (
               <CommodityRow
@@ -134,7 +131,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
             {chokepoints.length > 0 && (
               <div className="pt-1 space-y-1">
                 {chokepoints.slice(0, 2).map((cp) => (
-                  <div key={cp.name} className="flex justify-between text-[10px]">
+                  <div key={cp.name} className="flex justify-between text-[11px]">
                     <span className="text-muted-foreground truncate">{cp.name.split(" ").pop()}</span>
                     <span className="font-mono text-foreground">~{cp.oil_flow_estimate_mbd} mbd</span>
                   </div>
@@ -147,7 +144,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
           <div className="space-y-2">
             <div className="flex items-center gap-1 mb-1">
               <Wheat className="h-3 w-3 text-amber-400" />
-              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Food / Grain</span>
+              <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Food / Grain</span>
             </div>
             {foodCommodities.map((c) => (
               <CommodityRow
@@ -158,7 +155,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
               />
             ))}
             {faoFpi?.index != null && (
-              <div className="flex justify-between text-[10px] pt-1">
+              <div className="flex justify-between text-[11px] pt-1">
                 <span className="text-muted-foreground">FAO FPI</span>
                 <span className="font-mono text-foreground">
                   {faoFpi.index.toFixed(1)}
@@ -171,7 +168,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
               </div>
             )}
             {foodRisk > 0 && (
-              <div className="flex justify-between text-[10px] pt-0.5">
+              <div className="flex justify-between text-[11px] pt-0.5">
                 <span className="text-muted-foreground">Food Risk</span>
                 <span className={`font-mono ${foodRisk >= 60 ? "text-red-400" : foodRisk >= 40 ? "text-amber-400" : "text-emerald-400"}`}>
                   {foodRisk.toFixed(0)}/100
@@ -183,7 +180,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
 
         {/* Footer: AIS anomalies + military vessels */}
         {chokepoints.length > 0 && (
-          <div className="flex items-center gap-3 pt-1 border-t border-border/50 text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-3 pt-1 border-t border-border/50 text-[11px] text-muted-foreground">
             {chokepoints.some((cp) => cp.ais_anomalies > 0) && (
               <div className="flex items-center gap-1">
                 <AlertTriangle className="h-2.5 w-2.5 text-amber-400" />
@@ -210,7 +207,6 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
             )}
           </div>
         )}
-      </div>
-    </div>
+    </IntelPanel>
   );
 }

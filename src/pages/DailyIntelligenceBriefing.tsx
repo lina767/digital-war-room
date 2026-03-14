@@ -201,7 +201,7 @@ export default function DailyIntelligenceBriefing() {
                   )}
                   {baselineForecast && (
                     <div>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
                         Baseline (null hypothesis)
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -223,7 +223,7 @@ export default function DailyIntelligenceBriefing() {
                   )}
                   {escalation24h && (
                     <div>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
                         Escalation – {escalation24h.horizon}
                       </p>
                       <p className="text-xs">
@@ -264,7 +264,7 @@ export default function DailyIntelligenceBriefing() {
                       )}
                     </div>
                   )}
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     Levels and bands are coarse indicators derived from existing agent scores and a conflict-specific baseline.
                     They are not precise probabilities.
                   </p>
@@ -346,7 +346,7 @@ export default function DailyIntelligenceBriefing() {
                   {(data.compliance?.risk_score?.drivers?.length ?? 0) > 0 &&
                     data.compliance!.risk_score!.drivers[0].factor !== "NO_SIGNALS" && (
                     <div>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
                         Risk Drivers
                       </p>
                       <ul className="space-y-1.5">
@@ -360,12 +360,12 @@ export default function DailyIntelligenceBriefing() {
                                 <span className="text-muted-foreground ml-1">({d.impact})</span>
                               </span>
                               {d.programs && (
-                                <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                                <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                                   Programs: {d.programs}
                                 </p>
                               )}
                               {d.note && (
-                                <p className="text-[10px] text-muted-foreground/60 mt-0.5 italic">
+                                <p className="text-[11px] text-muted-foreground/60 mt-0.5 italic">
                                   {d.note}
                                 </p>
                               )}
@@ -379,7 +379,7 @@ export default function DailyIntelligenceBriefing() {
                   {/* OFAC / EU Sanctions Data */}
                   {((data.compliance?.ofac_sdn?.total_matches ?? 0) > 0 || (data.compliance?.eu_sanctions?.keyword_mentions ?? 0) > 0) && (
                     <div>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
                         Sanctions Lists
                       </p>
                       <ul className="space-y-1 text-xs">
@@ -397,7 +397,7 @@ export default function DailyIntelligenceBriefing() {
                                 )}
                               </span>
                               {(data.compliance!.ofac_sdn!.programs?.length ?? 0) > 0 && (
-                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                <p className="text-[11px] text-muted-foreground mt-0.5">
                                   Programs: {data.compliance!.ofac_sdn!.programs!.slice(0, 6).map(p => `${p.name} (${p.count})`).join(", ")}
                                 </p>
                               )}
@@ -420,7 +420,7 @@ export default function DailyIntelligenceBriefing() {
                   {/* OFAC / Treasury Recent Actions */}
                   {(data.compliance?.ofac_recent_actions?.length ?? 0) > 0 && (
                     <div>
-                      <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
                         Recent OFAC / Treasury Actions
                       </p>
                       <ul className="space-y-1 text-xs">
@@ -484,7 +484,7 @@ export default function DailyIntelligenceBriefing() {
                     </>
                   )}
 
-                  <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
+                  <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/50">
                     Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.
                   </p>
                 </div>

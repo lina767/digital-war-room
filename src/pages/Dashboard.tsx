@@ -11,6 +11,17 @@ import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
 
+const THREAT_BADGE_STYLES: Record<string, string> = {
+  LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  ELEVATED: "bg-warning/20 text-warning border-warning/30",
+  HIGH: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  CRITICAL: "bg-destructive/20 text-destructive border-destructive/30 animate-pulse",
+};
+
+function getThreatBadgeClass(level: string | null | undefined): string {
+  return THREAT_BADGE_STYLES[level ?? "ELEVATED"] ?? THREAT_BADGE_STYLES.ELEVATED;
+}
+
 const Dashboard = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [conflictDropdownOpen, setConflictDropdownOpen] = useState(false);
@@ -79,7 +90,7 @@ const Dashboard = () => {
     <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
       {/* Live ticker – Iran Monitor style: BREAKING headlines from analysis when available */}
       <div className="flex items-center border-b border-border bg-card/50 min-h-9 sm:min-h-10">
-        <div className="flex-shrink-0 px-3 py-2 sm:py-1.5 bg-destructive/20 text-destructive font-mono text-[10px] sm:text-[10px] font-bold tracking-wider border-r border-border">
+        <div className="flex-shrink-0 px-3 py-2 sm:py-1.5 bg-destructive/20 text-destructive font-mono text-[11px] sm:text-[11px] font-bold tracking-wider border-r border-border">
           LIVE
         </div>
         <div className="flex-1 min-w-0 overflow-hidden">
@@ -143,12 +154,12 @@ const Dashboard = () => {
               </div>
             )}
           </div>
-          <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-[10px] sm:text-xs hidden sm:flex">
+          <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}
           </Badge>
           <div className="flex flex-col items-end gap-1">
             {analysisError && (
-              <p className={`text-[10px] max-w-[200px] sm:max-w-[320px] text-right truncate ${analysisError.includes("First analysis still running") ? "text-warning" : "text-destructive"}`} title={analysisError}>
+              <p className={`text-[11px] max-w-[200px] sm:max-w-[320px] text-right truncate ${analysisError.includes("First analysis still running") ? "text-warning" : "text-destructive"}`} title={analysisError}>
                 {analysisError}
               </p>
             )}
@@ -174,7 +185,7 @@ const Dashboard = () => {
         <div className="lg:hidden border-b border-border bg-card p-4 space-y-4 animate-fade-in-up">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground truncate">Digital War Room</span>
-            <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-[10px] sm:hidden">
+            <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:hidden`}>
               {conflictData?.threat_level ?? "ELEVATED"}
             </Badge>
           </div>
@@ -237,48 +248,48 @@ const Dashboard = () => {
       </div>
 
       {/* Footer: How it works, Support (prominent), Impressum & Privacy (subtle) */}
-      <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-4">
+      <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
           <Link
             to="/how-it-works"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             <BookOpen className="h-3.5 w-3.5" aria-hidden />
             <span>How it works</span>
           </Link>
           <Link
             to="/daily-briefing"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             <FileText className="h-3.5 w-3.5" aria-hidden />
             <span>Daily Briefing</span>
           </Link>
           <Link
             to="/sources"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             <Database className="h-3.5 w-3.5" aria-hidden />
             <span>Source Directory</span>
           </Link>
           <Link
             to="/support"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded touch-manipulation"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             <Heart className="h-3.5 w-3.5" aria-hidden />
             <span>Support the Mission</span>
           </Link>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-1.5 sm:mt-1">
           <Link
             to="/impressum"
-            className="hover:text-foreground/80 transition-colors touch-manipulation"
+            className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             Impressum
           </Link>
           <span className="text-border">·</span>
           <Link
             to="/privacy"
-            className="hover:text-foreground/80 transition-colors touch-manipulation"
+            className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             Privacy
           </Link>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Search, Database, Key, ExternalLink } from "lucide-react";
+import { Search, Database, Key, ExternalLink } from "lucide-react";
+import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -33,40 +33,14 @@ const SourceDirectory = () => {
   }, [search, agentFilter, reliabilityFilter]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
-        <div className="mb-6 sm:mb-8 flex items-center justify-between gap-3">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Back to dashboard</span>
-          </Link>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-mono">
-            <Database className="h-4 w-4" />
-            <span>Source Directory</span>
-          </div>
-        </div>
-
-        <header className="mb-8 sm:mb-10">
-          <p className="font-mono text-[11px] sm:text-xs tracking-[0.28em] text-muted-foreground uppercase mb-3">
-            TRANSPARENCY
-          </p>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight mb-3">
-            Source Directory
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground max-w-3xl">
-            A transparent, searchable directory of all data sources used by the platform, with reliability ratings.
-            Each source is linked to the intelligence agents that use it. Derived outputs (e.g. the{" "}
-            <strong className="text-foreground">Global Impact</strong> panel for Iran — oil moves, Strait of Hormuz /
-            chokepoint risk from ENERGY and key findings;{" "}
-            <strong className="text-foreground">Sanctions Compliance</strong> — risk score from OFAC/EU via DIPLO,
-            geofencing and AIS anomalies from SIGINT) are shown on the dashboard but do not appear as separate sources here.
-          </p>
-        </header>
-
-        {/* Search and filters */}
+    <ContentPageLayout
+      label="TRANSPARENCY"
+      title="Source Directory"
+      description="A transparent, searchable directory of all data sources used by the platform, with reliability ratings. Each source is linked to the intelligence agents that use it. Derived outputs (e.g. the Global Impact panel for Iran — oil moves, Strait of Hormuz / chokepoint risk from ENERGY and key findings; Sanctions Compliance — risk score from OFAC/EU via DIPLO, geofencing and AIS anomalies from SIGINT) are shown on the dashboard but do not appear as separate sources here."
+      icon={<Database className="h-5 w-5 text-muted-foreground" />}
+      maxWidth="5xl"
+    >
+      {/* Search and filters */}
         <div className="mb-8 space-y-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -136,8 +110,7 @@ const SourceDirectory = () => {
             No sources match your search. Try a different query or clear filters.
           </p>
         )}
-      </div>
-    </div>
+    </ContentPageLayout>
   );
 };
 
@@ -155,17 +128,17 @@ function SourceCard({ source }: { source: DataSourceEntry }) {
       <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
         <h2 className="text-base sm:text-lg font-semibold tracking-tight">{source.name}</h2>
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant="outline" className={`text-[10px] font-medium ${tierClass}`}>
+          <Badge variant="outline" className={`text-[11px] font-medium ${tierClass}`}>
             {getReliabilityLabel(source.reliability)}
           </Badge>
           {source.keyRequired && (
-            <Badge variant="secondary" className="text-[10px] gap-0.5">
+            <Badge variant="secondary" className="text-[11px] gap-0.5">
               <Key className="h-2.5 w-2.5" />
               Key required
             </Badge>
           )}
           {source.free && (
-            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+            <Badge variant="outline" className="text-[11px] text-muted-foreground">
               Free
             </Badge>
           )}
@@ -175,7 +148,7 @@ function SourceCard({ source }: { source: DataSourceEntry }) {
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11px] text-muted-foreground font-medium">Used by:</span>
         {source.agents.map((a) => (
-          <Badge key={a} variant="outline" className="text-[10px] font-mono">
+          <Badge key={a} variant="outline" className="text-[11px] font-mono">
             {a}
           </Badge>
         ))}

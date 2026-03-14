@@ -1,42 +1,16 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft, Info, Database } from "lucide-react";
+import { Database } from "lucide-react";
+import { ContentPageLayout } from "@/components/ContentPageLayout";
 
 const HowItWorks = () => {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
-        {/* Back link */}
-        <div className="mb-6 sm:mb-8 flex items-center justify-between gap-3">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors touch-manipulation"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Back to dashboard</span>
-          </Link>
-          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-mono">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border">
-              <Info className="h-3 w-3" />
-            </span>
-            <span>How Digital War Room works</span>
-          </div>
-        </div>
-
-        {/* Title */}
-        <header className="mb-8 sm:mb-10">
-          <p className="font-mono text-[11px] sm:text-xs tracking-[0.28em] text-muted-foreground uppercase mb-3">
-            DOCUMENTATION
-          </p>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight mb-3">
-            How the Digital War Room works
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground max-w-3xl">
-            The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals
-            from multiple intelligence streams, computes an escalation score, and surfaces a concise BLUF-style briefing.
-          </p>
-        </header>
-
-        <main className="space-y-10 sm:space-y-12">
+    <ContentPageLayout
+      label="DOCUMENTATION"
+      title="How the Digital War Room works"
+      description="The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals from multiple intelligence streams, computes an escalation score, and surfaces a concise BLUF-style briefing."
+      maxWidth="5xl"
+    >
+      <div className="space-y-10 sm:space-y-12">
           {/* Intelligence streams */}
           <section className="space-y-4">
             <h2 className="text-lg sm:text-xl font-semibold tracking-tight">Intelligence streams</h2>
@@ -261,9 +235,8 @@ const HowItWorks = () => {
               </div>
             </div>
           </section>
-        </main>
       </div>
-    </div>
+    </ContentPageLayout>
   );
 };
 
