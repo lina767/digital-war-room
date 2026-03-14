@@ -39,8 +39,27 @@ async def lifespan(app: FastAPI):
         consecutive_failures = 0
         while True:
             try:
+                # Reset Haiku per-run counters and warm up HF models
+                try:
+                    from services.haiku_service import reset_run_counters, log_run_stats
+                    reset_run_counters()
+                except Exception:
+                    pass
+                try:
+                    from services.hf_service import warmup
+                    await warmup()
+                except Exception:
+                    pass
+
                 result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
                 app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": time.time()}
+
+                # Log Haiku usage stats for this run
+                try:
+                    log_run_stats()
+                except Exception:
+                    pass
+
                 print(f"[periodic] Analysis for {AUTO_ANALYZE_CONFLICT} done.")
                 consecutive_failures = 0
                 await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)

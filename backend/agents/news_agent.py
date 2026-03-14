@@ -184,8 +184,9 @@ def _merge_news_results(
     newsapi_list: List[Dict[str, Any]],
     gdelt_list: List[Dict[str, Any]],
     rss_list: List[Dict[str, Any]],
+    conflict: str = "",
 ) -> Dict[str, Any]:
-    """Deduplicate by URL, compute weighted overall_sentiment, top 20 by sentiment_score, source_breakdown."""
+    """Deduplicate by URL, then semantically, rank by relevance, compute weighted overall_sentiment, source_breakdown."""
     seen: Dict[str, Dict[str, Any]] = {}
     for item in newsapi_list + gdelt_list + rss_list:
         if "error" in item or not item.get("url"):
@@ -197,7 +198,42 @@ def _merge_news_results(
             continue
         seen[norm] = {**item, "url": item.get("url")}
     articles = list(seen.values())
-    articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
+
+    # Semantic dedup + cross-encoder ranking (graceful: falls back to sentiment sort)
+    _hf_available = False
+    try:
+        from services.hf_service import deduplicate_items, rank_by_relevance, _get_ranking_query
+        _hf_available = True
+    except Exception:
+        pass
+
+    if _hf_available:
+        try:
+            articles = run_async(deduplicate_items(
+                articles, text_key="title", threshold=0.92,
+                source="news", conflict=conflict,
+            ))
+        except Exception as e:
+            logger.debug("HF semantic dedup failed: %s", e)
+
+    if _hf_available and conflict:
+        try:
+            query = _get_ranking_query(conflict)
+            texts = [
+                ((a.get("title") or "") + " " + (a.get("summary") or "")).strip()[:512]
+                for a in articles
+            ]
+            if texts:
+                ranked = run_async(rank_by_relevance(query, texts, top_k=20))
+                articles = [articles[i] for i, _ in ranked if i < len(articles)]
+        except Exception as e:
+            logger.debug("HF cross-encoder ranking failed: %s", e)
+            articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
+            articles = articles[:20]
+    else:
+        articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
+        articles = articles[:20]
+
     top20 = articles[:20]
     for a in top20:
         _tag_chokepoint(a)
@@ -599,12 +635,14 @@ def _run_news_fusion_agent(
     newsapi_res: Dict[str, Any],
     gdelt_res: Dict[str, Any],
     rss_res: Dict[str, Any],
+    conflict: str = "",
 ) -> Dict[str, Any]:
     """Fusion agent: dedupe + global sentiment/score across all sources."""
     merged = _merge_news_results(
         newsapi_list=newsapi_res.get("articles", []),
         gdelt_list=gdelt_res.get("articles", []),
         rss_list=rss_res.get("articles", []),
+        conflict=conflict,
     )
     articles = merged.get("articles", [])
     overall = merged.get("overall_sentiment", 0.0)
@@ -650,6 +688,61 @@ def _run_escalation_headline_agent(articles: List[Dict[str, Any]]) -> Dict[str, 
     }
 
 
+# ── NER enrichment (Phase 2) ─────────────────────────────────────────────────
+
+def _run_ner_enrichment(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Run NER on deduplicated/ranked articles. Uses Haiku NER first (up to limit),
+    then HF bulk NER for overflow. On Haiku error: entire batch falls back to HF.
+    Returns a flat list of unique entities across all articles.
+    """
+    if not articles:
+        return []
+    texts = [
+        ((a.get("title") or "") + " " + (a.get("summary") or "")).strip()[:1000]
+        for a in articles
+    ]
+    all_entities: List[Dict[str, Any]] = []
+    try:
+        from services.haiku_service import batch_ner, is_haiku_failed, HAIKU_MAX_NER_PER_RUN
+        from services.hf_service import ner_bulk
+
+        haiku_texts = texts[:HAIKU_MAX_NER_PER_RUN]
+        overflow_texts = texts[HAIKU_MAX_NER_PER_RUN:]
+
+        haiku_results = run_async(batch_ner(haiku_texts))
+
+        if is_haiku_failed() or all(r is None for r in haiku_results):
+            logger.info("NEWS NER: Haiku failed, falling back to HF bulk for all %d texts", len(texts))
+            hf_results = run_async(ner_bulk(texts))
+            if hf_results:
+                for ents in hf_results:
+                    if ents:
+                        all_entities.extend(ents)
+        else:
+            for ents in haiku_results:
+                if ents:
+                    all_entities.extend(ents)
+            if overflow_texts:
+                hf_results = run_async(ner_bulk(overflow_texts))
+                if hf_results:
+                    for ents in hf_results:
+                        if ents:
+                            all_entities.extend(ents)
+    except Exception as e:
+        logger.debug("NEWS NER enrichment unavailable: %s", e)
+
+    # Deduplicate entities by (entity, type) pair
+    seen = set()
+    unique: List[Dict[str, Any]] = []
+    for ent in all_entities:
+        key = (ent.get("entity", "").lower(), ent.get("type", ""))
+        if key not in seen and key[0]:
+            seen.add(key)
+            unique.append(ent)
+    return unique
+
+
 # ── Rule-based tool chain orchestrator (fixed order; no LLM) ────────────────
 
 def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
@@ -671,14 +764,16 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             gdelt_res = fut_gdelt.result(timeout=35)
             rss_res = fut_rss.result(timeout=35)
 
-        fusion = _run_news_fusion_agent(newsapi_res, gdelt_res, rss_res)
+        fusion = _run_news_fusion_agent(newsapi_res, gdelt_res, rss_res, conflict=conflict)
         articles = fusion.get("articles", [])
 
         escalation_meta = _run_escalation_headline_agent(articles)
 
+        # NER enrichment on top articles (Phase 2)
+        all_entities = _run_ner_enrichment(articles)
+
         news_score = fusion.get("news_score", 50.0)
         esc_score = escalation_meta.get("escalation_score", 0.0)
-        # Wire escalation_score slightly into news_score without breaking range/semantics
         adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
 
         if (
@@ -709,6 +804,7 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             "source_breakdown": fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0}),
             "escalation_headlines": escalation_meta.get("escalation_headlines", []),
             "escalation_score": escalation_meta.get("escalation_score", 0.0),
+            "entities": all_entities,
         }
     except Exception as e:
         logger.exception("NEWS: rule-based news pipeline failed for conflict '%s': %s", conflict, e)

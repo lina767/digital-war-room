@@ -501,6 +501,67 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+# ── NER enrichment (Phase 2) ─────────────────────────────────────────────────
+
+def _run_socmint_ner(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Run NER on top social media posts. Uses Haiku NER first (up to limit),
+    then HF bulk NER for overflow. On Haiku error: entire batch falls back to HF.
+    Returns a flat list of unique entities across all posts.
+    """
+    if not posts:
+        return []
+    top_posts = sorted(
+        posts,
+        key=lambda x: abs(x.get("sentiment_score", 0)),
+        reverse=True,
+    )[:30]
+    texts = [
+        (p.get("text") or p.get("title") or p.get("body_excerpt") or "")[:1000]
+        for p in top_posts
+    ]
+    all_entities: List[Dict[str, Any]] = []
+    try:
+        from services.haiku_service import batch_ner, is_haiku_failed, HAIKU_MAX_NER_PER_RUN
+        from services.hf_service import ner_bulk
+
+        haiku_texts = texts[:HAIKU_MAX_NER_PER_RUN]
+        overflow_texts = texts[HAIKU_MAX_NER_PER_RUN:]
+
+        haiku_results = run_async(batch_ner(haiku_texts))
+
+        if is_haiku_failed() or all(r is None for r in haiku_results):
+            _log = logging.getLogger(__name__)
+            _log.info("SOCMINT NER: Haiku failed, falling back to HF bulk for all %d texts", len(texts))
+            hf_results = run_async(ner_bulk(texts))
+            if hf_results:
+                for ents in hf_results:
+                    if ents:
+                        all_entities.extend(ents)
+        else:
+            for ents in haiku_results:
+                if ents:
+                    all_entities.extend(ents)
+            if overflow_texts:
+                hf_results = run_async(ner_bulk(overflow_texts))
+                if hf_results:
+                    for ents in hf_results:
+                        if ents:
+                            all_entities.extend(ents)
+    except Exception as e:
+        import logging as _log_mod
+        _log_mod.getLogger(__name__).debug("SOCMINT NER enrichment unavailable: %s", e)
+
+    seen = set()
+    unique: List[Dict[str, Any]] = []
+    for ent in all_entities:
+        key = (ent.get("entity", "").lower(), ent.get("type", ""))
+        if key not in seen and key[0]:
+            seen.add(key)
+            unique.append(ent)
+    return unique
+
+
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
@@ -519,6 +580,18 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             reliefweb = [p for p in (fut_reliefweb.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
 
         all_posts = telegram + twitter + reddit + rss + reliefweb
+
+        # Semantic deduplication (graceful: returns unchanged if HF unavailable)
+        try:
+            from services.hf_service import deduplicate_items
+            all_posts = run_async(deduplicate_items(
+                all_posts, text_key="text", threshold=0.92,
+                source="socmint", conflict=conflict,
+            ))
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).debug("HF semantic dedup unavailable in SOCMINT: %s", e)
+
         escalatory = sum(1 for p in all_posts if p.get("sentiment_label") == "ESCALATORY")
         de_esc = sum(1 for p in all_posts if p.get("sentiment_label") == "DE-ESCALATORY")
         sent_sum = sum(p.get("sentiment_score", 0) for p in all_posts)
@@ -542,6 +615,9 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             if t:
                 top_signals.append(t[:120] + ("..." if len(t) > 120 else ""))
 
+        # NER enrichment on top posts (Phase 2)
+        entities = _run_socmint_ner(all_posts)
+
         return {
             "conflict": conflict,
             "telegram_posts": telegram,
@@ -555,6 +631,7 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             "overall_sentiment": round(overall_sentiment, 4),
             "socmint_score": round(score, 1),
             "top_signals": top_signals,
+            "entities": entities,
             "summary": f"SOCMINT (rule-based): {len(all_posts)} signals ({escalatory} escalatory, {de_esc} de-escalatory). Score {score:.0f}.",
         }
     except Exception:

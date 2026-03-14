@@ -917,6 +917,54 @@ _GEOINT_TOOL_SCHEMAS = [
 ]
 
 
+def enrich_with_ner_entities(
+    geoint_result: Dict[str, Any],
+    entities: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Post-processing enrichment: correlate LOCATION entities from NEWS/SOCMINT NER
+    with anomaly hotspot regions to surface named locations near detected anomalies.
+    """
+    if not entities:
+        return geoint_result
+
+    location_ents = [
+        ent for ent in entities
+        if ent.get("type") == "LOCATION" and ent.get("entity")
+    ]
+    if not location_ents:
+        return geoint_result
+
+    location_names = list(dict.fromkeys(
+        ent.get("entity", "").strip() for ent in location_ents if ent.get("entity")
+    ))
+
+    hotspots = geoint_result.get("hotspots", [])
+    anomalies = geoint_result.get("anomalies", [])
+
+    geoint_result["ner_locations"] = location_names[:30]
+
+    matched_locations: List[str] = []
+    hotspot_texts = " ".join(
+        str(h.get("region", "")) + " " + str(h.get("city", "")) + " " + str(h.get("location_name", ""))
+        for h in (hotspots + anomalies[:20])
+    ).lower()
+    for loc in location_names:
+        if loc.lower() in hotspot_texts:
+            matched_locations.append(loc)
+
+    if matched_locations:
+        geoint_result["ner_hotspot_matches"] = matched_locations
+        existing_summary = geoint_result.get("summary", "")
+        geoint_result["summary"] = (
+            f"{existing_summary} NER locations near hotspots: {', '.join(matched_locations[:5])}."
+        )
+    else:
+        geoint_result["ner_hotspot_matches"] = []
+
+    return geoint_result
+
+
 def run_geoint_agent(conflict: str) -> Dict[str, Any]:
     return run_agent_with_fallback(
         conflict,

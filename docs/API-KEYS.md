@@ -15,6 +15,33 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 
 ---
 
+## Optional – Hugging Face & Haiku (Embeddings, Ranking, Translation)
+
+| Key | Verwendung im Code | Bezugsquelle |
+|-----|---------------------|--------------|
+| **HUGGINGFACE_API_KEY** | `backend/services/hf_service.py` – Embeddings (Deduplizierung), Cross-Encoder (Relevanz-Ranking), später NER-Bulk, Document QA, OCR, CLIP | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) – **Free Tier** reicht für Phase 1–4 (Embeddings, Cross-Encoder, NER-Bulk). Ab Phase 5 (CV/Bilder): **HF Pro** ($9/Monat) empfohlen. |
+| **HAIKU_MODEL** | `backend/services/haiku_service.py` – Modell für Translation, Sentiment, NER, Classification | Default: `claude-haiku-4-5-20251001`. Nutzt den bestehenden **ANTHROPIC_API_KEY** (kein separater Key nötig). |
+| **HAIKU_MONTHLY_BUDGET** | `backend/services/haiku_service.py` – Monatliches Budget-Limit in USD | Default: `20.0`. Warnung bei 80 %. Budget wird anhand echter `usage.input_tokens` / `usage.output_tokens` aus der API-Response getrackt. |
+| **RANKING_QUERY_IRAN** | `backend/services/hf_service.py` – Cross-Encoder Ranking-Query für Iran-Konflikt | Default: `Iran nuclear sanctions military IRGC`. Konfigurierbares Profil pro Konflikt: `RANKING_QUERY_<KONFLIKT>` (z. B. `RANKING_QUERY_UKRAINE`). Fallback: `conflict`-String. |
+| **DATABASE_URL** | `backend/services/storage_service.py` – pgvector-Anbindung für persistente Embeddings und DB-Similarity | Railway PostgreSQL URL (Format: `postgresql://user:pass@host:5432/dbname`). Migration: `backend/migrations/001_pgvector_setup.sql`. Ohne DATABASE_URL: In-Memory-Only (Phase 1–2 Verhalten). |
+| **CLASSIFY_CONFIDENCE_THRESHOLD** | `backend/agents/supervisor.py` – Schwellenwert für Zero-Shot Pre-Filter | Default: `0.3`. Items mit Kategorie "other" und Confidence unter diesem Wert werden vor der Synthese gefiltert. |
+| **SUMMARIZE_CHAR_THRESHOLD** | `backend/agents/supervisor.py` – Zeichenlänge ab der Texte zusammengefasst werden | Default: `600`. Artikel/Posts mit längerem Text werden per Haiku auf 2–4 Sätze kondensiert. |
+| **HF_DOC_QA_MODEL** | `backend/services/hf_service.py` – HF-Modell für extractive Document QA | Default: `deepset/roberta-base-squad2`. Extractive QA als Fallback zu Haiku Document QA. |
+| **PDF_CHUNK_SIZE** | `backend/services/pdf_ingest_service.py` – Zeichenlänge pro PDF-Chunk | Default: `800`. Steuert Chunk-Granularität für Document QA. |
+| **HAIKU_MAX_DOCQA_PER_RUN** | `backend/services/haiku_service.py` – Max. Document QA Calls pro 6h-Lauf | Default: `10`. Begrenzt teure Haiku-DocQA-Calls. |
+
+---
+
+### API-Endpunkte (Phase 4: Document QA)
+
+| Endpunkt | Methode | Beschreibung |
+|----------|---------|-------------|
+| `/api/documents/ingest` | POST | PDF-URL ingestieren: Download → Text-Extraktion → Chunking → Embedding → Speicherung. Body: `{"url": "...", "source": "ofac", "conflict": "Iran"}` |
+| `/api/documents` | GET | Alle ingestierten Dokumente auflisten (doc_id, URL, Chunk-Count, etc.) |
+| `/api/documents/qa` | POST | Frage über PDF-Chunks beantworten. Body: `{"question": "...", "source": "ofac", "conflict": "Iran"}`. Nutzt Haiku (primary) oder HF extractive QA (Fallback). |
+
+---
+
 ## Optional (neue Agents: CYBER, ENERGY, PROTEST, DIPLO)
 
 | Key | Verwendung im Code | Bezugsquelle |

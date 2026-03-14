@@ -1216,6 +1216,119 @@ _FININT_TOOL_SCHEMAS = [
 ]
 
 
+def enrich_with_ner_entities(
+    finint_result: Dict[str, Any],
+    entities: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Post-processing enrichment: match PERSON/ORG entities from NEWS/SOCMINT NER
+    against OFAC keywords. Adds ner_ofac_flags to the FININT result.
+    Then runs Document QA on ingested PDF chunks for flagged entities.
+    """
+    if not entities:
+        return finint_result
+
+    ofac_data = finint_result.get("ofac_sanctions", {})
+    ofac_sample = ofac_data.get("sample", [])
+    ofac_names = {
+        entry.get("name", "").lower().strip()
+        for entry in ofac_sample
+        if entry.get("name")
+    }
+
+    flagged: List[Dict[str, Any]] = []
+    for ent in entities:
+        ent_type = ent.get("type", "")
+        if ent_type not in ("PERSON", "ORG"):
+            continue
+        ent_name = ent.get("entity", "").strip()
+        if not ent_name:
+            continue
+        ent_lower = ent_name.lower()
+        for ofac_name in ofac_names:
+            if ent_lower in ofac_name or ofac_name in ent_lower:
+                flagged.append({
+                    "entity": ent_name,
+                    "type": ent_type,
+                    "ofac_match": ofac_name,
+                    "context": ent.get("context", ""),
+                })
+                break
+
+    finint_result["ner_ofac_flags"] = flagged
+
+    # Document QA enrichment (Phase 4): query PDF chunks for flagged entities
+    docqa_results = _docqa_for_flagged_entities(flagged)
+    if docqa_results:
+        finint_result["docqa_findings"] = docqa_results
+
+    if flagged:
+        existing_summary = finint_result.get("summary", "")
+        names = ", ".join(f.get("entity", "") for f in flagged[:5])
+        docqa_note = ""
+        if docqa_results:
+            docqa_note = f" DocQA returned {len(docqa_results)} finding(s) from PDF sources."
+        finint_result["summary"] = (
+            f"{existing_summary} NER-OFAC cross-ref: {len(flagged)} entity match(es) ({names}).{docqa_note}"
+        )
+    return finint_result
+
+
+def _docqa_for_flagged_entities(flagged: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    For top flagged entities, run Document QA against ingested OFAC/UN PDFs.
+    Uses Haiku first (better reasoning), HF extractive QA as fallback.
+    """
+    if not flagged:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    try:
+        from services.pdf_ingest_service import find_relevant_chunks, get_all_chunks_for_source
+        from services.haiku_service import document_qa as haiku_docqa
+        from services.hf_service import document_qa_multi as hf_docqa_multi
+    except ImportError:
+        return []
+
+    for ent in flagged[:3]:
+        entity_name = ent.get("entity", "")
+        if not entity_name:
+            continue
+
+        question = f"What sanctions, designations, or restrictions apply to {entity_name}?"
+
+        relevant = run_async(find_relevant_chunks(
+            question, source="ofac", top_k=5,
+        ))
+        if not relevant:
+            all_ofac = get_all_chunks_for_source("ofac")
+            if not all_ofac:
+                continue
+            chunks = [c for _, c in all_ofac[:10]]
+        else:
+            chunks = [r.get("text_preview", "") for r in relevant if r.get("text_preview")]
+
+        if not chunks:
+            continue
+
+        answer = run_async(haiku_docqa(question, chunks, max_chunks=5))
+        if not answer or not answer.get("answer"):
+            hf_answers = run_async(hf_docqa_multi(question, chunks, top_k=1))
+            if hf_answers:
+                answer = hf_answers[0]
+
+        if answer and answer.get("answer"):
+            results.append({
+                "entity": entity_name,
+                "question": question,
+                "answer": answer.get("answer", ""),
+                "confidence": answer.get("confidence", 0),
+                "source": "pdf_docqa",
+            })
+
+    return results
+
+
 def run_finint_agent(conflict: str) -> Dict[str, Any]:
     return run_agent_with_fallback(
         conflict,

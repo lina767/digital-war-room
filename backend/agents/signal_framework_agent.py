@@ -69,18 +69,37 @@ def _ensure_english_display(
     state_val: Optional[str], exile_val: Optional[str], exile_en_val: Optional[str]
 ) -> Tuple[Optional[str], Optional[str]]:
     """
-    For display we want English. If exile content is Farsi and no English version, return placeholder for exile_en.
+    For display we want English. If exile content is Farsi and no English version,
+    attempt Haiku translation; fall back to placeholder on failure.
     Returns (state_en_display, exile_en_display).
     """
     state_en = (state_val or "").strip() or None
     exile_en = (exile_en_val or "").strip() or None
     exile_raw = (exile_val or "").strip()
     if exile_raw and _is_mostly_farsi(exile_raw) and (not exile_en or _is_mostly_farsi(exile_en)):
-        exile_en = "Content in Farsi (no English translation in this run)."
+        try:
+            from agents.utils import run_async
+            from services.haiku_service import translate_fa_en
+            translated = run_async(translate_fa_en(exile_raw))
+            if translated:
+                exile_en = translated
+            else:
+                exile_en = "Content in Farsi (no English translation in this run)."
+        except Exception:
+            exile_en = "Content in Farsi (no English translation in this run)."
     elif not exile_en and exile_raw and not _is_mostly_farsi(exile_raw):
         exile_en = exile_raw
     elif not exile_en and exile_raw:
-        exile_en = "Content in Farsi (no English translation in this run)."
+        try:
+            from agents.utils import run_async
+            from services.haiku_service import translate_fa_en
+            translated = run_async(translate_fa_en(exile_raw))
+            if translated:
+                exile_en = translated
+            else:
+                exile_en = "Content in Farsi (no English translation in this run)."
+        except Exception:
+            exile_en = "Content in Farsi (no English translation in this run)."
     return state_en or None, exile_en or None
 
 

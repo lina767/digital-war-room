@@ -14,6 +14,9 @@
     },
     "firecrawl": {
       "enabled": true
+    },
+    "huggingface-skills": {
+      "enabled": true
     }
   }
 }

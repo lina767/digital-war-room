@@ -8,11 +8,16 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
+import logging
+
 from .llm import call_llm, get_model_name, require_api_key
 from .otel_callbacks import traced
+from .utils import run_async
 
-from .finint_agent import run_finint_agent
-from .geoint_agent import run_geoint_agent
+_logger = logging.getLogger(__name__)
+
+from .finint_agent import run_finint_agent, enrich_with_ner_entities as finint_enrich_ner
+from .geoint_agent import run_geoint_agent, enrich_with_ner_entities as geoint_enrich_ner
 from .news_agent import run_news_agent
 from .sigint_agent import run_sigint_agent
 from .socmint_agent import run_socmint_agent
@@ -611,10 +616,161 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _ner_post_processing(agent_results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Post-processing: extract NER entities from NEWS and SOCMINT, then enrich
+    FININT (OFAC cross-ref) and GEOINT (location correlation).
+    Operates in-place on agent_results.
+    """
+    news_entities = agent_results.get("news", {}).get("entities", [])
+    socmint_entities = agent_results.get("socmint", {}).get("entities", [])
+
+    all_entities = news_entities + socmint_entities
+    if not all_entities:
+        return agent_results
+
+    # Deduplicate by (entity, type)
+    seen = set()
+    unique_entities: List[Dict[str, Any]] = []
+    for ent in all_entities:
+        key = (ent.get("entity", "").lower(), ent.get("type", ""))
+        if key not in seen and key[0]:
+            seen.add(key)
+            unique_entities.append(ent)
+
+    if "finint" in agent_results and isinstance(agent_results["finint"], dict):
+        agent_results["finint"] = finint_enrich_ner(agent_results["finint"], unique_entities)
+
+    if "geoint" in agent_results and isinstance(agent_results["geoint"], dict):
+        agent_results["geoint"] = geoint_enrich_ner(agent_results["geoint"], unique_entities)
+
+    return agent_results
+
+
+_CLASSIFY_CONFIDENCE_THRESHOLD = float(os.getenv("CLASSIFY_CONFIDENCE_THRESHOLD", "0.3"))
+_SUMMARIZE_CHAR_THRESHOLD = int(os.getenv("SUMMARIZE_CHAR_THRESHOLD", "600"))
+
+
+def _prefilter_and_summarize(agent_results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Phase 3 pre-processing before _compact_for_llm / _synthesize:
+    1. Zero-shot classification on NEWS articles and SOCMINT signals —
+       remove items classified as "other" with low confidence.
+    2. Summarize long text items to reduce LLM context consumption.
+    Operates in-place on agent_results. Graceful: skips if Haiku unavailable.
+    """
+    try:
+        from services.haiku_service import classify, summarize, is_haiku_failed
+    except ImportError:
+        return agent_results
+
+    if is_haiku_failed():
+        return agent_results
+
+    # 1. Classify + filter NEWS articles
+    news = agent_results.get("news", {})
+    articles = news.get("articles", [])
+    if articles:
+        articles = _classify_filter_items(
+            articles,
+            text_key_primary="title",
+            text_key_secondary="summary",
+        )
+        news["articles"] = articles
+        agent_results["news"] = news
+
+    # 2. Classify + filter SOCMINT top_signals (the raw post lists are large;
+    #    we only filter the items that flow into _compact_for_llm)
+    socmint = agent_results.get("socmint", {})
+    for post_key in ("telegram_posts", "twitter_posts", "reddit_posts"):
+        posts = socmint.get(post_key, [])
+        if posts:
+            socmint[post_key] = _classify_filter_items(
+                posts,
+                text_key_primary="text",
+                text_key_secondary="title",
+            )
+    agent_results["socmint"] = socmint
+
+    # 3. Summarize long texts in articles and posts
+    _summarize_long_items(agent_results)
+
+    return agent_results
+
+
+def _classify_filter_items(
+    items: List[Dict[str, Any]],
+    text_key_primary: str = "title",
+    text_key_secondary: str = "summary",
+) -> List[Dict[str, Any]]:
+    """Classify items and remove those classified as 'other' with low confidence."""
+    if not items or len(items) <= 3:
+        return items
+
+    try:
+        from services.haiku_service import batch_classify
+    except ImportError:
+        return items
+
+    texts = [
+        ((it.get(text_key_primary) or "") + " " + (it.get(text_key_secondary) or "")).strip()[:500]
+        for it in items
+    ]
+    results = run_async(batch_classify(texts))
+    if not results or all(r is None for r in results):
+        return items
+
+    filtered = []
+    removed = 0
+    for item, cls in zip(items, results):
+        if cls is None:
+            filtered.append(item)
+            continue
+        item["_classification"] = cls
+        if cls.get("category") == "other" and cls.get("confidence", 0) < _CLASSIFY_CONFIDENCE_THRESHOLD:
+            removed += 1
+            continue
+        filtered.append(item)
+
+    if removed:
+        _logger.info("[supervisor] Pre-filter removed %d/%d items classified as 'other'", removed, len(items))
+    return filtered
+
+
+def _summarize_long_items(agent_results: Dict[str, Any]):
+    """Summarize long text fields in NEWS articles and SOCMINT posts in-place."""
+    try:
+        from services.haiku_service import summarize
+    except ImportError:
+        return
+
+    # NEWS articles: summarize long summaries
+    for article in agent_results.get("news", {}).get("articles", [])[:10]:
+        summary_text = article.get("summary") or ""
+        if len(summary_text) > _SUMMARIZE_CHAR_THRESHOLD:
+            condensed = run_async(summarize(summary_text))
+            if condensed:
+                article["summary_original_len"] = len(summary_text)
+                article["summary"] = condensed
+
+    # SOCMINT: summarize long post texts
+    socmint = agent_results.get("socmint", {})
+    for post_key in ("telegram_posts", "twitter_posts", "reddit_posts"):
+        for post in socmint.get(post_key, [])[:10]:
+            text = post.get("text") or post.get("body_excerpt") or ""
+            if len(text) > _SUMMARIZE_CHAR_THRESHOLD:
+                condensed = run_async(summarize(text))
+                if condensed:
+                    post["text_original_len"] = len(text)
+                    post["text"] = condensed
+
+
 def analyze_conflict(conflict: str) -> Dict[str, Any]:
     """Public entrypoint – runs all 11 agents then supervisor synthesis."""
     with traced("analysis.full", {"conflict": conflict}):
         agent_results = _collect_all_agents(conflict)
+        agent_results = _ner_post_processing(agent_results)
+        agent_results = _prefilter_and_summarize(agent_results)
         synthesis = _synthesize(conflict, agent_results)
 
     return {

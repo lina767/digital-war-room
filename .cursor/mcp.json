@@ -3,6 +3,9 @@
     "RapidAPI Hub - ADSBexchange.com": {
       "command": "node",
       "args": ["scripts/mcp-adsbexchange.mjs"]
+    },
+    "hf-mcp-server": {
+      "url": "https://huggingface.co/mcp?login"
     }
   }
 }
