@@ -9,6 +9,7 @@ interface ChokePointPanelProps {
 const STATUS_COLORS: Record<string, string> = {
   OPEN: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   RESTRICTED: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  CONTESTED: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   DISRUPTED: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
@@ -19,14 +20,16 @@ const DQ_LABELS: Record<string, string> = {
 };
 
 function riskColor(risk: number): string {
-  if (risk >= 70) return "text-red-400";
-  if (risk >= 40) return "text-amber-400";
+  if (risk >= 75) return "text-red-400";
+  if (risk >= 50) return "text-orange-400";
+  if (risk >= 30) return "text-amber-400";
   return "text-emerald-400";
 }
 
 function riskRingColor(risk: number): string {
-  if (risk >= 70) return "stroke-red-400";
-  if (risk >= 40) return "stroke-amber-400";
+  if (risk >= 75) return "stroke-red-400";
+  if (risk >= 50) return "stroke-orange-400";
+  if (risk >= 30) return "stroke-amber-400";
   return "stroke-emerald-400";
 }
 

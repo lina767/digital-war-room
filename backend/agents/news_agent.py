@@ -96,6 +96,37 @@ DE_ESCALATION_KW_FA = [
     "عقب‌نشینی",
 ]
 
+# Chokepoint tagging for CHOKEPOINT agent (single place for NLP logic)
+CHOKEPOINT_KEYWORDS: Dict[str, List[str]] = {
+    "Strait of Hormuz": ["hormuz", "persian gulf", "irgc"],
+    "Bab el-Mandeb": ["mandeb", "bab el", "bab al-mandab", "houthi", "red sea"],
+    "Suez Canal": ["suez"],
+}
+DISRUPTION_VERBS = [
+    "blockade", "halt", "suspend", "close", "shut",
+    "no transit", "reroute", "cape of good hope", "disrupt",
+]
+
+
+def _tag_chokepoint(article: Dict[str, Any]) -> Dict[str, Any]:
+    """Set chokepoint_tags and is_disruption on article for CHOKEPOINT agent consumption."""
+    title = (article.get("title") or "").lower()
+    url = (article.get("url") or "").lower()
+    text = f"{title} {url}"
+    tags: List[str] = []
+    for cp_name, keywords in CHOKEPOINT_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text:
+                tags.append(cp_name)
+                break
+        else:
+            if cp_name == "Strait of Hormuz" and re.search(r"iran.*strait|strait.*iran", text):
+                tags.append(cp_name)
+    has_disruption_verb = any(v in text for v in DISRUPTION_VERBS)
+    article["chokepoint_tags"] = list(dict.fromkeys(tags))
+    article["is_disruption"] = bool(tags and has_disruption_verb)
+    return article
+
 
 def _build_query(conflict: str) -> str:
     cl = conflict.lower()
@@ -168,6 +199,8 @@ def _merge_news_results(
     articles = list(seen.values())
     articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
     top20 = articles[:20]
+    for a in top20:
+        _tag_chokepoint(a)
 
     weighted_sum = 0.0
     weight_sum = 0.0
