@@ -18,7 +18,7 @@ import {
   type SigintAircraft,
   type SigintShip,
 } from "./mapConfig";
-import { SAM_RINGS, AIR_ROUTES, SEA_LANES, circlePoints } from "./mapOverlaysData";
+import { SAM_RINGS, AIR_ROUTES, SEA_LANES, CHOKEPOINT_ZONES, circlePoints } from "./mapOverlaysData";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -38,6 +38,7 @@ interface LayerVisibility {
   samRings: boolean;
   airRoutes: boolean;
   seaLanes: boolean;
+  chokepoints: boolean;
 }
 
 type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
@@ -49,6 +50,7 @@ const INITIAL_LAYERS: LayerVisibility = {
   samRings: false,
   airRoutes: false,
   seaLanes: false,
+  chokepoints: true,
 };
 
 function layerReducer(state: LayerVisibility, action: LayerAction): LayerVisibility {
@@ -412,11 +414,18 @@ function MapTooltip({ tooltip }: { tooltip: TooltipData | null }) {
 /*  Main component                                                     */
 /* ------------------------------------------------------------------ */
 
+export interface ChokePointStatus {
+  name: string;
+  status: "OPEN" | "RESTRICTED" | "DISRUPTED";
+  disruption_risk: number;
+}
+
 export interface TheaterMapProps {
   activeConflict?: string | null;
   geointAnomalies?: GeointAnomaly[];
   sigintAircraft?: SigintAircraft[];
   sigintShips?: SigintShip[];
+  chokepointStatuses?: ChokePointStatus[];
 }
 
 export function TheaterMap({
@@ -424,6 +433,7 @@ export function TheaterMap({
   geointAnomalies = [],
   sigintAircraft = [],
   sigintShips = [],
+  chokepointStatuses = [],
 }: TheaterMapProps) {
   /* ---- layer visibility (useReducer instead of 6× useState) ------ */
   const [layers, dispatchLayers] = useReducer(layerReducer, INITIAL_LAYERS);
@@ -601,6 +611,33 @@ export function TheaterMap({
               />
             ))}
 
+          {layers.chokepoints &&
+            CHOKEPOINT_ZONES.map((zone) => {
+              const match = chokepointStatuses.find((cp) => cp.name === zone.name);
+              const risk = match?.disruption_risk ?? 0;
+              const fillColor =
+                risk >= 70
+                  ? "hsla(0, 70%, 50%, 0.18)"
+                  : risk >= 40
+                    ? "hsla(40, 80%, 50%, 0.15)"
+                    : "hsla(160, 70%, 45%, 0.10)";
+              const strokeColor =
+                risk >= 70
+                  ? "hsla(0, 70%, 50%, 0.5)"
+                  : risk >= 40
+                    ? "hsla(40, 80%, 50%, 0.4)"
+                    : "hsla(160, 70%, 45%, 0.3)";
+              return (
+                <Line
+                  key={zone.id}
+                  coordinates={zone.vertices}
+                  stroke={strokeColor}
+                  strokeWidth={0.8}
+                  fill={fillColor}
+                />
+              );
+            })}
+
           {layers.heatmap && !heatmapLoading && (
             <HeatmapLayer events={heatmapEvents} s={s} />
           )}
@@ -776,6 +813,22 @@ export function TheaterMap({
         >
           <span style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
           SEA
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleLayer("chokepoints")}
+          className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="Chokepoint zones"
+        >
+          <span
+            className="w-2.5 h-2.5 rounded-sm border"
+            style={
+              layers.chokepoints
+                ? { borderColor: "hsl(200 70% 50%)", background: "hsl(200 70% 50% / 0.25)" }
+                : { borderColor: "hsl(var(--border))" }
+            }
+          />
+          CHP
         </button>
         {eventLegendItems.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">

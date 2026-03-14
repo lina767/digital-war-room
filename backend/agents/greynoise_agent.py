@@ -45,8 +45,17 @@ MAX_CVE_LOOKUPS = 5
 
 # ── Conflict → Country mapping (for GNQL metadata.country filters) ────────
 
+# Iran-Konflikt: zusätzlich Gulf-Staaten (Hormuz, US-Stützpunkte), Transit- und Konfliktpartner
 GREYNOISE_COUNTRY_FILTERS: Dict[str, List[str]] = {
-    "iran": ["Iran", "Iraq", "Syria", "Lebanon"],
+    "iran": [
+        "Iran", "Iraq", "Syria", "Lebanon",
+        "United Arab Emirates", "Bahrain", "Qatar", "Kuwait", "Oman",  # Gulf / Hormuz
+        "Saudi Arabia", "Jordan",
+        "Turkey",   # NATO, Transit, Sanktionsumgehung
+        "Pakistan",  # Grenze, Baluchistan, Eskalation
+        "Azerbaijan",  # Nordgrenze, Energie
+        "Afghanistan",  # Grenze, Taliban, Wasser
+    ],
     "israel": ["Israel", "Palestine", "Lebanon"],
     "gaza/israel": ["Israel", "Palestine", "Lebanon"],
     "gaza": ["Israel", "Palestine", "Lebanon"],

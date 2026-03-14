@@ -101,6 +101,14 @@ WARSHIP_PREFIXES = ["USS ", "HMS ", "FS ", "INS ", "USNS ", "RFS ", "IRIS "]
 # AIS ship type 30-39 = military (ICAO/IEC 62287)
 MILITARY_SHIP_TYPE_CODES = (30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
 
+# ── Tanker classification (AIS type 80-89, plus keywords) ────────────────────
+COMMERCIAL_TANKER_KEYWORDS = [
+    "tanker", "crude", "vlcc", "suezmax", "aframax",
+    "lpg", "lng", "oil", "chemical", "petroleum",
+]
+COMMERCIAL_TANKER_AIS_TYPES = tuple(range(80, 90))
+HORMUZ_TANKER_BBOX = "55,25,58,27.5"
+
 # Spire Maritime (optional): legacy Vessels API – https://api.sense.spire.com/ (short token) or https://ais.spire.com/ (long token)
 SPIRE_VESSELS_URL = "https://api.sense.spire.com/vessels"
 # Spire Airsafe (optional): aircraft tracking stream – https://api.airsafe.spire.com/v2/targets/stream (Bearer token)
@@ -209,13 +217,14 @@ async def _fetch_adsbexchange_rapidapi(
     client: httpx.AsyncClient,
     *,
     icao: Optional[str] = None,
+    callsign: Optional[str] = None,
     lat: Optional[float] = None,
     lon: Optional[float] = None,
     dist_nm: int = 100,
 ) -> List[Dict[str, Any]]:
     """
     Fetch aircraft from ADSBexchange via RapidAPI.
-    Either icao=HEX for one aircraft, or (lat, lon, dist_nm) for region (max 100 nm per request).
+    One of: icao=HEX, callsign=CALLSIGN, or (lat, lon, dist_nm) for region (max 100 nm per request).
     """
     if not ADSBEXCHANGE_RAPIDAPI_KEY:
         return []
@@ -225,6 +234,16 @@ async def _fetch_adsbexchange_rapidapi(
     try:
         if icao:
             url = f"{base}/api/aircraft/icao/{icao.strip().upper()}"
+            resp = await client.get(url, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                if isinstance(ac, list):
+                    ac_list = ac
+                elif isinstance(ac, dict):
+                    ac_list = [ac]
+        elif callsign and callsign.strip():
+            url = f"{base}/api/aircraft/call/{callsign.strip().upper()}"
             resp = await client.get(url, headers=headers, timeout=15.0)
             if resp.status_code == 200:
                 data = resp.json()
@@ -375,7 +394,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                     "source": "mil-global",
                 })
 
-            # Regional scans
+            # Regional scans (free: adsb.fi, adsb.lol)
             tasks = [_fetch_region(client, lat, lon, dist) for _, lat, lon, dist in ADSB_REGIONS]
             all_results = await asyncio.gather(*tasks, return_exceptions=True)
             for (label, _, _, _), ac_list in zip(ADSB_REGIONS, all_results):
@@ -402,6 +421,46 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                         "category": cat, "region": label,
                         "reg": reg or None,
                     })
+
+            # ADSBexchange RapidAPI (paid): extra region scans (2 circles per region for better coverage)
+            if ADSBEXCHANGE_RAPIDAPI_KEY:
+                # Primary center + offset center per region to cover more than 100 nm
+                for label, lat, lon, dist in ADSB_REGIONS:
+                    for lat_off, lon_off in [(0, 0), (0.6, 0.6)]:
+                        try:
+                            ac_list_rapid = await _fetch_adsbexchange_rapidapi(
+                                client,
+                                lat=lat + lat_off,
+                                lon=lon + lon_off,
+                                dist_nm=min(100, dist),
+                            )
+                            for ac in ac_list_rapid or []:
+                                callsign = str(ac.get("flight") or "").strip()
+                                ac_type = str(ac.get("t") or ac.get("type") or "").strip()
+                                reg = str(ac.get("r") or ac.get("reg") or "").strip()
+                                cat = _classify_aircraft(callsign, ac_type, reg)
+                                if not cat:
+                                    continue
+                                icao = str(ac.get("hex") or "").upper()
+                                if icao in seen_icao:
+                                    continue
+                                lat_f = safe_float(ac.get("lat"))
+                                lon_f = safe_float(ac.get("lon"))
+                                if lat_f is None or lon_f is None or not _in_conflict_zone(lat_f, lon_f):
+                                    continue
+                                seen_icao.add(icao)
+                                results.append({
+                                    "flight": callsign or ac_type or icao,
+                                    "type": ac_type,
+                                    "lat": lat_f,
+                                    "lon": lon_f,
+                                    "category": cat,
+                                    "region": label,
+                                    "reg": reg or None,
+                                    "source": "adsbexchange",
+                                })
+                        except Exception as e:
+                            logger.debug("SIGINT: ADSBexchange RapidAPI region %s failed: %s", label, e)
         return results
 
     try:
@@ -567,6 +626,85 @@ def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return []
 
 
+def _is_commercial_tanker(v: dict) -> bool:
+    """Check if a vessel dict describes a commercial tanker (oil, LNG, LPG, chemical)."""
+    name = str(v.get("name") or v.get("NAME") or v.get("shipname") or "").lower()
+    ship_type = str(v.get("type") or v.get("TYPE") or v.get("shiptype") or v.get("vesselType") or "").lower()
+    type_num = v.get("type_of_ship")
+    try:
+        raw_type = v.get("type") or v.get("TYPE") or v.get("shiptype")
+        t = int(float(raw_type)) if raw_type is not None else None
+    except (TypeError, ValueError):
+        t = None
+    return (
+        (t is not None and t in COMMERCIAL_TANKER_AIS_TYPES)
+        or (isinstance(type_num, int) and type_num in COMMERCIAL_TANKER_AIS_TYPES)
+        or any(kw in name for kw in COMMERCIAL_TANKER_KEYWORDS)
+        or any(kw in ship_type for kw in COMMERCIAL_TANKER_KEYWORDS)
+    )
+
+
+def get_hormuz_tankers() -> List[Dict[str, Any]]:
+    """Fetch commercial tankers in the Strait of Hormuz area via VesselFinder."""
+
+    async def _fetch(client: httpx.AsyncClient, bbox: str) -> List[Dict]:
+        for param_name in ("bbox", "bb", "bounds"):
+            try:
+                resp = await client.get(
+                    "https://www.vesselfinder.com/api/pub/vesselsonmap",
+                    params={param_name: bbox}, timeout=12.0,
+                )
+                if resp.status_code != 200:
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    continue
+                data = resp.json()
+                if isinstance(data, list):
+                    return data
+                for key in ("vessels", "data", "rows", "results", "ships"):
+                    if isinstance(data.get(key), list):
+                        return data[key]
+            except Exception:
+                continue
+        return []
+
+    async def _run():
+        results = []
+        seen = set()
+        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
+            vessels = await _fetch(client, HORMUZ_TANKER_BBOX)
+            for v in vessels:
+                if not isinstance(v, dict):
+                    continue
+                if not _is_commercial_tanker(v):
+                    continue
+                name = str(v.get("name") or v.get("NAME") or v.get("shipname") or "Tanker").strip()
+                lat = safe_float(v.get("lat") or v.get("latitude") or v.get("LAT"))
+                lon = safe_float(v.get("lon") or v.get("longitude") or v.get("LON"))
+                if lat is None or lon is None:
+                    continue
+                key = name.lower()[:40] or f"{lat},{lon}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append({
+                    "name": name,
+                    "type": str(v.get("type") or v.get("TYPE") or v.get("shiptype") or "tanker"),
+                    "lat": lat,
+                    "lon": lon,
+                    "region": "Strait of Hormuz",
+                    "source": "vesselfinder",
+                })
+        return results
+
+    try:
+        return run_async(_run())
+    except Exception as e:
+        logger.debug("SIGINT: get_hormuz_tankers failed: %s", e)
+        return []
+
+
 def get_spire_airsafe_targets(hours_back: float = 1.0) -> List[Dict[str, Any]]:
     """
     Fetch aircraft targets from Spire Airsafe tracking stream (batch mode).
@@ -687,6 +825,8 @@ class SigintResult(BaseModel):
     conflict: str
     aircraft: List[Dict[str, Any]] = Field(default_factory=list)
     ships: List[Dict[str, Any]] = Field(default_factory=list)
+    hormuz_tankers: List[Dict[str, Any]] = Field(default_factory=list)
+    hormuz_tanker_count: int = 0
     conflict_reports: List[Dict[str, Any]] = Field(default_factory=list)
     notams: List[Dict[str, Any]] = Field(default_factory=list)
     sigint_score: float = 0.0
@@ -771,13 +911,31 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
                 if region_candidates:
                     latest_adsbx = _ac_to_position(region_candidates[0], "adsb_region")
 
-            # 1a. ADSBexchange via RapidAPI – ICAO then multi-region
+            # 1a. ADSBexchange via RapidAPI – callsign first, then ICAO, then multi-region
             if ADSBEXCHANGE_RAPIDAPI_KEY and not latest_adsbx:
                 try:
                     ac_list_rapid: List[Dict[str, Any]] = []
-                    if (cfg.get("hex") or "").strip():
+                    # Try by callsign (e.g. OEIII, AFG401, FORTE11) – RapidAPI /api/aircraft/call/{callsign}
+                    for reg in (cfg.get("regs") or []):
+                        if not reg or not isinstance(reg, str):
+                            continue
+                        cs_clean = (reg or "").replace("-", "").replace(" ", "").strip().upper()
+                        if not cs_clean:
+                            continue
+                        ac_list_rapid = await _fetch_adsbexchange_rapidapi(client, callsign=cs_clean)
+                        if ac_list_rapid:
+                            candidates = [ac for ac in ac_list_rapid if _match_target_aircraft(ac, cfg)]
+                            if candidates:
+                                latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
+                                break
+                        await asyncio.sleep(0.2)
+                    if not latest_adsbx and (cfg.get("hex") or "").strip():
                         ac_list_rapid = await _fetch_adsbexchange_rapidapi(client, icao=(cfg.get("hex") or "").strip())
-                    if not ac_list_rapid:
+                        if ac_list_rapid:
+                            candidates = [ac for ac in ac_list_rapid if _match_target_aircraft(ac, cfg)]
+                            if candidates:
+                                latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
+                    if not latest_adsbx:
                         for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
                             ac_list_rapid = await _fetch_adsbexchange_rapidapi(client, lat=lat, lon=lon, dist_nm=min(100, dist))
                             if ac_list_rapid:
@@ -785,10 +943,6 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
                                 if candidates:
                                     latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
                                     break
-                    else:
-                        candidates = [ac for ac in ac_list_rapid if _match_target_aircraft(ac, cfg)]
-                        if candidates:
-                            latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
                 except Exception as e:
                     logger.debug("SIGINT: ADSBexchange RapidAPI target fetch failed: %s", e)
 
@@ -890,11 +1044,12 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     from .iaea_tracker import fetch_notams
 
     try:
-        with ThreadPoolExecutor(max_workers=6) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             fut_air = executor.submit(get_military_aircraft)
             fut_ships = executor.submit(get_naval_vessels)
             fut_spire = executor.submit(get_spire_vessels)
             fut_spire_airsafe = executor.submit(get_spire_airsafe_targets)
+            fut_tankers = executor.submit(get_hormuz_tankers)
             fut_reports = executor.submit(get_conflict_reports, conflict)
             fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
             # Track all configured target aircraft (OE-III + any from TARGET_AIRCRAFT_EXTRA)
@@ -936,6 +1091,12 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             except Exception as e:
                 logger.exception("SIGINT: NOTAM fetch failed: %s", e)
                 notam_result = {"notams": [], "error": str(e)}
+
+            try:
+                raw_tankers = fut_tankers.result(timeout=30)
+            except Exception as e:
+                logger.debug("SIGINT: Hormuz tankers fetch failed: %s", e)
+                raw_tankers = []
 
             target_tracks_dict: Dict[str, Any] = {}
             for name, fut in zip(target_names, fut_targets):
@@ -1053,17 +1214,25 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 conflict,
             )
 
+        hormuz_tankers = [
+            t for t in (raw_tankers or [])
+            if isinstance(t, dict) and "error" not in t
+        ]
+
         result = SigintResult(
             conflict=conflict,
             aircraft=aircraft,
             ships=ships,
+            hormuz_tankers=hormuz_tankers,
+            hormuz_tanker_count=len(hormuz_tankers),
             conflict_reports=reports,
             notams=notams,
             sigint_score=round(score, 1),
             alerts=alerts,
             summary=(
                 f"SIGINT (rule-based): {len(aircraft)} aircraft, "
-                f"{len(ships)} ships, {len(reports)} reports, {len(notams)} NOTAMs. "
+                f"{len(ships)} ships, {len(hormuz_tankers)} Hormuz tankers, "
+                f"{len(reports)} reports, {len(notams)} NOTAMs. "
                 f"Score {score:.0f}."
             ),
             score_confidence=score_confidence,

@@ -76,6 +76,8 @@ export interface ConflictData {
   sigint?: {
     aircraft: any[];
     ships: any[];
+    hormuz_tankers?: any[];
+    hormuz_tanker_count?: number;
     conflict_reports?: { title: string; date?: string; url?: string; source?: string }[];
     sigint_score: number;
   };
@@ -91,7 +93,11 @@ export interface ConflictData {
   energy?: {
     energy_score?: number;
     agsi_storage?: { full?: Array<{ country?: string; full_pct?: number }> };
-    commodities?: Array<{ symbol?: string; price?: string; change_pct?: string }>;
+    commodities?: Array<{ symbol?: string; price?: string; change_pct?: string; change_pct_raw?: number }>;
+    food_commodities?: Array<{ symbol?: string; label?: string; price?: string; change_pct?: string; change_pct_raw?: number }>;
+    fao_fpi?: { index?: number; month?: string; yoy_change_pct?: number | null };
+    fertilizer?: { urea_price?: number; dap_price?: number; source?: string };
+    food_security_risk?: number;
     summary?: string;
     /** Set when conflict is Iran and oil move exceeds threshold (Hormuz/chokepoint risk). */
     global_impact_note?: string | null;
@@ -145,6 +151,22 @@ export interface ConflictData {
     exile_item_count?: number;
     fetched_at?: string;
     error?: string;
+  };
+  chokepoint?: {
+    chokepoints?: Array<{
+      name: string;
+      status: "OPEN" | "RESTRICTED" | "DISRUPTED";
+      tanker_count: number;
+      tanker_density: string;
+      military_vessels: number;
+      oil_flow_estimate_mbd: number;
+      disruption_risk: number;
+      ais_anomalies: number;
+      brent_impact_pct: number;
+      data_quality: "live_ais" | "estimated" | "baseline_only";
+    }>;
+    chokepoint_score?: number;
+    summary?: string;
   };
   /** Iran conflict: actors with activity and optional intelligence (official position, verified actions, signals, military profile). */
   actors?: Array<{
@@ -379,10 +401,21 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         setStatus("error");
         return null;
       }
-      setAnalysisError("Analysis triggered – loading data…");
+      if (statusRes.error) {
+        setAnalysisError(`Letzte Analyse fehlgeschlagen: ${statusRes.error} Starte neue Analyse…`);
+      } else {
+        setAnalysisError("Analyse gestartet – Daten werden geladen (kann 2–5 Min. dauern)…");
+      }
       await triggerRefreshAnalysis(conflictRef.current);
-      for (let i = 0; i < 24; i++) {
+      const maxPolls = 48; // 48 × 5s = 4 min
+      for (let i = 0; i < maxPolls; i++) {
         await new Promise((r) => setTimeout(r, 5_000));
+        const statusRes = await getAnalyzeStatus(conflictRef.current);
+        if (statusRes?.error) {
+          setAnalysisError(`Analyse fehlgeschlagen: ${statusRes.error}`);
+          setStatus("error");
+          return null;
+        }
         const fresh = await getLatestAnalysis(conflictRef.current);
         if (fresh) {
           setData(fresh as unknown as ConflictData);
@@ -392,8 +425,13 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           return fresh;
         }
       }
-      setAnalysisError("Analysis is taking longer than expected. Data will appear when ready.");
-      setStatus("connected");
+      const finalStatus = await getAnalyzeStatus(conflictRef.current);
+      if (finalStatus?.error) {
+        setAnalysisError(`Analyse fehlgeschlagen: ${finalStatus.error}`);
+      } else {
+        setAnalysisError("Analyse dauert länger als erwartet. Seite neu laden oder später erneut versuchen.");
+      }
+      setStatus(finalStatus?.error ? "error" : "connected");
       return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

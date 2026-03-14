@@ -29,6 +29,7 @@ AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "21600"))
 async def lifespan(app: FastAPI):
     init_otel()  # OpenTelemetry TracerProvider + OTLP exporter when OTEL_EXPORTER_OTLP_ENDPOINT set
     app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
+    app.state.analysis_last_error = {}  # conflict -> error message when background run failed
     app.state.job_queue = JobQueue()
 
     async def run_periodic_analysis():

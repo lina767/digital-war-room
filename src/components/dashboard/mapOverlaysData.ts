@@ -94,6 +94,45 @@ export const SEA_LANES: MapPolyline[] = [
   },
 ];
 
+export interface ChokePointZone {
+  id: string;
+  name: string;
+  /** [lon, lat] vertices forming a closed polygon */
+  vertices: [number, number][];
+}
+
+/**
+ * Chokepoint zone polygons for overlay rendering.
+ * Coordinates in [lon, lat] (GeoJSON order). Polygons match backend compliance/zones.py.
+ */
+export const CHOKEPOINT_ZONES: ChokePointZone[] = [
+  {
+    id: "zone-hormuz",
+    name: "Strait of Hormuz",
+    vertices: [
+      [55.5, 26.0], [55.0, 27.2], [56.5, 27.0],
+      [57.5, 26.5], [57.0, 25.8], [56.0, 25.5],
+      [55.5, 26.0],
+    ],
+  },
+  {
+    id: "zone-bab-el-mandeb",
+    name: "Bab el-Mandeb",
+    vertices: [
+      [43.0, 12.4], [43.0, 12.8], [43.6, 12.8],
+      [43.6, 12.4], [43.0, 12.4],
+    ],
+  },
+  {
+    id: "zone-suez",
+    name: "Suez Canal",
+    vertices: [
+      [32.2, 29.8], [32.2, 31.3], [32.6, 31.3],
+      [32.6, 29.8], [32.2, 29.8],
+    ],
+  },
+];
+
 /** Generate polygon points for a circle (WGS84 approx). Returns [lon, lat][] closed ring. */
 export function circlePoints(centerLon: number, centerLat: number, radiusKm: number, steps = 64): [number, number][] {
   const points: [number, number][] = [];

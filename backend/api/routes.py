@@ -30,18 +30,27 @@ def _get_cache(request: Request):
     return getattr(request.app.state, "analysis_cache", {})
 
 
+def _get_last_error(request: Request):
+    return getattr(request.app.state, "analysis_last_error", {})
+
+
 @router.get("/analyze/status")
 async def analyze_status(request: Request, conflict: str = "Iran"):
     """
     GET /analyze/status?conflict=Iran
-    Leichtgewichtige Antwort: ob Cache existiert und wann zuletzt aktualisiert.
-    Hilft dem Frontend zu unterscheiden: Backend down vs. noch keine Analyse.
+    Leichtgewichtige Antwort: ob Cache existiert, wann zuletzt aktualisiert,
+    und ob die letzte Background-Analyse fehlgeschlagen ist (error).
     """
     cache = _get_cache(request)
+    last_error = _get_last_error(request)
     entry = cache.get(conflict)
-    if not entry:
-        return {"cached": False, "conflict": conflict}
-    return {"cached": True, "conflict": conflict, "at": entry.get("at")}
+    out = {"cached": bool(entry), "conflict": conflict}
+    if entry:
+        out["at"] = entry.get("at")
+    err = last_error.get(conflict)
+    if err:
+        out["error"] = err
+    return out
 
 
 @router.get("/analyze/latest")
@@ -77,32 +86,56 @@ async def analyze(request: Request, body: AnalyzeRequest):
     return entry["result"]
 
 
+# Max wall-clock time for a single analysis run (e.g. OFAC + 11 agents + LLM).
+ANALYZE_TIMEOUT_SEC = 300  # 5 minutes
+
+
 @router.get("/analyze/refresh")
 async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool = False):
     """
     GET /analyze/refresh?conflict=Iran
     Kicks off a full analysis in the background and returns immediately.
     Add &sync=true to run synchronously and see errors (may timeout on Railway).
+    On failure, error is stored and returned via GET /analyze/status.
     """
     app_state = request.app.state
+    last_error = _get_last_error(request)
+    last_error.pop(conflict, None)  # clear previous error when starting a new run
 
     if sync:
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
+                timeout=float(ANALYZE_TIMEOUT_SEC),
+            )
             app_state.analysis_cache[conflict] = {"result": result, "at": time.time()}
             return {"status": "ok", "conflict": conflict}
+        except asyncio.TimeoutError:
+            msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
+            last_error[conflict] = msg
+            return JSONResponse(status_code=504, content={"error": msg, "conflict": conflict})
         except Exception as e:
             import traceback
+            last_error[conflict] = str(e)
             return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
     async def _run_in_background():
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+            result = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
+                timeout=float(ANALYZE_TIMEOUT_SEC),
+            )
             app_state.analysis_cache[conflict] = {"result": result, "at": time.time()}
+            last_error.pop(conflict, None)
             print(f"[refresh] Analysis for {conflict} done and cached.")
+        except asyncio.TimeoutError:
+            msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
+            last_error[conflict] = msg
+            print(f"[refresh] Analysis for {conflict} failed: {msg}")
         except Exception as e:
+            last_error[conflict] = str(e)
             print(f"[refresh] Analysis for {conflict} failed: {e}")
 
     asyncio.create_task(_run_in_background())

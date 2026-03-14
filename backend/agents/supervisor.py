@@ -23,6 +23,7 @@ from .protest_agent import run_protest_agent
 from .diplo_agent import run_diplo_agent
 from .proximity_agent import run_proximity_agent
 from .signal_framework_agent import run_signal_framework_agent
+from .chokepoint_agent import run_chokepoint_agent, enrich_chokepoints
 from .predictive import build_predictive_block
 from .acled_reference import fetch_acled_reference_analyses_sync
 from compliance.geofencing import check_sigint_for_sanctions
@@ -47,9 +48,9 @@ def _result_or_fallback(future, agent_name: str, fallback: Dict[str, Any]) -> Di
 
 
 def _collect_all_agents(conflict: str) -> Dict[str, Any]:
-    """Run all 11 intelligence agents + ACLED reference in parallel."""
+    """Run all 12 intelligence agents + ACLED reference in parallel."""
     with traced("analysis.collection", {"conflict": conflict}):
-        with ThreadPoolExecutor(max_workers=12) as executor:
+        with ThreadPoolExecutor(max_workers=14) as executor:
             futures = {
                 "finint":   (executor.submit(run_finint_agent, conflict), {"escalation_score": 0.0, "brent": None, "polymarket": []}),
                 "sigint":   (executor.submit(run_sigint_agent, conflict), {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []}),
@@ -63,6 +64,7 @@ def _collect_all_agents(conflict: str) -> Dict[str, Any]:
                 "diplo":    (executor.submit(run_diplo_agent, conflict), {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []}),
                 "proximity":(executor.submit(run_proximity_agent, conflict), {"proximity_score": 0.0, "evidence": [], "summary": ""}),
                 "narrative": (executor.submit(run_signal_framework_agent, conflict), {"synthesis_text": "", "synthesis_probability": 0.0, "source_comparison_table": [], "signal_assessment": {}, "anomalies": []}),
+                "chokepoint": (executor.submit(run_chokepoint_agent, conflict), {"chokepoint_score": 0.0, "chokepoints": [], "summary": ""}),
             }
             acled_ref_f = executor.submit(fetch_acled_reference_analyses_sync, conflict)
 
@@ -90,10 +92,11 @@ _SUPERVISOR_SYSTEM_PROMPT = """You are a senior intelligence analyst with access
 - SOCMINT: Social media signals from Telegram, Reddit, and RSS
 - TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
 - CYBER: CISA KEV, threat intel reports, OTX pulses (APT/exploit indicators)
-- ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI)
+- ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI), food commodities (Wheat, Corn, Soy), FAO Food Price Index, fertilizer prices (Urea, DAP), food security risk
 - PROTEST: ACLED protests/riots, GDELT protest coverage (civil society unrest)
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 - PROXIMITY: Strike–civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
+- CHOKEPOINT: Maritime chokepoint monitoring (Strait of Hormuz, Bab el-Mandeb, Suez Canal) – tanker density, oil flow estimates, disruption risk scoring, data quality transparency
 
 When the payload includes "narrative", this is the Signal Framework: state vs exile/independent media comparison (e.g. IRNA/Fars vs Iran International/Radio Farda). Use synthesis_text, synthesis_probability, and source_comparison_table to inform key_findings and summary when relevant (e.g. information vacuum, framing divergence).
 
@@ -151,12 +154,16 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(items, list):
             out[f"{key}_count"] = len([i for i in items if isinstance(i, dict) and "error" not in i])
     for key in ("brent", "polymarket", "cisa_kev", "ofac_sdn", "eu_sanctions",
-                "agsi_storage", "greynoise_scan_context"):
+                "agsi_storage", "greynoise_scan_context",
+                "food_commodities", "fao_fpi", "fertilizer", "food_security_risk"):
         val = result.get(key)
         if val is not None:
             s = json.dumps(val, default=str)
             if len(s) < 500:
                 out[key] = val
+    if agent_name == "chokepoint":
+        out["chokepoints"] = (result.get("chokepoints") or [])[:5]
+        out["chokepoint_score"] = result.get("chokepoint_score", 0.0)
     if agent_name == "narrative":
         out["synthesis_text"] = (result.get("synthesis_text") or "")[:500]
         out["synthesis_probability"] = result.get("synthesis_probability")
@@ -227,43 +234,46 @@ def _rule_based_fallback(combined_score: float) -> Dict[str, Any]:
 def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     """Synthesize all agent results into a single assessment."""
     acled_refs       = agent_results.get("acled_refs") or []
-    finint_result    = agent_results.get("finint") or {}
-    sigint_result    = agent_results.get("sigint") or {}
-    news_result      = agent_results.get("news") or {}
-    geoint_result    = agent_results.get("geoint") or {}
-    socmint_result   = agent_results.get("socmint") or {}
-    techint_result   = agent_results.get("techint") or {}
-    cyber_result     = agent_results.get("cyber") or {}
-    energy_result    = agent_results.get("energy") or {}
-    protest_result   = agent_results.get("protest") or {}
-    diplo_result     = agent_results.get("diplo") or {}
-    proximity_result = agent_results.get("proximity") or {}
-    narrative_result = agent_results.get("narrative") or {}
+    finint_result     = agent_results.get("finint") or {}
+    sigint_result     = agent_results.get("sigint") or {}
+    news_result       = agent_results.get("news") or {}
+    geoint_result     = agent_results.get("geoint") or {}
+    socmint_result    = agent_results.get("socmint") or {}
+    techint_result    = agent_results.get("techint") or {}
+    cyber_result      = agent_results.get("cyber") or {}
+    energy_result     = agent_results.get("energy") or {}
+    protest_result    = agent_results.get("protest") or {}
+    diplo_result      = agent_results.get("diplo") or {}
+    proximity_result  = agent_results.get("proximity") or {}
+    narrative_result  = agent_results.get("narrative") or {}
+    chokepoint_result = agent_results.get("chokepoint") or {}
 
-    finint_score    = float(finint_result.get("escalation_score", 0.0))
-    sigint_score    = float(sigint_result.get("sigint_score", 0.0))
-    news_score      = float(news_result.get("news_score", 0.0))
-    geoint_score    = float(geoint_result.get("geoint_score", 0.0))
-    socmint_score   = float(socmint_result.get("socmint_score", 0.0))
-    techint_score   = float(techint_result.get("techint_score", 0.0))
-    cyber_score     = float(cyber_result.get("cyber_score", 0.0))
-    energy_score    = float(energy_result.get("energy_score", 0.0))
-    protest_score   = float(protest_result.get("protest_score", 0.0))
-    diplo_score     = float(diplo_result.get("diplo_score", 0.0))
-    proximity_score = float(proximity_result.get("proximity_score", 0.0))
+    finint_score     = float(finint_result.get("escalation_score", 0.0))
+    sigint_score     = float(sigint_result.get("sigint_score", 0.0))
+    news_score       = float(news_result.get("news_score", 0.0))
+    geoint_score     = float(geoint_result.get("geoint_score", 0.0))
+    socmint_score    = float(socmint_result.get("socmint_score", 0.0))
+    techint_score    = float(techint_result.get("techint_score", 0.0))
+    cyber_score      = float(cyber_result.get("cyber_score", 0.0))
+    energy_score     = float(energy_result.get("energy_score", 0.0))
+    protest_score    = float(protest_result.get("protest_score", 0.0))
+    diplo_score      = float(diplo_result.get("diplo_score", 0.0))
+    proximity_score  = float(proximity_result.get("proximity_score", 0.0))
+    chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
 
     combined_score = (
-        finint_score   * 0.10 +
-        sigint_score   * 0.13 +
-        news_score     * 0.10 +
-        geoint_score   * 0.08 +
-        socmint_score  * 0.10 +
-        techint_score  * 0.08 +
-        cyber_score    * 0.08 +
-        energy_score   * 0.08 +
-        protest_score  * 0.08 +
-        diplo_score    * 0.07 +
-        proximity_score * 0.10
+        finint_score    * 0.09 +
+        sigint_score    * 0.12 +
+        news_score      * 0.09 +
+        geoint_score    * 0.07 +
+        socmint_score   * 0.09 +
+        techint_score   * 0.07 +
+        cyber_score     * 0.07 +
+        energy_score    * 0.07 +
+        protest_score   * 0.07 +
+        diplo_score     * 0.06 +
+        proximity_score * 0.09 +
+        chokepoint_score * 0.11
     )
 
     agent_scores_for_predictive = {
@@ -462,11 +472,57 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(ref, dict) and ref.get("title") and "error" not in str(ref.get("excerpt", ""))[:50]:
             key_findings.append(f"ACLED reference – {ref.get('title', '')[:70]}")
 
+    # ── Chokepoint findings ──────────────────────────────────────────────────────
+    for cp in (chokepoint_result.get("chokepoints") or []):
+        if not isinstance(cp, dict):
+            continue
+        risk = cp.get("disruption_risk", 0)
+        status = cp.get("status", "OPEN")
+        name = cp.get("name", "")
+        dq = cp.get("data_quality", "")
+        if risk >= 60 or status != "OPEN":
+            key_findings.append(
+                f"CHOKEPOINT – {name}: {status} (risk {risk:.0f}/100, "
+                f"~{cp.get('oil_flow_estimate_mbd', 0)} mbd, "
+                f"{cp.get('tanker_count', 0)} tankers [{dq}])"
+            )
+    if chokepoint_score >= 50:
+        key_findings.append(f"CHOKEPOINT – Composite chokepoint risk {chokepoint_score:.0f}/100")
+
+    # ── Food security findings ───────────────────────────────────────────────────
+    food_risk = float(energy_result.get("food_security_risk", 0))
+    if food_risk >= 50:
+        food_items = energy_result.get("food_commodities") or []
+        food_movers = [f"{c.get('symbol')} {c.get('change_pct', '')}" for c in food_items
+                       if isinstance(c, dict) and c.get("change_pct_raw") is not None
+                       and abs(c.get("change_pct_raw", 0)) > 3]
+        detail = f" ({', '.join(food_movers[:3])})" if food_movers else ""
+        key_findings.append(
+            f"Global impact – Food security risk {food_risk:.0f}/100{detail} – "
+            f"chokepoint disruption threatens grain/fertilizer flows"
+        )
+    fao = energy_result.get("fao_fpi") or {}
+    if fao.get("yoy_change_pct") and fao["yoy_change_pct"] > 10:
+        key_findings.append(
+            f"ENERGY (FAO FPI) – Food Price Index {fao.get('index', '?')} "
+            f"({fao['yoy_change_pct']:+.1f}% YoY) – elevated global food stress"
+        )
+
     # ── Iran conflict: actors with activity from key_findings ─────────────────────
     actors = _build_iran_actors(key_findings) if conflict and "iran" in conflict.lower() else []
 
     # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
     predictive = build_predictive_block(conflict, combined_score, agent_scores_for_predictive)
+
+    # ── Chokepoint enrichment (cross-reference with other agents) ───────────
+    chokepoint_enriched = enrich_chokepoints(
+        chokepoint_data=chokepoint_result,
+        sigint_data=sigint_result,
+        energy_data=energy_result,
+        news_data=news_result,
+        diplo_data=diplo_result,
+    )
+    agent_results["chokepoint"] = chokepoint_enriched
 
     # ── Compliance: geofencing, AIS anomalies, supply chain, OFAC/EU, risk ──
     sigint_data = agent_results.get("sigint") or {}
@@ -575,6 +631,7 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "diplo":    synthesis.get("diplo", {}),
         "proximity": synthesis.get("proximity", {}),
         "narrative": synthesis.get("narrative", {}),
+        "chokepoint": synthesis.get("chokepoint", {}),
         "escalation_score": synthesis.get("escalation_score", 0.0),
         "threat_level":     synthesis.get("threat_level", "MINIMAL"),
         "key_findings":     synthesis.get("key_findings", []),

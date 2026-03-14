@@ -25,6 +25,13 @@ export function DashboardMapSection({
   const geointAnomalies = conflictData?.geoint?.anomalies ?? [];
   const sigintAircraft = conflictData?.sigint?.aircraft ?? [];
   const sigintShips = conflictData?.sigint?.ships ?? [];
+  const chokepointStatuses = (conflictData?.chokepoint?.chokepoints ?? []).map(
+    (cp: { name: string; status: string; disruption_risk: number }) => ({
+      name: cp.name,
+      status: cp.status as "OPEN" | "RESTRICTED" | "DISRUPTED",
+      disruption_risk: cp.disruption_risk,
+    }),
+  );
 
   return (
     <main className="flex-[0_1_50%] min-h-0 min-w-0 relative overflow-hidden flex flex-col">
@@ -36,6 +43,7 @@ export function DashboardMapSection({
           geointAnomalies={geointAnomalies as GeointAnomaly[]}
           sigintAircraft={sigintAircraft as SigintAircraft[]}
           sigintShips={sigintShips as SigintShip[]}
+          chokepointStatuses={chokepointStatuses}
         />
       </div>
 

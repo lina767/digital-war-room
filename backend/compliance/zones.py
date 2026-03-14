@@ -136,6 +136,28 @@ FUJAIRAH_ANCHORAGE = PolygonZone(
     source="OFAC maritime advisory 2025 (STS transfer zone)",
 )
 
+# Bab el-Mandeb strait: connects Red Sea to Gulf of Aden (~6 mbd oil transit)
+BAB_EL_MANDEB = PolygonZone(
+    "BAB_EL_MANDEB",
+    vertices=[
+        (12.4, 43.0), (12.8, 43.0), (12.8, 43.6),
+        (12.4, 43.6),
+    ],
+    zone_type="high_risk",
+    source="internal (chokepoint monitoring)",
+)
+
+# Suez Canal: ~5 mbd oil transit, ~12% global trade
+SUEZ_CANAL = PolygonZone(
+    "SUEZ_CANAL",
+    vertices=[
+        (29.8, 32.2), (31.3, 32.2), (31.3, 32.6),
+        (29.8, 32.6),
+    ],
+    zone_type="high_risk",
+    source="internal (chokepoint monitoring)",
+)
+
 # ── Broader Middle East / conflict zones ──────────────────────────────────────
 
 PERSIAN_GULF = Zone("PERSIAN_GULF", 22.0, 32.0, 46.0, 62.0, "high_risk", "internal")
@@ -156,8 +178,14 @@ LUHANSK_DONETSK = Zone("LUHANSK_DONETSK", 47.0, 50.0, 37.0, 41.0, "embargo", "EU
 
 CONFLICT_ZONES: List[AnyZone] = [
     PERSIAN_GULF, RED_SEA, EASTERN_MED, GULF_OF_ADEN, IRAQ_IRAN,
-    IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ,
+    IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ, BAB_EL_MANDEB, SUEZ_CANAL,
 ]
+
+CHOKEPOINT_ZONES: Dict[str, PolygonZone] = {
+    "Strait of Hormuz": STRAIT_OF_HORMUZ,
+    "Bab el-Mandeb": BAB_EL_MANDEB,
+    "Suez Canal": SUEZ_CANAL,
+}
 
 SANCTIONS_ZONES: List[AnyZone] = [
     IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ, FUJAIRAH_ANCHORAGE,

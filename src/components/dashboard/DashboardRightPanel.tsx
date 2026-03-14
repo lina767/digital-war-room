@@ -1,5 +1,6 @@
 import { UpdatedBriefing } from "@/components/dashboard/UpdatedBriefing";
 import { GlobalImpactPanel } from "@/components/dashboard/GlobalImpactPanel";
+import { ChokePointPanel } from "@/components/dashboard/ChokePointPanel";
 import { LatestHeadlines } from "@/components/dashboard/LatestHeadlines";
 import { EventsTimeline } from "@/components/dashboard/EventsTimeline";
 import { EvidenceCard } from "@/components/dashboard/EvidenceCard";
@@ -75,6 +76,7 @@ export function DashboardRightPanel({
         <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
         <PredictivePanel data={conflictData} />
         <CompliancePanel data={conflictData} />
+        <ChokePointPanel data={conflictData} />
         <GlobalImpactPanel data={conflictData} />
         <LatestHeadlines data={conflictData} maxItems={15} />
         <EventsTimeline data={conflictData} />
@@ -114,7 +116,7 @@ export function DashboardRightPanel({
       </div>
 
       <p className="mt-4 pt-3 border-t border-border text-[10px] text-muted-foreground">
-        Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise
+        Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise · FAO · EIA · AIS
       </p>
     </aside>
   );

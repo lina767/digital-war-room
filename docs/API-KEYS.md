@@ -11,7 +11,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **ANTHROPIC_API_KEY** oder **OPENAI_API_KEY** | `backend/agents/llm_factory.py` – Supervisor (LLM-Synthese) | **Anthropic:** [console.anthropic.com](https://console.anthropic.com/) → API Keys. **OpenAI:** [platform.openai.com/api-keys](https://platform.openai.com/api-keys). |
 | **NEWS_API_KEY** | `backend/agents/news_agent.py` | [newsapi.org/register](https://newsapi.org/register) – kostenloser Plan verfügbar. |
 | **NASA_FIRMS_KEY** | `backend/agents/geoint_agent.py` (NASA FIRMS) | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/) → „Request Key“ (kostenlos). |
-| **ALPHAVANTAGE_API_KEY** | `backend/agents/finint_agent.py`, `energy_agent.py`, `techint_agent.py` | [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) – kostenloser Key. |
+| **ALPHAVANTAGE_API_KEY** | `backend/agents/finint_agent.py`, `energy_agent.py`, `techint_agent.py` | [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) – kostenloser Key. Wird für Öl (Brent, WTI) und Food-Commodities (Wheat, Corn, Soybean) genutzt. |
 
 ---
 
@@ -20,8 +20,9 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | Key | Verwendung im Code | Bezugsquelle |
 |-----|---------------------|--------------|
 | **OTX_API_KEY** | `backend/agents/cyber_agent.py` – AlienVault OTX (Threat Intel) | [otx.alienvault.com](https://otx.alienvault.com/) → Sign Up → Einstellungen (Avatar) → API Key. Kostenlos. |
-| **GREYNOISE_API_KEY** | `backend/agents/cyber_agent.py` (Scan-Kontext), `backend/agents/greynoise_agent.py` (Emerging Threats: GNQL Stats, CVE Lookup, Tags API) | [greynoise.io](https://www.greynoise.io/) → Account → API Key. VIP Researcher Community Access empfohlen für GNQL Stats + CVE-Endpunkte. Scheduler läuft alle 6h (konfigurierbar via `GREYNOISE_SCHEDULER_INTERVAL_SEC`). Konflikte: `GREYNOISE_CONFLICTS` (Default: `Iran,Gaza/Israel,Lebanon,Yemen,Middle East`). |
+| **GREYNOISE_API_KEY** | `backend/agents/cyber_agent.py` (Scan-Kontext), `backend/agents/greynoise_agent.py` (Emerging Threats: GNQL Stats, CVE Lookup, Tags API) | [greynoise.io](https://www.greynoise.io/) → Account → API Key. VIP Researcher Community Access empfohlen für GNQL Stats + CVE-Endpunkte. Scheduler läuft alle 6h (konfigurierbar via `GREYNOISE_SCHEDULER_INTERVAL_SEC`). Konflikte: `GREYNOISE_CONFLICTS` (Default: `Iran,Israel,USA,UAE,Saudi Arabia,Lebanon,Jordan,Gaza/Israel,Yemen,Middle East`). **Iran-Konflikt:** Es werden zusätzlich getrackt: Iran, Iraq, Syria, Lebanon; Gulf (UAE, Bahrain, Qatar, Kuwait, Oman); Saudi Arabia, Jordan; Turkey, Pakistan, Azerbaijan, Afghanistan (siehe `GREYNOISE_COUNTRY_FILTERS` in `greynoise_agent.py`). |
 | **AGSI_API_KEY** | `backend/agents/energy_agent.py` – EU-Gasspeicher (AGSI+) | [agsi.gie.eu/account](https://agsi.gie.eu/account) – Registrierung (kostenlos). Key nach Login in der API-Doku. |
+| **EIA_API_KEY** | `backend/agents/chokepoint_agent.py` – EIA API (Persian Gulf Oil Export Baseline, monatlich) | [eia.gov/opendata/register](https://www.eia.gov/opendata/register.php) – kostenloser API-Key. Ohne Key: Chokepoint-Agent nutzt nur Baseline-Werte (data_quality: baseline_only/estimated). |
 | **ACLED_EMAIL** | `backend/agents/protest_agent.py`, `geoint_agent.py`, `services/acled_auth.py` | Deine myACLED-Registrierungs-E-Mail. **OAuth (empfohlen):** zusammen mit `ACLED_PASSWORD` für Token-Auth. |
 | **ACLED_PASSWORD** | `backend/services/acled_auth.py` – OAuth Token-Abruf | Dein myACLED-Passwort. Mit `ACLED_EMAIL` erhält die App ein Zugangs-Token (24h gültig) gemäß [ACLED API Getting started](https://acleddata.com/api-documentation/getting-started). |
 | **ACLED_API_KEY** | (Legacy) Falls ACLED noch einen API-Key anbietet | Optional; primär wird **OAuth (ACLED_EMAIL + ACLED_PASSWORD)** genutzt. |
@@ -42,9 +43,11 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **SHODAN_API_KEY** | `backend/agents/techint_agent.py` – Shodan Host-Counts | [account.shodan.io](https://account.shodan.io/) – Registrierung, API Key im Dashboard. |
 | **CLOUDFLARE_RADAR_API_TOKEN** | `backend/agents/techint_agent.py` – Outage-Annotations | [dash.cloudflare.com](https://dash.cloudflare.com/) → Radar / API. |
 | **WIGLE_API_TOKEN** (und optional **WIGLE_API_NAME**) | `backend/agents/techint_agent.py` – Wigle.net WLAN-Datenbank (TECHINT) | [wigle.net](https://wigle.net/) – Account, API-Token im Profil. Entweder nur **WIGLE_API_TOKEN** = `username:token`, oder **WIGLE_API_NAME** + **WIGLE_API_TOKEN** getrennt. |
-| **SPIRE_MARITIME_API_KEY** | `backend/agents/sigint_agent.py` – Spire Maritime (Schiffe/AIS) | [spire.com](https://spire.com/) – Maritime API. |
+| **SPIRE_MARITIME_API_KEY** | `backend/agents/sigint_agent.py`, `chokepoint_agent.py` – Spire Maritime (Schiffe/AIS, Tanker in Chokepoints) | [spire.com](https://spire.com/) – Maritime API. Alternativ **SPIRE_API_KEY**. Optional: **SPIRE_MARITIME_BASE_URL** (Default: `https://api.sense.spire.com`). |
 | **SPIRE_AIRSAFE_TOKEN** | `backend/agents/sigint_agent.py` – Spire Airsafe (Flugzeug-Tracking) | [api.airsafe.spire.com](https://api.airsafe.spire.com) – Bearer Token. Endpoint: `/v2/targets/stream` (Batch mit start/end). Alternativ: **SPIRE_API_KEY** falls ein Token für alle Spire-APIs. |
-| **ADSBEXCHANGE_RAPIDAPI_KEY** | `backend/agents/sigint_agent.py` – ADSBexchange (Flugzeuge/Target-Tracking) via RapidAPI | [RapidAPI: ADSBexchange](https://rapidapi.com/adsbx/api/adsbexchange-com1) – Key nach Anmeldung. Alternativ: **RAPIDAPI_KEY** (falls nur eine RapidAPI-App). Host optional: **ADSBEXCHANGE_RAPIDAPI_HOST** (Default: `adsbexchange-com1.p.rapidapi.com`). **Mehrere Flugzeuge:** Ziele in `TARGET_AIRCRAFT` (Code) oder per Env: **TARGET_AIRCRAFT_EXTRA** = kommagetrennte Namen (z. B. `AF1,RAFSHADOW1`), pro Ziel optional **TARGET_&lt;NAME&gt;_HEX** = ICAO-Hex. **Kostenanalyse siehe unten.** |
+| **AISHUB_USERNAME** | `backend/agents/chokepoint_agent.py` – AISHub (Community-AIS, Tanker-Dichte) | [aishub.net](https://www.aishub.net/) – kostenloser Account, Username für API. Ohne Key: Chokepoint nutzt EIA-Baseline + News-Signale (data_quality: estimated/baseline_only). |
+| **MARINETRAFFIC_API_KEY** | `backend/agents/chokepoint_agent.py` – MarineTraffic (Area-Queries, Schiffstypfilter) | [marinetraffic.com](https://www.marinetraffic.com/en/ais-api-services) – Basic-Tier ca. 15 $/Monat. Ohne Key: Fallback auf AISHub/Spire oder Baseline. |
+| **ADSBEXCHANGE_RAPIDAPI_KEY** | `backend/agents/sigint_agent.py` – ADSBexchange via RapidAPI | [RapidAPI: ADSBexchange](https://rapidapi.com/adsbx/api/adsbexchange-com1). **Nutzung:** (1) **Militärflugzeug-Liste:** 4 Regionen × 2 Kreise (100 nm) = 8 Requests, merge mit adsb.fi/adsb.lol. (2) **Tracked Targets:** Abfrage per **Callsign** (`/api/aircraft/call/{callsign}`), dann ICAO, dann Region-Scan. Host optional: **ADSBEXCHANGE_RAPIDAPI_HOST**. Ziele: `TARGET_AIRCRAFT` bzw. **TARGET_AIRCRAFT_EXTRA**, pro Ziel optional **TARGET_&lt;NAME&gt;_HEX**. **Kostenanalyse siehe unten.** |
 | **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program (GED events) | Bei UCDP anfragen ([ucdp.uu.se](https://ucdp.uu.se/), [API-Doku](https://ucdp.uu.se/apidocs/)). Header: `x-ucdp-access-token`. **Limit:** 5.000 Requests/Tag (Mitternacht UTC); jeder paginierte Request zählt. |
 | **LIVEUAMAP_API_KEY** | GEOINT (Liveuamap, falls integriert) | Liveuamap – oft kostenpflichtig. |
 | **NOTAM_API_KEY** | `backend/agents/iaea_tracker.py` – NOTAM (Autorouter.aero) | [autorouter.aero](https://www.autorouter.aero/) – falls der Endpunkt Auth verlangt. |
@@ -56,8 +59,8 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 
 | Faktor | Wert in diesem Projekt |
 |--------|-------------------------|
-| **Aufrufer** | Nur `get_target_aircraft("OE-III")` im SIGINT-Agent, pro Analyse-Lauf **1×** ausgeführt. |
-| **Requests pro Lauf** | **1–2** (zuerst ICAO-Lookup, falls leer: ein Region-Call 35°N/25°E, 100 nm). |
+| **Aufrufer** | (1) `get_military_aircraft`: **8** Region-Requests (4 Regionen × 2 Kreise). (2) `get_target_aircraft` pro Ziel: Callsign-Lookups, ggf. ICAO, ggf. mehrere Region-Scans. |
+| **Requests pro Lauf** | **ca. 8–20+** (8 für Militärliste + 1–4 pro Tracked Target je nach Treffer). |
 | **Automatische Läufe** | `main.py`: periodische Analyse alle **6 h** (Default `AUTO_ANALYZE_INTERVAL_SEC=21600`). → **4 Läufe/Tag** ≈ **120 Läufe/Monat**. |
 | **Manuelle/API-Läufe** | `/api/analyze/refresh`, Trigger, Sync – je nach Nutzung grob **0–50** zusätzliche Läufe/Monat. |
 | **RapidAPI-Requests/Monat** | **~120–350** (bei 6-h-Intervall + wenig manuell). Selbst bei 1-h-Intervall: ≈ 720–1 500. |
@@ -85,8 +88,12 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 
 ## Wo die Keys eintragen
 
-- **Lokal:** `backend/.env` (nicht committen).  
+- **Lokal:** `backend/.env` (nicht committen). Vorlage: `backend/.env.example` (Keys leer/auskommentiert).  
 - **Produktion:** Railway (Backend) → Variables; Vercel (Frontend) nur für `VITE_*` (z. B. `VITE_API_URL`, `VITE_SUPABASE_*`).
+
+**Kurzfassung – Chokepoint & Food-Commodities:**  
+- **Keine neuen Pflicht-Keys.** ALPHAVANTAGE_API_KEY (bereits Pflicht) deckt Öl + Wheat/Corn/Soy. FAO und World-Bank-Fertilizer laufen ohne Key.  
+- **Optional für bessere Chokepoint-Daten:** `EIA_API_KEY` (kostenlos), `AISHUB_USERNAME` (kostenlos), `SPIRE_MARITIME_API_KEY` (falls schon für SIGINT), `MARINETRAFFIC_API_KEY` (kostenpflichtig). Ohne diese Keys nutzt der Chokepoint-Agent Baseline + News-Signale und setzt `data_quality` auf „estimated“ bzw. „baseline_only“.
 
 Beispiel `backend/.env` (ohne echte Werte):
 
@@ -116,10 +123,18 @@ ACLED_PASSWORD=dein_myACLED_passwort
 # Optional – SIGINT: ADSBexchange via RapidAPI (Flugzeug-Tracking, z. B. OE-III). https://rapidapi.com/adsbx/api/adsbexchange-com1
 # ADSBEXCHANGE_RAPIDAPI_KEY=...
 
+# Optional – CHOKEPOINT / Maritime: Live-AIS für Tanker-Dichte (ohne Keys: Baseline + News-Signale)
+# EIA_API_KEY=...                    # EIA – Persian Gulf Oil Export Baseline (kostenlos)
+# AISHUB_USERNAME=...                 # AISHub – Community-AIS (kostenlos)
+# MARINETRAFFIC_API_KEY=...           # MarineTraffic – Area-Queries (~15 $/Mo)
+# SPIRE_MARITIME_API_KEY=...          # siehe SIGINT; wird auch von chokepoint_agent genutzt
+
 # Optional – FININT: Gold, On-Chain-Wallets (TRACKED_ETH_ADDRESSES in finint_agent.py)
 # METALS_API_KEY=...
 # ETHEREUM_ETHERSCAN_API_KEY=...
 ```
+
+**Energy/Food-Commodities:** FAO Food Price Index und World-Bank-Fertilizer (Urea/DAP) werden **ohne API-Key** per öffentlichem CSV bzw. World-Bank-API abgerufen. Für Öl und Getreide (Wheat, Corn, Soy) reicht **ALPHAVANTAGE_API_KEY** (bereits unter Pflicht gelistet).
 
 **Etherscan Free Tier:** Max. 3 Requests/Sekunde (im Code durch Verzögerung zwischen Abfragen eingehalten), bis zu 100.000 Calls/Tag. **Attribution** ist vorgeschrieben – in der App z. B. „Data by Etherscan“ oder Link zu etherscan.io anzeigen. Die Antwort von `get_tracked_chain_wallets` enthält einen `_attribution`-Eintrag. Nur Community-Endpoints, ca. 90 % Multichain-Abdeckung.
 

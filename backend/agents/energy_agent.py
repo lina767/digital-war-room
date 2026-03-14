@@ -1,25 +1,49 @@
 """
-ENERGY / Commodities Agent – Gas storage (AGSI+), commodity indices, optional FAO/Comtrade.
-Fetches: EU gas storage (AGSI+), optional commodity prices (Alpha Vantage), humanitarian/price indices.
+ENERGY / Commodities Agent – Gas storage (AGSI+), commodity indices, food & fertilizer.
+Fetches: EU gas storage (AGSI+), oil + food commodity prices (Alpha Vantage),
+FAO Food Price Index, World Bank fertilizer prices, and computes food_security_risk.
 Rule-based score from storage levels and price volatility. No LLM.
 """
 import asyncio
+import csv
+import io
+import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
 from .utils import run_async
 
+logger = logging.getLogger(__name__)
+
 # AGSI+ API (free with registration) – EU gas storage
 AGSI_BASE = "https://agsi.gie.eu/api"
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 
-# Commodity symbols for conflict-relevant markets (Alpha Vantage: function name, label)
-COMMODITY_SYMBOLS = [
+OIL_SYMBOLS = [
     ("BRENT", "Brent crude"),
     ("WTI", "WTI crude"),
 ]
+
+FOOD_SYMBOLS = [
+    ("WHEAT", "Wheat"),
+    ("CORN", "Corn"),
+    ("SOYBEAN", "Soybean"),
+]
+
+COMMODITY_SYMBOLS = OIL_SYMBOLS + FOOD_SYMBOLS
+
+# FAO Food Price Index CSV (free, monthly)
+FAO_FPI_URL = "https://www.fao.org/fileadmin/templates/worldfood/Reports_and_docs/Food_price_indices_data_jul14.csv"
+
+# World Bank commodity prices API (free, monthly)
+WORLD_BANK_COMMODITIES_URL = "https://api.worldbank.org/v2/country/WLD/indicator"
+UREA_INDICATOR = "COMMODITY.FERTILIZER.UREA"
+DAP_INDICATOR = "COMMODITY.FERTILIZER.DAP"
+
+# Countries heavily exposed to food imports via Hormuz / Bab el-Mandeb
+EXPOSED_COUNTRIES = ["Egypt", "Yemen", "Somalia", "Djibouti", "Ethiopia", "Sudan"]
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -62,13 +86,181 @@ async def _fetch_agsi_storage(api_key: str) -> Dict[str, Any]:
         return {"full": [], "error": str(e)}
 
 
-async def _fetch_commodity_prices(api_key: str) -> List[Dict[str, Any]]:
-    """Fetch commodity quotes from Alpha Vantage (reuse ALPHAVANTAGE_API_KEY)."""
+async def _fetch_fao_fpi() -> Dict[str, Any]:
+    """Fetch FAO Food Price Index (monthly, free CSV)."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(FAO_FPI_URL, follow_redirects=True)
+            if resp.status_code != 200:
+                return {"error": f"FAO FPI HTTP {resp.status_code}"}
+            reader = csv.reader(io.StringIO(resp.text))
+            rows = list(reader)
+            if len(rows) < 3:
+                return {"error": "FAO FPI: insufficient data"}
+            header = [h.strip().lower() for h in rows[0]]
+            # Find "food price index" or "date" columns
+            date_col = next((i for i, h in enumerate(header) if "date" in h), 0)
+            fpi_col = next(
+                (i for i, h in enumerate(header) if "food" in h and "price" in h and "index" in h),
+                next((i for i, h in enumerate(header) if "nominal" in h), 1),
+            )
+            latest = rows[-1]
+            prev_year_row = rows[-13] if len(rows) > 13 else rows[1]
+            index_val = _safe_float(latest[fpi_col]) if fpi_col < len(latest) else None
+            prev_val = _safe_float(prev_year_row[fpi_col]) if fpi_col < len(prev_year_row) else None
+            yoy = ((index_val - prev_val) / prev_val * 100) if index_val and prev_val and prev_val > 0 else None
+            return {
+                "index": index_val,
+                "month": latest[date_col] if date_col < len(latest) else "",
+                "yoy_change_pct": round(yoy, 1) if yoy is not None else None,
+            }
+    except Exception as e:
+        logger.debug("ENERGY: FAO FPI fetch failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _fetch_fertilizer_prices() -> Dict[str, Any]:
+    """Fetch Urea/DAP prices from World Bank API (free, monthly)."""
+    result: Dict[str, Any] = {"source": "world_bank"}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for indicator, key in [(UREA_INDICATOR, "urea_price"), (DAP_INDICATOR, "dap_price")]:
+                try:
+                    resp = await client.get(
+                        f"{WORLD_BANK_COMMODITIES_URL}/{indicator}",
+                        params={"format": "json", "per_page": "2", "mrv": "1"},
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if isinstance(data, list) and len(data) > 1 and isinstance(data[1], list) and data[1]:
+                            val = _safe_float(data[1][0].get("value"))
+                            result[key] = val
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.debug("ENERGY: fertilizer price fetch failed: %s", e)
+        result["error"] = str(e)
+    return result
+
+
+def _compute_food_security_risk(
+    food_commodities: List[Dict[str, Any]],
+    fao_fpi: Dict[str, Any],
+    fertilizer: Dict[str, Any],
+) -> float:
+    """Score 0-100: high food prices / FAO FPI spike / fertilizer stress = risk."""
+    base = 20.0
+    # Food commodity spikes
+    for c in food_commodities:
+        raw = c.get("change_pct_raw")
+        if raw is not None and abs(raw) > 10:
+            base += 20
+        elif raw is not None and abs(raw) > 5:
+            base += 10
+        elif raw is not None and abs(raw) > 3:
+            base += 5
+    # FAO FPI year-over-year change
+    yoy = fao_fpi.get("yoy_change_pct")
+    if yoy is not None:
+        if yoy > 15:
+            base += 25
+        elif yoy > 10:
+            base += 15
+        elif yoy > 5:
+            base += 8
+    # Fertilizer prices (high = downstream food risk)
+    urea = fertilizer.get("urea_price")
+    dap = fertilizer.get("dap_price")
+    if urea and urea > 400:
+        base += 10
+    if dap and dap > 700:
+        base += 10
+    return min(100.0, max(0.0, base))
+
+
+def _compute_energy_score(agsi: Dict[str, Any], commodities: List[Dict[str, Any]]) -> float:
+    """Score 0–100: low storage or high volatility = escalation risk."""
+    base = 30.0
+    # AGSI: low EU storage = higher risk
+    full_list = agsi.get("full") or []
+    if full_list:
+        avg_full = sum(_safe_float(x.get("full_pct")) for x in full_list) / max(len(full_list), 1)
+        if avg_full < 50:
+            base += 25
+        elif avg_full < 70:
+            base += 12
+    # Commodity volatility: large moves = stress
+    for c in commodities:
+        raw = c.get("change_pct_raw")
+        if raw is not None and abs(raw) > 10:
+            base += 15
+        elif raw is not None and abs(raw) > 5:
+            base += 8
+    return min(100.0, max(0.0, base))
+
+
+# Threshold for "significant" oil move when linking to Iran/Hormuz global impact (percent)
+GLOBAL_IMPACT_OIL_THRESHOLD_PCT = 2.0
+
+
+def _build_summary(
+    agsi: Dict[str, Any],
+    commodities: List[Dict[str, Any]],
+    food_commodities: List[Dict[str, Any]],
+    fao_fpi: Dict[str, Any],
+    score: float,
+    food_risk: float,
+    conflict: str = "",
+) -> str:
+    parts = []
+    if agsi.get("full"):
+        parts.append(f"AGSI+: {len(agsi['full'])} storage record(s).")
+    elif agsi.get("error"):
+        parts.append("AGSI+: not available (set AGSI_API_KEY for EU gas storage).")
+    valid_c = [c for c in commodities if c.get("price") and "error" not in c]
+    if valid_c:
+        parts.append("Oil: " + ", ".join(f"{c.get('symbol', '')} {c.get('change_pct', '')}" for c in valid_c[:2]))
+    valid_food = [c for c in food_commodities if c.get("price") and "error" not in c]
+    if valid_food:
+        parts.append("Food: " + ", ".join(f"{c.get('symbol', '')} {c.get('change_pct', '')}" for c in valid_food[:3]))
+    fpi_val = fao_fpi.get("index")
+    if fpi_val:
+        yoy = fao_fpi.get("yoy_change_pct")
+        yoy_str = f" ({yoy:+.1f}% YoY)" if yoy is not None else ""
+        parts.append(f"FAO FPI: {fpi_val:.1f}{yoy_str}")
+    if food_risk >= 60:
+        parts.append(f"Food security risk: {food_risk:.0f}/100 (exposed: {', '.join(EXPOSED_COUNTRIES[:3])})")
+    if not parts:
+        return "ENERGY: No AGSI or commodity data (set AGSI_API_KEY and/or ALPHAVANTAGE_API_KEY)."
+    out = "ENERGY: " + " ".join(parts)
+    if conflict and "iran" in conflict.lower():
+        max_up = max(
+            (c.get("change_pct_raw") for c in valid_c if c.get("change_pct_raw") is not None),
+            default=None,
+        )
+        if max_up is not None and max_up >= GLOBAL_IMPACT_OIL_THRESHOLD_PCT:
+            out += " Global impact (Iran): Oil move may reflect Strait of Hormuz / chokepoint risk."
+    return out
+
+
+async def _fetch_oil_prices(api_key: str) -> List[Dict[str, Any]]:
+    """Fetch oil commodity quotes only (Brent, WTI)."""
+    return await _fetch_commodity_prices_for(api_key, OIL_SYMBOLS)
+
+
+async def _fetch_food_prices(api_key: str) -> List[Dict[str, Any]]:
+    """Fetch food commodity quotes (Wheat, Corn, Soybean)."""
+    return await _fetch_commodity_prices_for(api_key, FOOD_SYMBOLS)
+
+
+async def _fetch_commodity_prices_for(
+    api_key: str, symbols: List[tuple]
+) -> List[Dict[str, Any]]:
     if not api_key:
         return []
     results = []
     async with httpx.AsyncClient(timeout=15.0) as client:
-        for sym, label in COMMODITY_SYMBOLS:
+        for sym, label in symbols:
             try:
                 resp = await client.get(
                     ALPHAVANTAGE_URL,
@@ -98,77 +290,55 @@ async def _fetch_commodity_prices(api_key: str) -> List[Dict[str, Any]]:
     return results
 
 
-def _compute_energy_score(agsi: Dict[str, Any], commodities: List[Dict[str, Any]]) -> float:
-    """Score 0–100: low storage or high volatility = escalation risk."""
-    base = 30.0
-    # AGSI: low EU storage = higher risk
-    full_list = agsi.get("full") or []
-    if full_list:
-        avg_full = sum(_safe_float(x.get("full_pct")) for x in full_list) / max(len(full_list), 1)
-        if avg_full < 50:
-            base += 25
-        elif avg_full < 70:
-            base += 12
-    # Commodity volatility: large moves = stress
-    for c in commodities:
-        raw = c.get("change_pct_raw")
-        if raw is not None and abs(raw) > 10:
-            base += 15
-        elif raw is not None and abs(raw) > 5:
-            base += 8
-    return min(100.0, max(0.0, base))
-
-
-# Threshold for "significant" oil move when linking to Iran/Hormuz global impact (percent)
-GLOBAL_IMPACT_OIL_THRESHOLD_PCT = 2.0
-
-
-def _build_summary(
-    agsi: Dict[str, Any], commodities: List[Dict[str, Any]], score: float, conflict: str = ""
-) -> str:
-    parts = []
-    if agsi.get("full"):
-        parts.append(f"AGSI+: {len(agsi['full'])} storage record(s).")
-    elif agsi.get("error"):
-        parts.append("AGSI+: not available (set AGSI_API_KEY for EU gas storage).")
-    valid_c = [c for c in commodities if c.get("price") and "error" not in c]
-    if valid_c:
-        parts.append("Commodities: " + ", ".join(f"{c.get('symbol', '')} {c.get('change_pct', '')}" for c in valid_c[:3]))
-    if not parts:
-        return "ENERGY: No AGSI or commodity data (set AGSI_API_KEY and/or ALPHAVANTAGE_API_KEY)."
-    out = "ENERGY: " + " ".join(parts)
-    # Global impact (Iran): link oil move to Strait of Hormuz / chokepoint risk when relevant
-    if conflict and "iran" in conflict.lower():
-        max_up = max(
-            (c.get("change_pct_raw") for c in valid_c if c.get("change_pct_raw") is not None),
-            default=None,
-        )
-        if max_up is not None and max_up >= GLOBAL_IMPACT_OIL_THRESHOLD_PCT:
-            out += " Global impact (Iran): Oil move may reflect Strait of Hormuz / chokepoint risk."
-    return out
-
-
 def run_energy_agent(conflict: str) -> Dict[str, Any]:
-    """Run ENERGY/Commodities agent: AGSI+ gas storage, optional commodity prices."""
+    """Run ENERGY/Commodities agent: AGSI+, oil/food prices, FAO FPI, fertilizer."""
     agsi_key = os.getenv("AGSI_API_KEY")
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
 
     async def _run() -> Dict[str, Any]:
-        agsi = await _fetch_agsi_storage(agsi_key or "")
-        commodities = await _fetch_commodity_prices(av_key) if av_key else []
-        energy_score = _compute_energy_score(agsi, commodities)
-        summary = _build_summary(agsi, commodities, energy_score, conflict=conflict)
+        agsi_task = _fetch_agsi_storage(agsi_key or "")
+        async def _empty_list():
+            return []
+
+        oil_task = _fetch_oil_prices(av_key) if av_key else _empty_list()
+        food_task = _fetch_food_prices(av_key) if av_key else _empty_list()
+        fao_task = _fetch_fao_fpi()
+        fert_task = _fetch_fertilizer_prices()
+
+        agsi, oil_commodities, food_commodities, fao_fpi, fertilizer = await asyncio.gather(
+            agsi_task, oil_task, food_task, fao_task, fert_task,
+        )
+
+        # Legacy: keep combined commodities for backward compat
+        all_commodities = oil_commodities + food_commodities
+        energy_score = _compute_energy_score(agsi, oil_commodities)
+        food_risk = _compute_food_security_risk(food_commodities, fao_fpi, fertilizer)
+        summary = _build_summary(
+            agsi, oil_commodities, food_commodities, fao_fpi,
+            energy_score, food_risk, conflict=conflict,
+        )
+
         global_impact_note = None
         if conflict and "iran" in conflict.lower():
-            valid_c = [c for c in commodities if c.get("price") and "error" not in c and c.get("change_pct_raw") is not None]
+            valid_c = [c for c in oil_commodities if c.get("price") and "error" not in c and c.get("change_pct_raw") is not None]
             max_up = max((c.get("change_pct_raw") for c in valid_c), default=None)
             if max_up is not None and max_up >= GLOBAL_IMPACT_OIL_THRESHOLD_PCT:
                 pct_str = f"{max_up:+.1f}%"
                 global_impact_note = f"Brent/WTI {pct_str} – potential Hormuz chokepoint risk premium"
+            # Also flag food security if relevant
+            if food_risk >= 50 and not global_impact_note:
+                global_impact_note = f"Food security risk {food_risk:.0f}/100 – chokepoint disruption threatens grain/fertilizer flows to {', '.join(EXPOSED_COUNTRIES[:3])}"
+            elif food_risk >= 50 and global_impact_note:
+                global_impact_note += f"; Food security risk {food_risk:.0f}/100"
+
         return {
             "energy_score": round(energy_score, 1),
             "agsi_storage": agsi,
-            "commodities": commodities,
+            "commodities": oil_commodities,
+            "food_commodities": food_commodities,
+            "fao_fpi": fao_fpi,
+            "fertilizer": fertilizer,
+            "food_security_risk": round(food_risk, 1),
             "summary": summary,
             "global_impact_note": global_impact_note,
         }
@@ -180,6 +350,10 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             "energy_score": 30.0,
             "agsi_storage": {"full": [], "error": str(e)},
             "commodities": [],
+            "food_commodities": [],
+            "fao_fpi": {},
+            "fertilizer": {},
+            "food_security_risk": 20.0,
             "summary": f"ENERGY error: {e}",
             "global_impact_note": None,
         }

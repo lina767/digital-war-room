@@ -102,10 +102,23 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
   },
   {
     name: "ENERGY",
-    fullName: "Energy / Commodities",
+    fullName: "Energy / Food & Commodities",
     sources: [
       { name: "AGSI+", description: "EU gas storage (optional AGSI_API_KEY)" },
-      { name: "Alpha Vantage", description: "Brent, WTI commodity prices" },
+      { name: "Alpha Vantage", description: "Brent, WTI, Wheat, Corn, Soybean" },
+      { name: "FAO FPI", description: "Food Price Index (monthly CSV, free)" },
+      { name: "World Bank", description: "Fertilizer prices – Urea, DAP (free API)" },
+    ],
+  },
+  {
+    name: "CHOKEPOINT",
+    fullName: "Maritime Chokepoint Monitor",
+    sources: [
+      { name: "Spire Maritime", description: "AIS tanker positions (optional SPIRE_MARITIME_API_KEY)" },
+      { name: "AISHub", description: "Community AIS data (optional AISHUB_USERNAME)" },
+      { name: "MarineTraffic", description: "Area vessel queries (optional MARINETRAFFIC_API_KEY)" },
+      { name: "EIA API", description: "Persian Gulf oil export baseline (optional EIA_API_KEY)" },
+      { name: "Compliance zones", description: "Hormuz, Bab el-Mandeb, Suez polygon zones" },
     ],
   },
   {
