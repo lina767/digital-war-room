@@ -110,13 +110,8 @@ WARSHIP_PREFIXES = ["USS ", "HMS ", "FS ", "INS ", "USNS ", "RFS ", "IRIS "]
 # AIS ship type 30-39 = military (ICAO/IEC 62287)
 MILITARY_SHIP_TYPE_CODES = (30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
 
-# ── Tanker classification (AIS type 80-89, plus keywords) ────────────────────
-COMMERCIAL_TANKER_KEYWORDS = [
-    "tanker", "crude", "vlcc", "suezmax", "aframax",
-    "lpg", "lng", "oil", "chemical", "petroleum",
-]
-COMMERCIAL_TANKER_AIS_TYPES = tuple(range(80, 90))
-HORMUZ_TANKER_BBOX = "55,25,58,27.5"
+# Hormuz tankers: filled from Chokepoint agent (AISStream) in supervisor when AIRSTREAM_API_KEY is set.
+# No VesselFinder dependency; see _run_rule_based_sigint and supervisor._synthesize merge.
 
 # Optional target aircraft profiles – track multiple high-value aircraft via ADSBexchange/RapidAPI + free ADS-B.
 # Add entries here or via env (e.g. OEIII_HEX for ICAO). Each key = target name, value = { hex?, regs?, notes? }.
@@ -563,85 +558,6 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-def _is_commercial_tanker(v: dict) -> bool:
-    """Check if a vessel dict describes a commercial tanker (oil, LNG, LPG, chemical)."""
-    name = str(v.get("name") or v.get("NAME") or v.get("shipname") or "").lower()
-    ship_type = str(v.get("type") or v.get("TYPE") or v.get("shiptype") or v.get("vesselType") or "").lower()
-    type_num = v.get("type_of_ship")
-    try:
-        raw_type = v.get("type") or v.get("TYPE") or v.get("shiptype")
-        t = int(float(raw_type)) if raw_type is not None else None
-    except (TypeError, ValueError):
-        t = None
-    return (
-        (t is not None and t in COMMERCIAL_TANKER_AIS_TYPES)
-        or (isinstance(type_num, int) and type_num in COMMERCIAL_TANKER_AIS_TYPES)
-        or any(kw in name for kw in COMMERCIAL_TANKER_KEYWORDS)
-        or any(kw in ship_type for kw in COMMERCIAL_TANKER_KEYWORDS)
-    )
-
-
-def get_hormuz_tankers() -> List[Dict[str, Any]]:
-    """Fetch commercial tankers in the Strait of Hormuz area via VesselFinder."""
-
-    async def _fetch(client: httpx.AsyncClient, bbox: str) -> List[Dict]:
-        for param_name in ("bbox", "bb", "bounds"):
-            try:
-                resp = await client.get(
-                    "https://www.vesselfinder.com/api/pub/vesselsonmap",
-                    params={param_name: bbox}, timeout=12.0,
-                )
-                if resp.status_code != 200:
-                    continue
-                ct = (resp.headers.get("content-type") or "").lower()
-                if "json" not in ct and "javascript" not in ct:
-                    continue
-                data = resp.json()
-                if isinstance(data, list):
-                    return data
-                for key in ("vessels", "data", "rows", "results", "ships"):
-                    if isinstance(data.get(key), list):
-                        return data[key]
-            except Exception:
-                continue
-        return []
-
-    async def _run():
-        results = []
-        seen = set()
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
-            vessels = await _fetch(client, HORMUZ_TANKER_BBOX)
-            for v in vessels:
-                if not isinstance(v, dict):
-                    continue
-                if not _is_commercial_tanker(v):
-                    continue
-                name = str(v.get("name") or v.get("NAME") or v.get("shipname") or "Tanker").strip()
-                lat = safe_float(v.get("lat") or v.get("latitude") or v.get("LAT"))
-                lon = safe_float(v.get("lon") or v.get("longitude") or v.get("LON"))
-                if lat is None or lon is None:
-                    continue
-                key = name.lower()[:40] or f"{lat},{lon}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                results.append({
-                    "name": name,
-                    "type": str(v.get("type") or v.get("TYPE") or v.get("shiptype") or "tanker"),
-                    "lat": lat,
-                    "lon": lon,
-                    "region": "Strait of Hormuz",
-                    "source": "vesselfinder",
-                })
-        return results
-
-    try:
-        return run_async(_run())
-    except Exception as e:
-        logger.debug("SIGINT: get_hormuz_tankers failed: %s", e)
-        return []
-
-
 def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """
     Fetch recent military/conflict reports from diverse OSINT and media feeds:
@@ -920,7 +836,7 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
-    """Execute SIGINT tool chain: aircraft → vessels → conflict_reports → NOTAMs (iaea_tracker). No LLM."""
+    """Execute SIGINT tool chain: aircraft → vessels → conflict_reports → NOTAMs. Hormuz tankers are filled from Chokepoint (AISStream) in supervisor when AIRSTREAM_API_KEY is set."""
     from .iaea_tracker import fetch_notams
 
     start = time.perf_counter()
@@ -929,7 +845,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         with ThreadPoolExecutor(max_workers=8) as executor:
             fut_air = executor.submit(get_military_aircraft)
             fut_ships = executor.submit(get_naval_vessels)
-            fut_tankers = executor.submit(get_hormuz_tankers)
             fut_reports = executor.submit(get_conflict_reports, conflict)
             fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
             # Track all configured target aircraft (OE-III + any from TARGET_AIRCRAFT_EXTRA)
@@ -960,12 +875,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 logger.exception("SIGINT: NOTAM fetch failed: %s", e)
                 notam_result = {"notams": [], "error": str(e)}
 
-            try:
-                raw_tankers = fut_tankers.result(timeout=30)
-            except Exception as e:
-                logger.debug("SIGINT: Hormuz tankers fetch failed: %s", e)
-                raw_tankers = []
-
+            # Hormuz tankers: filled from Chokepoint (AISStream) in supervisor merge
             target_tracks_dict: Dict[str, Any] = {}
             for name, fut in zip(target_names, fut_targets):
                 try:
@@ -1059,10 +969,8 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 conflict,
             )
 
-        hormuz_tankers = [
-            t for t in (raw_tankers or [])
-            if isinstance(t, dict) and "error" not in t
-        ]
+        # Hormuz tankers: merged from Chokepoint (AISStream) in supervisor when AIRSTREAM_API_KEY set
+        hormuz_tankers: List[Dict[str, Any]] = []
 
         result = SigintResult(
             conflict=conflict,

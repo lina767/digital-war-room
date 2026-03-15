@@ -56,6 +56,8 @@ MITRE_REGEX = re.compile(r"T\d{4}(?:\.\d{3})?|TA\d{4}", re.IGNORECASE)
 CONFLICT_COUNTRY_CODES: Dict[str, List[str]] = {
     "iran": ["IR"], "us-iran": ["IR", "US"], "russia": ["RU"], "ukraine": ["UA"],
     "china": ["CN"], "taiwan": ["TW"], "north korea": ["KP"],
+    "middle east": ["IR", "IL", "SY", "LB", "YE", "IQ", "JO", "SA", "AE"],
+    "hezbollah": ["LB", "IL", "SY"], "houthis": ["YE", "SA"],
 }
 
 
@@ -141,7 +143,7 @@ class CyberAgentResult(BaseModel):
 def _conflict_to_keywords(conflict: str) -> List[str]:
     """Keywords for filtering threat reports / OTX by conflict."""
     cl = (conflict or "").lower()
-    if "iran" in cl:
+    if "iran" in cl and "middle east" not in cl and "naher osten" not in cl:
         return ["iran", "apt33", "apt34", "muddywater", "charming kitten", "oilrig"]
     if "russia" in cl or "ukraine" in cl:
         return ["russia", "ukraine", "sandworm", "apt28", "apt29", "gamaredon", "voodoobear"]
@@ -149,8 +151,20 @@ def _conflict_to_keywords(conflict: str) -> List[str]:
         return ["china", "apt40", "apt41", "mustang panda", "taiwan"]
     if "north korea" in cl:
         return ["north korea", "lazarus", "apt38"]
-    if "israel" in cl or "gaza" in cl or "palestine" in cl or "hezbollah" in cl:
+    if "hezbollah" in cl:
+        return ["hezbollah", "lebanon", "nasrallah", "idf", "israel", "litani", "south lebanon", "apt34"]
+    if "houthi" in cl or "houthis" in cl:
+        return ["houthi", "houthis", "yemen", "ansar allah", "red sea", "sanaa", "red sea attacks"]
+    if "israel" in cl or "gaza" in cl or "palestine" in cl:
         return ["israel", "gaza", "palestine", "hezbollah", "apt34", "lebanon"]
+    # Naher Osten / Middle East: breite Abdeckung Iran, Levante, Golf, Jemen
+    if "middle east" in cl or "naher osten" in cl or "middleeast" in cl:
+        return [
+            "iran", "apt33", "apt34", "muddywater", "oilrig",
+            "israel", "gaza", "palestine", "hezbollah", "lebanon", "idf", "hamas",
+            "houthi", "yemen", "ansar allah", "red sea",
+            "syria", "iraq", "irgc", "tehran",
+        ]
     return [cl] if cl else []
 
 
@@ -312,11 +326,16 @@ def _extract_mitre_tactics(text: str) -> List[str]:
 
 
 async def _fetch_threat_rss(client: Any, conflict: str) -> List[ThreatReportEntry]:
-    """Fetch threat intel RSS; filter by conflict; extract MITRE ATT&CK from titles."""
+    """Fetch threat intel RSS (Mandiant, CrowdStrike); filter by conflict; extract MITRE ATT&CK from titles."""
     import feedparser
+    try:
+        import httpx
+    except ImportError:
+        httpx = None  # type: ignore[assignment]
     keywords = _conflict_to_keywords(conflict)
     entries: List[ThreatReportEntry] = []
     fetched_at = _utc_now()
+    feed_errors: List[str] = []
     for url in THREAT_RSS[:2]:
         try:
             resp = await client.request("GET", url, timeout=RSS_TIMEOUT, follow_redirects=True)
@@ -337,19 +356,39 @@ async def _fetch_threat_rss(client: Any, conflict: str) -> List[ThreatReportEntr
             if not keywords and len(entries) > MAX_RSS_WHEN_NO_KEYWORDS:
                 entries = entries[:MAX_RSS_WHEN_NO_KEYWORDS]
         except Exception as e:
+            err_msg = str(e)
+            if httpx and isinstance(e, httpx.HTTPStatusError):
+                err_msg = f"HTTP {e.response.status_code}"
+            feed_errors.append(f"{url[:40]}… ({err_msg})")
             logger.warning("CYBER: Threat RSS %s failed: %s", url[:50], e)
             entries.append(ThreatReportEntry(
-                title="Feed error", url=url, summary="", error=str(e), fetched_at=fetched_at,
+                title="Feed error", url=url, summary="", error=err_msg, fetched_at=fetched_at,
             ))
+    valid_count = len([r for r in entries if not r.error])
+    if valid_count == 0 and feed_errors:
+        logger.info(
+            "CYBER: Threat RSS – no articles (feeds failed: %s). Check URLs or network.",
+            "; ".join(feed_errors),
+        )
+    elif valid_count == 0 and keywords:
+        logger.info(
+            "CYBER: Threat RSS – feeds OK but no article matched conflict '%s' (keywords: %s). Try another conflict or check feed content.",
+            conflict,
+            keywords[:5],
+        )
     return entries[:20]
 
 
 async def _fetch_otx_pulses(client: Any, api_key: str, conflict: str) -> List[OtxPulseEntry]:
-    """Fetch OTX pulses with indicator_count per pulse; filter by conflict."""
+    """Fetch OTX pulses (subscribed only) with indicator_count per pulse; filter by conflict."""
     if not (api_key or "").strip():
         return []
     keywords = _conflict_to_keywords(conflict)
     fetched_at = _utc_now()
+    try:
+        import httpx
+    except ImportError:
+        httpx = None  # type: ignore[assignment]
     try:
         resp = await client.request(
             "GET",
@@ -378,10 +417,29 @@ async def _fetch_otx_pulses(client: Any, api_key: str, conflict: str) -> List[Ot
                 ))
         if not keywords and len(out) > MAX_OTX_WHEN_NO_KEYWORDS:
             out = out[:MAX_OTX_WHEN_NO_KEYWORDS]
+        if not results:
+            logger.info(
+                "CYBER: OTX – API OK but 0 subscribed pulses. At otx.alienvault.com subscribe to pulses/channels to get data (endpoint is /pulses/subscribed)."
+            )
+        elif not out and keywords:
+            logger.info(
+                "CYBER: OTX – %d pulse(s) from API but none matched conflict '%s' (keywords: %s).",
+                len(results), conflict, keywords[:5],
+            )
         return out[:15]
     except Exception as e:
-        logger.warning("CYBER: OTX pulses fetch failed: %s", e)
-        return [OtxPulseEntry(name=None, error=str(e), fetched_at=fetched_at)]
+        err_msg = str(e)
+        if httpx and isinstance(e, httpx.HTTPStatusError):
+            err_msg = f"HTTP {e.response.status_code}"
+            try:
+                body = (e.response.text or "")[:200]
+                if body:
+                    logger.warning("CYBER: OTX pulses failed %s – %s", err_msg, body)
+            except Exception:
+                pass
+        else:
+            logger.warning("CYBER: OTX pulses fetch failed: %s", e)
+        return [OtxPulseEntry(name=None, error=err_msg, fetched_at=fetched_at)]
 
 
 async def _fetch_greynoise_scan_context(client: Any, api_key: str) -> GreyNoiseScanContext:
@@ -598,6 +656,8 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
     otx_key = (os.getenv("OTX_API_KEY") or "").strip()
     greynoise_key = (os.getenv("GREYNOISE_API_KEY") or "").strip()
     internetdb_ips = _get_internetdb_ips()
+    if not otx_key:
+        logger.info("CYBER: OTX_API_KEY not set – OTX pulses skipped. Set in backend/.env for AlienVault OTX (otx.alienvault.com).")
 
     async def _no_otx() -> List[OtxPulseEntry]:
         return []

@@ -60,7 +60,7 @@ def _collect_all_agents(conflict: str) -> Dict[str, Any]:
         with ThreadPoolExecutor(max_workers=14) as executor:
             futures = {
                 "finint":   (executor.submit(run_finint_agent, conflict), {"escalation_score": 0.0, "brent": None, "polymarket": []}),
-                "sigint":   (executor.submit(run_sigint_agent, conflict), {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []}),
+                "sigint":   (executor.submit(run_sigint_agent, conflict), {"sigint_score": 0.0, "aircraft": [], "ships": [], "hormuz_tankers": [], "hormuz_tanker_count": 0, "conflict_reports": []}),
                 "news":     (executor.submit(run_news_agent, conflict), {"news_score": 0.0, "articles": [], "summary": ""}),
                 "geoint":   (executor.submit(run_geoint_agent, conflict), {"geoint_score": 0.0, "anomalies": [], "hotspots": []}),
                 "socmint":  (executor.submit(run_socmint_agent, conflict), {"socmint_score": 0.0, "top_signals": []}),
@@ -91,7 +91,7 @@ def run_analysis_streaming(conflict: str) -> Generator[Tuple[str, Any], None, No
     """
     _AGENT_FUTURES = [
         ("finint", run_finint_agent, {"escalation_score": 0.0, "brent": None, "polymarket": []}),
-        ("sigint", run_sigint_agent, {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []}),
+        ("sigint", run_sigint_agent, {"sigint_score": 0.0, "aircraft": [], "ships": [], "hormuz_tankers": [], "hormuz_tanker_count": 0, "conflict_reports": []}),
         ("news", run_news_agent, {"news_score": 0.0, "articles": [], "summary": ""}),
         ("geoint", run_geoint_agent, {"geoint_score": 0.0, "anomalies": [], "hotspots": []}),
         ("socmint", run_socmint_agent, {"socmint_score": 0.0, "top_signals": []}),
@@ -287,6 +287,30 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     proximity_result  = agent_results.get("proximity") or {}
     narrative_result  = agent_results.get("narrative") or {}
     chokepoint_result = agent_results.get("chokepoint") or {}
+
+    # Hormuz tankers: fill SIGINT from Chokepoint (AISStream) when available
+    if isinstance(sigint_result, dict):
+        for cp in (chokepoint_result.get("chokepoints") or []):
+            if cp.get("name") == "Strait of Hormuz":
+                details = cp.get("tanker_details") or []
+                if details:
+                    # Ensure region for display (Chokepoint AISStream items may omit it)
+                    hormuz_list = [
+                        {**d, "region": d.get("region") or "Strait of Hormuz"}
+                        for d in details if isinstance(d, dict)
+                    ]
+                    sigint_result["hormuz_tankers"] = hormuz_list
+                    sigint_result["hormuz_tanker_count"] = len(hormuz_list)
+                    n = len(hormuz_list)
+                    summary = (sigint_result.get("summary") or "")
+                    if "0 Hormuz tankers" in summary:
+                        sigint_result["summary"] = summary.replace("0 Hormuz tankers", f"{n} Hormuz tankers", 1)
+                    for s in (sigint_result.get("_meta") or {}).get("sources") or []:
+                        if isinstance(s, dict) and s.get("name") == "Hormuz Tankers":
+                            s["status"] = "ok"
+                            s["record_count"] = n
+                            break
+                break
 
     finint_score     = float(finint_result.get("escalation_score", 0.0))
     sigint_score     = float(sigint_result.get("sigint_score", 0.0))

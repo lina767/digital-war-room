@@ -50,6 +50,10 @@ CONFLICT_SANCTION_KEYWORDS: Dict[str, List[str]] = {
     "ukraine": ["ukraine", "russia", "donbas", "crimea"],
     "syria": ["syria", "syrian", "assad"],
     "north korea": ["dprk", "north korea", "kim jong"],
+    "middle east": ["iran", "irgc", "syria", "syrian", "hezbollah", "lebanon", "yemen", "houthi", "iraq", "israel", "gaza", "ofac", "sanctions"],
+    "naher osten": ["iran", "irgc", "syria", "syrian", "hezbollah", "lebanon", "yemen", "houthi", "iraq", "israel", "gaza", "ofac", "sanctions"],
+    "hezbollah": ["hezbollah", "lebanon", "nasrallah", "ofac", "sanctions", "iran", "irgc", "qods"],
+    "houthis": ["houthi", "houthis", "yemen", "ansar allah", "ofac", "sanctions", "iran", "red sea"],
     "default": ["iran", "russia", "syria"],
 }
 

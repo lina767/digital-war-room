@@ -33,6 +33,9 @@ export const CONFLICT_CENTERS: Record<
 > = {
   iran: { center: [53, 32], zoom: 4 },
   "us-iran": { center: [53, 28], zoom: 3.5 },
+  "middle-east": { center: [44, 31], zoom: 3.5 }, // Levante/Golf/Iran
+  hezbollah: { center: [35.8, 33.9], zoom: 5.5 }, // Lebanon
+  houthis: { center: [46, 15], zoom: 4 }, // Yemen / Red Sea
   ukraine: { center: [32, 48], zoom: 4 },
   "israel-palestine": { center: [35, 31], zoom: 5 },
   lebanon: { center: [35.8, 33.9], zoom: 5.5 },
@@ -67,6 +70,9 @@ export const THEATER_EVENT_STYLE: Record<
 export const OVERLAY_CONFLICT_KEYS = [
   "iran",
   "us-iran",
+  "middle-east",
+  "hezbollah",
+  "houthis",
   "israel-palestine",
   "lebanon",
   "yemen",

@@ -131,7 +131,7 @@ DE_ESCALATION_KW = ["ceasefire", "talks", "diplomatic", "deal", "agreement", "pe
 
 def _conflict_to_region(conflict: str) -> str:
     cl = conflict.lower()
-    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "lebanon"]):
+    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "lebanon", "hezbollah", "houthi", "middle east", "naher osten"]):
         return "middle_east"
     if any(k in cl for k in ["ukraine", "russia", "donbas"]):
         return "eastern_europe"
@@ -153,6 +153,19 @@ def _sentiment(text: str) -> float:
 
 def _conflict_keywords(conflict: str) -> List[str]:
     cl = conflict.lower()
+    # Naher Osten / Middle East: breite Abdeckung
+    if "middle east" in cl or "naher osten" in cl or "middleeast" in cl:
+        return [
+            "iran", "irgc", "tehran", "persian gulf",
+            "houthi", "houthis", "ansar allah", "yemen", "red sea",
+            "hezbollah", "idf", "lebanon", "nasrallah",
+            "israel", "gaza", "hamas", "palestine", "west bank",
+            "syria", "iraq", "beirut",
+        ]
+    if "hezbollah" in cl:
+        return ["hezbollah", "lebanon", "nasrallah", "beirut", "south lebanon", "litani", "idf", "israel"]
+    if "houthi" in cl or "houthis" in cl:
+        return ["houthi", "houthis", "yemen", "sanaa", "red sea", "ansar allah"]
     if "iran" in cl:
         return [
             "iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf",

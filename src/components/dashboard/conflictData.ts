@@ -12,9 +12,12 @@ export interface ConflictLink {
   label: string;
 }
 
-/** For dropdown: id (storage), label (display), apiValue (backend analyze). Yemen/Hezbollah nur im Iran-Kontext (Kartenlinks, Keywords). */
+/** For dropdown: id (storage), label (display), apiValue (backend analyze). */
 export const CONFLICT_OPTIONS = [
   { id: "iran", label: "Iran", apiValue: "Iran" },
+  { id: "middle-east", label: "Naher Osten", apiValue: "Middle East" },
+  { id: "hezbollah", label: "Hezbollah", apiValue: "Hezbollah" },
+  { id: "houthis", label: "Houthis", apiValue: "Houthis" },
 ] as const;
 
 export const conflicts: ConflictMarker[] = [
