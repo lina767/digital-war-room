@@ -72,7 +72,7 @@ const Privacy = () => {
                   2. Erhobene Daten
                 </h2>
                 <p>
-                  Es werden keine Kontodaten oder personenbezogenen Nutzerkonten erhoben. Beim Besuch der Plattform können technisch bedingt Zugriffsdaten (z. B. IP-Adresse, Datum/Uhrzeit, abgerufene Seiten, Browsertyp) an den Hosting- bzw. CDN-Anbieter übermittelt werden. Die Plattform kann Analysetools (z. B. Vercel Analytics) einsetzen, die anonymisierte Nutzungsdaten erfassen. Die Analysefunktionen der Plattform arbeiten mit KI (z. B. Sprachmodelle zur Synthese von Lageberichten); dabei werden ausschließlich die für die Konfliktanalyse eingebundenen offenen Daten verarbeitet, nicht Ihre personenbezogenen Daten.
+                  Es werden keine Kontodaten oder personenbezogenen Nutzerkonten erhoben. Beim Besuch der Plattform können technisch bedingt Zugriffsdaten (z. B. IP-Adresse, Datum/Uhrzeit, abgerufene Seiten, Browsertyp) an den Hosting- bzw. CDN-Anbieter übermittelt werden. Die Plattform kann Analysetools (z. B. Vercel Analytics) einsetzen, die anonymisierte Nutzungsdaten erfassen. Die Analysefunktionen der Plattform arbeiten mit KI (z. B. Sprachmodelle zur Synthese von Lageberichten); dabei werden ausschließlich die für die Konfliktanalyse eingebundenen offenen Daten verarbeitet, nicht Ihre personenbezogenen Daten.
                 </p>
               </section>
 
@@ -108,7 +108,7 @@ const Privacy = () => {
                   6. Cookies, KI und externe Dienste
                 </h2>
                 <p>
-                  Die Plattform kann technisch notwendige Cookies bzw. Speicherzugriffe (z. B. für Einstellungen) verwenden. Für die KI-gestützte Auswertung und Synthese der Konfliktanalysen kommen Dienste Dritter (z. B. Anbieter von Sprachmodellen) zum Einsatz; die dort verarbeiteten Inhalte beziehen sich auf die Analyse-Daten der Plattform, nicht auf Ihre personenbezogenen Daten. Darüber hinaus können Hosting- und Analysedienste (z. B. Vercel, Supabase) genutzt werden. Für die bei Dritten verarbeiteten Daten gelten jeweils deren Datenschutzbestimmungen.
+                  Die Plattform kann technisch notwendige Cookies bzw. Speicherzugriffe (z. B. für Einstellungen) verwenden. Für die KI-gestützte Auswertung und Synthese der Konfliktanalysen kommen Dienste Dritter (z. B. Anbieter von Sprachmodellen) zum Einsatz; die dort verarbeiteten Inhalte beziehen sich auf die Analyse-Daten der Plattform, nicht auf Ihre personenbezogenen Daten. Darüber hinaus können Hosting- und Analysedienste (z. B. Vercel, Supabase) genutzt werden. Für die bei Dritten verarbeiteten Daten gelten jeweils deren Datenschutzbestimmungen.
                 </p>
               </section>
 
