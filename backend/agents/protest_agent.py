@@ -6,7 +6,7 @@ ACLED: OAuth (ACLED_EMAIL + ACLED_PASSWORD) at acleddata.com/api; see acleddata.
 """
 import asyncio
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
