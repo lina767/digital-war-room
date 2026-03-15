@@ -143,12 +143,23 @@ TheaterGeographies.displayName = "TheaterGeographies";
 
 /* ---- HeatmapLayer ------------------------------------------------ */
 
+const HEATMAP_EVENT_COLORS: Record<string, string> = {
+  battles: "#dc2626",
+  protests: "#eab308",
+  explosions: "#ea580c",
+  riots: "#b45309",
+  violence_against_civilians: "#b91c1c",
+  strategic_development: "#6b7280",
+};
+
 interface HeatmapLayerProps {
   events: ConflictEventForHeatmap[];
   s: number;
+  onTooltipShow?: (content: string, color: string, e: React.MouseEvent) => void;
+  onTooltipHide?: () => void;
 }
 
-const HeatmapLayer = memo(function HeatmapLayer({ events, s }: HeatmapLayerProps) {
+const HeatmapLayer = memo(function HeatmapLayer({ events, s, onTooltipShow, onTooltipHide }: HeatmapLayerProps) {
   const valid = useMemo(
     () => events.filter((e) => typeof e.lat === "number" && typeof e.lon === "number" && isFinite(e.lat) && isFinite(e.lon)),
     [events],
@@ -158,6 +169,16 @@ const HeatmapLayer = memo(function HeatmapLayer({ events, s }: HeatmapLayerProps
       valid.map((evt, i) => {
         const r = (2 + (evt.intensity ?? 0) * 5) * s;
         const opacity = 0.15 + (evt.intensity ?? 0) * 0.35;
+        const eventType = (evt.event_type ?? "").toLowerCase().replace(/\s+/g, "_");
+        const fill = HEATMAP_EVENT_COLORS[eventType] ?? "#dc2626";
+        const stroke = fill + "99";
+        const parts: string[] = [];
+        if (evt.event_type) parts.push(evt.event_type);
+        if (evt.fatalities != null && evt.fatalities > 0) parts.push(`Fatalities: ${evt.fatalities}`);
+        if (evt.actor1 || evt.actor2) parts.push([evt.actor1, evt.actor2].filter(Boolean).join(" vs "));
+        if (evt.event_date) parts.push(evt.event_date);
+        if (evt.notes) parts.push(evt.notes);
+        const tooltipContent = parts.join(" · ");
         return (
           <Marker
             key={`heat-${evt.lat.toFixed(4)}-${evt.lon.toFixed(4)}-${i}`}
@@ -165,16 +186,19 @@ const HeatmapLayer = memo(function HeatmapLayer({ events, s }: HeatmapLayerProps
           >
             <circle
               r={r}
-              fill="#dc2626"
+              fill={fill}
               fillOpacity={opacity}
-              stroke="rgba(220,38,38,0.4)"
+              stroke={stroke}
               strokeWidth={0.2 * s}
-              pointerEvents="none"
+              pointerEvents={onTooltipShow ? "auto" : "none"}
+              onMouseEnter={onTooltipShow && tooltipContent ? (e) => onTooltipShow(tooltipContent, fill, e) : undefined}
+              onMouseLeave={onTooltipHide}
+              style={onTooltipShow ? { cursor: "pointer" } : undefined}
             />
           </Marker>
         );
       }),
-    [valid, s],
+    [valid, s, onTooltipShow, onTooltipHide],
   );
   return <>{markers}</>;
 });
@@ -757,7 +781,12 @@ export function TheaterMap({
             })}
 
           {layers.heatmap && !heatmapLoading && (
-            <HeatmapLayer events={heatmapEvents} s={s} />
+            <HeatmapLayer
+              events={heatmapEvents}
+              s={s}
+              onTooltipShow={handleTooltipShow}
+              onTooltipHide={handleTooltipHide}
+            />
           )}
 
           {!theaterLoading && (

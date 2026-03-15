@@ -108,31 +108,6 @@ export async function getLatestAnalysis(conflict: string): Promise<AnalyzeRespon
   }
 }
 
-/**
- * Holt die aktuelle Analyse aus dem Cache (keine neue Analyse).
- * Analysen laufen alle 6 Stunden im Backend. Bei 503: noch kein Cache.
- */
-export async function runAnalysis(conflict: string): Promise<AnalyzeResponse> {
-  try {
-    const res = await fetch(`${getApiBase()}/api/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conflict }),
-    });
-    if (res.status === 503) {
-      const body = await res.json().catch(() => ({}));
-      const msg = (body as { error?: string })?.error ?? "No cached analysis yet. Analysis runs automatically every 6 hours.";
-      throw new Error(msg);
-    }
-    if (!res.ok) throw new Error(`Analysis failed: ${res.status} ${res.statusText}`);
-    const raw = await res.json();
-    return normalizeAnalysisResponse(raw);
-  } catch (e) {
-    if (e instanceof Error) throw e;
-    throw new Error(String(e));
-  }
-}
-
 /** GET /api/analyze/refresh – trigger a background analysis and poll for result. */
 export async function triggerRefreshAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
   const controller = new AbortController();
@@ -268,6 +243,10 @@ export interface ConflictEventForHeatmap {
   source?: string;
   event_type?: string | null;
   fatalities?: number;
+  actor1?: string | null;
+  actor2?: string | null;
+  notes?: string | null;
+  event_date?: string | null;
 }
 
 /** GET /api/conflict-events – events with lat, lon, intensity for heatmap layer (ACLED). */

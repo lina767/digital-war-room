@@ -39,6 +39,7 @@ export function IAEATrackerPanel() {
   const [showPress, setShowPress] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
   const [showNotams, setShowNotams] = useState(false);
+  const [showGroundOps, setShowGroundOps] = useState(false);
 
   const fetchTracker = useCallback(async () => {
     setLoading(true);
@@ -74,6 +75,8 @@ export function IAEATrackerPanel() {
   const pressItems = press?.items ?? [];
   const telegramPosts = telegram?.posts ?? [];
   const notamList = Array.isArray(notamsBlock?.notams) ? notamsBlock.notams : [];
+  const groundOps = data?.ground_ops_signals;
+  const hasGroundOps = groundOps != null && (Array.isArray(groundOps) ? groundOps.length > 0 : typeof groundOps === "object" && Object.keys(groundOps).length > 0);
 
   return (
     <IntelPanel
@@ -123,11 +126,18 @@ export function IAEATrackerPanel() {
             <div className="pl-5 space-y-1 text-[11px] text-muted-foreground">
               {adsb.correlation_hint && <p>{adsb.correlation_hint}</p>}
               {aircraft.slice(0, 5).map((ac, i) => (
-                <div key={i} className="flex justify-between gap-2">
+                <div key={i} className="flex justify-between gap-2 flex-wrap">
                   <span className="font-mono truncate">{ac.hex ?? ac.flight ?? "—"}</span>
                   <span>
+                    {ac.registration && <span className="font-mono mr-1">{ac.registration}</span>}
                     {ac.on_ground ? "Ground" : "Air"}
                     {ac.location_interpretation === "parked_erbil" && " · Erbil"}
+                    {ac.region && <span className="ml-1">· {ac.region}</span>}
+                    {(ac.lat != null || ac.lon != null) && (
+                      <span className="ml-1 text-[10px]">
+                        {ac.lat?.toFixed(2)}°, {ac.lon?.toFixed(2)}°
+                      </span>
+                    )}
                   </span>
                 </div>
               ))}
@@ -158,6 +168,30 @@ export function IAEATrackerPanel() {
               {metar.visibility_m != null && <p>Visibility: {metar.visibility_m} m</p>}
               {metar.rvr_m != null && <p>RVR: {metar.rvr_m} m</p>}
               {metar.raw && <p className="font-mono text-[10px] break-all">{metar.raw}</p>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Ground ops signals */}
+      {hasGroundOps && (
+        <div className="border-t border-border/60 pt-2 space-y-1">
+          <button
+            type="button"
+            onClick={() => setShowGroundOps(!showGroundOps)}
+            className="flex items-center gap-1.5 w-full text-left text-[11px] font-medium text-foreground"
+          >
+            {showGroundOps ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            <MapPin className="h-3.5 w-3.5 text-amber-400" />
+            Ground ops
+          </button>
+          {showGroundOps && (
+            <div className="pl-5 space-y-1 text-[11px] text-muted-foreground">
+              {Array.isArray(groundOps)
+                ? groundOps.map((item: unknown, i: number) => (
+                    <p key={i}>{typeof item === "object" && item !== null ? JSON.stringify(item) : String(item)}</p>
+                  ))
+                : <pre className="text-[10px] overflow-x-auto">{JSON.stringify(groundOps, null, 1)}</pre>}
             </div>
           )}
         </div>
@@ -233,15 +267,18 @@ export function IAEATrackerPanel() {
             <div className="pl-5 space-y-1 text-[11px] text-muted-foreground">
               {press.correlation_hint && <p>{press.correlation_hint}</p>}
               {pressItems.slice(0, 3).map((item, i) => (
-                <a
-                  key={i}
-                  href={item.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block truncate text-primary hover:underline"
-                >
-                  {item.title || "—"}
-                </a>
+                <div key={i}>
+                  <a
+                    href={item.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block truncate text-primary hover:underline"
+                  >
+                    {item.title || "—"}
+                  </a>
+                  {item.published && <span className="text-[10px] text-muted-foreground/80">{item.published}</span>}
+                  {item.summary && <p className="line-clamp-2 text-muted-foreground">{item.summary}</p>}
+                </div>
               ))}
               {pressItems.length > 3 && <p>+{pressItems.length - 3} more</p>}
             </div>
@@ -265,7 +302,14 @@ export function IAEATrackerPanel() {
             <div className="pl-5 space-y-1 text-[11px] text-muted-foreground">
               {telegram.correlation_hint && <p>{telegram.correlation_hint}</p>}
               {telegramPosts.slice(0, 3).map((p, i) => (
-                <p key={i} className="line-clamp-2">{p.text || "—"}</p>
+                <div key={i}>
+                  {(p.source || p.platform) && (
+                    <span className="text-[10px] text-muted-foreground/80">
+                      {[p.source, p.platform].filter(Boolean).join(" · ")}
+                    </span>
+                  )}
+                  <p className="line-clamp-2">{p.text || "—"}</p>
+                </div>
               ))}
               {telegramPosts.length > 3 && <p>+{telegramPosts.length - 3} more</p>}
             </div>

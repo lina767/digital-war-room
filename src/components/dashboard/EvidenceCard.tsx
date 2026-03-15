@@ -40,10 +40,26 @@ function getRiskLabelDisplay(label: RiskLabel): string {
   }
 }
 
+function CoordLink({ lat, lon, label }: { lat: number; lon: number; label: string }) {
+  const url = `https://www.google.com/maps?q=${lat},${lon}`;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-mono text-[11px] text-primary hover:underline"
+      title="Open in Google Maps"
+    >
+      {label}: {lat.toFixed(4)}°, {lon.toFixed(4)}°
+    </a>
+  );
+}
+
 export function EvidenceCard({ evidence, className }: EvidenceCardProps) {
-  const { facilityName, facilityType, distanceMeters, riskLabel, summary } = evidence;
+  const { facilityName, facilityType, distanceMeters, riskLabel, summary, strikeLat, strikeLon, facilityLat, facilityLon, strikeAcquired } = evidence;
   const badgeConfig = getRiskBadgeVariant(riskLabel);
   const distanceRounded = Math.round(distanceMeters);
+  const hasCoords = typeof strikeLat === "number" && typeof strikeLon === "number";
 
   return (
     <Card className={cn("overflow-hidden", className)}>
@@ -68,6 +84,19 @@ export function EvidenceCard({ evidence, className }: EvidenceCardProps) {
           </span>
           {" to strike"}
         </p>
+        {strikeAcquired && (
+          <p className="text-[10px] text-muted-foreground/80 mt-0.5">
+            Strike acquired: {strikeAcquired}
+          </p>
+        )}
+        {hasCoords && (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px]">
+            <CoordLink lat={strikeLat} lon={strikeLon} label="Strike" />
+            {typeof facilityLat === "number" && typeof facilityLon === "number" && (
+              <CoordLink lat={facilityLat} lon={facilityLon} label="Facility" />
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pt-0">
         <p className="text-sm text-muted-foreground leading-relaxed">
