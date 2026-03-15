@@ -33,11 +33,10 @@ const Dashboard = () => {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [agentExpanded, setAgentExpanded] = useState<string | null>(null);
 
-  const { data: conflictData, status: analysisStatus, initialLoadPending, runAnalysis, lastUpdated, analysisError } = useConflictWebSocket({
+  const { data: conflictData, initialLoadPending, lastUpdated } = useConflictWebSocket({
     conflict: selectedConflict,
     enabled: true,
   });
-  const isAnalyzing = analysisStatus === "analyzing";
   const currentOption = CONFLICT_OPTIONS.find((o) => o.apiValue === selectedConflict);
   const displayConflictLabel = currentOption?.label ?? selectedConflict;
 
@@ -157,26 +156,6 @@ const Dashboard = () => {
           <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}
           </Badge>
-          <div className="flex flex-col items-end gap-1">
-            {analysisError && (
-              <p className={`text-[11px] max-w-[200px] sm:max-w-[320px] text-right truncate ${analysisError.includes("First analysis still running") ? "text-warning" : "text-destructive"}`} title={analysisError}>
-                {analysisError}
-              </p>
-            )}
-            <Button
-              size="sm"
-              className="text-xs px-3 sm:px-3 min-h-11 sm:min-h-9 touch-manipulation"
-              disabled={isAnalyzing}
-              onClick={() => runAnalysis()}
-              title="Load latest analysis (cache / periodic auto-run)"
-            >
-              {isAnalyzing ? (
-                <span className="animate-pulse">Loading…</span>
-              ) : (
-                "Analyze"
-              )}
-            </Button>
-          </div>
         </div>
       </header>
 
