@@ -144,7 +144,8 @@ def _build_query(conflict: str) -> str:
     return f'"{conflict}"' if " " in conflict else conflict
 
 
-def _sentiment(text: str) -> float:
+def _sentiment_keyword(text: str) -> float:
+    """Fallback: keyword-based sentiment when Haiku is unavailable or over limit."""
     lower = text.lower()
     score = sum(1 for kw in ESCALATION_KW if kw in lower)
     score -= sum(1 for kw in DE_ESCALATION_KW if kw in lower)
@@ -161,6 +162,18 @@ def _label(score: float) -> str:
         return "ESCALATORY"
     if score < -0.2:
         return "DE-ESCALATORY"
+    return "NEUTRAL"
+
+
+def _label_from_haiku(haiku_label: str) -> str:
+    """Map Haiku sentiment label (positive/negative/neutral) to escalation label."""
+    if not haiku_label:
+        return "NEUTRAL"
+    lbl = haiku_label.lower().strip()
+    if lbl == "negative":
+        return "ESCALATORY"  # negative news (violence, threat) = escalation
+    if lbl == "positive":
+        return "DE-ESCALATORY"  # positive news (peace, deal) = de-escalation
     return "NEUTRAL"
 
 
@@ -239,6 +252,26 @@ def _merge_news_results(
     for a in top20:
         _tag_chokepoint(a)
 
+    # Replace keyword sentiment with Haiku batch_sentiment when available (budget/limits apply)
+    try:
+        from services.haiku_service import batch_sentiment
+        texts = [
+            ((a.get("title") or "") + " " + (a.get("summary") or a.get("description") or "")).strip()[:2000]
+            for a in top20
+        ]
+        if texts:
+            haiku_results = run_async(batch_sentiment(texts))
+            if haiku_results and not all(r is None for r in haiku_results):
+                for a, res in zip(top20, haiku_results):
+                    if res is not None and isinstance(res, dict):
+                        # For conflict: Haiku "negative" (violence/threat) = escalation = positive score
+                        score = float(res.get("score", 0))
+                        a["sentiment_score"] = -score
+                        a["sentiment_label"] = _label_from_haiku(res.get("label", ""))
+                    # else: keep existing keyword-based sentiment from fetcher
+    except Exception as e:
+        logger.debug("NEWS Haiku batch_sentiment skipped: %s", e)
+
     weighted_sum = 0.0
     weight_sum = 0.0
     for a in top20:
@@ -292,7 +325,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
             if any(kw in title.lower() for kw in TITLE_EXCLUDE):
                 continue
             desc = art.get("description") or ""
-            score = _sentiment(f"{title} {desc}")
+            score = _sentiment_keyword(f"{title} {desc}")
             source = (art.get("source") or {}).get("name") or ""
             articles.append({
                 "title": title,
@@ -312,7 +345,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                 if any(kw in title.lower() for kw in TITLE_EXCLUDE):
                     continue
                 desc = art.get("description") or ""
-                score = _sentiment(f"{title} {desc}")
+                score = _sentiment_keyword(f"{title} {desc}")
                 source = (art.get("source") or {}).get("name") or ""
                 articles.append({
                     "title": title,
@@ -377,7 +410,7 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
             # Do not over-filter by language; keep non-English (incl. Farsi) as long as query matched
             if not url:  # need url for dedupe and linking
                 continue
-            score = _sentiment(title)
+            score = _sentiment_keyword(title)
             articles.append({
                 "title": (title[:500] if title else "(No title)"),
                 "source": art.get("domain") or art.get("sourcecountry") or "GDELT",
@@ -452,7 +485,7 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                     continue
                 if not _matches_keywords(title, summary):
                     continue
-                score = _sentiment(f"{title} {summary}")
+                score = _sentiment_keyword(f"{title} {summary}")
                 source = (parsed.feed.get("title") or feed_url) if getattr(parsed, "feed", None) else feed_url
                 results.append({
                     "title": title[:500],
@@ -551,7 +584,7 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
                     continue
                 if not _matches(title, summary):
                     continue
-                score = _sentiment(f"{title} {summary}")
+                score = _sentiment_keyword(f"{title} {summary}")
                 source = (parsed.feed.get("title") or feed_url) if getattr(parsed, "feed", None) else feed_url
                 out.append({
                     "title": title[:500],
@@ -605,7 +638,7 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
                 if url in seen_urls:
                     continue
                 seen_urls.add(url)
-                score = _sentiment(title)
+                score = _sentiment_keyword(title)
                 articles.append(
                     {
                         "title": title[:500],

@@ -576,6 +576,43 @@ def _gdelt_risk_floor(gdelt_24h: int, hits_closure_24h: int = 0, hits_6h: int = 
     return floor
 
 
+# ── Optional Haiku summary ───────────────────────────────────────────────────
+
+async def _generate_haiku_summary_chokepoint(
+    conflict: str,
+    chokepoints: List[Dict[str, Any]],
+    chokepoint_score: float,
+) -> Optional[str]:
+    """Optional 2-3 sentence disruption narrative via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        compact = {
+            "conflict": conflict,
+            "chokepoint_score": chokepoint_score,
+            "chokepoints": [
+                {
+                    "name": cp.get("name"),
+                    "status": cp.get("status"),
+                    "disruption_risk": cp.get("disruption_risk"),
+                    "oil_flow_estimate_mbd": cp.get("oil_flow_estimate_mbd"),
+                    "tanker_count": cp.get("tanker_count"),
+                    "data_quality": cp.get("data_quality"),
+                }
+                for cp in (chokepoints or [])[:5]
+            ],
+        }
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are a maritime chokepoint analyst. Summarize the following chokepoint data "
+            "(Hormuz, Bab el-Mandeb, Suez) in 2-3 sentences: status, disruption risk, oil flow. "
+            "Focus on escalation or supply-chain implications. Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        return out.strip() if out else None
+    except Exception:
+        return None
+
+
 # ── Main agent function ─────────────────────────────────────────────────────
 
 def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
@@ -717,7 +754,9 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
                 f"~{cp['oil_flow_estimate_mbd']} mbd, "
                 f"{cp['tanker_count']} tankers [{cp['data_quality']}])"
             )
-        summary = "CHOKEPOINT: " + "; ".join(parts)
+        rule_summary = "CHOKEPOINT: " + "; ".join(parts)
+        llm_summary = await _generate_haiku_summary_chokepoint(conflict, chokepoints, chokepoint_score)
+        summary = llm_summary if llm_summary else rule_summary
 
         return {
             "chokepoints": chokepoints,

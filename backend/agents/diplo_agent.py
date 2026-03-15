@@ -10,7 +10,7 @@ import io
 import logging
 import re
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -179,6 +179,7 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
                     "url": e.get("link"),
                     "published": e.get("published"),
                     "source": label,
+                    "summary": summary,
                 })
         return entries
     except Exception as e:
@@ -186,11 +187,41 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
 
 
 async def _fetch_un_icj_news(conflict: str) -> List[Dict[str, Any]]:
-    """Combine UN and ICJ RSS for conflict-relevant items."""
+    """Combine UN and ICJ RSS for conflict-relevant items. Optionally classify via Haiku."""
     un_entries = await _fetch_diplo_rss(UN_PRESS_RSS, "UN", conflict)
     icj_entries = await _fetch_diplo_rss(ICJ_RSS, "ICJ", conflict)
     combined = (un_entries or [])[:10] + (icj_entries or [])[:10]
-    return [e for e in combined if isinstance(e, dict) and "error" not in e][:15]
+    items = [e for e in combined if isinstance(e, dict) and "error" not in e][:15]
+    items = _classify_un_icj_news(items)
+    return items
+
+
+def _classify_un_icj_news(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach diplo_category and diplo_confidence; drop irrelevant with high confidence."""
+    if not items:
+        return items
+    try:
+        from services.haiku_service import batch_classify_diplo
+        from .utils import run_async
+        texts = [
+            ((e.get("title") or "") + " " + (e.get("summary") or "")).strip()[:1500]
+            for e in items
+        ]
+        results = run_async(batch_classify_diplo(texts))
+        if not results or all(r is None for r in results):
+            return items
+        out = []
+        for e, res in zip(items, results):
+            if res and isinstance(res, dict):
+                e["diplo_category"] = res.get("category", "irrelevant")
+                e["diplo_confidence"] = float(res.get("confidence", 0))
+                if e["diplo_category"] == "irrelevant" and e["diplo_confidence"] >= 0.7:
+                    continue
+            out.append(e)
+        return out if out else items
+    except Exception as e:
+        logger.debug("DIPLO Haiku classify skipped: %s", e)
+        return items
 
 
 async def _fetch_ofac_recent_actions(conflict: str) -> List[Dict[str, Any]]:
@@ -256,7 +287,43 @@ def _compute_diplo_score(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Di
         base += 10
     elif len(valid_news) >= 1:
         base += 5
+    if any(
+        n.get("diplo_category") == "new_sanction" and float(n.get("diplo_confidence") or 0) >= 0.6
+        for n in valid_news
+    ):
+        base += 5
     return min(100.0, max(0.0, base))
+
+
+async def _generate_haiku_summary_diplo(
+    conflict: str,
+    ofac: Dict[str, Any],
+    eu: Dict[str, Any],
+    news: List[Dict[str, Any]],
+    score: float,
+) -> Optional[str]:
+    """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        compact = {
+            "conflict": conflict,
+            "diplo_score": score,
+            "ofac_matches": ofac.get("total_matches"),
+            "eu_mentions": eu.get("keyword_mentions"),
+            "un_icj_news_count": len([n for n in news if n.get("title") and "error" not in n]),
+            "news_categories": [n.get("diplo_category") for n in news if n.get("diplo_category")],
+        }
+        import json
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are a sanctions and diplomatic analyst. Summarize the following DIPLO data "
+            "in 2-3 sentences: OFAC SDN, EU sanctions, UN/ICJ news (and any categories like new_sanction, "
+            "icj_ruling). Focus on escalation signals. Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        return out.strip() if out else None
+    except Exception:
+        return None
 
 
 def _build_summary(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Dict[str, Any]], score: float) -> str:
@@ -285,7 +352,9 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
             _fetch_ofac_recent_actions(conflict),
         )
         diplo_score = _compute_diplo_score(ofac, eu, news)
-        summary = _build_summary(ofac, eu, news, diplo_score)
+        rule_summary = _build_summary(ofac, eu, news, diplo_score)
+        llm_summary = await _generate_haiku_summary_diplo(conflict, ofac, eu, news, diplo_score)
+        summary = llm_summary if llm_summary else rule_summary
         return {
             "diplo_score": round(diplo_score, 1),
             "ofac_sdn": ofac,

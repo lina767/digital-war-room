@@ -258,6 +258,43 @@ def _build_summary(
     return out
 
 
+async def _generate_haiku_summary_energy(
+    conflict: str,
+    agsi: Dict[str, Any],
+    commodities: List[Dict[str, Any]],
+    food_commodities: List[Dict[str, Any]],
+    fao_fpi: Dict[str, Any],
+    energy_score: float,
+    food_risk: float,
+) -> Optional[str]:
+    """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        import json
+        valid_c = [c for c in (commodities or []) if c.get("price") and "error" not in c]
+        valid_food = [c for c in (food_commodities or []) if c.get("price") and "error" not in c]
+        compact = {
+            "conflict": conflict,
+            "energy_score": energy_score,
+            "food_security_risk": food_risk,
+            "agsi_records": len(agsi.get("full") or []),
+            "oil": [{"symbol": c.get("symbol"), "change_pct": c.get("change_pct")} for c in valid_c[:3]],
+            "food": [{"symbol": c.get("symbol"), "change_pct": c.get("change_pct")} for c in valid_food[:3]],
+            "fao_fpi_index": fao_fpi.get("index"),
+            "fao_fpi_yoy": fao_fpi.get("yoy_change_pct"),
+        }
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are an energy and commodities analyst for conflict monitoring. Summarize the following "
+            "data in 2-3 sentences: EU gas storage, oil (Brent/WTI), food commodities, FAO Food Price Index, "
+            "food security risk. Focus on escalation or chokepoint implications. Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        return out.strip() if out else None
+    except Exception:
+        return None
+
+
 def _commodity_entry(
     symbol: str, label: str, price: float, prev_price: float, as_of: str
 ) -> Dict[str, Any]:
@@ -477,10 +514,14 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         all_commodities = oil_commodities + food_commodities
         energy_score = _compute_energy_score(agsi, oil_commodities)
         food_risk = _compute_food_security_risk(food_commodities, fao_fpi, fertilizer)
-        summary = _build_summary(
+        rule_summary = _build_summary(
             agsi, oil_commodities, food_commodities, fao_fpi,
             energy_score, food_risk, conflict=conflict,
         )
+        llm_summary = await _generate_haiku_summary_energy(
+            conflict, agsi, oil_commodities, food_commodities, fao_fpi, energy_score, food_risk,
+        )
+        summary = llm_summary if llm_summary else rule_summary
 
         global_impact_note = None
         if conflict and "iran" in conflict.lower():

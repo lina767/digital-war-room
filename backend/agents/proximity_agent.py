@@ -6,7 +6,7 @@ other agents; also available via GET /api/proximity/analyze and the Dashboard "R
 """
 import asyncio
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .utils import run_async
 from agents.geoint_agent import get_thermal_anomalies, get_conflict_region
@@ -48,6 +48,39 @@ def _build_summary(evidence: List[Dict[str, Any]], score: float) -> str:
     if high:
         parts.append(f"{high} high-risk.")
     return "PROXIMITY: " + " ".join(parts)
+
+
+async def _generate_haiku_summary_proximity(
+    conflict: str,
+    evidence: List[Dict[str, Any]],
+    score: float,
+) -> Optional[str]:
+    """Optional 2-3 sentence strike-civilian impact narrative via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        import json
+        compact = {
+            "conflict": conflict,
+            "proximity_score": score,
+            "evidence_count": len(evidence),
+            "critical": sum(1 for e in evidence if (e.get("riskLabel") or "") == "CRITICAL_PROXIMITY"),
+            "human_shield": sum(1 for e in evidence if (e.get("riskLabel") or "") == "PROBABLE_HUMAN_SHIELD"),
+            "high_risk": sum(1 for e in evidence if (e.get("riskLabel") or "") == "HIGH_RISK"),
+            "sample": [
+                {"riskLabel": e.get("riskLabel"), "facility_type": e.get("facility_type"), "distance_m": e.get("distance_m")}
+                for e in (evidence or [])[:5]
+            ],
+        }
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are a conflict analyst. Summarize the following strike–civilian proximity data "
+            "in 2-3 sentences: thermal anomalies correlated with schools/hospitals, human-shield or "
+            "collateral risk. Be concise. Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        return out.strip() if out else None
+    except Exception:
+        return None
 
 
 def run_proximity_agent(conflict: str) -> Dict[str, Any]:
@@ -93,7 +126,9 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
         if len(evidence) == 0 and len(events) > 0:
             current_reason = "no_facilities_near_strikes"
         score = _compute_proximity_score(evidence)
-        summary = _build_summary(evidence, score)
+        rule_summary = _build_summary(evidence, score)
+        llm_summary = await _generate_haiku_summary_proximity(conflict, evidence, score)
+        summary = llm_summary if llm_summary else rule_summary
         out = {
             "proximity_score": round(score, 1),
             "evidence": evidence,

@@ -734,6 +734,38 @@ def _build_correlation_notes(
     return hints_with_conf, summary
 
 
+async def _generate_haiku_summary_iaea(result: Dict[str, Any]) -> Optional[str]:
+    """Optional 3-4 sentence sensor-fusion narrative via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        import json
+        oe = result.get("oeiii_adsb") or {}
+        metar = result.get("metar_orer") or {}
+        press = result.get("iaea_press_grossi") or {}
+        compact = {
+            "adsb_count": oe.get("count", 0),
+            "adsb_hint": oe.get("correlation_hint"),
+            "metar_visibility": metar.get("visibility_m"),
+            "metar_operational_delay_risk": metar.get("operational_delay_risk"),
+            "metar_summary": metar.get("summary"),
+            "flight_plan_status": (result.get("flight_plan_status") or {}).get("status"),
+            "press_count": press.get("count", 0),
+            "telegram_count": (result.get("iaea_telegram_signals") or {}).get("count", 0),
+            "correlation_notes": result.get("correlation_notes"),
+        }
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are an IAEA/OSINT analyst. Summarize the following OE-III (IAEA aircraft) multi-sensor "
+            "fusion data in 3-4 sentences: ADS-B sightings, NOTAM/METAR, flight plan status, IAEA press, "
+            "Telegram. Give a concise assessment (e.g. operational status, visibility constraints, recent coverage). "
+            "Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=300)
+        return out.strip() if out else None
+    except Exception:
+        return None
+
+
 def correlate_iaea_tracker(
     adsb_result: Optional[Dict[str, Any]] = None,
     notam_result: Optional[Dict[str, Any]] = None,
@@ -858,7 +890,7 @@ def run_iaea_tracker() -> Dict[str, Any]:
         press = _unwrap(4, "IAEA Press")
         telegram = _unwrap(5, "Telegram")
 
-        return correlate_iaea_tracker(
+        result = correlate_iaea_tracker(
             adsb_result=adsb,
             notam_result=notam,
             metar_result=metar,
@@ -866,6 +898,10 @@ def run_iaea_tracker() -> Dict[str, Any]:
             press_result=press,
             telegram_result=telegram,
         )
+        llm_summary = await _generate_haiku_summary_iaea(result)
+        if llm_summary:
+            result["summary"] = llm_summary
+        return result
 
     try:
         return run_async(_run_all())

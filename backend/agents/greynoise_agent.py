@@ -664,9 +664,9 @@ def _generate_alerts(threats: List[EmergingThreat], outbound_count: int, inbound
 
 
 async def _generate_llm_summary(conflict: str, result: GreynoiseResult) -> str:
-    """Generate analyst-style summary via LLM (optional, falls back to rule-based)."""
+    """Generate analyst-style summary via Haiku (optional, falls back to rule-based). Uses haiku_service for budget tracking."""
     try:
-        from .llm import call_llm
+        from services.haiku_service import analyst_summary
         top_threats = [
             {"tag": t.tag, "category": t.category, "direction": t.direction, "volume": t.scan_volume, "priority": t.priority, "cve": t.cve_id, "cvss": t.cvss_score}
             for t in sorted(result.emerging_threats, key=lambda x: x.weight * x.scan_volume, reverse=True)[:5]
@@ -686,7 +686,7 @@ async def _generate_llm_summary(conflict: str, result: GreynoiseResult) -> str:
             "signals and what they mean for the security situation. Be concise and analytical. "
             "Write in English."
         )
-        summary = call_llm(system=system, user_content=prompt_data, max_tokens=300)
+        summary = await analyst_summary(system=system, data=prompt_data, max_tokens=300)
         return summary.strip() if summary else ""
     except Exception as e:
         logger.debug("GreyNoise LLM summary failed, using rule-based: %s", e)

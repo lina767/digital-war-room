@@ -26,6 +26,7 @@ HAIKU_MAX_NER_PER_RUN = int(os.getenv("HAIKU_MAX_NER_PER_RUN", "40"))
 HAIKU_MAX_CLASSIFY_PER_RUN = int(os.getenv("HAIKU_MAX_CLASSIFY_PER_RUN", "30"))
 HAIKU_MAX_SUMMARIZE_PER_RUN = int(os.getenv("HAIKU_MAX_SUMMARIZE_PER_RUN", "20"))
 HAIKU_MAX_DOCQA_PER_RUN = int(os.getenv("HAIKU_MAX_DOCQA_PER_RUN", "10"))
+HAIKU_MAX_ANALYST_SUMMARY_PER_RUN = int(os.getenv("HAIKU_MAX_ANALYST_SUMMARY_PER_RUN", "15"))
 HAIKU_MONTHLY_BUDGET = float(os.getenv("HAIKU_MONTHLY_BUDGET", "20.0"))
 
 # Pricing per million tokens (Haiku 4.5)
@@ -47,6 +48,7 @@ _run_ner_count = 0
 _run_classify_count = 0
 _run_summarize_count = 0
 _run_docqa_count = 0
+_run_analyst_summary_count = 0
 _run_input_tokens = 0
 _run_output_tokens = 0
 
@@ -101,7 +103,7 @@ def _check_budget() -> bool:
 def reset_run_counters():
     """Call at the start of each 6h analysis run."""
     global _run_call_count, _run_translation_count, _run_sentiment_count, _run_ner_count
-    global _run_classify_count, _run_summarize_count, _run_docqa_count
+    global _run_classify_count, _run_summarize_count, _run_docqa_count, _run_analyst_summary_count
     global _run_input_tokens, _run_output_tokens, _run_haiku_failed
     _run_call_count = 0
     _run_translation_count = 0
@@ -110,6 +112,7 @@ def reset_run_counters():
     _run_classify_count = 0
     _run_summarize_count = 0
     _run_docqa_count = 0
+    _run_analyst_summary_count = 0
     _run_input_tokens = 0
     _run_output_tokens = 0
     _run_haiku_failed = False
@@ -405,6 +408,76 @@ async def batch_classify(texts: List[str]) -> List[Optional[Dict[str, Any]]]:
     return results
 
 
+# ── DIPLO classification (UN/ICJ news) ──────────────────────────────────────
+
+_DIPLO_CATEGORIES = [
+    "new_sanction",
+    "sanction_lifted",
+    "icj_ruling",
+    "procedural_update",
+    "irrelevant",
+]
+
+_CLASSIFY_DIPLO_SYSTEM = (
+    "You are a diplomatic/legal news classifier. Classify the following UN or ICJ press text "
+    "into exactly ONE of these categories:\n"
+    + ", ".join(_DIPLO_CATEGORIES)
+    + "\n\n"
+    "new_sanction = new sanctions, designations, or enforcement actions. "
+    "sanction_lifted = removal or easing of sanctions. "
+    "icj_ruling = ICJ judgment, order, or substantive ruling. "
+    "procedural_update = procedural step, hearing date, filing, or case update. "
+    "irrelevant = not about sanctions or ICJ, or not conflict-relevant.\n\n"
+    "Return ONLY valid JSON:\n"
+    '{"category": "<category>", "confidence": <float 0 to 1>}'
+)
+
+
+async def classify_diplo(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Classify UN/ICJ news item for DIPLO agent.
+    Returns {"category": str, "confidence": float} or None.
+    Uses same run limit as classify() (_run_classify_count).
+    """
+    global _run_classify_count
+    if not text or not text.strip():
+        return None
+    if _run_haiku_failed:
+        return None
+    if _run_classify_count >= HAIKU_MAX_CLASSIFY_PER_RUN:
+        logger.debug("[haiku] Classify limit reached (%d)", HAIKU_MAX_CLASSIFY_PER_RUN)
+        return None
+
+    raw = await _call_haiku(_CLASSIFY_DIPLO_SYSTEM, text.strip()[:2000], max_tokens=128)
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw.strip())
+        _run_classify_count += 1
+        category = parsed.get("category", "irrelevant")
+        if category not in _DIPLO_CATEGORIES:
+            category = "irrelevant"
+        return {
+            "category": category,
+            "confidence": float(parsed.get("confidence", 0)),
+        }
+    except (json.JSONDecodeError, ValueError, TypeError):
+        logger.warning("[haiku] Classify diplo response not valid JSON: %.100s", raw)
+        return None
+
+
+async def batch_classify_diplo(texts: List[str]) -> List[Optional[Dict[str, Any]]]:
+    """Run DIPLO classification on multiple texts with batch-fallback."""
+    results: List[Optional[Dict[str, Any]]] = []
+    for t in texts:
+        if _run_haiku_failed:
+            results.append(None)
+            continue
+        r = await classify_diplo(t)
+        results.append(r)
+    return results
+
+
 # ── Summarization (Phase 3) ─────────────────────────────────────────────────
 
 _SUMMARIZE_SYSTEM = (
@@ -446,6 +519,32 @@ async def batch_summarize(texts: List[str]) -> List[Optional[str]]:
         r = await summarize(t)
         results.append(r)
     return results
+
+
+# ── Analyst summary (custom system prompt) ───────────────────────────────────
+
+async def analyst_summary(
+    system: str,
+    data: str,
+    max_tokens: int = 256,
+) -> Optional[str]:
+    """
+    Generic analyst-style summary with custom system prompt. Use for GreyNoise, TECHINT,
+    CYBER, ENERGY, IAEA, etc. Budget-tracked; separate limit from content summarization.
+    """
+    global _run_analyst_summary_count
+    if not data or not data.strip():
+        return None
+    if _run_haiku_failed:
+        return None
+    if _run_analyst_summary_count >= HAIKU_MAX_ANALYST_SUMMARY_PER_RUN:
+        logger.debug("[haiku] Analyst summary limit reached (%d)", HAIKU_MAX_ANALYST_SUMMARY_PER_RUN)
+        return None
+
+    result = await _call_haiku(system.strip(), data.strip()[:8000], max_tokens=max_tokens)
+    if result:
+        _run_analyst_summary_count += 1
+    return result
 
 
 # ── Document QA (Phase 4) ───────────────────────────────────────────────────

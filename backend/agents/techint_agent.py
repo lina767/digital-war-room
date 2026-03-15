@@ -8,7 +8,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -833,6 +833,45 @@ def _build_summary(
     return "TECHINT: " + " ".join(parts)
 
 
+async def _generate_haiku_summary_techint(
+    conflict: str,
+    tech_indicators: List[Dict],
+    export_controls: List[Dict],
+    ioda_events: List[Dict],
+    ioda_result: Dict[str, Any],
+    ooni_result: Dict[str, Any],
+    cloudflare_outages: List[Dict],
+    shodan_activity: Dict[str, Any],
+    techint_score: float,
+) -> Optional[str]:
+    """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        compact = {
+            "conflict": conflict,
+            "techint_score": techint_score,
+            "tech_etfs": [{"symbol": t.get("symbol"), "change_pct": t.get("change_pct")} for t in (tech_indicators or [])[:5] if t.get("symbol")],
+            "export_control_articles": len([a for a in (export_controls or []) if "error" not in a]),
+            "ioda_outages": len(ioda_result.get("outages") or []),
+            "ioda_alerts": len(ioda_result.get("alerts") or []),
+            "ooni_telegram_blocked": ooni_result.get("telegram_signal_blocked_iran"),
+            "cloudflare_outages": len(cloudflare_outages or []),
+            "shodan_hosts": shodan_activity.get("total_count"),
+            "shodan_industrial": shodan_activity.get("industrial_exposed"),
+        }
+        import json
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are a tech and export-control analyst for conflict monitoring. Summarize the following "
+            "TECHINT data in 2-3 sentences: tech ETFs, export control news, IODA outages, OONI blocks, "
+            "Cloudflare Radar, Shodan. Focus on escalation signals. Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        return out.strip() if out else None
+    except Exception:
+        return None
+
+
 def run_techint_agent(conflict: str) -> Dict[str, Any]:
     """Run TECHINT: tech indicators, export control, IODA, OONI, Cloudflare Radar, Shodan."""
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
@@ -856,11 +895,16 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             ooni_result, cloudflare_outages, shodan_activity,
             whois_dns, wigle_result,
         )
-        summary = _build_summary(
+        rule_summary = _build_summary(
             tech_indicators, export_controls, ioda_events, ioda_result,
             ooni_result, cloudflare_outages, shodan_activity,
             techint_score, wayback_result, whois_dns, wigle_result,
         )
+        llm_summary = await _generate_haiku_summary_techint(
+            conflict, tech_indicators, export_controls, ioda_events, ioda_result,
+            ooni_result, cloudflare_outages, shodan_activity, techint_score,
+        )
+        summary = llm_summary if llm_summary else rule_summary
         return {
             "tech_indicators": tech_indicators,
             "export_controls": export_controls,

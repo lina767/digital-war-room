@@ -488,6 +488,41 @@ def _compute_cyber_score(
     return min(100.0, max(0.0, base))
 
 
+async def _generate_haiku_summary_cyber(
+    conflict: str,
+    kev: CisaKevResult,
+    threat_reports: List[ThreatReportEntry],
+    otx_pulses: List[OtxPulseEntry],
+    greynoise: GreyNoiseScanContext,
+    internet_db: InternetDbResult,
+    score: float,
+) -> Optional[str]:
+    """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
+    try:
+        from services.haiku_service import analyst_summary
+        compact = {
+            "conflict": conflict,
+            "cyber_score": score,
+            "cisa_kev_total": kev.total,
+            "cisa_kev_new_7d": kev.added_7d,
+            "threat_reports_count": len([r for r in threat_reports if r.title and not r.error]),
+            "otx_pulses_count": len([p for p in otx_pulses if p.name and not p.error]),
+            "greynoise_count": greynoise.count if greynoise.available else None,
+            "internet_db_hosts": len(internet_db.hosts) if internet_db.hosts else 0,
+        }
+        import json
+        data = json.dumps(compact, indent=2)
+        system = (
+            "You are a cyber-threat analyst for conflict zones. Summarize the following "
+            "CYBER data in 2-3 sentences: CISA KEV, threat reports, OTX pulses, GreyNoise, InternetDB. "
+            "Focus on the most critical signals. Write in English."
+        )
+        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        return out.strip() if out else None
+    except Exception:
+        return None
+
+
 def _build_summary(
     kev: CisaKevResult,
     threat_reports: List[ThreatReportEntry],
@@ -541,7 +576,11 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
             _fetch_internetdb(client, internetdb_ips),
         )
         cyber_score = _compute_cyber_score(kev, threat_reports, otx_pulses, greynoise, internet_db)
-        summary = _build_summary(kev, threat_reports, otx_pulses, greynoise, internet_db, cyber_score)
+        rule_summary = _build_summary(kev, threat_reports, otx_pulses, greynoise, internet_db, cyber_score)
+        llm_summary = await _generate_haiku_summary_cyber(
+            conflict, kev, threat_reports, otx_pulses, greynoise, internet_db, cyber_score,
+        )
+        summary = llm_summary if llm_summary else rule_summary
         return CyberAgentResult(
             cyber_score=round(cyber_score, 1),
             cisa_kev=kev,

@@ -37,11 +37,13 @@ _MODEL_DEFAULTS = {
     "anthropic": {
         "agent": ("ANTHROPIC_AGENT_MODEL", "claude-haiku-4-5-20251001"),
         "supervisor": ("SUPERVISOR_MODEL", "claude-sonnet-4-6"),
+        "supervisor_routine": ("SUPERVISOR_ROUTINE_MODEL", "claude-haiku-4-5-20251001"),
         "supervisor_fallback": ("SUPERVISOR_FALLBACK_MODEL", "claude-sonnet-4-6"),
     },
     "openai": {
         "agent": ("OPENAI_AGENT_MODEL", "gpt-4o-mini"),
         "supervisor": ("OPENAI_SUPERVISOR_MODEL", "gpt-4o-mini"),
+        "supervisor_routine": ("OPENAI_SUPERVISOR_ROUTINE_MODEL", "gpt-4o-mini"),
         "supervisor_fallback": ("OPENAI_SUPERVISOR_FALLBACK_MODEL", "gpt-4o"),
     },
 }

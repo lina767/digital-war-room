@@ -168,6 +168,29 @@ def _build_summary(acled_events: List[Dict], gdelt_articles: List[Dict], score: 
     return "PROTEST: " + " ".join(parts)
 
 
+async def _cluster_protest_events_haiku(acled_events: List[Dict]) -> Optional[str]:
+    """Use Haiku to summarize ACLED events as 2-4 protest clusters (location, count, grievance)."""
+    valid = [e for e in acled_events if isinstance(e, dict) and "error" not in e][:20]
+    if not valid:
+        return None
+    lines = []
+    for i, e in enumerate(valid, 1):
+        loc = e.get("location") or e.get("country") or "Unknown"
+        etype = e.get("event_type") or e.get("sub_event_type") or "Protest"
+        notes = (e.get("notes") or "").strip()[:150]
+        lines.append(f"Event {i}: {loc}, {etype}, {notes}")
+    text = (
+        "Identify 2-4 protest clusters by geography and cause. For each cluster give: location, "
+        "approximate event count, and primary grievance.\n\nProtest events:\n" + "\n".join(lines)
+    )
+    try:
+        from services.haiku_service import summarize
+        out = await summarize(text[:4000], max_output_tokens=200)
+        return out.strip() if out else None
+    except Exception:
+        return None
+
+
 def run_protest_agent(conflict: str) -> Dict[str, Any]:
     """Run PROTEST/Civil Society agent: ACLED protests/riots, GDELT protest coverage."""
     acled_key = os.getenv("ACLED_API_KEY", "").strip() if not has_acled_oauth() else ""
@@ -176,7 +199,12 @@ def run_protest_agent(conflict: str) -> Dict[str, Any]:
         acled_events = await _fetch_acled_protests(acled_key, conflict)
         gdelt_articles = await _fetch_gdelt_protest(conflict)
         protest_score = _compute_protest_score(acled_events, gdelt_articles)
-        summary = _build_summary(acled_events, gdelt_articles, protest_score)
+        base_summary = _build_summary(acled_events, gdelt_articles, protest_score)
+        cluster_summary = await _cluster_protest_events_haiku(acled_events)
+        if cluster_summary:
+            summary = f"{base_summary} Clusters: {cluster_summary}"
+        else:
+            summary = base_summary
         return {
             "protest_score": round(protest_score, 1),
             "protest_events": acled_events,

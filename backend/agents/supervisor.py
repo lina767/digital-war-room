@@ -338,7 +338,10 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
         agent_scores_list = [finint_score, sigint_score, news_score, geoint_score, socmint_score, techint_score, cyber_score, energy_score, protest_score, diplo_score, proximity_score]
         complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
-        model = get_model_name("supervisor_fallback" if complex_case else "supervisor")
+        if complex_case:
+            model = get_model_name("supervisor_fallback")
+        else:
+            model = get_model_name("supervisor_routine")
 
         user_payload = {
             "conflict": conflict,
