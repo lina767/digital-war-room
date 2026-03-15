@@ -509,6 +509,14 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
+def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
+    """
+    Fetch naval vessels in conflict regions. No external API in use (VesselFinder removed).
+    Ships are enriched from Chokepoint/AISStream in supervisor when AIRSTREAM_API_KEY is set.
+    """
+    return []
+
+
 # ── Structured result models ────────────────────────────────────────────────
 
 class SigintResult(BaseModel):
