@@ -7,6 +7,23 @@ export interface AgentSource {
   description?: string;
 }
 
+/** Backend result key for this agent (used to read timeout_or_error from analysis payload). */
+export const AGENT_NAME_TO_KEY: Record<string, string> = {
+  "FININT": "finint",
+  "SIGINT": "sigint",
+  "NEWS": "news",
+  "GEOINT": "geoint",
+  "SOCMINT": "socmint",
+  "TECHINT": "techint",
+  "CYBER": "cyber",
+  "ENERGY": "energy",
+  "CHOKEPOINT": "chokepoint",
+  "PROTEST": "protest",
+  "DIPLO": "diplo",
+  "PROXIMITY": "proximity",
+  "SIGNAL FRAMEWORK": "narrative",
+};
+
 export interface AgentConfig {
   name: string;
   fullName: string;

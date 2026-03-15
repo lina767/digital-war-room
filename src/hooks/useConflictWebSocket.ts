@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, triggerRefreshAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
 import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/components/dashboard/mapConfig";
 
@@ -70,6 +71,8 @@ export interface ConflictData {
     brent?: { price: string; change_pct: string; as_of: string } | null;
     polymarket?: Array<{ question?: string; probability?: number; volume?: number; url?: string; end_date_iso?: string }>;
     polymarket_fetched_at?: string;
+    timeout_or_error?: boolean;
+    error?: string;
   };
   geoint?: {
     anomalies: GeointAnomaly[];
@@ -82,6 +85,8 @@ export interface ConflictData {
     hormuz_tanker_count?: number;
     conflict_reports?: { title: string; date?: string; url?: string; source?: string }[];
     sigint_score: number;
+    timeout_or_error?: boolean;
+    error?: string;
   };
   techint?: Record<string, unknown>;
   cyber?: {
@@ -173,6 +178,8 @@ export interface ConflictData {
     chokepoint_score?: number;
     summary?: string;
   };
+  /** Centralised alerts from SIGINT, geofencing, AIS anomaly, GreyNoise. */
+  alerts?: Array<{ source: string; severity: string; text: string }>;
   /** Iran conflict: actors with activity and optional intelligence (official position, verified actions, signals, military profile). */
   actors?: Array<{
     id: string;
@@ -312,7 +319,13 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         if (msg.status === "analyzing") {
           setStatus("analyzing");
         } else if (msg.status === "ok") {
-          setData(normalizeAnalysisResponse(msg) as unknown as ConflictData);
+          const next = normalizeAnalysisResponse(msg) as unknown as ConflictData;
+          const alerts = next?.alerts ?? [];
+          const highCount = alerts.filter((a) => (a.severity || "").toLowerCase() === "high" || (a.severity || "").toLowerCase() === "critical").length;
+          if (highCount > 0) {
+            toast.info(`${highCount} alert(s)`, { description: alerts[0]?.text?.slice(0, 80) ?? "New intelligence alerts" });
+          }
+          setData(next);
           setLastUpdated(new Date());
           setStatus("connected");
           setAnalysisError(null);

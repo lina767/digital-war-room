@@ -25,6 +25,12 @@ const HowItWorks = () => {
               </Link>
               {" "}– transparent, searchable list of all data sources with reliability ratings.
             </p>
+            <p className="text-sm text-muted-foreground">
+              <Link to="/methodology" className="inline-flex items-center gap-1.5 text-primary hover:underline">
+                <span>Methodology</span>
+              </Link>
+              {" "}– scoring weights, threat-level thresholds and Signal Framework (state vs. exile media).
+            </p>
             <p className="text-xs sm:text-[13px] text-muted-foreground max-w-3xl">
               For conflict <strong className="text-foreground">Iran</strong>, keywords and synthesis explicitly include
               Hezbollah–IDF and Houthis (no separate dropdown). Global impact (e.g. oil price moves, Strait of Hormuz /

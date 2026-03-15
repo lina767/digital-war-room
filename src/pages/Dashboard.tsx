@@ -195,6 +195,7 @@ const Dashboard = () => {
           setLeftPanelOpen={setLeftPanelOpen}
           agentExpanded={agentExpanded}
           setAgentExpanded={setAgentExpanded}
+          conflictData={conflictData}
         />
 
         {/* Overlay backdrop for mobile panels */}
@@ -235,6 +236,18 @@ const Dashboard = () => {
           >
             <BookOpen className="h-3.5 w-3.5" aria-hidden />
             <span>How it works</span>
+          </Link>
+          <Link
+            to="/methodology"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          >
+            <span>Methodology</span>
+          </Link>
+          <Link
+            to="/case-study"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          >
+            <span>Case Study</span>
           </Link>
           <Link
             to="/daily-briefing"

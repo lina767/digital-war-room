@@ -1,3 +1,4 @@
+import json
 import os
 import asyncio
 import time
@@ -6,10 +7,10 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, Request, Header, Body
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from agents.supervisor import analyze_conflict
+from agents.supervisor import analyze_conflict, run_analysis_streaming
 from agents.geoint_agent import get_thermal_anomalies, get_conflict_events_for_heatmap, get_theater_events
 from agents.iaea_tracker import run_iaea_tracker, fetch_notams
 from api.proximity_correlation import run_correlation_for_events
@@ -44,6 +45,28 @@ def _get_escalation_timeline(request: Request):
     return getattr(request.app.state, "escalation_timeline_history", {})
 
 
+# Agent keys present in supervisor result (for status recording).
+AGENT_KEYS = (
+    "finint", "sigint", "news", "geoint", "socmint", "techint", "cyber",
+    "energy", "protest", "diplo", "proximity", "narrative", "chokepoint",
+)
+
+
+def push_agent_status(app_state, result: dict) -> None:
+    """Record per-agent status from last analysis (ok vs timeout/error). Used by GET /api/agents/status."""
+    if not isinstance(result, dict):
+        return
+    status = getattr(app_state, "agent_status_last", None)
+    if status is None:
+        return
+    for key in AGENT_KEYS:
+        agent_result = result.get(key)
+        if isinstance(agent_result, dict) and agent_result.get("timeout_or_error"):
+            status[key] = "error"
+        else:
+            status[key] = "ok"
+
+
 def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dict) -> None:
     """Append one point to escalation timeline history for the conflict. Call after caching analysis."""
     history = getattr(app_state, "escalation_timeline_history", None)
@@ -63,6 +86,58 @@ def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dic
     history[conflict].append({"at": at_ts, "escalation_score": round(score, 1)})
     # Keep last N points (e.g. 24 runs ≈ 24h at 1 run/hour, or 6 days at 1 run/6h)
     history[conflict] = history[conflict][-ESCALATION_TIMELINE_MAX_POINTS:]
+
+
+@router.get("/analyze/stream")
+async def analyze_stream(request: Request, conflict: str = "Iran"):
+    """
+    GET /api/analyze/stream?conflict=Iran
+    Server-Sent Events: one event per agent as it completes, then a final supervisor event.
+    Event data: {"event": "agent", "agent": "finint", "result": {...}} or {"event": "supervisor", "result": {...}}.
+    """
+    async def event_stream():
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def run_stream():
+            try:
+                for name, data in run_analysis_streaming(conflict):
+                    loop.call_soon_threadsafe(queue.put_nowait, (name, data))
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", str(e)))
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        asyncio.create_task(asyncio.get_running_loop().run_in_executor(None, run_stream))
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            if item[0] == "error":
+                yield f"data: {json.dumps({'event': 'error', 'message': item[1]}, default=str)}\n\n"
+                break
+            name, data = item
+            if name == "supervisor":
+                yield f"data: {json.dumps({'event': 'supervisor', 'result': data}, default=str)}\n\n"
+            else:
+                yield f"data: {json.dumps({'event': 'agent', 'agent': name, 'result': data}, default=str)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/agents/status")
+async def agents_status(request: Request):
+    """
+    GET /api/agents/status
+    Per-agent status from last completed analysis (ok | error). Empty if no run yet.
+    """
+    status = getattr(request.app.state, "agent_status_last", None)
+    if status is None:
+        return {}
+    return dict(status)
 
 
 @router.get("/analyze/status")
@@ -173,6 +248,10 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
             at_ts = time.time()
             app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
             push_escalation_timeline(app_state, conflict, at_ts, result)
+            push_agent_status(app_state, result)
+            ws_manager = getattr(app_state, "ws_manager", None)
+            if ws_manager:
+                await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
             return {"status": "ok", "conflict": conflict}
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
@@ -193,7 +272,11 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
             at_ts = time.time()
             app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
             push_escalation_timeline(app_state, conflict, at_ts, result)
+            push_agent_status(app_state, result)
             last_error.pop(conflict, None)
+            ws_manager = getattr(app_state, "ws_manager", None)
+            if ws_manager:
+                await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
             print(f"[refresh] Analysis for {conflict} done and cached.")
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
@@ -227,6 +310,10 @@ async def trigger_analysis(
         at_ts = time.time()
         cache[conflict] = {"result": result, "at": at_ts}
         push_escalation_timeline(request.app.state, conflict, at_ts, result)
+        push_agent_status(request.app.state, result)
+        ws_manager = getattr(request.app.state, "ws_manager", None)
+        if ws_manager:
+            await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
         return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

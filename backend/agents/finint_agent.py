@@ -71,6 +71,10 @@ POLYMARKET_KEYWORDS = [
 METACULUS_API_BASE = "https://www.metaculus.com/api2/questions/"
 METACULUS_CONFLICT_TERMS = ["iran", "us-iran", "war", "military", "strike", "nuclear", "israel", "gaza", "ukraine", "russia", "taiwan", "china"]
 
+# Kalshi – optional second prediction market. Set KALSHI_API_BASE (e.g. https://trading-api.kalshi.com/trade-api/v2) to enable.
+KALSHI_API_BASE = os.getenv("KALSHI_API_BASE", "").strip()
+KALSHI_CONFLICT_TERMS = ["iran", "military", "strike", "nuclear", "israel", "gaza", "ukraine", "russia", "china", "taiwan"]
+
 # Optional: Etherscan für On-Chain-Wallets (Whale/Sanktionen). Liste: (label, Ethereum-Adresse).
 TRACKED_ETH_ADDRESSES: List[tuple[str, str]] = []
 
@@ -159,6 +163,8 @@ class FinintResult(BaseModel):
     polymarket_fetched_at: Optional[str] = None
     metaculus: List[Dict[str, Any]] = Field(default_factory=list)
     metaculus_fetched_at: Optional[str] = None
+    kalshi: List[Dict[str, Any]] = Field(default_factory=list)
+    kalshi_fetched_at: Optional[str] = None
     ofac_sanctions: Dict[str, Any] = Field(default_factory=dict)
     ofac_delta: Optional[OfacDelta] = None
     tracked_wallets: List[Dict[str, Any]] = Field(default_factory=list)
@@ -833,6 +839,50 @@ async def _fetch_metaculus(client: Any, conflict: str) -> Dict[str, Any]:
     return {"items": out[:10], "fetched_at": fetched_at}
 
 
+async def _fetch_kalshi(client: Any, conflict: str) -> Dict[str, Any]:
+    """Fetch Kalshi prediction markets (optional). Set KALSHI_API_BASE to enable. Returns {items: [...], fetched_at: ...}."""
+    fetched_at = utc_now_iso()
+    if not KALSHI_API_BASE:
+        return {"items": [], "fetched_at": fetched_at}
+    try:
+        resp = await client.request(
+            "GET",
+            f"{KALSHI_API_BASE.rstrip('/')}/events",
+            params={"limit": 50, "status": "open"},
+            timeout=15.0,
+        )
+        if resp.status_code != 200:
+            return {"items": [{"error": f"Kalshi API {resp.status_code}"}], "fetched_at": fetched_at}
+        data = resp.json()
+    except Exception as e:
+        return {"items": [{"error": str(e)}], "fetched_at": fetched_at}
+    events = data.get("events") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    if not isinstance(events, list):
+        return {"items": [], "fetched_at": fetched_at}
+    cl = (conflict or "").lower()
+    keywords = [t for t in KALSHI_CONFLICT_TERMS if t in cl] or ["iran", "military", "war"]
+    out: List[Dict[str, Any]] = []
+    for ev in events[:15]:
+        if not isinstance(ev, dict):
+            continue
+        title = (ev.get("title") or ev.get("event_ticker") or "").strip()
+        if not title or not any(kw in title.lower() for kw in keywords):
+            continue
+        # Kalshi yes_bid/yes_ask or last_price as probability proxy
+        yes_bid = safe_float(ev.get("yes_bid"))
+        yes_ask = safe_float(ev.get("yes_ask"))
+        prob = (yes_bid + yes_ask) / 2 if (yes_bid is not None and yes_ask is not None) else safe_float(ev.get("last_price"))
+        if prob is None:
+            prob = 0.0
+        out.append({
+            "question": title[:200],
+            "probability": round(prob, 3),
+            "url": f"https://kalshi.com/markets/{ev.get('event_ticker', ev.get('ticker', ''))}",
+            "volume": safe_float(ev.get("volume")) or 0,
+        })
+    return {"items": out[:10], "fetched_at": fetched_at}
+
+
 async def _fetch_ofac_cached(client: Any, conflict: str) -> Dict[str, Any]:
     """Fetch OFAC SDN (or use 6h cache), filter by conflict; returns total_matches, sample, error, fetched_at, ofac_delta."""
     global _ofac_raw_csv, _ofac_cache_ts, _ofac_previous_keys
@@ -927,7 +977,7 @@ async def _fetch_chain_wallets(client: Any) -> Dict[str, Any]:
 async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
     """Run all FININT fetches in parallel with shared client; return_exceptions=True; return FinintResult as dict."""
     client = get_http_client()
-    brent, wti, gold, vix, fear_greed, polymarket, metaculus, ofac, wallets, chain = await asyncio.gather(
+    brent, wti, gold, vix, fear_greed, polymarket, metaculus, kalshi, ofac, wallets, chain = await asyncio.gather(
         _fetch_brent(client),
         _fetch_wti(client),
         _fetch_gold(client),
@@ -935,6 +985,7 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         _fetch_fear_greed(client),
         _fetch_polymarket(client, conflict),
         _fetch_metaculus(client, conflict),
+        _fetch_kalshi(client, conflict),
         _fetch_ofac_cached(client, conflict),
         _fetch_wallet_positions(client),
         _fetch_chain_wallets(client),
@@ -953,18 +1004,22 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
     fear_greed = _unwrap(fear_greed, {})
     polymarket = _unwrap(polymarket, {"items": [], "fetched_at": utc_now_iso()})
     metaculus = _unwrap(metaculus, {"items": [], "fetched_at": utc_now_iso()})
+    kalshi = _unwrap(kalshi, {"items": [], "fetched_at": utc_now_iso()})
     ofac = _unwrap(ofac, {"total_matches": 0, "sample": [], "error": None, "fetched_at": utc_now_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}})
     wallets = _unwrap(wallets, {"items": [], "fetched_at": utc_now_iso()})
     chain = _unwrap(chain, {"items": [], "fetched_at": utc_now_iso()})
 
     polymarket_list = polymarket.get("items", []) if isinstance(polymarket, dict) else []
     metaculus_list = metaculus.get("items", []) if isinstance(metaculus, dict) else []
+    kalshi_list = kalshi.get("items", []) if isinstance(kalshi, dict) else []
     tracked_wallets_list = wallets.get("items", []) if isinstance(wallets, dict) else []
     tracked_chain_list = chain.get("items", []) if isinstance(chain, dict) else []
     if not isinstance(polymarket_list, list):
         polymarket_list = []
     if not isinstance(metaculus_list, list):
         metaculus_list = []
+    if not isinstance(kalshi_list, list):
+        kalshi_list = []
     if not isinstance(tracked_wallets_list, list):
         tracked_wallets_list = []
     if not isinstance(tracked_chain_list, list):
@@ -998,6 +1053,10 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
                 base += 8
             elif max_meta and max_meta > 0.3:
                 base += 4
+    if kalshi_list:
+        kalshi_probs = [safe_float(p.get("probability")) for p in kalshi_list if isinstance(p, dict) and "error" not in p and p.get("probability") is not None]
+        if kalshi_probs and max(kalshi_probs) > 0.5:
+            base += 5
     ofac_total = int(ofac.get("total_matches") or 0) if isinstance(ofac, dict) and "error" not in ofac else 0
     if ofac_total > 200:
         base += 6
@@ -1011,10 +1070,10 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         base += 2
     score = max(0.0, min(100.0, base))
 
-    source_keys = ["brent", "wti", "gold", "vix", "fear_greed", "polymarket", "metaculus", "ofac_sanctions", "tracked_wallets", "tracked_chain_wallets"]
+    source_keys = ["brent", "wti", "gold", "vix", "fear_greed", "polymarket", "metaculus", "kalshi", "ofac_sanctions", "tracked_wallets", "tracked_chain_wallets"]
     results_by_key = {
         "brent": brent, "wti": wti, "gold": gold, "vix": vix, "fear_greed": fear_greed,
-        "polymarket": polymarket_list, "metaculus": metaculus_list,
+        "polymarket": polymarket_list, "metaculus": metaculus_list, "kalshi": kalshi_list,
         "ofac_sanctions": ofac, "tracked_wallets": tracked_wallets_list, "tracked_chain_wallets": tracked_chain_list,
     }
     sources_ok = []
@@ -1023,7 +1082,7 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         val = results_by_key.get(k)
         if k == "ofac_sanctions":
             ok = isinstance(val, dict) and "error" not in val and val.get("error") is None
-        elif k in ("polymarket", "metaculus", "tracked_wallets", "tracked_chain_wallets"):
+        elif k in ("polymarket", "metaculus", "kalshi", "tracked_wallets", "tracked_chain_wallets"):
             ok = isinstance(val, list) and len(val) > 0 and not (len(val) == 1 and isinstance(val[0], dict) and val[0].get("error"))
         else:
             ok = isinstance(val, dict) and "error" not in val
@@ -1066,6 +1125,8 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         polymarket_fetched_at=polymarket.get("fetched_at") if isinstance(polymarket, dict) else None,
         metaculus=[m for m in metaculus_list if isinstance(m, dict) and "error" not in m],
         metaculus_fetched_at=metaculus.get("fetched_at") if isinstance(metaculus, dict) else None,
+        kalshi=[k for k in kalshi_list if isinstance(k, dict) and "error" not in k],
+        kalshi_fetched_at=kalshi.get("fetched_at") if isinstance(kalshi, dict) else None,
         ofac_sanctions=_ofac_for_output(ofac) if isinstance(ofac, dict) and ofac.get("error") is None else {"total_matches": 0, "sample": [], "error": ofac.get("error") if isinstance(ofac, dict) else None, "fetched_at": ofac.get("fetched_at", utc_now_iso()) if isinstance(ofac, dict) else utc_now_iso(), "ofac_delta": None},
         ofac_delta=ofac_delta,
         tracked_wallets=[w for w in tracked_wallets_list if isinstance(w, dict)],
@@ -1160,7 +1221,7 @@ def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
             "tracked_chain_wallets": [],
             "escalation_score": 50.0,
             "summary": f"FININT error: {e}",
-            "score_confidence": {"level": "low", "sources_ok": [], "sources_missing": ["brent", "wti", "gold", "vix", "fear_greed", "polymarket", "metaculus", "ofac_sanctions", "tracked_wallets", "tracked_chain_wallets"]},
+            "score_confidence": {"level": "low", "sources_ok": [], "sources_missing": ["brent", "wti", "gold", "vix", "fear_greed", "polymarket", "metaculus", "kalshi", "ofac_sanctions", "tracked_wallets", "tracked_chain_wallets"]},
             "fetched_at": utc,
         }
 

@@ -15,7 +15,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from api.routes import router as api_router, push_escalation_timeline
+from api.routes import router as api_router, push_escalation_timeline, push_agent_status
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
 from agents.supervisor import analyze_conflict
@@ -24,11 +24,32 @@ from agents.otel_callbacks import init_otel
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 
-# Konflikt, der alle 6 Stunden automatisch analysiert wird (unabhängig von Aufrufen)
+# Konflikt, der periodisch automatisch analysiert wird (unabhängig von Aufrufen)
 # Standard: nur "Iran"
 AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "Iran")
-# Default: alle 6 Stunden (21600s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
-AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "21600"))  # 6 Stunden
+# Default: 1x täglich (86400s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
+AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "86400"))  # 24 Stunden
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.discard(websocket)
+
+    async def broadcast(self, data: dict):
+        dead: list[WebSocket] = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(data)
+            except Exception:
+                dead.append(connection)
+        self.active_connections -= set(dead)
 
 
 @asynccontextmanager
@@ -37,7 +58,9 @@ async def lifespan(app: FastAPI):
     app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
     app.state.analysis_last_error = {}  # conflict -> error message when background run failed
     app.state.escalation_timeline_history = {}  # conflict -> [{"at": unix_ts, "escalation_score": float}, ...]
+    app.state.agent_status_last = {}  # agent_key -> "ok" | "error" from last completed analysis
     app.state.job_queue = JobQueue()
+    app.state.ws_manager = ConnectionManager()
 
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
@@ -63,6 +86,10 @@ async def lifespan(app: FastAPI):
                 app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": at_ts}
                 app.state.analysis_last_error.pop(AUTO_ANALYZE_CONFLICT, None)
                 push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
+                push_agent_status(app.state, result)
+                wm = getattr(app.state, "ws_manager", None)
+                if wm:
+                    await wm.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})
 
                 # Log Haiku usage stats for this run
                 try:
@@ -160,33 +187,9 @@ def root() -> dict:
     return {"status": "ok", "service": "conflict-backend"}
 
 
-# ── WebSocket Manager ──────────────────────────────────────────────────────
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: set[WebSocket] = set()
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.add(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.discard(websocket)
-
-    async def broadcast(self, data: dict):
-        dead: list[WebSocket] = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(data)
-            except Exception:
-                dead.append(connection)
-        self.active_connections -= set(dead)
-
-
-manager = ConnectionManager()
-
-
 @app.websocket("/ws/{conflict}")
 async def websocket_endpoint(websocket: WebSocket, conflict: str):
+    manager = websocket.app.state.ws_manager
     await manager.connect(websocket)
     logger.info("WS client connected – conflict: %s", conflict)
     try:
@@ -210,7 +213,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
                 await websocket.send_json({"status": "analyzing", "conflict": conflict})
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        websocket.app.state.ws_manager.disconnect(websocket)
         logger.info("WS client disconnected – conflict: %s", conflict)
     except Exception as e:
         logger.exception("WS error: %s", e)
@@ -222,5 +225,5 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
             await websocket.close()
         except Exception:
             pass
-        manager.disconnect(websocket)
+        websocket.app.state.ws_manager.disconnect(websocket)
 

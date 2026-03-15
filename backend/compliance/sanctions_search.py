@@ -12,6 +12,7 @@ IMPORTANT: This tool provides intelligence signals, not legal advice.
 import csv
 import io
 import logging
+import os
 import re
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Literal, Optional
@@ -21,7 +22,19 @@ import httpx
 logger = logging.getLogger(__name__)
 
 OFAC_SDN_CSV_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV"
-EU_SANCTIONS_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xml/fullSanctionsList_1_1.xml"
+
+# EU consolidated list. Official XML often 404; override via EU_SANCTIONS_URL env if needed.
+# References: https://www.sanctionsmap.eu/#/main | https://data.europa.eu/.../consolidated-list-of-persons-groups-and-entities-subject-to-eu-financial-sanctions | https://www.opensanctions.org/datasets/eu_fsf/
+EU_SANCTIONS_URL = os.getenv(
+    "EU_SANCTIONS_URL",
+    "https://webgate.ec.europa.eu/fsd/fsf/public/files/xml/fullSanctionsList_1_1.xml",
+)
+# Optional CSV fallback when XML fails (e.g. CSV from data.europa.eu or OpenSanctions eu_fsf bulk).
+EU_SANCTIONS_FALLBACK_CSV_URL = os.getenv("EU_SANCTIONS_FALLBACK_CSV_URL", "").strip()
+
+# Optional: OpenSanctions yente (self-hosted). When set, search_sanctions calls yente first; fallback to OFAC/EU on error.
+# Example: http://localhost:8000 (yente container). See https://github.com/opensanctions/yente
+YENTE_SERVICE_URL = os.getenv("YENTE_SERVICE_URL", "").strip()
 
 MatchLevel = Literal["EXACT", "STRONG_FUZZY", "WEAK_FUZZY", "REVIEW", "NOT_LISTED"]
 
@@ -200,6 +213,60 @@ async def _load_eu_sanctions() -> List[SanctionsEntity]:
         logger.warning("Failed to parse EU sanctions XML: %s", e)
     except Exception as e:
         logger.warning("Failed to load EU sanctions list: %s", e)
+
+    # Fallback: optional CSV URL (e.g. from data.europa.eu or OpenSanctions eu_fsf bulk)
+    if len(entities) == 0 and EU_SANCTIONS_FALLBACK_CSV_URL:
+        try:
+            entities = await _load_eu_sanctions_from_csv(EU_SANCTIONS_FALLBACK_CSV_URL)
+        except Exception as e:
+            logger.warning("EU sanctions CSV fallback failed: %s", e)
+    return entities
+
+
+async def _load_eu_sanctions_from_csv(url: str) -> List[SanctionsEntity]:
+    """Load EU sanctions from a CSV (e.g. OpenSanctions targets.simple.csv or data.europa.eu export)."""
+    entities: List[SanctionsEntity] = []
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        text = resp.text
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        return entities
+    # Support common column names: name, schema/type/entity_type, program/program_ids/id
+    name_col = next((c for c in ("name", "title", "entity_name") if c in reader.fieldnames), None)
+    if not name_col:
+        logger.warning("EU CSV fallback: no name column in %s", list(reader.fieldnames))
+        return entities
+    type_col = next((c for c in ("schema", "type", "entity_type") if c in reader.fieldnames), None)
+    program_col = next((c for c in ("program_ids", "program", "programme") if c in reader.fieldnames), None)
+    id_col = next((c for c in ("id", "entity_id", "source_id") if c in reader.fieldnames), None)
+    aliases_col = next((c for c in ("aliases", "aka") if c in reader.fieldnames), None)
+    for row in reader:
+        name = (row.get(name_col) or "").strip()
+        if not name:
+            continue
+        entity_type = (row.get(type_col) or "").strip() if type_col else ""
+        program = (row.get(program_col) or "").strip() if program_col else ""
+        if program and ";" in program:
+            program = program.split(";")[0].strip()
+        source_id = (row.get(id_col) or "").strip() if id_col else ""
+        aliases: List[str] = []
+        if aliases_col and row.get(aliases_col):
+            raw = row.get(aliases_col, "")
+            for part in re.split(r"[;|]", str(raw)):
+                a = part.strip()
+                if a and a != name:
+                    aliases.append(a)
+        entities.append(SanctionsEntity(
+            name=name,
+            aliases=aliases[:10],
+            entity_type=entity_type,
+            program=program,
+            source="EU",
+            source_id=source_id,
+        ))
+    logger.info("EU sanctions loaded from CSV fallback: %d entities", len(entities))
     return entities
 
 
@@ -227,6 +294,39 @@ def _match_level_from_score(score: float) -> MatchLevel:
     return "NOT_LISTED"
 
 
+async def _search_yente(query: str, max_results: int) -> Optional[List[Dict[str, Any]]]:
+    """If YENTE_SERVICE_URL is set, query yente and return matches in our format; else None."""
+    if not YENTE_SERVICE_URL or not query or not query.strip():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{YENTE_SERVICE_URL.rstrip('/')}/match",
+                json={"query": query.strip(), "limit": max_results},
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+    except Exception as e:
+        logger.debug("Yente search failed (fallback to OFAC/EU): %s", e)
+        return None
+    # Map yente results to our SanctionsMatch-like dicts (score 0-100, match_level, source)
+    results: List[Dict[str, Any]] = []
+    for m in (data.get("results") or data.get("matches") or [])[:max_results]:
+        score = float(m.get("score", m.get("match", 0)) * 100) if isinstance(m.get("score"), (int, float)) else (float(m.get("match", 0)) * 100)
+        entity = m.get("entity") or m
+        results.append({
+            "query": query,
+            "matched_name": entity.get("name") or entity.get("caption") or "",
+            "entity_type": entity.get("type") or entity.get("schema") or "",
+            "program": ", ".join(entity.get("programs") or []) or entity.get("program") or "",
+            "source": "yente",
+            "match_level": "EXACT" if score >= 99 else "STRONG_FUZZY" if score >= 90 else "WEAK_FUZZY" if score >= 80 else "REVIEW",
+            "score": min(100, score),
+        })
+    return results if results else None
+
+
 async def search_sanctions(
     query: str,
     include_ownership_chains: bool = False,
@@ -235,13 +335,17 @@ async def search_sanctions(
     """
     Screen a name against sanctions lists.
 
+    When YENTE_SERVICE_URL is set, queries yente first (200+ sources); otherwise OFAC + EU.
     Returns list of matches with match_level, score, source.
-    Uses exact comparison first, then fuzzy (rapidfuzz) if available.
     """
-    await _ensure_index()
     if not query or not query.strip():
         return []
+    if YENTE_SERVICE_URL:
+        yente_matches = await _search_yente(query.strip(), max_results)
+        if yente_matches is not None:
+            return yente_matches
 
+    await _ensure_index()
     query_normalized = _normalize(query)
     matches: List[SanctionsMatch] = []
 

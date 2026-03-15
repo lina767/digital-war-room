@@ -6,10 +6,11 @@ import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Dict, List, Generator, Tuple
 
 import logging
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from .llm import call_llm, get_model_name, require_api_key
 from .otel_callbacks import traced
@@ -85,6 +86,74 @@ def _collect_all_agents(conflict: str) -> Dict[str, Any]:
     return results
 
 
+def run_analysis_streaming(conflict: str) -> Generator[Tuple[str, Any], None, None]:
+    """
+    Run analysis and yield (agent_name, result) as each agent completes, then ("supervisor", final_result).
+    Used by GET /api/analyze/stream for SSE progressive rendering.
+    """
+    _AGENT_FUTURES = [
+        ("finint", run_finint_agent, {"escalation_score": 0.0, "brent": None, "polymarket": []}),
+        ("sigint", run_sigint_agent, {"sigint_score": 0.0, "aircraft": [], "ships": [], "conflict_reports": []}),
+        ("news", run_news_agent, {"news_score": 0.0, "articles": [], "summary": ""}),
+        ("geoint", run_geoint_agent, {"geoint_score": 0.0, "anomalies": [], "hotspots": []}),
+        ("socmint", run_socmint_agent, {"socmint_score": 0.0, "top_signals": []}),
+        ("techint", run_techint_agent, {"techint_score": 0.0, "tech_indicators": [], "ioda_events": [], "ioda_outages": [], "ioda_alerts": [], "ioda_signals_raw": [], "ioda_entities": []}),
+        ("cyber", run_cyber_agent, {"cyber_score": 0.0, "cisa_kev": {}, "threat_reports": [], "otx_pulses": [], "greynoise_scan_context": {}}),
+        ("energy", run_energy_agent, {"energy_score": 0.0, "agsi_storage": {}, "commodities": [], "food_commodities": [], "food_security_risk": 0.0}),
+        ("protest", run_protest_agent, {"protest_score": 0.0, "protest_events": [], "protest_articles": []}),
+        ("diplo", run_diplo_agent, {"diplo_score": 0.0, "ofac_sdn": {}, "eu_sanctions": {}, "un_icj_news": []}),
+        ("proximity", run_proximity_agent, {"proximity_score": 0.0, "evidence": [], "summary": ""}),
+        ("narrative", run_signal_framework_agent, {"synthesis_text": "", "synthesis_probability": 0.0, "source_comparison_table": [], "signal_assessment": {}, "anomalies": []}),
+        ("chokepoint", run_chokepoint_agent, {"chokepoint_score": 0.0, "chokepoints": [], "summary": ""}),
+    ]
+    with traced("analysis.collection.streaming", {"conflict": conflict}):
+        with ThreadPoolExecutor(max_workers=14) as executor:
+            futures = {name: (executor.submit(fn, conflict), fb) for name, fn, fb in _AGENT_FUTURES}
+            acled_f = executor.submit(fetch_acled_reference_analyses_sync, conflict)
+            fut_to_name = {f: name for name, (f, _) in futures.items()}
+            results: Dict[str, Any] = {}
+            for fut in as_completed(list(fut_to_name.keys()) + [acled_f]):
+                if fut is acled_f:
+                    acled_refs = _result_or_fallback(acled_f, "acled_reference", [])
+                    results["acled_refs"] = acled_refs if isinstance(acled_refs, list) else []
+                    yield ("acled_refs", results["acled_refs"])
+                else:
+                    name = fut_to_name[fut]
+                    _, fallback = futures[name]
+                    results[name] = _result_or_fallback(fut, name, fallback)
+                    yield (name, results[name])
+
+    agent_results = _ner_post_processing(results)
+    agent_results = _prefilter_and_summarize(agent_results)
+    synthesis = _synthesize(conflict, agent_results)
+    final = {
+        "conflict": conflict,
+        "finint": synthesis.get("finint", {}),
+        "sigint": synthesis.get("sigint", {}),
+        "news": synthesis.get("news", {}),
+        "geoint": synthesis.get("geoint", {}),
+        "socmint": synthesis.get("socmint", {}),
+        "techint": synthesis.get("techint", {}),
+        "cyber": synthesis.get("cyber", {}),
+        "energy": synthesis.get("energy", {}),
+        "protest": synthesis.get("protest", {}),
+        "diplo": synthesis.get("diplo", {}),
+        "proximity": synthesis.get("proximity", {}),
+        "narrative": synthesis.get("narrative", {}),
+        "chokepoint": synthesis.get("chokepoint", {}),
+        "escalation_score": synthesis.get("escalation_score", 0.0),
+        "threat_level": synthesis.get("threat_level", "MINIMAL"),
+        "key_findings": synthesis.get("key_findings", []),
+        "scenarios": synthesis.get("scenarios", []),
+        "summary": synthesis.get("summary", ""),
+        "actors": synthesis.get("actors", []),
+        "predictive": synthesis.get("predictive", {}),
+        "compliance": synthesis.get("compliance", {}),
+        "alerts": synthesis.get("alerts", []),
+    }
+    yield ("supervisor", final)
+
+
 def _agents_seem_contradictory(scores: List[float]) -> bool:
     if len(scores) < 2:
         return False
@@ -126,7 +195,9 @@ _MAX_PAYLOAD_CHARS = 250_000
 
 
 def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract only what the supervisor LLM needs: score, summary, and compact top items."""
+    """Extract only what the supervisor LLM needs: score, summary, and compact top items.
+    Narrative (Signal Framework) returns here; all code below is for other agents only.
+    """
     if agent_name == "narrative":
         return {
             "synthesis_text": (result.get("synthesis_text") or "")[:800],
@@ -231,6 +302,22 @@ def _rule_based_fallback(combined_score: float) -> Dict[str, Any]:
     return {"escalation_score": combined_score, "threat_level": tl, "key_findings": [], "scenarios": [], "summary": f"Composite {combined_score:.0f}/100. Agent findings below."}
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    retry=retry_if_exception_type((Exception,)),
+    reraise=True,
+)
+def _call_supervisor_llm_with_retry(*, user_json: str, model: str) -> str:
+    """Call supervisor LLM with retries for transient failures (rate limit, network)."""
+    return call_llm(
+        system=_SUPERVISOR_SYSTEM_PROMPT,
+        user_content=user_json,
+        model=model,
+        temperature=0.1,
+    )
+
+
 def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     """Synthesize all agent results into a single assessment."""
     acled_refs       = agent_results.get("acled_refs") or []
@@ -333,14 +420,12 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
 
         try:
             with traced("analysis.supervisor.llm", {"model": model, "conflict": conflict}):
-                raw = call_llm(
-                    system=_SUPERVISOR_SYSTEM_PROMPT,
-                    user_content=user_json,
+                raw = _call_supervisor_llm_with_retry(
+                    user_json=user_json,
                     model=model,
-                    temperature=0.1,
                 )
         except Exception as llm_err:
-            print(f"[supervisor] LLM failed: {llm_err} - rule-based fallback")
+            _logger.warning("Supervisor LLM failed after retries: %s - rule-based fallback", llm_err)
             raw = None
 
         if raw is None:
@@ -578,6 +663,31 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
 
     ofac_recent = diplo_result.get("ofac_recent_actions") or []
 
+    # Centralised alerts list for UI and optional toasts (SIGINT, geofencing, AIS, GreyNoise)
+    alerts: List[Dict[str, Any]] = []
+    for a in (sigint_result.get("alerts") or []):
+        if isinstance(a, str):
+            severity = "high" if ("DOOMSDAY" in a or "⚠" in a) else "medium"
+            alerts.append({"source": "sigint", "severity": severity, "text": a})
+    for g in geofencing_alerts:
+        if isinstance(g, dict):
+            alerts.append({
+                "source": "geofencing",
+                "severity": "high",
+                "text": f"{g.get('asset_type', 'asset')} {g.get('asset_name', g.get('asset_id', ''))} in {g.get('zone_name', '')}",
+            })
+    for ai in ais_anomalies:
+        if isinstance(ai, dict):
+            alerts.append({
+                "source": "ais_anomaly",
+                "severity": (ai.get("severity") or "medium").lower(),
+                "text": ai.get("detail", str(ai.get("anomaly_type", "anomaly"))),
+            })
+    cyber_data = agent_results.get("cyber") or {}
+    for ga in (cyber_data.get("greynoise_alerts") or cyber_data.get("alerts") or [])[:10]:
+        if isinstance(ga, str):
+            alerts.append({"source": "greynoise", "severity": "medium", "text": ga})
+
     # Summary for UI when no alerts: show that SIGINT ran and how many assets were in region
     aircraft_list = [a for a in (sigint_data.get("aircraft") or []) if isinstance(a, dict) and "error" not in a and a.get("lat") is not None and a.get("lon") is not None]
     ships_list = [s for s in (sigint_data.get("ships") or []) if isinstance(s, dict) and "error" not in s and s.get("lat") is not None and s.get("lon") is not None]
@@ -621,6 +731,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         "actors": actors,
         "predictive": predictive,
         "compliance": compliance,
+        "alerts": alerts,
         **{k: v for k, v in agent_results.items() if k != "acled_refs"},
     }
 
@@ -805,4 +916,5 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "actors":           synthesis.get("actors", []),
         "predictive":       synthesis.get("predictive", {}),
         "compliance":       synthesis.get("compliance", {}),
+        "alerts":           synthesis.get("alerts", []),
     }

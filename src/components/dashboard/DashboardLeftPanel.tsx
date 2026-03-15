@@ -1,12 +1,15 @@
-import { ChevronRight, X } from "lucide-react";
-import { AGENTS_WITH_SOURCES } from "@/components/dashboard/agentsConfig";
+import { ChevronRight, AlertTriangle, X } from "lucide-react";
+import { AGENTS_WITH_SOURCES, AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { Dispatch, SetStateAction } from "react";
+import type { ConflictData } from "@/hooks/useConflictWebSocket";
 
 interface DashboardLeftPanelProps {
   leftPanelOpen: boolean;
   setLeftPanelOpen: Dispatch<SetStateAction<boolean>>;
   agentExpanded: string | null;
   setAgentExpanded: Dispatch<SetStateAction<string | null>>;
+  /** When present, agent status dots reflect timeout_or_error from last analysis run. */
+  conflictData?: ConflictData | null;
 }
 
 export function DashboardLeftPanel({
@@ -14,7 +17,16 @@ export function DashboardLeftPanel({
   setLeftPanelOpen,
   agentExpanded,
   setAgentExpanded,
+  conflictData,
 }: DashboardLeftPanelProps) {
+  const getAgentStatus = (agentName: string): "ok" | "error" => {
+    if (!conflictData) return "ok";
+    const key = AGENT_NAME_TO_KEY[agentName];
+    if (!key) return "ok";
+    const agentResult = (conflictData as Record<string, { timeout_or_error?: boolean } | undefined>)[key];
+    return agentResult?.timeout_or_error === true ? "error" : "ok";
+  };
+
   return (
     <aside
       className={`
@@ -37,17 +49,26 @@ export function DashboardLeftPanel({
         </button>
       </div>
       <div className="space-y-2">
-        {AGENTS_WITH_SOURCES.map((agent) => (
+        {AGENTS_WITH_SOURCES.map((agent) => {
+          const status = getAgentStatus(agent.name);
+          return (
           <div key={agent.name} className="rounded-md border border-border/60 bg-card/50 overflow-hidden">
             <button
               type="button"
               className="w-full flex items-center gap-2 p-3 sm:p-2 text-left hover:bg-muted/50 active:bg-muted/50 transition-colors touch-manipulation min-h-11 sm:min-h-0"
               onClick={() => setAgentExpanded(agentExpanded === agent.name ? null : agent.name)}
+              title={status === "error" ? "Agent failed or timed out – data may be stale" : undefined}
             >
-              <span className="h-2 w-2 rounded-full flex-shrink-0 bg-primary animate-pulse-dot" />
+              {status === "error" ? (
+                <span className="h-2 w-2 rounded-full flex-shrink-0 bg-destructive" aria-hidden />
+              ) : (
+                <span className="h-2 w-2 rounded-full flex-shrink-0 bg-primary animate-pulse-dot" />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-xs font-medium truncate">{agent.name}</div>
-                <div className="text-[11px] text-muted-foreground line-clamp-2">{agent.fullName}</div>
+                <div className="text-[11px] text-muted-foreground line-clamp-2">
+                  {status === "error" ? "Error / timeout – stale data" : agent.fullName}
+                </div>
               </div>
               <ChevronRight
                 className={`h-3 w-3 flex-shrink-0 text-muted-foreground transition-transform ${
@@ -57,6 +78,12 @@ export function DashboardLeftPanel({
             </button>
             {agentExpanded === agent.name && (
               <div className="border-t border-border/60 px-2 py-2 space-y-1.5 bg-background/50">
+                {status === "error" && (
+                  <div className="flex items-center gap-1.5 text-destructive text-[11px]">
+                    <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span>This agent failed or timed out. Data may be from a previous run.</span>
+                  </div>
+                )}
                 <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Data sources</div>
                 {agent.sources.map((src, i) => (
                   <div key={i} className="text-xs">
@@ -69,7 +96,8 @@ export function DashboardLeftPanel({
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );
