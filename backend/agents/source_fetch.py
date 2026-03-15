@@ -49,6 +49,9 @@ class SourceFetch:
             self._exception = exc_val
             status = "error"
             error_msg = str(exc_val) if not error_msg else error_msg
+        elif self._error is not None:
+            status = "error"
+            error_msg = self._error
         self._result = SourceResult(
             name=self.source_name,
             status=status,

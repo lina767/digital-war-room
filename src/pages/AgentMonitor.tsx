@@ -7,11 +7,14 @@ import {
   getApiBase,
   getAgentsHealth,
   getAgentsHistory,
+  getAnalyzeStatus,
+  triggerRefreshAnalysis,
   type AgentsHealthResponse,
   type AnalysisRunSummary,
 } from "@/lib/api";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
-import { ArrowLeft, AlertTriangle, Activity, Clock, Database, History } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowLeft, AlertTriangle, Activity, Clock, Database, History, Play } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -49,12 +52,17 @@ function formatRelativeTime(iso?: string): string {
   }
 }
 
+const DEFAULT_CONFLICT = "Iran";
+const POLL_INTERVAL_MS = 6000;
+const RUN_AGAIN_TIMEOUT_MS = 150_000;
+
 const AgentMonitor = () => {
   const [status, setStatus] = useState<Record<string, AgentStatusEntry> | null>(null);
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [history, setHistory] = useState<AnalysisRunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [runAgainLoading, setRunAgainLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setError(null);
@@ -73,6 +81,45 @@ const AgentMonitor = () => {
       setLoading(false);
     }
   }, []);
+
+  const runAnalysisAgain = useCallback(async () => {
+    setRunAgainLoading(true);
+    setError(null);
+    try {
+      const statusBefore = await getAnalyzeStatus(DEFAULT_CONFLICT);
+      const atBefore = statusBefore?.at;
+      try {
+        await triggerRefreshAnalysis(DEFAULT_CONFLICT);
+      } catch (triggerErr) {
+        const msg = triggerErr instanceof Error ? triggerErr.message : "Trigger failed";
+        setError(msg);
+        toast.error("Analysis could not be started", { description: msg });
+        return;
+      }
+      toast.info("Analysis running…", { description: "Agent status will update when finished." });
+      const deadline = Date.now() + RUN_AGAIN_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const st = await getAnalyzeStatus(DEFAULT_CONFLICT);
+        if (st?.error) {
+          setError(st.error);
+          toast.error("Analysis failed", { description: st.error });
+          break;
+        }
+        if (st?.cached && st?.at != null && st.at !== atBefore) {
+          toast.success("Analysis complete", { description: "Agent status updated." });
+          break;
+        }
+      }
+      await fetchAll();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Run failed";
+      setError(msg);
+      toast.error("Error", { description: msg });
+    } finally {
+      setRunAgainLoading(false);
+    }
+  }, [fetchAll]);
 
   useEffect(() => {
     fetchAll();
@@ -109,9 +156,21 @@ const AgentMonitor = () => {
             </Link>
             <h1 className="text-xl font-semibold font-mono tracking-tight">Agent & Source Monitor</h1>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchAll}>
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={runAnalysisAgain}
+              disabled={runAgainLoading}
+              className="gap-1.5"
+            >
+              <Play className="h-3.5 w-3.5" />
+              {runAgainLoading ? "Running…" : "Run analysis again"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={fetchAll}>
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {error && (

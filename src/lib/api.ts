@@ -181,21 +181,36 @@ export async function getLatestAnalysis(conflict: string): Promise<AnalyzeRespon
   }
 }
 
-/** GET /api/analyze/refresh – trigger a background analysis and poll for result. */
-export async function triggerRefreshAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+/** Response from GET /api/analyze/refresh when analysis is started in background. */
+export interface TriggerRefreshResponse {
+  status: string;
+  conflict: string;
+  message?: string;
+}
+
+/** GET /api/analyze/refresh – trigger a background analysis. Returns body on success; throws on network error or non-2xx. */
+export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerRefreshResponse> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   try {
     const res = await fetch(
       `${getApiBase()}/api/analyze/refresh?conflict=${encodeURIComponent(conflict)}`,
       { method: "GET", signal: controller.signal }
     );
     clearTimeout(timeoutId);
-    if (!res.ok) return null;
-    return null;
-  } catch {
+    const body = (await res.json().catch(() => ({}))) as TriggerRefreshResponse & { error?: string };
+    if (!res.ok) {
+      const msg = body?.error ?? `HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+    if (body?.status !== "started" && body?.status !== "ok") {
+      throw new Error(body?.error ?? "Analysis did not start");
+    }
+    return body;
+  } catch (e) {
     clearTimeout(timeoutId);
-    return null;
+    if (e instanceof Error) throw e;
+    throw new Error("Request failed");
   }
 }
 
