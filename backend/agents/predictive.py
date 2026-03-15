@@ -180,9 +180,21 @@ def build_predictive_block(conflict: str, combined_score: float, agent_scores: D
         "notes": f"Peak-weighted score {escalation_score:.0f} (combined avg {combined_score:.0f}).",
     }
 
+    # 7d uses same score/level as 24h; horizon is for display/planning only.
+    escalation_7d: EscalationForecast = {
+        "horizon": "7d",
+        "level": level_24h,
+        "range": range_24h,
+        "basis": "data",
+        "confidence": confidence,
+        "drivers": driver_labels,
+        "vs_baseline": vs_baseline,
+        "notes": f"Same escalation score as 24h ({escalation_score:.0f}); 7d horizon for medium-term outlook.",
+    }
+
     predictive: PredictiveBlock = {
         "baseline_escalation": baseline,
-        "escalation": [escalation_24h],
+        "escalation": [escalation_24h, escalation_7d],
         "markets": [],
         "market_benchmark": [],
     }

@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 import { getLatestAnalysis } from "@/lib/api";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
+import {
+  PREDICTIVE_OUTLOOK_DISCLAIMER,
+  PREDICTIVE_OUTLOOK_INTRO_SHORT,
+} from "@/lib/predictiveOutlookCopy";
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 
@@ -77,9 +81,10 @@ export default function DailyIntelligenceBriefing() {
   const globalNote = data?.energy?.global_impact_note ?? null;
 
   const baselineForecast = data?.predictive?.baseline_escalation;
-  const escalation24h =
-    data?.predictive?.escalation?.find((f) => f.horizon === "24h") ??
-    data?.predictive?.escalation?.[0];
+  const escalationList = data?.predictive?.escalation ?? [];
+  const escalation24h = escalationList.find((f) => f.horizon === "24h") ?? escalationList[0];
+  const escalation7d = escalationList.find((f) => f.horizon === "7d");
+  const escalationForecasts = [escalation24h, escalation7d].filter(Boolean) as typeof escalationList;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -194,7 +199,10 @@ export default function DailyIntelligenceBriefing() {
                   3. Predictive Outlook
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-3">
-                  {!baselineForecast && !escalation24h && (
+                  <p className="text-xs text-muted-foreground">
+                    {PREDICTIVE_OUTLOOK_INTRO_SHORT}
+                  </p>
+                  {!baselineForecast && escalationForecasts.length === 0 && (
                     <p className="text-muted-foreground italic">
                       No predictive outlook available for this period.
                     </p>
@@ -205,7 +213,7 @@ export default function DailyIntelligenceBriefing() {
                         Baseline (null hypothesis)
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Expected escalation level without current signals:
+                        Expected escalation level without current signals (what you’d expect if there were no new signals):
                         {" "}
                         <span className="font-mono text-foreground">{baselineForecast.level}</span>
                         {baselineForecast.range && (
@@ -215,29 +223,46 @@ export default function DailyIntelligenceBriefing() {
                             <span className="font-mono">
                               {Math.round(baselineForecast.range.min * 100)}–{Math.round(baselineForecast.range.max * 100)}%
                             </span>
-                            ).
+                            {" "}
+                            – rough probability range).
                           </>
                         )}
                       </p>
+                      {baselineForecast.drivers && baselineForecast.drivers.length > 0 && (
+                        <ul className="mt-1 space-y-0.5">
+                          {baselineForecast.drivers.map((d, i) => (
+                            <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
+                              <span className="mt-[6px] h-1 w-1 rounded-full bg-muted-foreground/60 flex-shrink-0" />
+                              <span>{d}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )}
-                  {escalation24h && (
-                    <div>
+                  {escalationForecasts.map((forecast) => (
+                    <div key={forecast.horizon}>
                       <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">
-                        Escalation – {escalation24h.horizon}
+                        Escalation – {forecast.horizon}
+                        {forecast.confidence && (
+                          <span className="ml-2 font-sans normal-case text-muted-foreground">
+                            (confidence: {forecast.confidence})
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs">
                         Level:
                         {" "}
-                        <span className="font-mono">{escalation24h.level}</span>
-                        {escalation24h.range && (
+                        <span className="font-mono">{forecast.level}</span>
+                        {forecast.range && (
                           <>
                             {" "}
                             (band{" "}
                             <span className="font-mono">
-                              {Math.round(escalation24h.range.min * 100)}–{Math.round(escalation24h.range.max * 100)}%
+                              {Math.round(forecast.range.min * 100)}–{Math.round(forecast.range.max * 100)}%
                             </span>
-                            ).
+                            {" "}
+                            – rough range).
                           </>
                         )}
                         {baselineForecast && (
@@ -246,15 +271,20 @@ export default function DailyIntelligenceBriefing() {
                             Relative to baseline:
                             {" "}
                             <span className="font-mono uppercase text-muted-foreground">
-                              {escalation24h.vs_baseline}
+                              {forecast.vs_baseline}
                             </span>
                             .
                           </>
                         )}
                       </p>
-                      {escalation24h.drivers && escalation24h.drivers.length > 0 && (
+                      {forecast.notes && (
+                        <p className="text-[11px] text-muted-foreground/80 italic mt-0.5">
+                          {forecast.notes}
+                        </p>
+                      )}
+                      {forecast.drivers && forecast.drivers.length > 0 && (
                         <ul className="mt-1 space-y-0.5">
-                          {escalation24h.drivers.slice(0, 3).map((d, i) => (
+                          {forecast.drivers.slice(0, 3).map((d, i) => (
                             <li key={i} className="text-xs text-muted-foreground flex gap-1.5">
                               <span className="mt-[6px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
                               <span>{d}</span>
@@ -263,10 +293,9 @@ export default function DailyIntelligenceBriefing() {
                         </ul>
                       )}
                     </div>
-                  )}
+                  ))}
                   <p className="text-[11px] text-muted-foreground">
-                    Levels and bands are coarse indicators derived from existing agent scores and a conflict-specific baseline.
-                    They are not precise probabilities.
+                    {PREDICTIVE_OUTLOOK_DISCLAIMER}
                   </p>
                 </div>
               </section>
