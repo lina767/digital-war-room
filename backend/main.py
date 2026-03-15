@@ -2,6 +2,7 @@ import logging
 import os
 import asyncio
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -15,7 +16,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from api.routes import router as api_router, push_escalation_timeline, push_agent_status
+from api.routes import router as api_router, push_escalation_timeline, push_agent_status, push_run_history
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
 from agents.supervisor import analyze_conflict
@@ -58,7 +59,8 @@ async def lifespan(app: FastAPI):
     app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
     app.state.analysis_last_error = {}  # conflict -> error message when background run failed
     app.state.escalation_timeline_history = {}  # conflict -> [{"at": unix_ts, "escalation_score": float}, ...]
-    app.state.agent_status_last = {}  # agent_key -> "ok" | "error" from last completed analysis
+    app.state.agent_status_last = {}  # agent_key -> rich status dict (or {"status": "ok"|"error"})
+    app.state.analysis_run_history = deque(maxlen=50)  # last N run summaries for /api/agents/history
     app.state.job_queue = JobQueue()
     app.state.ws_manager = ConnectionManager()
 
@@ -87,6 +89,7 @@ async def lifespan(app: FastAPI):
                 app.state.analysis_last_error.pop(AUTO_ANALYZE_CONFLICT, None)
                 push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
                 push_agent_status(app.state, result)
+                push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
                 wm = getattr(app.state, "ws_manager", None)
                 if wm:
                     await wm.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})

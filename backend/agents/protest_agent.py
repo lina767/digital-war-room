@@ -193,6 +193,10 @@ async def _cluster_protest_events_haiku(acled_events: List[Dict]) -> Optional[st
 
 def run_protest_agent(conflict: str) -> Dict[str, Any]:
     """Run PROTEST/Civil Society agent: ACLED protests/riots, GDELT protest coverage."""
+    import time
+    from .health_registry import get_health_registry
+    from .utils import AgentMetadata, SourceResult, utc_now_iso, compute_confidence_from_sources
+
     acled_key = os.getenv("ACLED_API_KEY", "").strip() if not has_acled_oauth() else ""
 
     async def _run() -> Dict[str, Any]:
@@ -212,12 +216,36 @@ def run_protest_agent(conflict: str) -> Dict[str, Any]:
             "summary": summary,
         }
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
-        return run_async(_run())
+        out = run_async(_run())
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        events = out.get("protest_events") or []
+        articles = out.get("protest_articles") or []
+        acled_ok = bool(events and not (isinstance(events, list) and events and isinstance(events[0], dict) and events[0].get("error")))
+        gdelt_ok = bool(articles and not (isinstance(articles, list) and articles and isinstance(articles[0], dict) and articles[0].get("error")))
+        source_results = [
+            SourceResult(name="ACLED", status="ok" if acled_ok else "error", fetched_at=fetched_at, record_count=len(events)),
+            SourceResult(name="GDELT", status="ok" if gdelt_ok else "error", fetched_at=fetched_at, record_count=len(articles)),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "protest", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count == 2 else "recent" if ok_count == 1 else "stale" if (events or articles) else "unavailable"
+        meta = AgentMetadata(agent="protest", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        out["_meta"] = meta.model_dump(mode="json")
+        return out
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="protest", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "protest_score": 25.0,
             "protest_events": [],
             "protest_articles": [{"error": str(e)}],
             "summary": f"PROTEST error: {e}",
+            "_meta": meta.model_dump(mode="json"),
         }

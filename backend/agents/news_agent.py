@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
@@ -14,8 +15,15 @@ from urllib.parse import urlparse
 import feedparser
 import httpx
 from .config import USER_AGENT
+from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import run_async
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -830,6 +838,8 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
 
     The overall return format remains compatible with existing callers of run_news_agent.
     """
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
         with ThreadPoolExecutor(max_workers=3) as executor:
             fut_newsapi = executor.submit(_run_newsapi_source_agent, conflict)
@@ -861,6 +871,35 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
                 conflict,
             )
 
+        n_newsapi = len(newsapi_res.get("articles") or [])
+        n_gdelt = len(gdelt_res.get("articles") or [])
+        n_rss = len(rss_res.get("articles") or [])
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        source_results = [
+            SourceResult(name="NewsAPI", status="ok" if n_newsapi else "error", fetched_at=fetched_at, record_count=n_newsapi),
+            SourceResult(name="GDELT", status="ok" if n_gdelt else "error", fetched_at=fetched_at, record_count=n_gdelt),
+            SourceResult(name="RSS", status="ok" if n_rss else "error", fetched_at=fetched_at, record_count=n_rss),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "news", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 2 else "recent" if ok_count >= 1 else "stale" if articles else "unavailable"
+        sources_missing = [s.name for s in source_results if s.status == "error"]
+        error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
+        meta = AgentMetadata(
+            agent="news",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=error_summary,
+        )
+
         return {
             "conflict": conflict,
             "articles": fusion.get("articles", []),
@@ -880,19 +919,32 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             "escalation_headlines": escalation_meta.get("escalation_headlines", []),
             "escalation_score": escalation_meta.get("escalation_score", 0.0),
             "entities": all_entities,
+            "_meta": meta.model_dump(mode="json"),
         }
     except Exception as e:
         logger.exception("NEWS: rule-based news pipeline failed for conflict '%s': %s", conflict, e)
-    return {
-        "conflict": conflict,
-        "articles": [],
-        "overall_sentiment": 0.0,
-        "sentiment_label": "NEUTRAL",
-        "top_sources": [],
-        "news_score": 50.0,
-        "summary": "NEWS data unavailable.",
-        "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0},
-    }
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(
+            agent="news",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=[],
+            confidence=compute_confidence_from_sources([]),
+            data_freshness="unavailable",
+            fallback_used=True,
+            error_summary=str(e),
+        )
+        return {
+            "conflict": conflict,
+            "articles": [],
+            "overall_sentiment": 0.0,
+            "sentiment_label": "NEUTRAL",
+            "top_sources": [],
+            "news_score": 50.0,
+            "summary": "NEWS data unavailable.",
+            "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0},
+            "_meta": meta.model_dump(mode="json"),
+        }
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────

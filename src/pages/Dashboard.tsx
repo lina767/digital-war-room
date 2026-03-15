@@ -6,8 +6,7 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { getApiBase } from "@/lib/api";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Download } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -86,42 +85,6 @@ const Dashboard = () => {
     [conflictData?.proximity?.evidence]
   );
 
-  const [pdfExporting, setPdfExporting] = useState(false);
-  async function handleExportPdf() {
-    setPdfExporting(true);
-    try {
-      const body = {
-        conflict: selectedConflict,
-        escalation_score: conflictData?.escalation_score ?? undefined,
-        threat_level: conflictData?.threat_level ?? undefined,
-        key_findings: conflictData?.key_findings ?? [],
-        scenarios: conflictData?.scenarios ?? [],
-        summary: conflictData?.summary ?? undefined,
-        finint: conflictData?.finint ? { brent: conflictData.finint.brent, escalation_score: conflictData.finint.escalation_score, summary: conflictData.finint.summary } : undefined,
-        geoint: conflictData?.geoint ? { anomaly_count: (conflictData.geoint as { anomaly_count?: number })?.anomaly_count, high_confidence_count: (conflictData.geoint as { high_confidence_count?: number })?.high_confidence_count, geoint_score: (conflictData.geoint as { geoint_score?: number })?.geoint_score, summary: (conflictData.geoint as { summary?: string })?.summary } : undefined,
-        sigint: conflictData?.sigint ? { sigint_score: (conflictData.sigint as { sigint_score?: number })?.sigint_score, summary: (conflictData.sigint as { summary?: string })?.summary } : undefined,
-        news: conflictData?.news ? { news_score: (conflictData.news as { news_score?: number })?.news_score, overall_sentiment: (conflictData.news as { overall_sentiment?: number })?.overall_sentiment, sentiment_label: (conflictData.news as { sentiment_label?: string })?.sentiment_label, top_sources: (conflictData.news as { top_sources?: string[] })?.top_sources } : undefined,
-      };
-      const res = await fetch(`${getApiBase()}/api/export/pdf`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error("Export failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `intel_brief_${selectedConflict.replace(/\s+/g, "_").replace(/-/g, "_").toLowerCase()}_${new Date().toISOString().slice(0, 10)}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      // silent fail
-    } finally {
-      setPdfExporting(false);
-    }
-  }
-
   return (
     <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
       {/* Live ticker – Iran Monitor style: BREAKING headlines from analysis when available */}
@@ -193,16 +156,6 @@ const Dashboard = () => {
           <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}
           </Badge>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            disabled={pdfExporting}
-            className="hidden sm:flex items-center gap-1.5 font-mono text-xs border border-border rounded-md px-2.5 py-1.5 hover:bg-muted/50 disabled:opacity-50"
-            title="Export PDF report"
-          >
-            <Download className="h-3.5 w-3.5" />
-            {pdfExporting ? "…" : "PDF"}
-          </button>
         </div>
       </header>
 

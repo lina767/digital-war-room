@@ -6,12 +6,20 @@ import asyncio
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from .utils import run_async
+from .health_registry import get_health_registry
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 from services.http_client import get_http_client
 from agents.otel_callbacks import traced
 
@@ -631,15 +639,44 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
             fetched_at=_utc_now(),
         )
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     with traced("analysis.agent.cyber", {"conflict": conflict}):
         try:
             result = run_async(_run())
-            return result.model_dump(mode="json")
+            out = result.model_dump(mode="json")
+            kev = result.cisa_kev
+            tr = result.threat_reports
+            otx = result.otx_pulses
+            gn = result.greynoise_scan_context
+            idb = result.internet_db
+            source_results = [
+                SourceResult(name="CISA KEV", status="ok" if (kev.total or kev.sample) and not kev.error else "error", fetched_at=fetched_at, record_count=kev.total or 0),
+                SourceResult(name="Threat RSS", status="ok" if any(r.title and not r.error for r in tr) else "error", fetched_at=fetched_at, record_count=len([r for r in tr if not r.error])),
+                SourceResult(name="OTX", status="ok" if any(p.name and not p.error for p in otx) else "error", fetched_at=fetched_at, record_count=len([p for p in otx if not p.error])),
+                SourceResult(name="GreyNoise", status="ok" if (gn and gn.available and not gn.error) else "error", fetched_at=fetched_at, record_count=gn.count if gn else 0),
+                SourceResult(name="InternetDB", status="ok" if (idb and idb.hosts) else "error", fetched_at=fetched_at, record_count=len(idb.hosts) if idb else 0),
+            ]
+            reg = get_health_registry()
+            if reg:
+                for sr in source_results:
+                    reg.record_result(sr.name, "cyber", sr)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            confidence = compute_confidence_from_sources(source_results)
+            ok_count = sum(1 for s in source_results if s.status == "ok")
+            data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+            meta = AgentMetadata(agent="cyber", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+            out["_meta"] = meta.model_dump(mode="json")
+            return out
         except Exception as e:
             logger.exception("CYBER agent run failed")
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            meta = AgentMetadata(agent="cyber", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
             fallback = CyberAgentResult(
                 cyber_score=25.0,
                 cisa_kev=CisaKevResult(total=0, sample=[], error=str(e)),
                 summary=f"CYBER error: {e}",
             )
-            return fallback.model_dump(mode="json")
+            out = fallback.model_dump(mode="json")
+            out["_meta"] = meta.model_dump(mode="json")
+            return out

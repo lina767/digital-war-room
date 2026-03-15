@@ -9,11 +9,19 @@ import csv
 import io
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .utils import run_async
+from .health_registry import get_health_registry
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -555,9 +563,33 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             "global_impact_note": global_impact_note,
         }
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
-        return run_async(_run())
+        out = run_async(_run())
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        agsi_full = (out.get("agsi_storage") or {}).get("full") or []
+        agsi_ok = not (out.get("agsi_storage") or {}).get("error")
+        source_results = [
+            SourceResult(name="AGSI+", status="ok" if agsi_ok and agsi_full else "error", fetched_at=fetched_at, record_count=len(agsi_full)),
+            SourceResult(name="Oil (EIA/FRED/AV)", status="ok" if (out.get("commodities") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("commodities") or [])),
+            SourceResult(name="Food commodities", status="ok" if (out.get("food_commodities") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("food_commodities") or [])),
+            SourceResult(name="FAO FPI", status="ok" if (out.get("fao_fpi") and not out.get("fao_fpi", {}).get("error")) else "error", fetched_at=fetched_at),
+            SourceResult(name="Fertilizer", status="ok" if (out.get("fertilizer") and not out.get("fertilizer", {}).get("error")) else "error", fetched_at=fetched_at),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "energy", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        meta = AgentMetadata(agent="energy", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        out["_meta"] = meta.model_dump(mode="json")
+        return out
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="energy", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "energy_score": 30.0,
             "agsi_storage": {"full": [], "error": str(e)},
@@ -568,4 +600,5 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             "food_security_risk": 20.0,
             "summary": f"ENERGY error: {e}",
             "global_impact_note": None,
+            "_meta": meta.model_dump(mode="json"),
         }

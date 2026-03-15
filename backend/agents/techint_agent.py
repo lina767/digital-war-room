@@ -874,6 +874,10 @@ async def _generate_haiku_summary_techint(
 
 def run_techint_agent(conflict: str) -> Dict[str, Any]:
     """Run TECHINT: tech indicators, export control, IODA, OONI, Cloudflare Radar, Shodan."""
+    import time
+    from .health_registry import get_health_registry
+    from .utils import AgentMetadata, SourceResult, utc_now_iso, compute_confidence_from_sources
+
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
     news_key = os.getenv("NEWS_API_KEY")
     cf_token = os.getenv("CLOUDFLARE_RADAR_API_TOKEN")
@@ -923,9 +927,31 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "summary": summary,
         }
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
-        return run_async(_run())
+        out = run_async(_run())
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        source_results = [
+            SourceResult(name="Tech indicators", status="ok" if (out.get("tech_indicators") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("tech_indicators") or [])),
+            SourceResult(name="Export control", status="ok" if (out.get("export_controls") and not (out.get("export_controls") or [{}])[0].get("error")) else "error", fetched_at=fetched_at),
+            SourceResult(name="IODA", status="ok" if (out.get("ioda_events") or out.get("ioda_outages") or out.get("ioda_alerts")) else "error", fetched_at=fetched_at),
+            SourceResult(name="OONI", status="ok" if (out.get("ooni") and not out.get("ooni", {}).get("error")) else "error", fetched_at=fetched_at),
+            SourceResult(name="Shodan/Wigle", status="ok" if (out.get("shodan") or out.get("wigle")) else "error", fetched_at=fetched_at),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "techint", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if out.get("techint_score", 0) > 0 else "unavailable"
+        meta = AgentMetadata(agent="techint", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        out["_meta"] = meta.model_dump(mode="json")
+        return out
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="techint", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "tech_indicators": [],
             "export_controls": [{"error": str(e)}],
@@ -942,4 +968,5 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "wigle": {},
             "techint_score": 30.0,
             "summary": f"TECHINT error: {e}",
+            "_meta": meta.model_dump(mode="json"),
         }

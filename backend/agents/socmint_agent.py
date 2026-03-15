@@ -3,8 +3,9 @@ SOCMINT Agent – LangChain Tool-Calling Agent
 Monitors Telegram, X/Twitter (Nitter), Reddit, RSS, and ReliefWeb for conflict signals.
 """
 import asyncio
-import re
 import os
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
@@ -12,8 +13,15 @@ from typing import Any, Dict, List
 import feedparser
 import httpx
 
+from .health_registry import get_health_registry
 from .llm import run_tool_agent
-from .utils import run_async
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 # Telegram public channels (scraped via t.me/s/)
 TELEGRAM_CHANNELS = {
@@ -566,6 +574,8 @@ def _run_socmint_ner(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
     """Execute SOCMINT tool chain: all five sources in parallel. No LLM."""
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
         with ThreadPoolExecutor(max_workers=5) as executor:
             fut_telegram = executor.submit(scrape_telegram_channels, conflict=conflict)
@@ -618,6 +628,22 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         # NER enrichment on top posts (Phase 2)
         entities = _run_socmint_ner(all_posts)
 
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        source_results = [
+            SourceResult(name="Telegram", status="ok" if telegram else "error", fetched_at=fetched_at, record_count=len(telegram)),
+            SourceResult(name="Twitter/Nitter", status="ok" if twitter else "error", fetched_at=fetched_at, record_count=len(twitter)),
+            SourceResult(name="Reddit", status="ok" if reddit else "error", fetched_at=fetched_at, record_count=len(reddit)),
+            SourceResult(name="RSS", status="ok" if rss else "error", fetched_at=fetched_at, record_count=len(rss)),
+            SourceResult(name="ReliefWeb", status="ok" if reliefweb else "error", fetched_at=fetched_at, record_count=len(reliefweb)),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "socmint", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        meta = AgentMetadata(agent="socmint", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
         return {
             "conflict": conflict,
             "telegram_posts": telegram,
@@ -633,9 +659,11 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             "top_signals": top_signals,
             "entities": entities,
             "summary": f"SOCMINT (rule-based): {len(all_posts)} signals ({escalatory} escalatory, {de_esc} de-escalatory). Score {score:.0f}.",
+            "_meta": meta.model_dump(mode="json"),
         }
-    except Exception:
-        pass
+    except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="socmint", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
     return {
         "conflict": conflict,
         "telegram_posts": [],
@@ -650,6 +678,7 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         "socmint_score": 30.0,
         "top_signals": [],
         "summary": "SOCMINT data unavailable.",
+        "_meta": meta.model_dump(mode="json"),
     }
 
 

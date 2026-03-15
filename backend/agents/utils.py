@@ -7,7 +7,7 @@ import concurrent.futures
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -89,3 +89,49 @@ class ScoreConfidence(BaseModel):
     level: str = "low"
     sources_ok: List[str] = Field(default_factory=list)
     sources_missing: List[str] = Field(default_factory=list)
+
+
+class SourceResult(BaseModel):
+    """Per-source fetch result for telemetry and health tracking."""
+    name: str
+    status: Literal["ok", "degraded", "error"]
+    fetched_at: Optional[str] = None  # ISO-8601
+    duration_ms: Optional[int] = None
+    record_count: Optional[int] = None
+    error: Optional[str] = None
+    cached: bool = False
+
+
+class AgentMetadata(BaseModel):
+    """Standard metadata attached to every agent result (returned as _meta)."""
+    agent: str
+    fetched_at: str  # ISO-8601, when agent run started
+    duration_ms: int
+    sources: List[SourceResult]
+    confidence: ScoreConfidence
+    data_freshness: Literal["live", "recent", "stale", "unavailable"]
+    fallback_used: bool = False
+    error_summary: Optional[str] = None
+
+
+def compute_confidence_from_sources(source_results: List[SourceResult]) -> ScoreConfidence:
+    """Compute ScoreConfidence from a list of SourceResult (ok vs error ratio)."""
+    if not source_results:
+        return ScoreConfidence(level="low", sources_ok=[], sources_missing=[])
+    ok = [s for s in source_results if s.status == "ok"]
+    failed = [s for s in source_results if s.status == "error"]
+    degraded = [s for s in source_results if s.status == "degraded"]
+    total = len(source_results)
+    ok_count = len(ok) + len(degraded)  # degraded counts as partial
+    ratio = ok_count / total if total else 0
+    if ratio >= 0.8:
+        level = "high"
+    elif ratio >= 0.5:
+        level = "medium"
+    else:
+        level = "low"
+    return ScoreConfidence(
+        level=level,
+        sources_ok=[s.name for s in ok] + [f"{s.name}(degraded)" for s in degraded],
+        sources_missing=[s.name for s in failed],
+    )

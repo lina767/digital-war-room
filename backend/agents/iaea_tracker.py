@@ -23,7 +23,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import feedparser
 import httpx
 
-from .utils import run_async
+from .health_registry import get_health_registry
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    parse_adsb_response,
+    run_async,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +61,10 @@ ADSB_REGIONS_OEIII = [
     ("Persian Gulf", 26.0, 55.0, 450),
 ]
 ADSB_LATLON_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
+
+# ADSBexchange RapidAPI (optional fallback when free sources return no OE-III)
+ADSBEXCHANGE_RAPIDAPI_KEY = (os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY") or os.getenv("RAPIDAPI_KEY") or "").strip() or None
+ADSBEXCHANGE_RAPIDAPI_HOST = (os.getenv("ADSBEXCHANGE_RAPIDAPI_HOST") or "adsbexchange-com1.p.rapidapi.com").strip()
 
 # IAEA Press
 IAEA_FEEDS = [
@@ -176,6 +188,60 @@ async def _fetch_adsb_region(
         return []
 
 
+async def _fetch_adsbexchange_rapidapi(
+    client: httpx.AsyncClient,
+    *,
+    icao: Optional[str] = None,
+    callsign: Optional[str] = None,
+    lat: Optional[float] = None,
+    lon: Optional[float] = None,
+    dist_nm: int = 100,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch aircraft from ADSBexchange via RapidAPI (same endpoints as SIGINT).
+    One of: icao, callsign, or (lat, lon, dist_nm). Max 100 nm for region queries.
+    """
+    if not ADSBEXCHANGE_RAPIDAPI_KEY:
+        return []
+    base = f"https://{ADSBEXCHANGE_RAPIDAPI_HOST}"
+    headers = {
+        "X-RapidAPI-Key": ADSBEXCHANGE_RAPIDAPI_KEY,
+        "X-RapidAPI-Host": ADSBEXCHANGE_RAPIDAPI_HOST,
+        "User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)",
+    }
+    ac_list: List[Dict[str, Any]] = []
+    try:
+        if icao and icao.strip():
+            url = f"{base}/api/aircraft/icao/{icao.strip().upper()}"
+            resp = await client.get(url, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                if isinstance(ac, list):
+                    ac_list = ac
+                elif isinstance(ac, dict):
+                    ac_list = [ac]
+        elif callsign and callsign.strip():
+            url = f"{base}/api/aircraft/call/{callsign.strip().upper()}"
+            resp = await client.get(url, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                if isinstance(ac, list):
+                    ac_list = ac
+                elif isinstance(ac, dict):
+                    ac_list = [ac]
+        elif lat is not None and lon is not None:
+            dist = min(100, max(1, int(dist_nm)))
+            url = f"{base}/api/aircraft/lat/{lat}/lon/{lon}/dist/{dist}"
+            resp = await client.get(url, headers=headers, timeout=15.0)
+            if resp.status_code == 200:
+                ac_list = parse_adsb_response(resp.json())
+    except Exception as e:
+        logger.debug("IAEA: ADSBexchange RapidAPI fetch failed: %s", e)
+    return ac_list
+
+
 def _normalize_aircraft(ac: Dict[str, Any], region: str = "") -> Dict[str, Any]:
     lat = ac.get("lat")
     lon = ac.get("lon")
@@ -216,6 +282,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
     async def _run() -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
         seen_hex: set = set()
+        adsbexchange_fallback_used = False
         headers = {"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"}
         async with httpx.AsyncClient(headers=headers) as client:
             # 1) Hex-Direktabfrage
@@ -241,6 +308,43 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
                         seen_hex.add(icao)
                         results.append(_normalize_aircraft(ac, label))
                 await asyncio.sleep(0.3)
+
+            # 4) ADSBexchange RapidAPI fallback when free sources returned nothing
+            if not results and ADSBEXCHANGE_RAPIDAPI_KEY:
+                for ac in await _fetch_adsbexchange_rapidapi(client, icao=OEIII_ICAO_HEX):
+                    icao = str(ac.get("hex") or "").strip().upper()
+                    if icao and icao not in seen_hex and _is_oeiii(ac):
+                        seen_hex.add(icao)
+                        results.append(_normalize_aircraft(ac, "hex (ADSBexchange)"))
+                        adsbexchange_fallback_used = True
+                await asyncio.sleep(0.2)
+                if not results:
+                    for cs in ("OEIII", "OE-III"):
+                        for ac in await _fetch_adsbexchange_rapidapi(client, callsign=cs):
+                            icao = str(ac.get("hex") or "").strip().upper()
+                            if icao and icao not in seen_hex and _is_oeiii(ac):
+                                seen_hex.add(icao)
+                                results.append(_normalize_aircraft(ac, "registration (ADSBexchange)"))
+                                adsbexchange_fallback_used = True
+                                break
+                        if results:
+                            break
+                        await asyncio.sleep(0.2)
+                if not results:
+                    for label, lat, lon, dist in ADSB_REGIONS_OEIII:
+                        regional = await _fetch_adsbexchange_rapidapi(
+                            client, lat=lat, lon=lon, dist_nm=min(100, dist)
+                        )
+                        for ac in regional:
+                            if not _is_oeiii(ac):
+                                continue
+                            icao = str(ac.get("hex") or "").strip().upper()
+                            if icao and icao not in seen_hex:
+                                seen_hex.add(icao)
+                                results.append(_normalize_aircraft(ac, f"{label} (ADSBexchange)"))
+                                adsbexchange_fallback_used = True
+                        await asyncio.sleep(0.2)
+
         # correlation_hint + confidence
         if not results:
             hint = "OE-III is currently not visible in ADS-B (on ground out of coverage or transponder off)."
@@ -263,6 +367,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
             "aircraft": results,
             "count": len(results),
             "source": "adsb",
+            "adsbexchange_fallback_used": adsbexchange_fallback_used,
             "correlation_hint": hint,
             "confidence": confidence,
         }
@@ -276,6 +381,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
             "aircraft": [],
             "count": 0,
             "source": "adsb",
+            "adsbexchange_fallback_used": False,
             "error": str(e),
             "correlation_hint": f"ADS-B: request failed ({e}).",
             "confidence": "low",
@@ -903,11 +1009,39 @@ def run_iaea_tracker() -> Dict[str, Any]:
             result["summary"] = llm_summary
         return result
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
-        return run_async(_run_all())
+        result = run_async(_run_all())
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        oa = result.get("oeiii_adsb") or {}
+        no = result.get("notams") or {}
+        me = result.get("metar_orer") or {}
+        fp = result.get("flight_plan_status") or {}
+        pr = result.get("iaea_press_grossi") or {}
+        tg = result.get("iaea_telegram_signals") or {}
+        source_results = [
+            SourceResult(name="ADS-B", status="ok" if not oa.get("error") and (oa.get("count") or oa.get("aircraft")) else "error", fetched_at=fetched_at, record_count=oa.get("count", 0) or len(oa.get("aircraft") or [])),
+            SourceResult(name="NOTAMs", status="ok" if not no.get("error") and (no.get("count") or no.get("notams")) else "error", fetched_at=fetched_at, record_count=no.get("count", 0) or len(no.get("notams") or [])),
+            SourceResult(name="METAR", status="ok" if not me.get("error") and me.get("raw") else "error", fetched_at=fetched_at),
+            SourceResult(name="Flight plan", status="ok" if not fp.get("error") and fp.get("status") != "unknown" else "error", fetched_at=fetched_at),
+            SourceResult(name="IAEA Press", status="ok" if not pr.get("error") and (pr.get("count") or pr.get("items")) else "error", fetched_at=fetched_at, record_count=pr.get("count", 0) or len(pr.get("items") or [])),
+            SourceResult(name="Telegram", status="ok" if not tg.get("error") and (tg.get("count") or tg.get("posts")) else "error", fetched_at=fetched_at, record_count=tg.get("count", 0) or len(tg.get("posts") or [])),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "iaea_tracker", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        meta = AgentMetadata(agent="iaea_tracker", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        result["_meta"] = meta.model_dump(mode="json")
+        return result
     except Exception as e:
         logger.exception("run_iaea_tracker failed")
-        return correlate_iaea_tracker(
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        result = correlate_iaea_tracker(
             adsb_result={"correlation_hint": "Tracker failed.", "confidence": "low", "error": str(e)},
             notam_result={},
             metar_result={},
@@ -915,3 +1049,6 @@ def run_iaea_tracker() -> Dict[str, Any]:
             press_result={},
             telegram_result={},
         )
+        meta = AgentMetadata(agent="iaea_tracker", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
+        result["_meta"] = meta.model_dump(mode="json")
+        return result

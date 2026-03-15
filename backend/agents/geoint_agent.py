@@ -8,6 +8,7 @@ import csv
 import io
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -15,8 +16,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 from services.acled_auth import get_acled_token_async, has_acled_oauth
+from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import run_async, safe_float
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    safe_float,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
@@ -894,7 +903,18 @@ def _compute_geoint_score(anomalies: List[Dict[str, Any]]) -> Tuple[float, int, 
     return (max(0.0, min(100.0, base)), explosion_count, clusters, recent)
 
 
-def _empty_result(conflict: str) -> Dict[str, Any]:
+def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, Any]:
+    fetched_at = utc_now_iso()
+    meta = AgentMetadata(
+        agent="geoint",
+        fetched_at=fetched_at,
+        duration_ms=0,
+        sources=[],
+        confidence=compute_confidence_from_sources([]),
+        data_freshness="unavailable",
+        fallback_used=True,
+        error_summary=error_summary or "No data",
+    )
     return {
         "conflict": conflict,
         "anomalies": [],
@@ -908,6 +928,7 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
         "ucdp_events": [],
         "eo_browser_links": {},
         "summary": "No thermal anomaly data available.",
+        "_meta": meta.model_dump(mode="json"),
     }
 
 
@@ -915,6 +936,8 @@ def _empty_result(conflict: str) -> Dict[str, Any]:
 
 def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
     """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → ucdp_events → eo_browser_links. No LLM."""
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
         region = get_conflict_region(conflict=conflict)
         if not isinstance(region, str):
@@ -938,6 +961,32 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         summary_extra = f" {len(ucdp_events)} UCDP events." if ucdp_events else ""
         if has_acled_cfg and not has_acled_reports:
             summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and UCDP/ReliefWeb."
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        source_results = [
+            SourceResult(name="NASA FIRMS", status="ok" if anomalies else "error", fetched_at=fetched_at, record_count=len(anomalies)),
+            SourceResult(name="ReliefWeb/ACLED", status="ok" if reliefweb_reports else "error", fetched_at=fetched_at, record_count=len(reliefweb_reports)),
+            SourceResult(name="UCDP", status="ok" if ucdp_events else "error", fetched_at=fetched_at, record_count=len(ucdp_events)),
+            SourceResult(name="EO Browser", status="ok" if eo_links else "error", fetched_at=fetched_at, record_count=len(eo_links) if isinstance(eo_links, dict) else 0),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "geoint", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if (anomalies or reliefweb_reports or ucdp_events) else "unavailable"
+        sources_missing = [s.name for s in source_results if s.status == "error"]
+        error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
+        meta = AgentMetadata(
+            agent="geoint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=error_summary,
+        )
         return {
             "conflict": conflict,
             "anomalies": anomalies,
@@ -951,9 +1000,11 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             "ucdp_events": ucdp_events,
             "eo_browser_links": eo_links,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included. Score {score:.0f}.",
+            "_meta": meta.model_dump(mode="json"),
         }
     except Exception as e:
         logger.exception("GEOINT: rule-based pipeline failed for '%s': %s", conflict, e)
+        return _empty_result(conflict, error_summary=str(e))
     return _empty_result(conflict)
 
 

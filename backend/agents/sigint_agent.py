@@ -21,6 +21,7 @@ Intelligence reports:
 import asyncio
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -29,8 +30,18 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import USER_AGENT, DEFAULT_TIMEOUT
+from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import safe_float, utc_now_iso, parse_adsb_response, ScoreConfidence, run_async
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    safe_float,
+    utc_now_iso,
+    parse_adsb_response,
+    ScoreConfidence,
+    run_async,
+    compute_confidence_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1043,6 +1054,8 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     """Execute SIGINT tool chain: aircraft → vessels → spire_vessels → conflict_reports → NOTAMs (iaea_tracker). No LLM."""
     from .iaea_tracker import fetch_notams
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
         with ThreadPoolExecutor(max_workers=8) as executor:
             fut_air = executor.submit(get_military_aircraft)
@@ -1238,9 +1251,50 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             score_confidence=score_confidence,
             target_tracks=target_track if isinstance(target_track, dict) else {},
         )
-        return result.model_dump(mode="json")
+        out = result.model_dump(mode="json")
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        source_results = [
+            SourceResult(name="ADS-B", status="ok" if aircraft else "error", fetched_at=fetched_at, record_count=len(aircraft)),
+            SourceResult(name="VesselFinder", status="ok" if ships else "error", fetched_at=fetched_at, record_count=len(ships)),
+            SourceResult(name="Spire Vessels", status="ok" if spire_ships else "error", fetched_at=fetched_at, record_count=len(spire_ships)),
+            SourceResult(name="Spire Airsafe", status="ok" if spire_airsafe else "error", fetched_at=fetched_at, record_count=len(spire_airsafe)),
+            SourceResult(name="Conflict Reports", status="ok" if reports else "error", fetched_at=fetched_at, record_count=len(reports)),
+            SourceResult(name="NOTAMs", status="ok" if notams else "error", fetched_at=fetched_at, record_count=len(notams)),
+            SourceResult(name="Hormuz Tankers", status="ok" if hormuz_tankers else "error", fetched_at=fetched_at, record_count=len(hormuz_tankers)),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "sigint", sr)
+        confidence = compute_confidence_from_sources(source_results) if source_results else score_confidence
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= len(source_results) * 0.8 else "recent" if ok_count >= len(source_results) * 0.5 else "stale" if ok_count > 0 else "unavailable"
+        error_summary = f"{len(sources_missing)} source(s) missing" if sources_missing else None
+        meta = AgentMetadata(
+            agent="sigint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=error_summary,
+        )
+        out["_meta"] = meta.model_dump(mode="json")
+        return out
     except Exception as e:
         logger.exception("SIGINT: rule-based pipeline failed for conflict '%s': %s", conflict, e)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(
+            agent="sigint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=[],
+            confidence=ScoreConfidence(level="low", sources_ok=[], sources_missing=["pipeline"]),
+            data_freshness="unavailable",
+            fallback_used=True,
+            error_summary=str(e),
+        )
         return {
             "conflict": conflict,
             "aircraft": [],
@@ -1250,6 +1304,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             "sigint_score": 30.0,
             "alerts": [],
             "summary": "SIGINT error: pipeline failed.",
+            "_meta": meta.model_dump(mode="json"),
         }
 
 

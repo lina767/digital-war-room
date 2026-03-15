@@ -21,7 +21,15 @@ import httpx
 
 from .airstream_client import collect_tankers_by_chokepoint
 from .config import USER_AGENT, DEFAULT_TIMEOUT
-from .utils import run_async, safe_float
+from .health_registry import get_health_registry
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    safe_float,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -766,16 +774,40 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             "external_status": external_status,
         }
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
-        return run_async(_run())
+        out = run_async(_run())
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        cps = out.get("chokepoints") or []
+        live_ais_count = sum(1 for cp in cps if cp.get("data_quality") == "live_ais")
+        source_results = [
+            SourceResult(name="AISStream/Spire/MT", status="ok" if live_ais_count > 0 else "error", fetched_at=fetched_at, record_count=sum(len(cp.get("tanker_details") or []) for cp in cps)),
+            SourceResult(name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at),
+            SourceResult(name="EIA baseline", status="ok", fetched_at=fetched_at),
+            SourceResult(name="External status", status="ok" if (out.get("external_status") or {}) else "error", fetched_at=fetched_at),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "chokepoint", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if live_ais_count > 0 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        meta = AgentMetadata(agent="chokepoint", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        out["_meta"] = meta.model_dump(mode="json")
+        return out
     except Exception as e:
         logger.exception("CHOKEPOINT agent error: %s", e)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="chokepoint", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "chokepoints": [],
             "chokepoint_score": 0.0,
             "summary": f"CHOKEPOINT error: {e}",
             "gdelt_disruption": {},
             "external_status": {},
+            "_meta": meta.model_dump(mode="json"),
         }
 
 

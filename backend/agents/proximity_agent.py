@@ -85,6 +85,12 @@ async def _generate_haiku_summary_proximity(
 
 def run_proximity_agent(conflict: str) -> Dict[str, Any]:
     """Run PROXIMITY agent: FIRMS strikes + Overpass + optional tunnel sites → evidence + score."""
+    import time
+    from .health_registry import get_health_registry
+    from .utils import AgentMetadata, SourceResult, utc_now_iso, compute_confidence_from_sources
+
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     region = get_conflict_region(conflict)
     raw = get_thermal_anomalies(region=region, days=3)
     anomalies = [
@@ -146,12 +152,30 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
             result["reason_empty"] = reason_empty
         if error_message is not None and "error_message" not in result:
             result["error_message"] = error_message
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        evidence = result.get("evidence") or []
+        source_results = [
+            SourceResult(name="NASA FIRMS", status="ok" if events else "error", fetched_at=fetched_at, record_count=len(events)),
+            SourceResult(name="Overpass/OSM", status="ok" if evidence else "error", fetched_at=fetched_at, record_count=len(evidence)),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "proximity", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 1 and evidence else "recent" if ok_count >= 1 else "stale" if events else "unavailable"
+        meta = AgentMetadata(agent="proximity", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=result.get("error_message"))
+        result["_meta"] = meta.model_dump(mode="json")
         return result
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="proximity", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "proximity_score": 0.0,
             "evidence": [],
             "summary": f"PROXIMITY error: {e}",
             "reason_empty": "error",
             "error_message": str(e),
+            "_meta": meta.model_dump(mode="json"),
         }

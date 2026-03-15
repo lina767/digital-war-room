@@ -21,7 +21,15 @@ from pydantic import BaseModel, Field
 
 from .config import DEFAULT_TIMEOUT
 from .llm import run_agent_with_fallback
-from .utils import run_async, safe_float, utc_now_iso, ScoreConfidence
+from .source_fetch import SourceFetch
+from .utils import (
+    AgentMetadata,
+    run_async,
+    safe_float,
+    utc_now_iso,
+    ScoreConfidence,
+    compute_confidence_from_sources,
+)
 from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
@@ -974,40 +982,219 @@ async def _fetch_chain_wallets(client: Any) -> Dict[str, Any]:
     return {"items": out, "fetched_at": fetched_at}
 
 
+def _record_count_from_result(r: Any) -> Optional[int]:
+    """Extract a record count from a fetch result for SourceFetch.set_record_count."""
+    if not isinstance(r, dict):
+        return None
+    if "items" in r and isinstance(r["items"], list):
+        return len(r["items"])
+    if "total_matches" in r and isinstance(r.get("total_matches"), (int, float)):
+        return int(r["total_matches"])
+    if "error" not in r:
+        return 1
+    return None
+
+
+async def _fetch_brent_tracked(client: Any) -> tuple:
+    async with SourceFetch("Alpha Vantage (Brent)", "finint") as sf:
+        try:
+            r = await _fetch_brent(client)
+            if isinstance(r, dict) and "error" not in r:
+                sf.set_record_count(1)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_wti_tracked(client: Any) -> tuple:
+    async with SourceFetch("Alpha Vantage (WTI)", "finint") as sf:
+        try:
+            r = await _fetch_wti(client)
+            if isinstance(r, dict) and "error" not in r:
+                sf.set_record_count(1)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_gold_tracked(client: Any) -> tuple:
+    async with SourceFetch("Metals API / Alpha Vantage (Gold)", "finint") as sf:
+        try:
+            r = await _fetch_gold(client)
+            if isinstance(r, dict) and "error" not in r:
+                sf.set_record_count(1)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_vix_tracked(client: Any) -> tuple:
+    async with SourceFetch("Alpha Vantage (VIX)", "finint") as sf:
+        try:
+            r = await _fetch_vix(client)
+            if isinstance(r, dict) and "error" not in r:
+                sf.set_record_count(1)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_fear_greed_tracked(client: Any) -> tuple:
+    async with SourceFetch("Fear & Greed Index", "finint") as sf:
+        try:
+            r = await _fetch_fear_greed(client)
+            if isinstance(r, dict) and "error" not in r and r.get("value") is not None:
+                sf.set_record_count(1)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_polymarket_tracked(client: Any, conflict: str) -> tuple:
+    async with SourceFetch("Polymarket", "finint") as sf:
+        try:
+            r = await _fetch_polymarket(client, conflict)
+            n = _record_count_from_result(r)
+            if n is not None:
+                sf.set_record_count(n)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"items": [], "error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_metaculus_tracked(client: Any, conflict: str) -> tuple:
+    async with SourceFetch("Metaculus", "finint") as sf:
+        try:
+            r = await _fetch_metaculus(client, conflict)
+            n = _record_count_from_result(r)
+            if n is not None:
+                sf.set_record_count(n)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"items": [], "error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_kalshi_tracked(client: Any, conflict: str) -> tuple:
+    async with SourceFetch("Kalshi", "finint") as sf:
+        try:
+            r = await _fetch_kalshi(client, conflict)
+            n = _record_count_from_result(r)
+            if n is not None:
+                sf.set_record_count(n)
+            elif isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"items": [], "error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_ofac_tracked(client: Any, conflict: str) -> tuple:
+    async with SourceFetch("OFAC SDN", "finint") as sf:
+        try:
+            r = await _fetch_ofac_cached(client, conflict)
+            n = _record_count_from_result(r)
+            if n is not None:
+                sf.set_record_count(n)
+            if isinstance(r, dict) and r.get("error"):
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": utc_now_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}}
+    return (r, sf.result())
+
+
+async def _fetch_wallet_positions_tracked(client: Any) -> tuple:
+    async with SourceFetch("Polymarket Wallets", "finint") as sf:
+        try:
+            r = await _fetch_wallet_positions(client)
+            n = _record_count_from_result(r)
+            if n is not None:
+                sf.set_record_count(n)
+            if isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"items": [], "error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
+async def _fetch_chain_wallets_tracked(client: Any) -> tuple:
+    async with SourceFetch("Etherscan", "finint") as sf:
+        try:
+            r = await _fetch_chain_wallets(client)
+            n = _record_count_from_result(r)
+            if n is not None:
+                sf.set_record_count(n)
+            if isinstance(r, dict) and "error" in r:
+                sf.set_error(r["error"])
+        except Exception as e:
+            sf.set_error(str(e))
+            r = {"items": [], "error": str(e), "fetched_at": utc_now_iso()}
+    return (r, sf.result())
+
+
 async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
-    """Run all FININT fetches in parallel with shared client; return_exceptions=True; return FinintResult as dict."""
+    """Run all FININT fetches in parallel with shared client; return FinintResult as dict with _meta."""
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     client = get_http_client()
-    brent, wti, gold, vix, fear_greed, polymarket, metaculus, kalshi, ofac, wallets, chain = await asyncio.gather(
-        _fetch_brent(client),
-        _fetch_wti(client),
-        _fetch_gold(client),
-        _fetch_vix(client),
-        _fetch_fear_greed(client),
-        _fetch_polymarket(client, conflict),
-        _fetch_metaculus(client, conflict),
-        _fetch_kalshi(client, conflict),
-        _fetch_ofac_cached(client, conflict),
-        _fetch_wallet_positions(client),
-        _fetch_chain_wallets(client),
+    brent_t, wti_t, gold_t, vix_t, fg_t, pm_t, meta_t, kalshi_t, ofac_t, wallets_t, chain_t = await asyncio.gather(
+        _fetch_brent_tracked(client),
+        _fetch_wti_tracked(client),
+        _fetch_gold_tracked(client),
+        _fetch_vix_tracked(client),
+        _fetch_fear_greed_tracked(client),
+        _fetch_polymarket_tracked(client, conflict),
+        _fetch_metaculus_tracked(client, conflict),
+        _fetch_kalshi_tracked(client, conflict),
+        _fetch_ofac_tracked(client, conflict),
+        _fetch_wallet_positions_tracked(client),
+        _fetch_chain_wallets_tracked(client),
         return_exceptions=True,
     )
 
-    def _unwrap(x: Any, default: Any) -> Any:
+    def _unwrap_tracked(x: Any, default_data: Any) -> tuple:
         if isinstance(x, Exception):
-            return {"error": str(x), "fetched_at": utc_now_iso()}
-        return x
+            return ({"error": str(x), "fetched_at": utc_now_iso()}, None)
+        if isinstance(x, tuple) and len(x) == 2:
+            return (x[0], x[1])
+        return (default_data, None)
 
-    brent = _unwrap(brent, {})
-    wti = _unwrap(wti, {})
-    gold = _unwrap(gold, {})
-    vix = _unwrap(vix, {})
-    fear_greed = _unwrap(fear_greed, {})
-    polymarket = _unwrap(polymarket, {"items": [], "fetched_at": utc_now_iso()})
-    metaculus = _unwrap(metaculus, {"items": [], "fetched_at": utc_now_iso()})
-    kalshi = _unwrap(kalshi, {"items": [], "fetched_at": utc_now_iso()})
-    ofac = _unwrap(ofac, {"total_matches": 0, "sample": [], "error": None, "fetched_at": utc_now_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}})
-    wallets = _unwrap(wallets, {"items": [], "fetched_at": utc_now_iso()})
-    chain = _unwrap(chain, {"items": [], "fetched_at": utc_now_iso()})
+    brent, brent_sr = _unwrap_tracked(brent_t, {})
+    wti, wti_sr = _unwrap_tracked(wti_t, {})
+    gold, gold_sr = _unwrap_tracked(gold_t, {})
+    vix, vix_sr = _unwrap_tracked(vix_t, {})
+    fear_greed, fg_sr = _unwrap_tracked(fg_t, {})
+    polymarket, pm_sr = _unwrap_tracked(pm_t, {"items": [], "fetched_at": utc_now_iso()})
+    metaculus, meta_sr = _unwrap_tracked(meta_t, {"items": [], "fetched_at": utc_now_iso()})
+    kalshi, kalshi_sr = _unwrap_tracked(kalshi_t, {"items": [], "fetched_at": utc_now_iso()})
+    ofac, ofac_sr = _unwrap_tracked(ofac_t, {"total_matches": 0, "sample": [], "error": None, "fetched_at": utc_now_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}})
+    wallets, wallets_sr = _unwrap_tracked(wallets_t, {"items": [], "fetched_at": utc_now_iso()})
+    chain, chain_sr = _unwrap_tracked(chain_t, {"items": [], "fetched_at": utc_now_iso()})
+
+    source_results = [sr for sr in (brent_sr, wti_sr, gold_sr, vix_sr, fg_sr, pm_sr, meta_sr, kalshi_sr, ofac_sr, wallets_sr, chain_sr) if sr is not None]
 
     polymarket_list = polymarket.get("items", []) if isinstance(polymarket, dict) else []
     metaculus_list = metaculus.get("items", []) if isinstance(metaculus, dict) else []
@@ -1091,7 +1278,7 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         else:
             sources_missing.append(k)
     api_keys_available = len(sources_ok)
-    score_confidence = ScoreConfidence(
+    score_confidence = compute_confidence_from_sources(source_results) if source_results else ScoreConfidence(
         level="high" if api_keys_available >= 2 else "low",
         sources_ok=sources_ok,
         sources_missing=sources_missing,
@@ -1136,9 +1323,27 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         escalation_score=round(score, 1),
         summary="FININT (rule-based): oil, gold, VIX, Fear & Greed, Polymarket, Metaculus, OFAC sanctions and delta, wallet data.",
         score_confidence=score_confidence,
-        fetched_at=utc_now_iso(),
+        fetched_at=fetched_at,
     )
-    return result.model_dump(mode="json")
+    out = result.model_dump(mode="json")
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    ok_count = sum(1 for s in source_results if s.status == "ok")
+    data_freshness = "live" if ok_count >= len(source_results) * 0.8 else "recent" if ok_count >= len(source_results) * 0.5 else "stale" if ok_count > 0 else "unavailable"
+    error_summary = None
+    if sources_missing:
+        error_summary = f"{len(sources_missing)} source(s) failed or missing: {', '.join(sources_missing[:5])}{'...' if len(sources_missing) > 5 else ''}"
+    meta = AgentMetadata(
+        agent="finint",
+        fetched_at=fetched_at,
+        duration_ms=duration_ms,
+        sources=source_results,
+        confidence=score_confidence,
+        data_freshness=data_freshness,
+        fallback_used=False,
+        error_summary=error_summary,
+    )
+    out["_meta"] = meta.model_dump(mode="json")
+    return out
 
 
 def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:

@@ -2,6 +2,7 @@ import json
 import os
 import asyncio
 import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -53,7 +54,7 @@ AGENT_KEYS = (
 
 
 def push_agent_status(app_state, result: dict) -> None:
-    """Record per-agent status from last analysis (ok vs timeout/error). Used by GET /api/agents/status."""
+    """Record per-agent status from last analysis. Stores rich _meta when present; used by GET /api/agents/status."""
     if not isinstance(result, dict):
         return
     status = getattr(app_state, "agent_status_last", None)
@@ -61,10 +62,59 @@ def push_agent_status(app_state, result: dict) -> None:
         return
     for key in AGENT_KEYS:
         agent_result = result.get(key)
-        if isinstance(agent_result, dict) and agent_result.get("timeout_or_error"):
-            status[key] = "error"
-        else:
-            status[key] = "ok"
+        if not isinstance(agent_result, dict):
+            status[key] = {"status": "ok"}
+            continue
+        if agent_result.get("timeout_or_error"):
+            meta = agent_result.get("_meta") or {}
+            status[key] = {
+                "status": "error",
+                "fetched_at": meta.get("fetched_at"),
+                "duration_ms": meta.get("duration_ms"),
+                "confidence": meta.get("confidence"),
+                "data_freshness": meta.get("data_freshness"),
+                "sources": meta.get("sources", []),
+                "fallback_used": meta.get("fallback_used", False),
+                "error_summary": meta.get("error_summary"),
+            }
+            continue
+        meta = agent_result.get("_meta") or {}
+        status[key] = {
+            "status": "ok",
+            "fetched_at": meta.get("fetched_at"),
+            "duration_ms": meta.get("duration_ms"),
+            "confidence": meta.get("confidence"),
+            "data_freshness": meta.get("data_freshness"),
+            "sources": meta.get("sources", []),
+            "fallback_used": meta.get("fallback_used", False),
+            "error_summary": meta.get("error_summary"),
+        }
+
+
+ANALYSIS_RUN_HISTORY_MAX = 50
+
+
+def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> None:
+    """Append one run summary to analysis_run_history for GET /api/agents/history."""
+    history = getattr(app_state, "analysis_run_history", None)
+    if history is None:
+        return
+    if not isinstance(result, dict):
+        return
+    per_agent = {}
+    for key in AGENT_KEYS:
+        agent_result = result.get(key)
+        if isinstance(agent_result, dict):
+            meta = agent_result.get("_meta") or {}
+            per_agent[key] = {"duration_ms": meta.get("duration_ms"), "status": "error" if agent_result.get("timeout_or_error") else "ok"}
+    entry = {
+        "at": at_ts,
+        "conflict": conflict,
+        "escalation_score": result.get("escalation_score"),
+        "agents": per_agent,
+        "error": result.get("error") or (result.get("_run_error") if isinstance(result.get("_run_error"), str) else None),
+    }
+    history.append(entry)
 
 
 def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dict) -> None:
@@ -132,12 +182,40 @@ async def analyze_stream(request: Request, conflict: str = "Iran"):
 async def agents_status(request: Request):
     """
     GET /api/agents/status
-    Per-agent status from last completed analysis (ok | error). Empty if no run yet.
+    Per-agent status from last completed analysis. Returns rich object per agent when _meta was present:
+    status, fetched_at, duration_ms, confidence, data_freshness, sources, fallback_used, error_summary.
     """
     status = getattr(request.app.state, "agent_status_last", None)
     if status is None:
         return {}
     return dict(status)
+
+
+@router.get("/agents/health")
+async def agents_health():
+    """
+    GET /api/agents/health
+    Per-source health report from HealthRegistry: availability %, avg latency, circuit_open, last_error.
+    """
+    from agents.health_registry import get_health_registry
+    reg = get_health_registry()
+    if reg is None:
+        return {"sources": [], "summary": {"total_sources": 0, "degraded": 0, "down": 0, "ok": 0}}
+    return reg.get_health_report()
+
+
+@router.get("/agents/history")
+async def agents_history(request: Request, limit: int = 20):
+    """
+    GET /api/agents/history?limit=20
+    Last N analysis run summaries: timestamp, conflict, per-agent duration, overall score, errors.
+    """
+    history = getattr(request.app.state, "analysis_run_history", None)
+    if history is None:
+        return {"runs": []}
+    runs = list(history)[-limit:]
+    runs.reverse()
+    return {"runs": runs}
 
 
 @router.get("/analyze/status")
@@ -249,6 +327,7 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
             app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
             push_escalation_timeline(app_state, conflict, at_ts, result)
             push_agent_status(app_state, result)
+            push_run_history(app_state, conflict, at_ts, result)
             ws_manager = getattr(app_state, "ws_manager", None)
             if ws_manager:
                 await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
@@ -273,6 +352,7 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
             app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
             push_escalation_timeline(app_state, conflict, at_ts, result)
             push_agent_status(app_state, result)
+            push_run_history(app_state, conflict, at_ts, result)
             last_error.pop(conflict, None)
             ws_manager = getattr(app_state, "ws_manager", None)
             if ws_manager:
@@ -311,6 +391,7 @@ async def trigger_analysis(
         cache[conflict] = {"result": result, "at": at_ts}
         push_escalation_timeline(request.app.state, conflict, at_ts, result)
         push_agent_status(request.app.state, result)
+        push_run_history(request.app.state, conflict, at_ts, result)
         ws_manager = getattr(request.app.state, "ws_manager", None)
         if ws_manager:
             await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})

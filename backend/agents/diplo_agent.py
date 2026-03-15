@@ -14,7 +14,14 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .utils import run_async
+from .health_registry import get_health_registry
+from .utils import (
+    AgentMetadata,
+    SourceResult,
+    run_async,
+    utc_now_iso,
+    compute_confidence_from_sources,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -364,9 +371,34 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
             "summary": summary,
         }
 
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
     try:
-        return run_async(_run())
+        out = run_async(_run())
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        ofac_ok = isinstance(out.get("ofac_sdn"), dict) and not out.get("ofac_sdn", {}).get("error")
+        eu_ok = isinstance(out.get("eu_sanctions"), dict) and not out.get("eu_sanctions", {}).get("error")
+        news_list = out.get("un_icj_news") or []
+        news_ok = bool(news_list) and not (isinstance(news_list, list) and news_list and isinstance(news_list[0], dict) and news_list[0].get("error"))
+        source_results = [
+            SourceResult(name="OFAC SDN", status="ok" if ofac_ok else "error", fetched_at=fetched_at, record_count=out.get("ofac_sdn", {}).get("total_matches", 0) if ofac_ok else 0),
+            SourceResult(name="EU sanctions", status="ok" if eu_ok else "error", fetched_at=fetched_at),
+            SourceResult(name="UN/ICJ", status="ok" if news_ok else "error", fetched_at=fetched_at, record_count=len(news_list) if isinstance(news_list, list) else 0),
+            SourceResult(name="OFAC recent", status="ok" if (out.get("ofac_recent_actions") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("ofac_recent_actions") or [])),
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "diplo", sr)
+        confidence = compute_confidence_from_sources(source_results)
+        ok_count = sum(1 for s in source_results if s.status == "ok")
+        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if out.get("diplo_score", 0) > 0 else "unavailable"
+        meta = AgentMetadata(agent="diplo", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        out["_meta"] = meta.model_dump(mode="json")
+        return out
     except Exception as e:
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta = AgentMetadata(agent="diplo", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "diplo_score": 28.0,
             "ofac_sdn": {"total_matches": 0, "sample": [], "error": str(e)},
@@ -374,4 +406,5 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
             "un_icj_news": [],
             "ofac_recent_actions": [],
             "summary": f"DIPLO error: {e}",
+            "_meta": meta.model_dump(mode="json"),
         }
