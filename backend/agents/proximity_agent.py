@@ -9,34 +9,12 @@ import os
 from typing import Any, Dict, List
 
 from .utils import run_async
-from agents.geoint_agent import get_thermal_anomalies
+from agents.geoint_agent import get_thermal_anomalies, get_conflict_region
 from services.proximity_correlation import run_correlation_for_events
 from services.http_client import get_http_client
 
 # Max strike events to correlate (Overpass rate limit; keep agent run time bounded)
 MAX_STRIKES = 15
-
-# Conflict name -> FIRMS region (same as GEOINT)
-CONFLICT_TO_REGION = {
-    "iran": "iran",
-    "gaza": "gaza_israel",
-    "israel": "gaza_israel",
-    "lebanon": "middle_east",
-    "yemen": "yemen",
-    "syria": "middle_east",
-    "iraq": "middle_east",
-    "ukraine": "eastern_europe",
-    "default": "middle_east",
-}
-
-
-def _conflict_to_region(conflict: str) -> str:
-    cl = (conflict or "").lower()
-    return next(
-        (v for k, v in CONFLICT_TO_REGION.items() if k != "default" and k in cl),
-        CONFLICT_TO_REGION["default"],
-    )
-
 
 def _compute_proximity_score(evidence: List[Dict[str, Any]]) -> float:
     """Score 0–100 from evidence risk labels (critical/human-shield weigh most)."""
@@ -74,7 +52,7 @@ def _build_summary(evidence: List[Dict[str, Any]], score: float) -> str:
 
 def run_proximity_agent(conflict: str) -> Dict[str, Any]:
     """Run PROXIMITY agent: FIRMS strikes + Overpass + optional tunnel sites → evidence + score."""
-    region = _conflict_to_region(conflict)
+    region = get_conflict_region(conflict)
     raw = get_thermal_anomalies(region=region, days=3)
     anomalies = [
         a for a in (raw if isinstance(raw, list) else [])
@@ -91,6 +69,13 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
         for a in anomalies[:MAX_STRIKES]
     ]
 
+    error_message = None
+    reason_empty = None
+    if len(events) == 0:
+        reason_empty = "no_strikes"
+        if isinstance(raw, list) and len(raw) > 0 and isinstance(raw[0], dict) and raw[0].get("error"):
+            error_message = str(raw[0].get("error", ""))
+
     async def _run() -> Dict[str, Any]:
         tunnel_geojson = None
         if region in ("middle_east", "iran"):
@@ -104,19 +89,34 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
                 except Exception:
                     tunnel_geojson = None
         evidence = await run_correlation_for_events(events, tunnel_sites_geojson=tunnel_geojson)
+        current_reason = reason_empty
+        if len(evidence) == 0 and len(events) > 0:
+            current_reason = "no_facilities_near_strikes"
         score = _compute_proximity_score(evidence)
         summary = _build_summary(evidence, score)
-        return {
+        out = {
             "proximity_score": round(score, 1),
             "evidence": evidence,
             "summary": summary,
         }
+        if current_reason is not None:
+            out["reason_empty"] = current_reason
+        if error_message is not None:
+            out["error_message"] = error_message
+        return out
 
     try:
-        return run_async(_run())
+        result = run_async(_run())
+        if reason_empty is not None and "reason_empty" not in result:
+            result["reason_empty"] = reason_empty
+        if error_message is not None and "error_message" not in result:
+            result["error_message"] = error_message
+        return result
     except Exception as e:
         return {
             "proximity_score": 0.0,
             "evidence": [],
             "summary": f"PROXIMITY error: {e}",
+            "reason_empty": "error",
+            "error_message": str(e),
         }

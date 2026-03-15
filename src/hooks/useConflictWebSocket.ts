@@ -127,6 +127,9 @@ export interface ConflictData {
       summary?: string;
     }>;
     summary?: string;
+    /** Why evidence is empty: no_strikes | no_facilities_near_strikes | error */
+    reason_empty?: string;
+    error_message?: string;
   };
   /** Signal Framework: state vs exile/independent media comparison (Iran). */
   narrative?: {

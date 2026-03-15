@@ -91,6 +91,8 @@ CHOKEPOINT_SATURATION = {
     "Bab el-Mandeb": 12,
     "Suez Canal": 20,
 }
+# Minimum risk when data_quality is baseline_only; unknown != safe
+BASELINE_ONLY_RISK_FLOOR = 15.0
 
 # ── EMA temporal smoothing ───────────────────────────────────────────────────
 
@@ -521,18 +523,23 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         # Compute scores (enriched later by supervisor with cross-agent data)
         total_risk = 0.0
         for cp in chokepoints:
+            gdelt = gdelt_disruption.get(cp["name"], {})
+            gdelt_24h = gdelt.get("hits_24h", 0)
+            news_hit_count = min(10, gdelt_24h)
             sub = _compute_sub_scores(
                 tanker_count=cp["tanker_count"],
                 baseline_tankers=CHOKEPOINT_BASELINES[cp["name"]]["avg_daily_tankers"],
                 oil_change_pct=cp["brent_impact_pct"],
                 military_count=cp["military_vessels"],
                 ais_anomaly_count=cp["ais_anomalies"],
-                news_hit_count=0,
+                news_hit_count=news_hit_count,
                 diplo_signal_count=0,
             )
             raw_risk = _weighted_score(sub)
             cp_history = history.get(cp["name"], [])
             smoothed = _ema_score(raw_risk, cp_history)
+            if cp["data_quality"] == "baseline_only":
+                smoothed = max(smoothed, BASELINE_ONLY_RISK_FLOOR)
             cp["disruption_risk"] = round(smoothed, 1)
             cp["status"] = _status_from_risk(smoothed)
 
@@ -664,12 +671,17 @@ def enrich_chokepoints(
         gdelt_72h = gdelt.get("hits_72h", 0)
         news_disruption_count = news_disruption_by_cp.get(cp_name, 0)
 
-        # Confirmation gate: 2 of 3 signals (gdelt>=3, news_disruption>=1, brent_signal)
+        # Confirmation gate: 2 of 3 for live_ais; 1 of 3 for estimated/baseline_only
         sig_gdelt = gdelt_24h >= 3
         sig_news = news_disruption_count >= 1
         sig_brent = brent_signal
-        confirmed = sum([sig_gdelt, sig_news, sig_brent]) >= 2
-        unconfirmed_one = sum([sig_gdelt, sig_news, sig_brent]) == 1
+        required_signals = 1 if cp.get("data_quality") != "live_ais" else 2
+        confirmed = sum([sig_gdelt, sig_news, sig_brent]) >= required_signals
+        unconfirmed_one = (
+            sum([sig_gdelt, sig_news, sig_brent]) == 1
+            if cp.get("data_quality") == "live_ais"
+            else False
+        )
 
         baseline_info = CHOKEPOINT_BASELINES.get(cp_name, {})
         avg_tankers = baseline_info.get("avg_daily_tankers", 30)
@@ -692,7 +704,7 @@ def enrich_chokepoints(
                 cp["tanker_density"] = _density_label(tanker_count, avg_tankers)
 
         use_weights = DISRUPTION_WEIGHTS_NO_AIS if cp.get("data_quality") != "live_ais" else DISRUPTION_WEIGHTS
-        news_hits_cp = news_disruption_by_cp.get(cp_name, 0)
+        news_hits_cp = news_disruption_by_cp.get(cp_name, 0) or min(10, gdelt_24h)
 
         sub = _compute_sub_scores(
             tanker_count=cp["tanker_count"],
@@ -706,6 +718,8 @@ def enrich_chokepoints(
         raw_risk = _weighted_score(sub, use_weights)
         cp_history = history.get(cp_name, [])
         smoothed = _ema_score(raw_risk, cp_history)
+        if cp.get("data_quality") == "baseline_only":
+            smoothed = max(smoothed, BASELINE_ONLY_RISK_FLOOR)
         cp["disruption_risk"] = round(smoothed, 1)
         cp["status"] = _status_from_risk(smoothed)
 

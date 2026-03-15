@@ -2,11 +2,13 @@
 
 Correlates **strike data** (NASA FIRMS thermal anomalies) with **civilian infrastructure** (OpenStreetMap) to flag potential Human Shield scenarios.
 
+**Requirements:** `NASA_FIRMS_KEY` must be set in `backend/.env` for thermal anomaly data. If missing, the agent and `GET /api/proximity/analyze` return empty evidence with `reason_empty: "no_strikes"` and an `error_message` (e.g. "NASA_FIRMS_KEY not set"). To verify the pipeline (FIRMS + Overpass), run: `node scripts/test-proximity.mjs`.
+
 ## Components
 
-- **Backend:** `GET /api/proximity/strikes?region=...&days=3` – returns NASA FIRMS VIIRS_SNPP_NRT thermal anomalies (strike triggers).
-- **Frontend service:** `src/lib/proximityAnalyzerService.ts` – fetches strikes, queries Overpass API (schools, hospitals, places of worship, government offices within 300 m), correlates with **Turf.js** (haversine distance), returns evidence list.
-- **UI:** `src/components/dashboard/EvidenceCard.tsx` – displays facility name, distance to strike, risk badge (Red/Orange), and summary.
+- **Backend:** `GET /api/proximity/analyze?region=...&days=3` – runs full proximity analysis server-side: fetches NASA FIRMS thermal anomalies, queries Overpass for schools/hospitals/government within 300 m, returns `{ evidence, region, days }` and optionally `reason_empty`, `error_message` when evidence is empty.
+- **Frontend service:** `src/lib/proximityAnalyzerService.ts` – client-side fallback; the Dashboard uses the backend endpoint for the "Run" button and main analysis.
+- **UI:** `src/components/dashboard/EvidenceCard.tsx` – displays facility name, distance to strike, risk badge (Red/Orange), and summary. When evidence is empty, the panel shows `reason_empty` (no_strikes / no_facilities_near_strikes / error) and `error_message` where applicable. A "Run" button triggers an on-demand analysis via `GET /api/proximity/analyze`.
 
 ## Risk labels
 

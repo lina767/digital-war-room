@@ -236,7 +236,15 @@ async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
                 except Exception:
                     tunnel_geojson = None
         evidence = await run_correlation_for_events(events, tunnel_sites_geojson=tunnel_geojson)
-        return {"evidence": evidence, "region": region, "days": days}
+        out = {"evidence": evidence, "region": region, "days": days}
+        if len(evidence) == 0:
+            if len(events) == 0:
+                out["reason_empty"] = "no_strikes"
+                if isinstance(raw, list) and len(raw) > 0 and isinstance(raw[0], dict) and raw[0].get("error"):
+                    out["error_message"] = str(raw[0].get("error", ""))
+            else:
+                out["reason_empty"] = "no_facilities_near_strikes"
+        return out
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
