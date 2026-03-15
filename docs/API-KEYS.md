@@ -9,7 +9,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | Key | Verwendung im Code | Bezugsquelle |
 |-----|---------------------|--------------|
 | **ANTHROPIC_API_KEY** oder **OPENAI_API_KEY** | `backend/agents/llm_factory.py` – Supervisor (LLM-Synthese) | **Anthropic:** [console.anthropic.com](https://console.anthropic.com/) → API Keys. **OpenAI:** [platform.openai.com/api-keys](https://platform.openai.com/api-keys). |
-| **NEWS_API_KEY** | `backend/agents/news_agent.py` | [newsapi.org/register](https://newsapi.org/register) – kostenloser Plan verfügbar. |
+| **NEWS_API_KEY** | `backend/agents/news_agent.py` | [newsapi.org/register](https://newsapi.org/register) – kostenloser Plan. **Free:** 100 Requests/Tag, keine Zusatz-Requests; Artikel haben **24h Verzögerung** (kein Echtzeit); Suche bis 1 Monat zurück; kein Uptime-SLA; Basic-Support; CORS für localhost. |
 | **NASA_FIRMS_KEY** | `backend/agents/geoint_agent.py` (NASA FIRMS) | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/) → „Request Key“ (kostenlos). |
 | **ALPHAVANTAGE_API_KEY** | `backend/agents/finint_agent.py`, `energy_agent.py`, `techint_agent.py` | [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) – kostenloser Key. Wird für Öl (Brent, WTI) und Food-Commodities (Wheat, Corn, Soybean) genutzt. |
 
@@ -80,9 +80,33 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program (GED events) | Bei UCDP anfragen ([ucdp.uu.se](https://ucdp.uu.se/), [API-Doku](https://ucdp.uu.se/apidocs/)). Header: `x-ucdp-access-token`. **Limit:** 5.000 Requests/Tag (Mitternacht UTC); jeder paginierte Request zählt. |
 | **LIVEUAMAP_API_KEY** | GEOINT (Liveuamap, falls integriert) | Liveuamap – oft kostenpflichtig. |
 | **NOTAM_API_KEY** | `backend/agents/iaea_tracker.py` – NOTAM (Autorouter.aero) | [autorouter.aero](https://www.autorouter.aero/) – falls der Endpunkt Auth verlangt. |
+| **NEWSDATA_API_KEY** | `backend/agents/news_agent.py` – NewsData.io (zusätzliche News-Quelle) | [newsdata.io/register](https://newsdata.io/register). **Free:** 200 API-Credits/Tag, max. 10 Artikel pro Request. Filter: Location (`country`), Language (`language`), Category (`category`). Pro Request 1 Credit (Latest); sinnvoll: ein Request pro Lauf, Query über Konflikt-Keywords. |
+| **GNEWS_API_KEY** | `backend/agents/news_agent.py` – GNews (gnews.io) | [gnews.io/register](https://gnews.io/register). **Free:** 100 Requests/Tag. Search-Endpoint: `q`, `lang`, `country`, `max` (bis 10). Ein Request pro Lauf empfohlen. |
 | **FIRECRAWL_API_KEY** | `acled_reference.py` – ACLED-Referenzseiten; `signal_framework_agent.py` – optional Fallback für State-RSS (IRNA, Fars, etc.), wenn `SIGNAL_FRAMEWORK_USE_FIRECRAWL=true` | [firecrawl.dev](https://firecrawl.dev) – Free Plan: 500 Credits einmalig, 2 gleichzeitige Requests. Ohne Key: Fallback auf httpx bzw. kein State-Fallback. |
 | **SIGNAL_FRAMEWORK_USE_FIRECRAWL** | `signal_framework_agent.py` – bei `true`: nach fehlgeschlagenem/leerem State-RSS Firecrawl als Fallback nutzen | Optional. Erfordert `FIRECRAWL_API_KEY`. State-Feed-URL wird per Firecrawl geladen; Headlines werden aus Markdown extrahiert. |
 | **SIGNAL_FRAMEWORK_STATE_TIMEOUT** | `signal_framework_agent.py` – Timeout in Sekunden für State-Feed-Requests | Optional, Default 25. Erhöhen, wenn State-Server langsam antworten. |
+
+---
+
+## News-APIs gemeinsam einsetzen (NEWS_API_KEY, NEWSDATA_API_KEY, GNEWS_API_KEY)
+
+Der NEWS-Agent nutzt alle gesetzten Keys **parallel** in einem Lauf; pro API wird **genau ein Request** ausgeführt, um die Tageslimits nicht zu überschreiten.
+
+| API | Key | Limit (Free) | Pro Lauf | Empf. max. Runs/Tag |
+|-----|-----|--------------|----------|----------------------|
+| NewsAPI.org | NEWS_API_KEY | 100 Requests/Tag, 24h Artikel-Verzögerung | 1 Request | ≤ 100 (z. B. alle 15 Min = 96) |
+| NewsData.io | NEWSDATA_API_KEY | 200 Credits/Tag, 10 Artikel/Request | 1 Request | ≤ 200 |
+| GNews (gnews.io) | GNEWS_API_KEY | 100 Requests/Tag | 1 Request | ≤ 100 |
+
+**Strategie im Code** ([backend/agents/news_agent.py](backend/agents/news_agent.py)):
+
+1. **Paralleler Abruf:** NewsAPI, GDELT, RSS und – falls Key gesetzt – NewsData und GNews laufen gleichzeitig im `ThreadPoolExecutor` (ein Aufruf pro Quelle).
+2. **Einheitliche Query:** Alle APIs erhalten dieselbe konfliktbezogene Suchanfrage aus `_build_query(conflict)` (z. B. Iran: IRGC, Persian Gulf, sanctions, …; Ukraine: Zelensky, Donbas, Russia, …). So bleiben die Ergebnisse vergleichbar und Duplikate können sauber erkannt werden.
+3. **Merge & Deduplizierung:** Alle Artikel werden nach URL zusammengeführt und dedupliziert; danach semantische Deduplizierung (HF) und Relevanz-Ranking (Cross-Encoder). Pro Quelle gilt ein Cap (z. B. max. 5 Artikel pro Outlet), damit eine Quelle die Liste nicht dominiert.
+4. **Gewichtung:** NewsAPI 35 %, GDELT 25 %, RSS 20 %, NewsData 10 %, GNews 10 %. Sentiment wird gewichtet gemischt; bei Ausfall einer API liefern die anderen weiter.
+5. **Frische:** NewsAPI hat 24 h Verzögerung; GDELT, RSS, NewsData und GNews liefern oft aktuellere Artikel und gleichen das aus.
+
+**Empfehlung:** Alle drei Keys setzen, wenn verfügbar. Scheduler so wählen, dass pro Tag nicht mehr als 100 NEWS-Läufe ausgeführt werden (z. B. alle 15–30 Minuten), damit NewsAPI und GNews im Limit bleiben. NewsData erlaubt bis 200 Läufe/Tag.
 
 ---
 

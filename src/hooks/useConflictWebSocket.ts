@@ -65,7 +65,7 @@ export interface ConflictData {
     articles?: NewsArticle[];
     news_score?: number;
     summary?: string;
-    source_breakdown?: { newsapi?: number; gdelt?: number; rss?: number };
+    source_breakdown?: { newsapi?: number; gdelt?: number; rss?: number; newsdata?: number; gnews?: number };
     _meta?: AgentMeta;
   };
   finint?: {

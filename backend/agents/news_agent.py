@@ -1,6 +1,11 @@
 """
 NEWS Agent – LangChain Tool-Calling Agent
-Fetches and analyzes conflict-related news articles from NewsAPI, GDELT, and RSS.
+Fetches and analyzes conflict-related news articles from NewsAPI, GDELT, RSS,
+and optionally NewsData.io and GNews when NEWSDATA_API_KEY / GNEWS_API_KEY are set.
+
+Multi-API strategy: one request per API per run (respects 100/day NewsAPI & GNews,
+200/day NewsData). Same query via _build_query(conflict); merge, URL-dedupe, then
+HF semantic dedup and cross-encoder ranking. See docs/API-KEYS.md "News-APIs gemeinsam einsetzen".
 """
 import asyncio
 import logging
@@ -9,7 +14,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import feedparser
@@ -28,6 +33,8 @@ from .utils import (
 logger = logging.getLogger(__name__)
 
 NEWS_API_URL = "https://newsapi.org/v2/everything"
+NEWSDATA_LATEST_URL = "https://newsdata.io/api/1/latest"
+GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search"
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 FOREIGN_POLICY_IRAN_PROJECT_URL = "https://foreignpolicy.com/projects/iran-israel-conflict-news-nuclear-sites-proxies/"
 NEWS_DOMAINS = (
@@ -199,7 +206,7 @@ def _normalize_url(url: str) -> str:
         return url or ""
 
 
-SOURCE_WEIGHTS = {"newsapi": 0.5, "gdelt": 0.3, "rss": 0.2}
+SOURCE_WEIGHTS = {"newsapi": 0.35, "gdelt": 0.25, "rss": 0.2, "newsdata": 0.1, "gnews": 0.1}
 
 
 # Max articles per source in top-N so one outlet (e.g. Al Jazeera) doesn't dominate. Override via env.
@@ -247,10 +254,13 @@ def _merge_news_results(
     gdelt_list: List[Dict[str, Any]],
     rss_list: List[Dict[str, Any]],
     conflict: str = "",
+    newsdata_list: Optional[List[Dict[str, Any]] = None,
+    gnews_list: Optional[List[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Deduplicate by URL, then semantically, rank by relevance, apply per-source cap, compute weighted overall_sentiment, source_breakdown."""
     seen: Dict[str, Dict[str, Any]] = {}
-    for item in newsapi_list + gdelt_list + rss_list:
+    all_items = newsapi_list + gdelt_list + rss_list + (newsdata_list or []) + (gnews_list or [])
+    for item in all_items:
         if "error" in item or not item.get("url"):
             continue
         norm = _normalize_url(item.get("url", ""))
@@ -330,7 +340,7 @@ def _merge_news_results(
         weight_sum += w
     overall_sentiment = weighted_sum / weight_sum if weight_sum else 0.0
 
-    source_breakdown = {"newsapi": 0, "gdelt": 0, "rss": 0}
+    source_breakdown = {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0}
     for a in top20:
         st = a.get("source_type") or "newsapi"
         if st in source_breakdown:
@@ -345,7 +355,9 @@ def _merge_news_results(
 
 
 def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, Any]]:
-    """Search for recent news articles about a conflict from trusted sources (NewsAPI)."""
+    """Search for recent news articles about a conflict from trusted sources (NewsAPI).
+    Free tier: 100 requests/day (no extra requests); articles have 24h delay; search up to 1 month.
+    One request per call to stay within daily limit."""
     api_key = os.getenv("NEWS_API_KEY")
     if not api_key:
         return [{"error": "NEWS_API_KEY not set"}]
@@ -386,26 +398,7 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                 "language": "en",
                 "source_type": "newsapi",
             })
-        if not articles and hours_back == 48:
-            data = run_async(_fetch(72))
-            articles = []
-            for art in data.get("articles", []):
-                title = art.get("title") or ""
-                if any(kw in title.lower() for kw in TITLE_EXCLUDE):
-                    continue
-                desc = art.get("description") or ""
-                score = _sentiment_keyword(f"{title} {desc}")
-                source = (art.get("source") or {}).get("name") or ""
-                articles.append({
-                    "title": title,
-                    "source": source,
-                    "url": art.get("url"),
-                    "published_at": art.get("publishedAt"),
-                    "sentiment_score": score,
-                    "sentiment_label": _label(score),
-                    "language": "en",
-                    "source_type": "newsapi",
-                })
+        # No fallback to 72h: Free tier = 100 req/day only; one request per run to conserve quota.
         return articles
     except Exception as e:
         return [{"error": str(e)}]
@@ -471,6 +464,120 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
                 "source_type": "gdelt",
             })
         return articles[:25]
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def search_newsdata_news(conflict: str) -> List[Dict[str, Any]]:
+    """Search NewsData.io latest endpoint. Free: 200 credits/day, max 10 articles/request.
+    Uses q, language, optional country (Location filter). One request per call to conserve credits."""
+    api_key = os.getenv("NEWSDATA_API_KEY")
+    if not api_key:
+        return []
+
+    query = (_build_query(conflict) or conflict).strip()[:512]
+    params = {
+        "apikey": api_key,
+        "q": query or "conflict",
+        "language": "en",
+        "size": 10,
+    }
+    # Optional Location filter: country codes for conflict (reduces noise, same credit cost)
+    cl = conflict.lower()
+    if "iran" in cl or "israel" in cl:
+        params["country"] = "ir,il,us"
+    elif "ukraine" in cl or "russia" in cl:
+        params["country"] = "ua,ru,us"
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(NEWSDATA_LATEST_URL, params=params)
+            resp.raise_for_status()
+            return resp.json()
+
+    try:
+        data = run_async(_fetch())
+        if data.get("status") == "error":
+            return [{"error": data.get("message", "NewsData API error")}]
+        results = data.get("results") or []
+        articles = []
+        for art in results:
+            if not isinstance(art, dict):
+                continue
+            title = (art.get("title") or "").strip()
+            link = art.get("link") or ""
+            if not link:
+                continue
+            desc = (art.get("description") or "").strip()
+            score = _sentiment_keyword(f"{title} {desc}")
+            articles.append({
+                "title": title[:500] if title else "(No title)",
+                "source": art.get("source_name") or "NewsData",
+                "url": link,
+                "published_at": art.get("pubDate"),
+                "description": desc[:1000] if desc else "",
+                "sentiment_score": score,
+                "sentiment_label": _label(score),
+                "language": (art.get("language") or "en").lower(),
+                "source_type": "newsdata",
+            })
+        return articles[:10]
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def search_gnews_news(conflict: str) -> List[Dict[str, Any]]:
+    """Search GNews API (gnews.io). Free: 100 requests/day. One request per call to stay within limit."""
+    api_key = os.getenv("GNEWS_API_KEY")
+    if not api_key:
+        return []
+
+    query = (_build_query(conflict) or conflict).strip()[:200]  # GNews max 200 chars for q
+    params = {
+        "apikey": api_key,
+        "q": query or "conflict",
+        "lang": "en",
+        "max": 10,
+    }
+    cl = conflict.lower()
+    if "iran" in cl or "israel" in cl:
+        params["country"] = "ir"
+    elif "ukraine" in cl or "russia" in cl:
+        params["country"] = "ua"
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(GNEWS_SEARCH_URL, params=params)
+            resp.raise_for_status()
+            return resp.json()
+
+    try:
+        data = run_async(_fetch())
+        articles_raw = data.get("articles") or []
+        articles = []
+        for art in articles_raw:
+            if not isinstance(art, dict):
+                continue
+            title = (art.get("title") or "").strip()
+            url = art.get("url") or ""
+            if not url:
+                continue
+            desc = (art.get("description") or art.get("content") or "").strip()
+            score = _sentiment_keyword(f"{title} {desc}")
+            source = (art.get("source") or {})
+            source_name = source.get("name", "GNews") if isinstance(source, dict) else "GNews"
+            articles.append({
+                "title": title[:500] if title else "(No title)",
+                "source": source_name,
+                "url": url,
+                "published_at": art.get("publishedAt"),
+                "description": desc[:1000] if desc else "",
+                "sentiment_score": score,
+                "sentiment_label": _label(score),
+                "language": "en",
+                "source_type": "gnews",
+            })
+        return articles[:10]
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -714,23 +821,57 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
     }
 
 
+def _run_newsdata_source_agent(conflict: str) -> Dict[str, Any]:
+    """Source agent: NewsData.io latest (200 credits/day, 10 articles/request). Only runs when NEWSDATA_API_KEY is set."""
+    raw = search_newsdata_news(conflict=conflict)
+    articles = [
+        a for a in (raw if isinstance(raw, list) else [])
+        if isinstance(a, dict) and "error" not in a
+    ]
+    return {
+        "source": "newsdata",
+        "articles": articles,
+        "count": len(articles),
+    }
+
+
+def _run_gnews_source_agent(conflict: str) -> Dict[str, Any]:
+    """Source agent: GNews (gnews.io). Only runs when GNEWS_API_KEY is set. 100 requests/day limit."""
+    raw = search_gnews_news(conflict=conflict)
+    articles = [
+        a for a in (raw if isinstance(raw, list) else [])
+        if isinstance(a, dict) and "error" not in a
+    ]
+    return {
+        "source": "gnews",
+        "articles": articles,
+        "count": len(articles),
+    }
+
+
 def _run_news_fusion_agent(
     newsapi_res: Dict[str, Any],
     gdelt_res: Dict[str, Any],
     rss_res: Dict[str, Any],
     conflict: str = "",
+    newsdata_res: Optional[Dict[str, Any]] = None,
+    gnews_res: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Fusion agent: dedupe + global sentiment/score across all sources."""
+    newsdata_list = (newsdata_res or {}).get("articles", [])
+    gnews_list = (gnews_res or {}).get("articles", [])
     merged = _merge_news_results(
         newsapi_list=newsapi_res.get("articles", []),
         gdelt_list=gdelt_res.get("articles", []),
         rss_list=rss_res.get("articles", []),
         conflict=conflict,
+        newsdata_list=newsdata_list,
+        gnews_list=gnews_list,
     )
     articles = merged.get("articles", [])
     overall = merged.get("overall_sentiment", 0.0)
     label = merged.get("sentiment_label", "NEUTRAL")
-    breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0})
+    breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
 
     score = 50.0
     if overall > 0.5:
@@ -840,16 +981,27 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
     """
     start = time.perf_counter()
     fetched_at = utc_now_iso()
+    use_newsdata = bool(os.getenv("NEWSDATA_API_KEY"))
+    use_gnews = bool(os.getenv("GNEWS_API_KEY"))
     try:
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=5) as executor:
             fut_newsapi = executor.submit(_run_newsapi_source_agent, conflict)
             fut_gdelt = executor.submit(_run_gdelt_source_agent, conflict)
             fut_rss = executor.submit(_run_rss_source_agent, conflict)
+            if use_newsdata:
+                fut_newsdata = executor.submit(_run_newsdata_source_agent, conflict)
+            if use_gnews:
+                fut_gnews = executor.submit(_run_gnews_source_agent, conflict)
             newsapi_res = fut_newsapi.result(timeout=35)
             gdelt_res = fut_gdelt.result(timeout=35)
             rss_res = fut_rss.result(timeout=35)
+            newsdata_res = fut_newsdata.result(timeout=35) if use_newsdata else {}
+            gnews_res = fut_gnews.result(timeout=35) if use_gnews else {}
 
-        fusion = _run_news_fusion_agent(newsapi_res, gdelt_res, rss_res, conflict=conflict)
+        fusion = _run_news_fusion_agent(
+            newsapi_res, gdelt_res, rss_res, conflict=conflict,
+            newsdata_res=newsdata_res, gnews_res=gnews_res,
+        )
         articles = fusion.get("articles", [])
 
         escalation_meta = _run_escalation_headline_agent(articles)
@@ -861,25 +1013,42 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
         esc_score = escalation_meta.get("escalation_score", 0.0)
         adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
 
-        if (
-            not newsapi_res.get("articles")
-            and not gdelt_res.get("articles")
-            and not rss_res.get("articles")
-        ):
-            logger.warning(
-                "NEWS: All three sources (NewsAPI, GDELT, RSS) returned 0 articles for conflict '%s'",
-                conflict,
-            )
-
         n_newsapi = len(newsapi_res.get("articles") or [])
         n_gdelt = len(gdelt_res.get("articles") or [])
         n_rss = len(rss_res.get("articles") or [])
+        n_newsdata = len(newsdata_res.get("articles") or []) if use_newsdata else 0
+        n_gnews = len(gnews_res.get("articles") or []) if use_gnews else 0
+        all_empty = (
+            not n_newsapi and not n_gdelt and not n_rss
+            and (not use_newsdata or not n_newsdata)
+            and (not use_gnews or not n_gnews)
+        )
+        if all_empty:
+            extra = []
+            if use_newsdata:
+                extra.append("NewsData")
+            if use_gnews:
+                extra.append("GNews")
+            logger.warning(
+                "NEWS: All sources (NewsAPI, GDELT, RSS%s) returned 0 articles for conflict '%s'",
+                (", " + ", ".join(extra)) if extra else "",
+                conflict,
+            )
+
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
             SourceResult(name="NewsAPI", status="ok" if n_newsapi else "error", fetched_at=fetched_at, record_count=n_newsapi),
             SourceResult(name="GDELT", status="ok" if n_gdelt else "error", fetched_at=fetched_at, record_count=n_gdelt),
             SourceResult(name="RSS", status="ok" if n_rss else "error", fetched_at=fetched_at, record_count=n_rss),
         ]
+        if use_newsdata:
+            source_results.append(
+                SourceResult(name="NewsData", status="ok" if n_newsdata else "error", fetched_at=fetched_at, record_count=n_newsdata),
+            )
+        if use_gnews:
+            source_results.append(
+                SourceResult(name="GNews", status="ok" if n_gnews else "error", fetched_at=fetched_at, record_count=n_gnews),
+            )
         reg = get_health_registry()
         if reg:
             for sr in source_results:
@@ -900,6 +1069,16 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             error_summary=error_summary,
         )
 
+        bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
+        summary_parts = [
+            f"{bd.get('newsapi', 0)} NewsAPI",
+            f"{bd.get('gdelt', 0)} GDELT",
+            f"{bd.get('rss', 0)} RSS",
+        ]
+        if use_newsdata:
+            summary_parts.append(f"{bd.get('newsdata', 0)} NewsData")
+        if use_gnews:
+            summary_parts.append(f"{bd.get('gnews', 0)} GNews")
         return {
             "conflict": conflict,
             "articles": fusion.get("articles", []),
@@ -909,13 +1088,11 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             "news_score": adjusted_news_score,
             "summary": (
                 "News (rule-based multi-agent): "
-                f"{fusion.get('source_breakdown', {}).get('newsapi', 0)} NewsAPI, "
-                f"{fusion.get('source_breakdown', {}).get('gdelt', 0)} GDELT, "
-                f"{fusion.get('source_breakdown', {}).get('rss', 0)} RSS. "
-                f"Sentiment: {fusion.get('sentiment_label', 'NEUTRAL')}. "
+                + ", ".join(summary_parts)
+                + f". Sentiment: {fusion.get('sentiment_label', 'NEUTRAL')}. "
                 f"Escalation score: {esc_score:.2f}."
             ),
-            "source_breakdown": fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0}),
+            "source_breakdown": bd,
             "escalation_headlines": escalation_meta.get("escalation_headlines", []),
             "escalation_score": escalation_meta.get("escalation_score", 0.0),
             "entities": all_entities,
@@ -942,7 +1119,7 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             "top_sources": [],
             "news_score": 50.0,
             "summary": "NEWS data unavailable.",
-            "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0},
+            "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0},
             "_meta": meta.model_dump(mode="json"),
         }
 

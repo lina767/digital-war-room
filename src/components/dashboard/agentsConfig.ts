@@ -63,9 +63,11 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     name: "NEWS",
     fullName: "News / OSINT",
     sources: [
-      { name: "NewsAPI", description: "Trusted domains, conflict queries" },
+      { name: "NewsAPI", description: "Trusted domains, conflict queries. Free: 100 req/day, 24h article delay" },
       { name: "GDELT", description: "api.gdeltproject.org – 100+ languages, 65k+ sources" },
       { name: "RSS", description: "BBC, DW, Al Jazeera, RFE/RL, Iran International, Middle East Eye, CriticalThreats, LongWarJournal, ISW, Bellingcat, Crisis Group, ECFR, CSIS, FDD, France 24, Guardian" },
+      { name: "NewsData", description: "NewsData.io – 200 credits/day, 10 articles/request; Location, Language, Category filters (optional NEWSDATA_API_KEY)" },
+      { name: "GNews", description: "GNews (gnews.io) – 100 requests/day; q, lang, country (optional GNEWS_API_KEY)" },
     ],
   },
   {

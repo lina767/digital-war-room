@@ -48,7 +48,9 @@ const SOURCE_META: Record<
   NOTAM: { reliability: "curated", keyRequired: true, free: false, url: "https://www.autorouter.aero" },
   IAEA: { reliability: "official", keyRequired: false, free: true, url: "https://www.iaea.org/newscenter" },
   RSS: { reliability: "community", keyRequired: false, free: true },
-  NewsAPI: { reliability: "curated", keyRequired: true, free: true, url: "https://newsapi.org/register" },
+  NewsAPI: { reliability: "curated", keyRequired: true, free: true, url: "https://newsapi.org/register" }, // Free: 100 req/day, 24h delay, no extra requests
+  NewsData: { reliability: "curated", keyRequired: true, free: true, url: "https://newsdata.io/register" },
+  GNews: { reliability: "curated", keyRequired: true, free: true, url: "https://gnews.io/register" },
   GDELT: { reliability: "curated", keyRequired: false, free: true, url: "https://api.gdeltproject.org" },
   "NASA FIRMS": { reliability: "official", keyRequired: true, free: true, url: "https://firms.modaps.eosdis.nasa.gov" },
   ReliefWeb: { reliability: "curated", keyRequired: false, free: true, url: "https://api.reliefweb.int" },
