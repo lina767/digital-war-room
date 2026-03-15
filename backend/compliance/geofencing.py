@@ -5,13 +5,21 @@ configured sanctions zones and generates alerts.
 This is a thin layer on top of the existing SIGINT agent outputs; it does NOT
 implement its own tracking pipeline.
 
+Persistence: first_seen_at / last_seen_at are kept in an in-memory store keyed by
+(conflict, asset_id, zone_name). State survives only while the process runs
+(typical on Railway: one long-lived worker). For restarts/deploys or multi-instance,
+a DB-backed store would be required (see docs).
+
 IMPORTANT: Geofencing alerts are intelligence signals, not legal advice.
 They support due diligence but do not replace legal review.
 """
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .zones import SANCTIONS_ZONES, Zone, all_matching_zones
+
+# In-memory store: (conflict, asset_id, zone_name) -> { first_seen_at, last_seen_at }
+_geofencing_state: Dict[Tuple[str, str, str], Dict[str, float]] = {}
 
 
 class GeofencingAlert:
@@ -54,23 +62,44 @@ class GeofencingAlert:
         }
 
 
+def _update_geofencing_state(
+    key: Tuple[str, str, str],
+    now: float,
+) -> Dict[str, float]:
+    """Update in-memory state for (conflict, asset_id, zone_name). Returns updated entry."""
+    entry = _geofencing_state.get(key)
+    if not entry:
+        entry = {"first_seen_at": now, "last_seen_at": now}
+    else:
+        entry = {**entry, "last_seen_at": now}
+    _geofencing_state[key] = entry
+    return entry
+
+
 def check_sigint_for_sanctions(
     sigint_result: Dict[str, Any],
     zones: Optional[List[Zone]] = None,
+    conflict: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Check SIGINT agent output (aircraft, ships) against sanctions zones.
+
+    Updates the in-memory store for first_seen_at / last_seen_at per (conflict, asset_id, zone_name)
+    and attaches first_seen_at, last_seen_at, duration_hours to each alert.
 
     Args:
         sigint_result: The dict returned by run_sigint_agent, containing
                        'aircraft' and 'ships' lists.
         zones: Optional zone list; defaults to SANCTIONS_ZONES.
+        conflict: Conflict identifier for state keying (e.g. "Iran"). Required for persistence.
 
     Returns:
-        List of GeofencingAlert dicts for assets inside sanctions zones.
+        List of GeofencingAlert dicts for assets inside sanctions zones,
+        each with first_seen_at, last_seen_at, duration_hours.
     """
     zone_list = zones or SANCTIONS_ZONES
     alerts: List[GeofencingAlert] = []
+    now = time.time()
 
     for ac in sigint_result.get("aircraft") or []:
         if not isinstance(ac, dict) or "error" in ac:
@@ -112,4 +141,15 @@ def check_sigint_for_sanctions(
                 source=ship.get("source") or "AIS",
             ))
 
-    return [a.to_dict() for a in alerts]
+    out: List[Dict[str, Any]] = []
+    for a in alerts:
+        d = a.to_dict()
+        key = (conflict or "", d["asset_id"], d["zone_name"])
+        entry = _update_geofencing_state(key, now)
+        first_seen = entry["first_seen_at"]
+        last_seen = entry["last_seen_at"]
+        d["first_seen_at"] = first_seen
+        d["last_seen_at"] = last_seen
+        d["duration_hours"] = round((last_seen - first_seen) / 3600.0, 2)
+        out.append(d)
+    return out

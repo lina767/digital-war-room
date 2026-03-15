@@ -10,6 +10,7 @@ import {
   PREDICTIVE_OUTLOOK_DISCLAIMER,
   PREDICTIVE_OUTLOOK_INTRO_SHORT,
 } from "@/lib/predictiveOutlookCopy";
+import { COMPLIANCE_DISCLAIMER, COMPLIANCE_INTRO_SHORT } from "@/lib/complianceCopy";
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 
@@ -353,6 +354,7 @@ export default function DailyIntelligenceBriefing() {
                   6. Sanctions Compliance
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed space-y-3">
+                  <p className="text-sm text-muted-foreground">{COMPLIANCE_INTRO_SHORT}</p>
                   {/* Risk Score */}
                   {data.compliance?.risk_score && (
                     <div className="flex items-center gap-3">
@@ -373,13 +375,13 @@ export default function DailyIntelligenceBriefing() {
 
                   {/* Risk Drivers */}
                   {(data.compliance?.risk_score?.drivers?.length ?? 0) > 0 &&
-                    data.compliance!.risk_score!.drivers[0].factor !== "NO_SIGNALS" && (
+                    data.compliance?.risk_score?.drivers?.[0]?.factor !== "NO_SIGNALS" && (
                     <div>
                       <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
                         Risk Drivers
                       </p>
                       <ul className="space-y-1.5">
-                        {data.compliance!.risk_score!.drivers.map((d, i) => (
+                        {(data.compliance?.risk_score?.drivers ?? []).map((d, i) => (
                           <li key={i} className="flex gap-2 text-xs">
                             <span className="text-primary shrink-0 mt-0.5">-</span>
                             <div>
@@ -417,17 +419,17 @@ export default function DailyIntelligenceBriefing() {
                             <span className="text-orange-400 shrink-0">SDN</span>
                             <div>
                               <span>
-                                <span className="font-semibold">{data.compliance!.ofac_sdn!.total_matches}</span>{" "}
+                                <span className="font-semibold">{data.compliance?.ofac_sdn?.total_matches}</span>{" "}
                                 OFAC SDN entries match conflict entities
-                                {(data.compliance!.ofac_sdn!.sample?.length ?? 0) > 0 && (
+                                {(data.compliance?.ofac_sdn?.sample?.length ?? 0) > 0 && (
                                   <span className="text-muted-foreground">
-                                    {" "}(e.g. {data.compliance!.ofac_sdn!.sample!.slice(0, 3).map(s => s.name).join(", ")})
+                                    {" "}(e.g. {(data.compliance?.ofac_sdn?.sample ?? []).slice(0, 3).map(s => s.name).join(", ")})
                                   </span>
                                 )}
                               </span>
-                              {(data.compliance!.ofac_sdn!.programs?.length ?? 0) > 0 && (
+                              {(data.compliance?.ofac_sdn?.programs?.length ?? 0) > 0 && (
                                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                                  Programs: {data.compliance!.ofac_sdn!.programs!.slice(0, 6).map(p => `${p.name} (${p.count})`).join(", ")}
+                                  Programs: {(data.compliance?.ofac_sdn?.programs ?? []).slice(0, 6).map(p => `${p.name} (${p.count})`).join(", ")}
                                 </p>
                               )}
                             </div>
@@ -437,7 +439,7 @@ export default function DailyIntelligenceBriefing() {
                           <li className="flex gap-2">
                             <span className="text-blue-400 shrink-0">EU</span>
                             <span>
-                              <span className="font-semibold">{data.compliance!.eu_sanctions!.keyword_mentions}</span>{" "}
+                              <span className="font-semibold">{data.compliance?.eu_sanctions?.keyword_mentions}</span>{" "}
                               keyword mentions in EU consolidated sanctions list
                             </span>
                           </li>
@@ -453,18 +455,26 @@ export default function DailyIntelligenceBriefing() {
                         Recent OFAC / Treasury Actions
                       </p>
                       <ul className="space-y-1 text-xs">
-                        {data.compliance!.ofac_recent_actions!.filter(a => a.url).slice(0, 5).map((action, i) => (
-                          <li key={i} className="flex gap-2">
-                            <span className="text-primary shrink-0">→</span>
-                            <span>
-                              <a href={action.url!} target="_blank" rel="noopener noreferrer"
-                                className="underline hover:text-primary">{action.title}</a>
-                              {action.published && (
-                                <span className="text-muted-foreground ml-1">({action.published})</span>
-                              )}
-                            </span>
-                          </li>
-                        ))}
+                        {(data.compliance?.ofac_recent_actions ?? []).slice(0, 5).map((action, i) => {
+                          const url = action?.url;
+                          const isSafeUrl = typeof url === "string" && url.startsWith("https://");
+                          return (
+                            <li key={i} className="flex gap-2">
+                              <span className="text-primary shrink-0">→</span>
+                              <span>
+                                {isSafeUrl ? (
+                                  <a href={url} target="_blank" rel="noopener noreferrer"
+                                    className="underline hover:text-primary">{action?.title}</a>
+                                ) : (
+                                  <span>{action?.title}</span>
+                                )}
+                                {action?.published && (
+                                  <span className="text-muted-foreground ml-1">({action.published})</span>
+                                )}
+                              </span>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -473,10 +483,10 @@ export default function DailyIntelligenceBriefing() {
                   {(data.compliance?.geofencing_alerts?.length ?? 0) > 0 ? (
                     <>
                       <p>
-                        <span className="font-semibold">{data.compliance!.geofencing_alerts!.length}</span> geofencing alert(s):
+                        <span className="font-semibold">{data.compliance?.geofencing_alerts?.length}</span> geofencing alert(s):
                       </p>
                       <ul className="space-y-1">
-                        {data.compliance!.geofencing_alerts!.slice(0, 10).map((a, i) => (
+                        {(data.compliance?.geofencing_alerts ?? []).slice(0, 10).map((a, i) => (
                           <li key={i} className="flex gap-2 text-xs">
                             <span className="text-orange-400 shrink-0">W</span>
                             <span>
@@ -496,10 +506,10 @@ export default function DailyIntelligenceBriefing() {
                   {(data.compliance?.ais_anomalies?.length ?? 0) > 0 && (
                     <>
                       <p className="text-xs">
-                        <span className="font-semibold">{data.compliance!.ais_anomalies!.length}</span> AIS anomal(y/ies) detected:
+                        <span className="font-semibold">{data.compliance?.ais_anomalies?.length}</span> AIS anomal(y/ies) detected:
                       </p>
                       <ul className="space-y-1">
-                        {data.compliance!.ais_anomalies!.slice(0, 5).map((a, i) => (
+                        {(data.compliance?.ais_anomalies ?? []).slice(0, 5).map((a, i) => (
                           <li key={i} className="flex gap-2 text-xs">
                             <span className={a.anomaly_type === "spoofing" ? "text-red-400 shrink-0" : "text-purple-400 shrink-0"}>
                               {a.anomaly_type === "spoofing" ? "!" : "O"}
@@ -514,7 +524,7 @@ export default function DailyIntelligenceBriefing() {
                   )}
 
                   <p className="text-[11px] text-muted-foreground pt-1 border-t border-border/50">
-                    Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review.
+                    {COMPLIANCE_DISCLAIMER}
                   </p>
                 </div>
               </section>

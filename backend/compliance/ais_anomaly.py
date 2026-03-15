@@ -18,6 +18,7 @@ IMPORTANT: Intelligence signals only – not legal advice.
 """
 import logging
 import math
+import time
 from typing import Any, Dict, List, Optional
 
 from .zones import SANCTIONS_ZONES, Zone, all_matching_zones
@@ -47,7 +48,8 @@ def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 class AISAnomaly:
     """A detected AIS anomaly for a vessel."""
     __slots__ = ("asset_id", "asset_name", "anomaly_type", "severity",
-                 "detail", "lat", "lon", "zone_name")
+                 "detail", "lat", "lon", "zone_name",
+                 "gap_hours", "last_seen_at", "confidence")
 
     def __init__(
         self,
@@ -59,6 +61,9 @@ class AISAnomaly:
         lat: Optional[float] = None,
         lon: Optional[float] = None,
         zone_name: str = "",
+        gap_hours: Optional[float] = None,
+        last_seen_at: Optional[float] = None,
+        confidence: Optional[str] = None,
     ):
         self.asset_id = asset_id
         self.asset_name = asset_name
@@ -68,6 +73,9 @@ class AISAnomaly:
         self.lat = lat
         self.lon = lon
         self.zone_name = zone_name
+        self.gap_hours = gap_hours
+        self.last_seen_at = last_seen_at
+        self.confidence = confidence
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {
@@ -83,6 +91,12 @@ class AISAnomaly:
             d["lon"] = self.lon
         if self.zone_name:
             d["zone_name"] = self.zone_name
+        if self.gap_hours is not None:
+            d["gap_hours"] = round(self.gap_hours, 2)
+        if self.last_seen_at is not None:
+            d["last_seen_at"] = self.last_seen_at
+        if self.confidence:
+            d["confidence"] = self.confidence
         return d
 
 
@@ -127,6 +141,9 @@ def detect_spoofing(
                 if speed_kn > MAX_SPEED_KN * 3:
                     zones = all_matching_zones(float(lat), float(lon), SANCTIONS_ZONES)
                     zone_name = zones[0].name if zones else ""
+                    # Confidence: HIGH if speed far above threshold, MEDIUM otherwise
+                    confidence = "HIGH" if speed_kn > MAX_SPEED_KN * 5 else "MEDIUM"
+                    curr_ts_val = curr_ts if curr_ts else None
                     anomalies.append(AISAnomaly(
                         asset_id=ship_id,
                         asset_name=ship_name,
@@ -140,6 +157,9 @@ def detect_spoofing(
                         lat=float(lat),
                         lon=float(lon),
                         zone_name=zone_name,
+                        gap_hours=time_diff_h,
+                        last_seen_at=curr_ts_val,
+                        confidence=confidence,
                     ))
 
         zones = all_matching_zones(float(lat), float(lon), SANCTIONS_ZONES)
@@ -148,6 +168,7 @@ def detect_spoofing(
             dest = (ship.get("destination") or "").upper()
             iran_zones = [z for z in zones if "IRAN" in z.name or "HORMUZ" in z.name]
             if iran_zones and flag and flag not in ("IR", "OM", "AE", "QA", "BH", "KW", "SA", "IQ"):
+                ts_val = ship.get("timestamp") if ship.get("timestamp") else None
                 anomalies.append(AISAnomaly(
                     asset_id=ship_id,
                     asset_name=ship_name,
@@ -160,6 +181,8 @@ def detect_spoofing(
                     lat=float(lat),
                     lon=float(lon),
                     zone_name=iran_zones[0].name,
+                    last_seen_at=ts_val,
+                    confidence="MEDIUM",
                 ))
 
     return anomalies
@@ -169,6 +192,8 @@ def detect_dark_activity(
     current_ships: List[Dict[str, Any]],
     previous_ships: Optional[List[Dict[str, Any]]] = None,
     zones: Optional[List[Zone]] = None,
+    previous_run_ts: Optional[float] = None,
+    current_ts: Optional[float] = None,
 ) -> List[AISAnomaly]:
     """
     Detect vessels that were previously seen in/near sensitive zones but are now
@@ -178,11 +203,14 @@ def detect_dark_activity(
         current_ships: Ships from current SIGINT scan
         previous_ships: Ships from previous scan (if available)
         zones: Zones to consider for dark activity; defaults to SANCTIONS_ZONES
+        previous_run_ts: Unix timestamp when previous run completed (for last_seen_at, gap_hours)
+        current_ts: Unix timestamp of current run (for gap_hours); defaults to time.time()
     """
     if not previous_ships:
         return []
 
     zone_list = zones or SANCTIONS_ZONES
+    now = current_ts if current_ts is not None else time.time()
     anomalies: List[AISAnomaly] = []
 
     current_ids = set()
@@ -206,11 +234,13 @@ def detect_dark_activity(
 
         matched = all_matching_zones(float(prev_lat), float(prev_lon), zone_list)
         if matched:
+            is_high_risk = any("HORMUZ" in z.name or "IRAN" in z.name for z in matched)
+            gap_hours = (now - previous_run_ts) / 3600.0 if previous_run_ts is not None else None
             anomalies.append(AISAnomaly(
                 asset_id=str(ship_id),
                 asset_name=prev_ship.get("name") or "Vessel",
                 anomaly_type="dark_activity",
-                severity="HIGH" if any("HORMUZ" in z.name or "IRAN" in z.name for z in matched) else "MEDIUM",
+                severity="HIGH" if is_high_risk else "MEDIUM",
                 detail=(
                     f"Previously seen in {matched[0].name} "
                     f"(lat {float(prev_lat):.1f}, lon {float(prev_lon):.1f}), "
@@ -219,6 +249,9 @@ def detect_dark_activity(
                 lat=float(prev_lat),
                 lon=float(prev_lon),
                 zone_name=matched[0].name,
+                gap_hours=gap_hours,
+                last_seen_at=previous_run_ts,
+                confidence="HIGH" if is_high_risk else "MEDIUM",
             ))
 
     return anomalies
@@ -227,6 +260,7 @@ def detect_dark_activity(
 def analyze_ais_anomalies(
     sigint_result: Dict[str, Any],
     previous_sigint: Optional[Dict[str, Any]] = None,
+    previous_run_ts: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """
     Run all AIS anomaly heuristics on SIGINT output.
@@ -234,6 +268,7 @@ def analyze_ais_anomalies(
     Args:
         sigint_result: Current SIGINT agent output with 'ships' list
         previous_sigint: Optional previous SIGINT output for temporal comparison
+        previous_run_ts: Unix timestamp when previous run completed (for dark_activity gap_hours/last_seen_at)
 
     Returns:
         List of AISAnomaly dicts
@@ -249,7 +284,12 @@ def analyze_ais_anomalies(
                 prev_positions[sid] = s
 
     spoofing = detect_spoofing(ships, prev_positions if prev_positions else None)
-    dark = detect_dark_activity(ships, prev_ships if prev_ships else None)
+    dark = detect_dark_activity(
+        ships,
+        prev_ships if prev_ships else None,
+        previous_run_ts=previous_run_ts,
+        current_ts=time.time(),
+    )
 
     all_anomalies = spoofing + dark
     return [a.to_dict() for a in all_anomalies]

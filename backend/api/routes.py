@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -428,32 +429,63 @@ async def get_proximity_job_status(request: Request, job_id: str):
 # ── Sanctions Compliance ─────────────────────────────────────────────────────
 
 class SanctionsCheckRequest(BaseModel):
-    query: str
+    query: Optional[str] = None
+    queries: Optional[List[str]] = None
     include_ownership_chains: bool = False
+
+
+def _screened_at_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 @router.post("/compliance/sanctions-check")
 async def sanctions_check(body: SanctionsCheckRequest):
     """
     POST /api/compliance/sanctions-check
-    Screen a firm/partner name against OFAC SDN (and later EU/UN) sanctions lists.
-    Returns matches with match_level (EXACT/STRONG_FUZZY/WEAK_FUZZY/REVIEW), score, source.
+    Screen one or more names against OFAC SDN (and later EU/UN) sanctions lists.
+    Single: body.query. Batch: body.queries (max 5 concurrent). Returns screened_at per result.
 
     DISCLAIMER: Intelligence signals only – not legal advice.
     """
+    disclaimer = (
+        "Intelligence signals only – not legal advice. "
+        "Supports due diligence but does not replace legal review."
+    )
     try:
+        if body.queries:
+            # Batch: run up to 5 concurrent
+            sem = asyncio.Semaphore(5)
+
+            async def one(q: str) -> Dict[str, Any]:
+                async with sem:
+                    matches = await search_sanctions(
+                        q,
+                        include_ownership_chains=body.include_ownership_chains,
+                    )
+                    return {"query": q, "matches": matches, "screened_at": _screened_at_iso()}
+
+            tasks = [one(q.strip()) for q in body.queries if q and str(q).strip()]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            out = []
+            for r in results:
+                if isinstance(r, Exception):
+                    out.append({"query": "", "matches": [], "screened_at": _screened_at_iso(), "error": str(r)})
+                else:
+                    out.append(r)
+            return {"results": out, "threshold_policy": get_threshold_policy(), "disclaimer": disclaimer}
+        q = (body.query or "").strip()
+        if not q:
+            return JSONResponse(status_code=400, content={"error": "query or queries required"})
         results = await search_sanctions(
-            body.query,
+            q,
             include_ownership_chains=body.include_ownership_chains,
         )
         return {
-            "query": body.query,
+            "query": q,
             "matches": results,
+            "screened_at": _screened_at_iso(),
             "threshold_policy": get_threshold_policy(),
-            "disclaimer": (
-                "Intelligence signals only – not legal advice. "
-                "Supports due diligence but does not replace legal review."
-            ),
+            "disclaimer": disclaimer,
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -478,6 +510,83 @@ async def get_compliance_threshold_policy():
     Returns the current fuzzy matching threshold policy for transparency.
     """
     return get_threshold_policy()
+
+
+class ComplianceDocumentQAContext(BaseModel):
+    """Optional compliance context sent from the frontend (current panel state)."""
+    ofac_sample: Optional[List[str]] = None
+    ofac_programs_summary: Optional[str] = None
+    risk_level: Optional[str] = None
+    risk_drivers_summary: Optional[str] = None
+    recent_actions_summary: Optional[str] = None
+
+
+class ComplianceDocumentQARequest(BaseModel):
+    """Request for Document QA using compliance context only (no PDF ingest)."""
+    question: str
+    conflict: Optional[str] = None
+    context: Optional[ComplianceDocumentQAContext] = None
+
+
+def _build_compliance_context(conflict: str, ctx: Optional[ComplianceDocumentQAContext]) -> str:
+    """Build a single text block from conflict + context for the LLM."""
+    parts = [f"Conflict / region: {conflict or 'Not specified'}."]
+    if ctx:
+        if ctx.risk_level:
+            parts.append(f"Current compliance risk level: {ctx.risk_level}.")
+        if ctx.risk_drivers_summary:
+            parts.append(f"Risk drivers: {ctx.risk_drivers_summary}")
+        if ctx.ofac_sample:
+            names = ", ".join(ctx.ofac_sample[:20])
+            parts.append(f"OFAC SDN sample entities (from current run): {names}.")
+        if ctx.ofac_programs_summary:
+            parts.append(f"OFAC programs (name, count): {ctx.ofac_programs_summary}")
+        if ctx.recent_actions_summary:
+            parts.append(f"Recent OFAC / Treasury actions: {ctx.recent_actions_summary}")
+    return "\n".join(parts)
+
+
+@router.post("/compliance/document-qa")
+async def compliance_document_qa(body: ComplianceDocumentQARequest):
+    """
+    POST /api/compliance/document-qa
+    Answer a question using the current compliance context (no PDF/RAG).
+    Context: conflict, risk level, risk drivers, OFAC sample, recent actions.
+    Uses Haiku; answer is based only on the provided context.
+    """
+    try:
+        from services.haiku_service import document_qa as haiku_document_qa
+
+        if not (body.question or "").strip():
+            return JSONResponse(status_code=400, content={"error": "question is required"})
+
+        conflict = (body.conflict or "").strip() or "Iran"
+        context_str = _build_compliance_context(conflict, body.context)
+        if not context_str.strip():
+            context_str = "No compliance context provided."
+
+        result = await haiku_document_qa(
+            body.question.strip(),
+            [context_str],
+            max_chunks=1,
+        )
+        if not result:
+            return {
+                "answer": "The service could not process your question at this time.",
+                "confidence": 0,
+                "sources": [],
+                "disclaimer": (
+                    "Intelligence signals only – not legal advice. "
+                    "Supports due diligence but does not replace legal review."
+                ),
+            }
+        result["disclaimer"] = (
+            "Intelligence signals only – not legal advice. "
+            "Supports due diligence but does not replace legal review."
+        )
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 class RouteScreeningWaypoint(BaseModel):

@@ -5,6 +5,7 @@ Coordinates 11 agents in parallel, then runs an LLM for final assessment.
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
@@ -43,6 +44,8 @@ _AGENT_TIMEOUT = 75
 # Previous SIGINT data for AIS dark-activity detection across runs.
 # Keyed by conflict name, stores last SIGINT result.
 _previous_sigint: Dict[str, Dict[str, Any]] = {}
+# Timestamp when that result was stored (for AIS gap_hours / last_seen_at).
+_previous_sigint_ts: Dict[str, float] = {}
 
 
 def _result_or_fallback(future, agent_name: str, fallback: Dict[str, Any]) -> Dict[str, Any]:
@@ -532,10 +535,15 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     # ── Compliance: geofencing, AIS anomalies, supply chain, OFAC/EU, risk ──
     sigint_data = agent_results.get("sigint") or {}
     prev_sigint = _previous_sigint.get(conflict)
-    geofencing_alerts = check_sigint_for_sanctions(sigint_data)
-    ais_anomalies = analyze_ais_anomalies(sigint_data, previous_sigint=prev_sigint)
+    geofencing_alerts = check_sigint_for_sanctions(sigint_data, conflict=conflict)
+    ais_anomalies = analyze_ais_anomalies(
+        sigint_data,
+        previous_sigint=prev_sigint,
+        previous_run_ts=_previous_sigint_ts.get(conflict),
+    )
     if sigint_data.get("ships"):
         _previous_sigint[conflict] = sigint_data
+        _previous_sigint_ts[conflict] = time.time()
 
     # Auto-screen SIGINT ships as waypoints for supply-chain zone hits
     supply_chain_result = None
@@ -577,10 +585,18 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
 
     ofac_recent = diplo_result.get("ofac_recent_actions") or []
 
+    # Summary for UI when no alerts: show that SIGINT ran and how many assets were in region
+    aircraft_list = [a for a in (sigint_data.get("aircraft") or []) if isinstance(a, dict) and "error" not in a and a.get("lat") is not None and a.get("lon") is not None]
+    ships_list = [s for s in (sigint_data.get("ships") or []) if isinstance(s, dict) and "error" not in s and s.get("lat") is not None and s.get("lon") is not None]
     compliance = {
         "geofencing_alerts": geofencing_alerts,
         "ais_anomalies": ais_anomalies,
         "risk_score": risk_score,
+        "sigint_window_summary": {
+            "aircraft_count": len(aircraft_list),
+            "ships_count": len(ships_list),
+            "in_sanctions_zones": len(geofencing_alerts),
+        },
         "ofac_sdn": {
             "total_matches": ofac_sdn.get("total_matches", 0),
             "sample": (ofac_sdn.get("sample") or [])[:10],

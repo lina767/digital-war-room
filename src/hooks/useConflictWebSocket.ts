@@ -198,6 +198,12 @@ export interface GeofencingAlert {
   zone_source: string;
   timestamp: number;
   source: string;
+  /** Unix timestamp; present when persistence is enabled (in-memory store). */
+  first_seen_at?: number;
+  /** Unix timestamp; present when persistence is enabled. */
+  last_seen_at?: number;
+  /** Hours in zone (last_seen_at - first_seen_at); present when persistence is enabled. */
+  duration_hours?: number;
 }
 
 export interface AISAnomaly {
@@ -209,6 +215,12 @@ export interface AISAnomaly {
   lat?: number;
   lon?: number;
   zone_name?: string;
+  /** Hours between observations (spoofing) or since last seen (dark_activity). */
+  gap_hours?: number;
+  /** Unix timestamp of last AIS observation for this asset. */
+  last_seen_at?: number;
+  /** Heuristic strength: HIGH | MEDIUM. */
+  confidence?: string;
 }
 
 export interface ComplianceRiskScore {
@@ -234,10 +246,17 @@ export interface OFACRecentAction {
   summary?: string;
 }
 
+export interface SigintWindowSummary {
+  aircraft_count: number;
+  ships_count: number;
+  in_sanctions_zones: number;
+}
+
 export interface ComplianceBlock {
   geofencing_alerts?: GeofencingAlert[];
   ais_anomalies?: AISAnomaly[];
   risk_score?: ComplianceRiskScore;
+  sigint_window_summary?: SigintWindowSummary;
   ofac_sdn?: { total_matches?: number; sample?: Array<{ name?: string; type?: string; program?: string }>; programs?: Array<{ name?: string; count?: number }>; error?: string | null };
   eu_sanctions?: { keyword_mentions?: number; error?: string | null };
   ofac_recent_actions?: OFACRecentAction[];
