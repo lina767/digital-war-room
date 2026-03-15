@@ -14,6 +14,36 @@ export function getWsUrl(path: string): string {
   return base.replace(/^http/, "ws") + path;
 }
 
+/** Per-source fetch result (backend agents telemetry). */
+export interface SourceResult {
+  name: string;
+  status: "ok" | "degraded" | "error";
+  fetched_at?: string;
+  duration_ms?: number;
+  record_count?: number;
+  error?: string;
+  cached?: boolean;
+}
+
+/** Confidence metadata for an agent score. */
+export interface ScoreConfidence {
+  level: string;
+  sources_ok: string[];
+  sources_missing: string[];
+}
+
+/** Agent telemetry attached to each agent result (_meta). */
+export interface AgentMeta {
+  agent: string;
+  fetched_at: string;
+  duration_ms: number;
+  sources: SourceResult[];
+  confidence: ScoreConfidence;
+  data_freshness: "live" | "recent" | "stale" | "unavailable";
+  fallback_used?: boolean;
+  error_summary?: string | null;
+}
+
 export interface AnalyzeResponse {
   conflict: string;
   escalation_score?: number;
@@ -58,6 +88,49 @@ export async function getAnalyzeStatus(conflict: string): Promise<{ cached: bool
     return { cached: raw?.cached ?? false, at: raw?.at, error: raw?.error };
   } catch {
     clearTimeout(timeoutId);
+    return null;
+  }
+}
+
+/** GET /api/agents/health – per-source health from HealthRegistry. */
+export interface AgentsHealthSource {
+  source: string;
+  agent: string;
+  availability_pct: number;
+  avg_latency_ms: number | null;
+  status: "ok" | "degraded" | "down";
+  circuit_open: boolean;
+  last_error: string | null;
+  last_results_count: number;
+}
+export interface AgentsHealthResponse {
+  sources: AgentsHealthSource[];
+  summary: { total_sources: number; degraded: number; down: number; ok: number };
+}
+export async function getAgentsHealth(): Promise<AgentsHealthResponse | null> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/agents/health`);
+    if (!res.ok) return null;
+    return (await res.json()) as AgentsHealthResponse;
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/agents/history – last N analysis run summaries. */
+export interface AnalysisRunSummary {
+  at: number;
+  conflict: string;
+  escalation_score?: number;
+  agents?: Record<string, { duration_ms?: number; status: string }>;
+  error?: string;
+}
+export async function getAgentsHistory(limit = 20): Promise<{ runs: AnalysisRunSummary[] } | null> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/agents/history?limit=${limit}`);
+    if (!res.ok) return null;
+    return (await res.json()) as { runs: AnalysisRunSummary[] };
+  } catch {
     return null;
   }
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
 import { Anchor, Droplets, Wheat, AlertTriangle, Shield, Settings2 } from "lucide-react";
 import { getApiBase } from "@/lib/api";
 import { toast } from "sonner";
@@ -293,6 +294,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
             )}
           </div>
         )}
+        <AgentMetaFooter meta={cpData?._meta} />
     </IntelPanel>
   );
 }

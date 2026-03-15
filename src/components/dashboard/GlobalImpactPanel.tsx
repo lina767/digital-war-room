@@ -1,6 +1,7 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Globe } from "lucide-react";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
 
 const GLOBAL_IMPACT_PREFIX = "global impact";
 
@@ -41,6 +42,7 @@ export function GlobalImpactPanel({ data }: GlobalImpactPanelProps) {
           ))}
         </ul>
       )}
+      <AgentMetaFooter meta={data?.energy?._meta} />
     </IntelPanel>
   );
 }

@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Analytics } from "@vercel/analytics/react";
 import Dashboard from "./pages/Dashboard";
+import AgentMonitor from "./pages/AgentMonitor";
 import NotFound from "./pages/NotFound";
 import HowItWorks from "./pages/HowItWorks";
 import Methodology from "./pages/Methodology";
@@ -22,6 +23,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
+          <Route path="/app/monitoring" element={<AgentMonitor />} />
           <Route path="/how-it-works" element={<HowItWorks />} />
           <Route path="/methodology" element={<Methodology />} />
           <Route path="/case-study" element={<CaseStudy />} />

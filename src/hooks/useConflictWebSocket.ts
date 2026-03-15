@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, triggerRefreshAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, triggerRefreshAnalysis, normalizeAnalysisResponse, type AnalyzeResponse, type AgentMeta } from "@/lib/api";
 import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/components/dashboard/mapConfig";
 
 export type ConnectionStatus = "connecting" | "connected" | "analyzing" | "disconnected" | "error";
@@ -66,6 +66,7 @@ export interface ConflictData {
     news_score?: number;
     summary?: string;
     source_breakdown?: { newsapi?: number; gdelt?: number; rss?: number };
+    _meta?: AgentMeta;
   };
   finint?: {
     brent?: { price: string; change_pct: string; as_of: string } | null;
@@ -73,10 +74,12 @@ export interface ConflictData {
     polymarket_fetched_at?: string;
     timeout_or_error?: boolean;
     error?: string;
+    _meta?: AgentMeta;
   };
   geoint?: {
     anomalies: GeointAnomaly[];
     geoint_score: number;
+    _meta?: AgentMeta;
   };
   sigint?: {
     aircraft: SigintAircraft[];
@@ -87,8 +90,9 @@ export interface ConflictData {
     sigint_score: number;
     timeout_or_error?: boolean;
     error?: string;
+    _meta?: AgentMeta;
   };
-  techint?: Record<string, unknown>;
+  techint?: Record<string, unknown> & { _meta?: AgentMeta };
   cyber?: {
     cyber_score?: number;
     cisa_kev?: { total?: number; sample?: unknown[] };
@@ -96,6 +100,7 @@ export interface ConflictData {
     otx_pulses?: unknown[];
     greynoise_scan_context?: { available?: boolean; count?: number; top_actors?: unknown[]; top_source_countries?: unknown[] };
     summary?: string;
+    _meta?: AgentMeta;
   };
   energy?: {
     energy_score?: number;
@@ -108,12 +113,14 @@ export interface ConflictData {
     summary?: string;
     /** Set when conflict is Iran and oil move exceeds threshold (Hormuz/chokepoint risk). */
     global_impact_note?: string | null;
+    _meta?: AgentMeta;
   };
   protest?: {
     protest_score?: number;
     protest_events?: unknown[];
     protest_articles?: Array<{ title?: string; url?: string }>;
     summary?: string;
+    _meta?: AgentMeta;
   };
   diplo?: {
     diplo_score?: number;
@@ -121,6 +128,7 @@ export interface ConflictData {
     eu_sanctions?: { keyword_mentions?: number };
     un_icj_news?: Array<{ title?: string; url?: string; source?: string }>;
     summary?: string;
+    _meta?: AgentMeta;
   };
   proximity?: {
     proximity_score?: number;
@@ -135,6 +143,7 @@ export interface ConflictData {
     /** Why evidence is empty: no_strikes | no_facilities_near_strikes | error */
     reason_empty?: string;
     error_message?: string;
+    _meta?: AgentMeta;
   };
   /** Signal Framework: state vs exile/independent media comparison (Iran). */
   narrative?: {
@@ -161,6 +170,7 @@ export interface ConflictData {
     exile_item_count?: number;
     fetched_at?: string;
     error?: string;
+    _meta?: AgentMeta;
   };
   chokepoint?: {
     chokepoints?: Array<{
@@ -177,6 +187,7 @@ export interface ConflictData {
     }>;
     chokepoint_score?: number;
     summary?: string;
+    _meta?: AgentMeta;
   };
   /** Centralised alerts from SIGINT, geofencing, AIS anomaly, GreyNoise. */
   alerts?: Array<{ source: string; severity: string; text: string }>;

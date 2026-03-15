@@ -194,6 +194,8 @@ _MAX_PAYLOAD_CHARS = 250_000
 
 def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     """Extract only what the supervisor LLM needs: score, summary, and compact top items.
+    _meta (telemetry) is intentionally omitted here; full result including _meta is preserved
+    in agent_results and passed through to the final API response for monitoring/dashboard.
     Narrative (Signal Framework) returns here; all code below is for other agents only.
     """
     if agent_name == "narrative":

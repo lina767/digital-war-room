@@ -1,5 +1,6 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
 import { formatTimeAgo } from "@/lib/utils";
 
 interface LatestHeadlinesProps {
@@ -38,6 +39,7 @@ export function LatestHeadlines({ data, maxItems = 15 }: LatestHeadlinesProps) {
           </li>
         ))}
       </ul>
+      <AgentMetaFooter meta={data?.news?._meta} />
     </IntelPanel>
   );
 }
