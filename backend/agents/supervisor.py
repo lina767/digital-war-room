@@ -5,7 +5,6 @@ Coordinates 11 agents in parallel, then runs an LLM for final assessment.
 import json
 import os
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Generator, Tuple
 
@@ -33,10 +32,9 @@ from .signal_framework_agent import run_signal_framework_agent
 from .chokepoint_agent import run_chokepoint_agent, enrich_chokepoints
 from .predictive import build_predictive_block
 from .acled_reference import fetch_acled_reference_analyses_sync
-from compliance.geofencing import check_sigint_for_sanctions
-from compliance.ais_anomaly import analyze_ais_anomalies
-from compliance.risk_score import compute_compliance_risk
-from compliance.supply_chain import screen_route
+from .actor_model import build_actors_for_conflict
+from .findings_builder import append_agent_findings
+from .compliance_enrichment import build_compliance_and_alerts
 
 
 # Per-agent timeout (seconds). Prevents one slow API from blocking the whole run.
@@ -246,53 +244,6 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-# Iran conflict actors (aligned with conflicts.app). Activity derived from key_findings mentions.
-_IRAN_ACTORS = [
-    {"id": "israel", "name": "Israel", "role": "aggressor"},
-    {"id": "united_states", "name": "United States", "role": "aggressor"},
-    {"id": "iran", "name": "Iran", "role": "retaliating"},
-    {"id": "irgc", "name": "IRGC", "role": "retaliating"},
-    {"id": "nato", "name": "NATO", "role": "defender"},
-    {"id": "hezbollah", "name": "Hezbollah", "role": "retaliating"},
-    {"id": "us_il_joint", "name": "US–IL Joint", "role": "aggressor"},
-    {"id": "russia", "name": "Russia", "role": "neutral"},
-    {"id": "houthis", "name": "Houthis", "role": "retaliating"},
-    {"id": "iraqi_pmf", "name": "Iraqi PMF", "role": "neutral"},
-]
-
-
-def _actor_activity_from_findings(actor_id: str, actor_name: str, key_findings: List[str]) -> int:
-    """Compute activity 0–100 from key_findings mention count."""
-    text = " ".join(key_findings).lower()
-    terms = []
-    if actor_id == "us_il_joint":
-        terms = ["us", "israel", "joint", "strike"]
-    elif actor_id == "irgc":
-        terms = ["irgc", "revolutionary guard"]
-    elif actor_id == "iraqi_pmf":
-        terms = ["pmf", "iraqi", "popular mobilization"]
-    else:
-        terms = [actor_name.lower(), actor_id.replace("_", " ")]
-    count = sum(1 for t in terms if t in text)
-    if count == 0:
-        return 40
-    return min(100, 40 + count * 15)
-
-
-def _build_iran_actors(key_findings: List[str]) -> List[Dict[str, Any]]:
-    """Build actors list for Iran conflict with activity from key_findings."""
-    out = []
-    for a in _IRAN_ACTORS:
-        activity = _actor_activity_from_findings(a["id"], a["name"], key_findings)
-        out.append({
-            "id": a["id"],
-            "name": a["name"],
-            "role": a["role"],
-            "activity": activity,
-        })
-    return out
-
-
 def _rule_based_fallback(combined_score: float) -> Dict[str, Any]:
     if combined_score >= 80: tl = "CRITICAL"
     elif combined_score >= 60: tl = "HIGH"
@@ -446,156 +397,8 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     scenarios    = list(parsed.get("scenarios") or [])
     summary      = str(parsed.get("summary", ""))
 
-    # ── Append agent-level key findings ───────────────────────────────────
-
-    for art in (news_result.get("articles") or [])[:3]:
-        title  = art.get("title") or "News article"
-        source = art.get("source") or "Unknown"
-        label  = art.get("sentiment_label") or "NEUTRAL"
-        key_findings.append(f"NEWS ({label}) – {title} [{source}]")
-
-    for signal in (socmint_result.get("top_signals") or [])[:3]:
-        key_findings.append(f"SOCMINT – {signal}")
-
-    ac_list = sigint_result.get("aircraft") or []
-    ships_list = sigint_result.get("ships") or []
-    for a in ac_list[:2]:
-        if isinstance(a, dict) and "error" not in a:
-            key_findings.append(f"SIGINT – {a.get('category', 'aircraft')}: {a.get('flight', '?')} ({a.get('region', a.get('source', ''))})")
-    if ships_list:
-        key_findings.append(f"SIGINT – {len(ships_list)} warship(s) in region")
-    for r in (sigint_result.get("conflict_reports") or [])[:3]:
-        if isinstance(r, dict) and "error" not in r and r.get("title"):
-            key_findings.append(f"SIGINT (intel) – {r.get('title', '')[:70]} [{r.get('source', '')}]")
-
-    for h in (geoint_result.get("hotspots") or [])[:2]:
-        lat = h.get("lat"); lon = h.get("lon"); frp = h.get("frp")
-        anomaly_type = h.get("type") or "anomaly"
-        key_findings.append(f"GEOINT ({anomaly_type}) – Thermal anomaly at {lat},{lon} FRP={frp}")
-
-    for ind in (techint_result.get("tech_indicators") or [])[:2]:
-        if ind.get("symbol") and "error" not in ind:
-            key_findings.append(f"TECHINT – {ind.get('symbol')} {ind.get('change_pct', '')} ({ind.get('label', '')})")
-    for art in (techint_result.get("export_controls") or [])[:1]:
-        if art.get("title") and "error" not in art:
-            key_findings.append(f"TECHINT (export controls) – {art.get('title')} [{art.get('source', '')}]")
-    for ev in (techint_result.get("ioda_events") or [])[:2]:
-        if isinstance(ev, dict) and "error" not in ev and ev.get("entityCode"):
-            key_findings.append(f"TECHINT (IODA) – Internet outage/event in {ev.get('entityCode', '')}")
-    ioda_outages = [o for o in (techint_result.get("ioda_outages") or []) if isinstance(o, dict) and "error" not in o]
-    ioda_alerts = [a for a in (techint_result.get("ioda_alerts") or []) if isinstance(a, dict) and "error" not in a]
-    if ioda_outages or ioda_alerts:
-        key_findings.append(f"TECHINT (IODA v2) – {len(ioda_outages)} outage(s), {len(ioda_alerts)} BGP/anomaly alert(s); signals (BGP/Ping/Telescope) available.")
-    if techint_result.get("ooni", {}).get("telegram_signal_blocked_iran"):
-        key_findings.append("TECHINT (OONI) – Telegram/Signal confirmed blocked in Iran (escalation)")
-    for o in (techint_result.get("cloudflare_outages") or [])[:1]:
-        if isinstance(o, dict) and "error" not in o:
-            scope = o.get("scope") or ""
-            out = o.get("outage") or {}
-            cause = out.get("outageCause", "") if isinstance(out, dict) else str(out)
-            key_findings.append(f"TECHINT (Cloudflare) – Outage: {scope} {cause}".strip())
-    if techint_result.get("shodan", {}).get("total_count"):
-        key_findings.append(f"TECHINT (Shodan) – {techint_result['shodan']['total_count']} hosts in conflict region(s)")
-
-    if cyber_result.get("cisa_kev", {}).get("total"):
-        key_findings.append(f"CYBER (CISA KEV) – {cyber_result['cisa_kev']['total']} known exploited vulnerabilities")
-    for r in (cyber_result.get("threat_reports") or [])[:2]:
-        if isinstance(r, dict) and r.get("title") and "error" not in r:
-            key_findings.append(f"CYBER – {r.get('title', '')[:60]}")
-    gn = cyber_result.get("greynoise_scan_context") or {}
-    if gn.get("available") and int(gn.get("count") or 0) > 0:
-        key_findings.append(f"CYBER (GreyNoise) – {gn['count']} malicious scanners (7d); top actors/countries in context")
-
-    agsi_full = energy_result.get("agsi_storage", {}).get("full") or []
-    if agsi_full:
-        avg = sum(float(x.get("full_pct") or 0) for x in agsi_full) / max(len(agsi_full), 1)
-        key_findings.append(f"ENERGY (AGSI+) – {len(agsi_full)} storage record(s), avg fill {avg:.0f}%")
-    for c in (energy_result.get("commodities") or [])[:2]:
-        if c.get("symbol") and "error" not in c and c.get("price"):
-            key_findings.append(f"ENERGY – {c.get('symbol')} {c.get('price')} ({c.get('change_pct', '')})")
-    if conflict and "iran" in conflict.lower():
-        note = energy_result.get("global_impact_note")
-        if note:
-            key_findings.append(f"Global impact – {note}")
-        else:
-            commodities = energy_result.get("commodities") or []
-            valid_c = [c for c in commodities if isinstance(c, dict) and c.get("change_pct_raw") is not None and "error" not in c]
-            max_up = max((c.get("change_pct_raw") for c in valid_c), default=None)
-            if max_up is not None and max_up >= 2.0:
-                key_findings.append(f"Global impact – Oil (Brent/WTI) {max_up:+.1f}% – potential Strait of Hormuz / chokepoint risk premium")
-    if conflict and "iran" in conflict.lower():
-        global_kw = ("hormuz", "hormus", "oil", "chokepoint", "strait")
-        for art in (news_result.get("articles") or []):
-            if not isinstance(art, dict) or "error" in art:
-                continue
-            title = (art.get("title") or "").lower()
-            if any(kw in title for kw in global_kw):
-                src = art.get("source") or "News"
-                key_findings.append(f"Global impact (News) – {art.get('title', '')[:70]} [{src}]")
-                break
-
-    protest_events = protest_result.get("protest_events") or []
-    valid_pe = [e for e in protest_events if isinstance(e, dict) and "error" not in e]
-    if valid_pe:
-        key_findings.append(f"PROTEST (ACLED) – {len(valid_pe)} protest/riot events")
-    for a in (protest_result.get("protest_articles") or [])[:1]:
-        if isinstance(a, dict) and a.get("title") and "error" not in a:
-            key_findings.append(f"PROTEST (GDELT) – {a.get('title', '')[:55]}")
-
-    ofac_matches = diplo_result.get("ofac_sdn", {}).get("total_matches") or 0
-    if ofac_matches:
-        key_findings.append(f"DIPLO (OFAC SDN) – {ofac_matches} conflict-relevant entries")
-    for n in (diplo_result.get("un_icj_news") or [])[:2]:
-        if isinstance(n, dict) and n.get("title") and "error" not in n:
-            key_findings.append(f"DIPLO ({n.get('source', 'UN/ICJ')}) – {n.get('title', '')[:55]}")
-
-    for ev in (proximity_result.get("evidence") or [])[:3]:
-        if isinstance(ev, dict) and ev.get("summary"):
-            risk = ev.get("riskLabel", "")
-            key_findings.append(f"PROXIMITY ({risk}) – {ev.get('summary', '')[:75]}")
-
-    for ref in acled_refs[:3]:
-        if isinstance(ref, dict) and ref.get("title") and "error" not in str(ref.get("excerpt", ""))[:50]:
-            key_findings.append(f"ACLED reference – {ref.get('title', '')[:70]}")
-
-    # ── Chokepoint findings ──────────────────────────────────────────────────────
-    for cp in (chokepoint_result.get("chokepoints") or []):
-        if not isinstance(cp, dict):
-            continue
-        risk = cp.get("disruption_risk", 0)
-        status = cp.get("status", "OPEN")
-        name = cp.get("name", "")
-        dq = cp.get("data_quality", "")
-        if risk >= 60 or status != "OPEN":
-            key_findings.append(
-                f"CHOKEPOINT – {name}: {status} (risk {risk:.0f}/100, "
-                f"~{cp.get('oil_flow_estimate_mbd', 0)} mbd, "
-                f"{cp.get('tanker_count', 0)} tankers [{dq}])"
-            )
-    if chokepoint_score >= 50:
-        key_findings.append(f"CHOKEPOINT – Composite chokepoint risk {chokepoint_score:.0f}/100")
-
-    # ── Food security findings ───────────────────────────────────────────────────
-    food_risk = float(energy_result.get("food_security_risk", 0))
-    if food_risk >= 50:
-        food_items = energy_result.get("food_commodities") or []
-        food_movers = [f"{c.get('symbol')} {c.get('change_pct', '')}" for c in food_items
-                       if isinstance(c, dict) and c.get("change_pct_raw") is not None
-                       and abs(c.get("change_pct_raw", 0)) > 3]
-        detail = f" ({', '.join(food_movers[:3])})" if food_movers else ""
-        key_findings.append(
-            f"Global impact – Food security risk {food_risk:.0f}/100{detail} – "
-            f"chokepoint disruption threatens grain/fertilizer flows"
-        )
-    fao = energy_result.get("fao_fpi") or {}
-    if fao.get("yoy_change_pct") and fao["yoy_change_pct"] > 10:
-        key_findings.append(
-            f"ENERGY (FAO FPI) – Food Price Index {fao.get('index', '?')} "
-            f"({fao['yoy_change_pct']:+.1f}% YoY) – elevated global food stress"
-        )
-
-    # ── Iran conflict: actors with activity from key_findings ─────────────────────
-    actors = _build_iran_actors(key_findings) if conflict and "iran" in conflict.lower() else []
+    key_findings = append_agent_findings(key_findings, agent_results, conflict, chokepoint_score)
+    actors = build_actors_for_conflict(conflict, key_findings)
 
     # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
     predictive = build_predictive_block(conflict, combined_score, agent_scores_for_predictive)
@@ -610,117 +413,19 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
     )
     agent_results["chokepoint"] = chokepoint_enriched
 
-    # ── Compliance: geofencing, AIS anomalies, supply chain, OFAC/EU, risk ──
     sigint_data = agent_results.get("sigint") or {}
-    prev_sigint = _previous_sigint.get(conflict)
-    geofencing_alerts = check_sigint_for_sanctions(sigint_data, conflict=conflict)
-    ais_anomalies = analyze_ais_anomalies(
+    compliance, alerts, upd_prev_sigint, upd_prev_ts = build_compliance_and_alerts(
         sigint_data,
-        previous_sigint=prev_sigint,
-        previous_run_ts=_previous_sigint_ts.get(conflict),
+        conflict,
+        threat_level,
+        diplo_result,
+        agent_results,
+        _previous_sigint.get(conflict),
+        _previous_sigint_ts.get(conflict),
     )
     if sigint_data.get("ships"):
-        _previous_sigint[conflict] = sigint_data
-        _previous_sigint_ts[conflict] = time.time()
-
-    # Auto-screen SIGINT ships as waypoints for supply-chain zone hits
-    supply_chain_result = None
-    ships_for_screening = [
-        s for s in (sigint_data.get("ships") or [])
-        if isinstance(s, dict) and s.get("lat") is not None and s.get("lon") is not None
-    ]
-    if ships_for_screening:
-        waypoints = [
-            {
-                "label": s.get("name") or s.get("mmsi") or "vessel",
-                "lat": s.get("lat"),
-                "lon": s.get("lon"),
-                "country_code": (s.get("flag") or "")[:2],
-                "port_type": "vessel",
-            }
-            for s in ships_for_screening[:30]
-        ]
-        try:
-            supply_chain_result = screen_route(
-                route_label=f"SIGINT auto-screen ({conflict})",
-                waypoints=waypoints,
-            )
-        except Exception:
-            supply_chain_result = None
-
-    ofac_sdn = diplo_result.get("ofac_sdn") or {}
-    eu_sanctions = diplo_result.get("eu_sanctions") or {}
-
-    risk_score = compute_compliance_risk(
-        geofencing_alerts=geofencing_alerts,
-        ais_anomalies=ais_anomalies,
-        supply_chain_result=supply_chain_result,
-        escalation_level=threat_level,
-        conflict=conflict,
-        ofac_sdn=ofac_sdn,
-        eu_sanctions=eu_sanctions,
-    )
-
-    ofac_recent = diplo_result.get("ofac_recent_actions") or []
-
-    # Centralised alerts list for UI and optional toasts (SIGINT, geofencing, AIS, GreyNoise)
-    alerts: List[Dict[str, Any]] = []
-    for a in (sigint_result.get("alerts") or []):
-        if isinstance(a, str):
-            severity = "high" if ("DOOMSDAY" in a or "⚠" in a) else "medium"
-            alerts.append({"source": "sigint", "severity": severity, "text": a})
-    for g in geofencing_alerts:
-        if isinstance(g, dict):
-            alerts.append({
-                "source": "geofencing",
-                "severity": "high",
-                "text": f"{g.get('asset_type', 'asset')} {g.get('asset_name', g.get('asset_id', ''))} in {g.get('zone_name', '')}",
-            })
-    for ai in ais_anomalies:
-        if isinstance(ai, dict):
-            alerts.append({
-                "source": "ais_anomaly",
-                "severity": (ai.get("severity") or "medium").lower(),
-                "text": ai.get("detail", str(ai.get("anomaly_type", "anomaly"))),
-            })
-    cyber_data = agent_results.get("cyber") or {}
-    for ga in (cyber_data.get("greynoise_alerts") or cyber_data.get("alerts") or [])[:10]:
-        if isinstance(ga, str):
-            alerts.append({"source": "greynoise", "severity": "medium", "text": ga})
-
-    # Summary for UI when no alerts: show that SIGINT ran and how many assets were in region
-    aircraft_list = [a for a in (sigint_data.get("aircraft") or []) if isinstance(a, dict) and "error" not in a and a.get("lat") is not None and a.get("lon") is not None]
-    ships_list = [s for s in (sigint_data.get("ships") or []) if isinstance(s, dict) and "error" not in s and s.get("lat") is not None and s.get("lon") is not None]
-    compliance = {
-        "geofencing_alerts": geofencing_alerts,
-        "ais_anomalies": ais_anomalies,
-        "risk_score": risk_score,
-        "sigint_window_summary": {
-            "aircraft_count": len(aircraft_list),
-            "ships_count": len(ships_list),
-            "in_sanctions_zones": len(geofencing_alerts),
-        },
-        "ofac_sdn": {
-            "total_matches": ofac_sdn.get("total_matches", 0),
-            "sample": (ofac_sdn.get("sample") or [])[:10],
-            "programs": (ofac_sdn.get("programs") or [])[:10],
-            "error": ofac_sdn.get("error"),
-        },
-        "eu_sanctions": {
-            "keyword_mentions": eu_sanctions.get("keyword_mentions", 0),
-            "error": eu_sanctions.get("error"),
-        },
-        "ofac_recent_actions": [
-            {"title": a.get("title"), "url": a.get("url"),
-             "published": a.get("published"), "source": a.get("source"),
-             "summary": a.get("summary")}
-            for a in ofac_recent[:5]
-        ],
-        "disclaimer": (
-            "Intelligence signals only – not legal advice. "
-            "Supports due diligence but does not replace legal review."
-        ),
-    }
+        _previous_sigint[conflict] = upd_prev_sigint
+        _previous_sigint_ts[conflict] = upd_prev_ts
 
     return {
         "escalation_score": combined_score,
