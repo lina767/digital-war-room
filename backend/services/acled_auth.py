@@ -3,11 +3,14 @@ ACLED API OAuth authentication (acleddata.com).
 Uses ACLED_EMAIL + ACLED_PASSWORD to obtain a Bearer token (valid 24h).
 See: https://acleddata.com/api-documentation/getting-started
 """
+import logging
 import os
 import time
 from typing import Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 TOKEN_URL = "https://acleddata.com/oauth/token"
 # In-memory cache: (token, expires_at_ts). Refresh when < 1 hour left.
@@ -25,6 +28,9 @@ def get_acled_token_sync() -> Optional[str]:
     email = (os.getenv("ACLED_EMAIL") or "").strip()
     password = (os.getenv("ACLED_PASSWORD") or "").strip()
     if not email or not password:
+        logger.info(
+            "ACLED OAuth: no credentials. Set ACLED_EMAIL and ACLED_PASSWORD in backend/.env (myACLED account at acleddata.com)."
+        )
         return None
     try:
         with httpx.Client(timeout=15.0) as client:
@@ -38,7 +44,20 @@ def get_acled_token_sync() -> Optional[str]:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                try:
+                    err_body = resp.json()
+                    err_msg = err_body.get("error_description") or err_body.get("error") or resp.text[:200]
+                except Exception:
+                    err_msg = resp.text[:200] if resp.text else str(resp.status_code)
+                logger.warning(
+                    "ACLED OAuth token failed: HTTP %s – %s. Check ACLED_EMAIL/ACLED_PASSWORD (myACLED login).",
+                    resp.status_code,
+                    err_msg,
+                )
+                _cached_token = None
+                _cached_expires = 0
+                return None
             data = resp.json()
         token = data.get("access_token")
         expires_in = int(data.get("expires_in", 86400))  # 24h default
@@ -46,7 +65,8 @@ def get_acled_token_sync() -> Optional[str]:
             _cached_token = token
             _cached_expires = now + expires_in
             return token
-    except Exception:
+    except Exception as e:
+        logger.warning("ACLED OAuth token request failed: %s. Check credentials and network.", e)
         _cached_token = None
         _cached_expires = 0
     return None
@@ -61,6 +81,9 @@ async def get_acled_token_async() -> Optional[str]:
     email = (os.getenv("ACLED_EMAIL") or "").strip()
     password = (os.getenv("ACLED_PASSWORD") or "").strip()
     if not email or not password:
+        logger.info(
+            "ACLED OAuth: no credentials. Set ACLED_EMAIL and ACLED_PASSWORD in backend/.env (myACLED account at acleddata.com)."
+        )
         return None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -74,7 +97,20 @@ async def get_acled_token_async() -> Optional[str]:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                try:
+                    err_body = resp.json()
+                    err_msg = err_body.get("error_description") or err_body.get("error") or resp.text[:200]
+                except Exception:
+                    err_msg = resp.text[:200] if resp.text else str(resp.status_code)
+                logger.warning(
+                    "ACLED OAuth token failed: HTTP %s – %s. Check ACLED_EMAIL/ACLED_PASSWORD (myACLED login).",
+                    resp.status_code,
+                    err_msg,
+                )
+                _cached_token = None
+                _cached_expires = 0
+                return None
             data = resp.json()
         token = data.get("access_token")
         expires_in = int(data.get("expires_in", 86400))
@@ -82,7 +118,8 @@ async def get_acled_token_async() -> Optional[str]:
             _cached_token = token
             _cached_expires = now + expires_in
             return token
-    except Exception:
+    except Exception as e:
+        logger.warning("ACLED OAuth token request failed: %s. Check credentials and network.", e)
         _cached_token = None
         _cached_expires = 0
     return None

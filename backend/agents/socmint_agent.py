@@ -425,7 +425,7 @@ def fetch_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     return results[:20]
 
 
-RELIEFWEB_APPNAME = "digital-war-room"
+RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"
 RELIEFWEB_COUNTRY_NAMES = {
     "iran": "Iran",
     "israel": "Israel",

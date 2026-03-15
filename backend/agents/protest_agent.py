@@ -16,6 +16,7 @@ from services.acled_auth import get_acled_token_async, has_acled_oauth
 # ACLED API: OAuth uses acleddata.com; legacy key used api.acleddata.com
 ACLED_API_URL = "https://acleddata.com/api/acled/read"
 ACLED_LEGACY_URL = "https://api.acleddata.com/acled/read"
+# GDELT DOC 2.0 API; data overview: https://www.gdeltproject.org/data.html
 GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 ACLED_COUNTRY_NAMES = {

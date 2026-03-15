@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 NEWSDATA_LATEST_URL = "https://newsdata.io/api/1/latest"
 GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search"
+# GDELT DOC 2.0 API (fulltext, artlist); overview: https://www.gdeltproject.org/data.html
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 FOREIGN_POLICY_IRAN_PROJECT_URL = "https://foreignpolicy.com/projects/iran-israel-conflict-news-nuclear-sites-proxies/"
 NEWS_DOMAINS = (
@@ -254,8 +255,8 @@ def _merge_news_results(
     gdelt_list: List[Dict[str, Any]],
     rss_list: List[Dict[str, Any]],
     conflict: str = "",
-    newsdata_list: Optional[List[Dict[str, Any]] = None,
-    gnews_list: Optional[List[Dict[str, Any]] = None,
+    newsdata_list: Optional[List[Dict[str, Any]]] = None,
+    gnews_list: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Deduplicate by URL, then semantically, rank by relevance, apply per-source cap, compute weighted overall_sentiment, source_breakdown."""
     seen: Dict[str, Dict[str, Any]] = {}

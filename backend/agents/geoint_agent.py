@@ -30,6 +30,9 @@ from .utils import (
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
 
+# GDELT GEO 2.0 API – map locations mentioned near a keyword (country/ADM1/point). No key. See: https://blog.gdeltproject.org/gdelt-geo-2-0-api-debuts/
+GDELT_GEO_URL = "https://api.gdeltproject.org/api/v2/geo/geo"
+
 # Bounding boxes for FIRMS area API (W,S,E,N = lon_min, lat_min, lon_max, lat_max)
 REGION_BBOX = {
     "middle_east": "35,20,65,40",
@@ -280,8 +283,8 @@ def get_conflict_region(conflict: str) -> str:
     return "middle_east"
 
 
-# ReliefWeb API v2: filter by country name (e.g. "Iran", "Ukraine"). appname required.
-RELIEFWEB_APPNAME = "digital-war-room"
+# ReliefWeb API v2: filter by country name (e.g. "Iran", "Ukraine"). appname required (see https://reliefweb.int/help/api).
+RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"
 RELIEFWEB_COUNTRY_NAMES = {
     "iran": ["Iran"],
     "israel": ["Israel"],
@@ -333,6 +336,7 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     async def _reliefweb() -> List[Dict[str, Any]]:
         reports = []
         # ReliefWeb v2: filter[field]=country&filter[value]=CountryName; multiple with filter[value][]=A&filter[value][]=B&filter[operator]=OR
+        last_rw_error = None
         for country_name in rw_countries[:3]:
             try:
                 url = "https://api.reliefweb.int/v2/reports"
@@ -347,6 +351,7 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                 async with httpx.AsyncClient(timeout=14.0) as client:
                     resp = await client.get(url, params=params)
                     if resp.status_code != 200:
+                        last_rw_error = f"HTTP {resp.status_code}"
                         continue
                     data = resp.json()
                 items = data.get("data", [])
@@ -383,21 +388,35 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                         "source": source,
                         "country": country_display,
                     })
-            except Exception:
+            except Exception as e:
+                last_rw_error = str(e)
                 continue
+        if not reports and last_rw_error:
+            logger.warning(
+                "ReliefWeb/ACLED: ReliefWeb request failed (%s). Check network and api.reliefweb.int.",
+                last_rw_error,
+            )
+        elif not reports:
+            logger.info(
+                "ReliefWeb/ACLED: ReliefWeb returned no reports for countries %s (empty is normal for some regions).",
+                rw_countries[:3],
+            )
         return reports[:15]
 
     try:
         reports = run_async(_reliefweb())
     except Exception as e:
+        logger.warning("ReliefWeb/ACLED: ReliefWeb fetch failed: %s. Check network and api.reliefweb.int.", e)
         reports = [{"error": str(e)}]
 
     acled_ok = has_acled_oauth() or os.getenv("ACLED_API_KEY")
-    if acled_ok and isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+    reports_have_error = isinstance(reports, list) and any(isinstance(r, dict) and r.get("error") for r in reports)
+    if acled_ok and isinstance(reports, list) and not reports_have_error:
         try:
             async def _acled():
                 token = await get_acled_token_async() if has_acled_oauth() else None
                 if has_acled_oauth() and not token:
+                    logger.debug("ReliefWeb/ACLED: ACLED skipped (OAuth token missing). Set ACLED_EMAIL/ACLED_PASSWORD.")
                     return
                 params = {"_format": "json", "limit": 10, "country": acled_country}
                 if token:
@@ -412,6 +431,11 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                 async with httpx.AsyncClient(timeout=14.0) as client:
                     resp = await client.get(url, params=params, headers=headers)
                     if resp.status_code != 200:
+                        logger.warning(
+                            "ReliefWeb/ACLED: ACLED API returned HTTP %s for country=%s. OAuth/credentials see acled_auth logs.",
+                            resp.status_code,
+                            acled_country,
+                        )
                         return
                     data = resp.json()
                     for rec in (data.get("data") or [])[:10]:
@@ -424,8 +448,16 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                                 "country": rec.get("country", acled_country),
                             })
             run_async(_acled())
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("ReliefWeb/ACLED: ACLED request failed: %s", e)
+    elif acled_ok and reports_have_error:
+        logger.info(
+            "ReliefWeb/ACLED: ACLED not requested because ReliefWeb failed. Fix ReliefWeb first (see logs above)."
+        )
+    elif not acled_ok and not reports:
+        logger.info(
+            "ReliefWeb/ACLED: No data. ReliefWeb returned empty and ACLED credentials not set (ACLED_EMAIL + ACLED_PASSWORD in backend/.env)."
+        )
     return reports if isinstance(reports, list) else [{"error": "unknown"}]
 
 
@@ -821,6 +853,76 @@ def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
     }
 
 
+def _gdelt_geo_query(conflict: str) -> str:
+    """Build GDELT GEO 2.0 query string from conflict (keyword or OR phrase)."""
+    cl = conflict.lower()
+    if "iran" in cl or "israel" in cl:
+        return "(Iran OR IRGC OR Israel OR Gaza OR Persian Gulf)"
+    if "ukraine" in cl or "russia" in cl:
+        return "(Ukraine OR Russia OR Donbas OR Kyiv)"
+    if "yemen" in cl:
+        return "Yemen"
+    if "syria" in cl:
+        return "Syria"
+    if "lebanon" in cl:
+        return "Lebanon"
+    # Fallback: use conflict as phrase (max one phrase for GEO)
+    return conflict.strip()[:100] or "conflict"
+
+
+def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
+    """
+    Fetch GDELT GEO 2.0 API (country-level): which countries are mentioned in proximity to the conflict query.
+    Free, no API key. Returns list of { "country": str, "percent": float } from GeoJSON features.
+    Ref: https://blog.gdeltproject.org/gdelt-geo-2-0-api-debuts/
+    """
+    query = _gdelt_geo_query(conflict)
+
+    async def _fetch() -> Dict[str, Any]:
+        params = {
+            "query": query,
+            "mode": "country",
+            "format": "geojson",
+            "timespan": "2d",
+        }
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(GDELT_GEO_URL, params=params)
+            resp.raise_for_status()
+            ct = (resp.headers.get("content-type") or "").lower()
+            if "json" not in ct and "geojson" not in ct:
+                return {}
+            return resp.json()
+
+    try:
+        data = run_async(_fetch())
+        if not isinstance(data, dict):
+            return []
+        features = data.get("features") or []
+        out: List[Dict[str, Any]] = []
+        for f in features:
+            if not isinstance(f, dict):
+                continue
+            props = f.get("properties") or {}
+            name = props.get("name") or props.get("NAME") or props.get("ADM0_NAME") or props.get("country") or ""
+            if not name:
+                continue
+            percent = None
+            for key in ("percent", "percentmention", "density", "value", "count"):
+                if key in props and props[key] is not None:
+                    try:
+                        percent = float(props[key])
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            if percent is None:
+                percent = 0.0
+            out.append({"country": str(name).strip(), "percent": round(percent, 2)})
+        return sorted(out, key=lambda x: (x.get("percent") or 0), reverse=True)[:30]
+    except Exception as e:
+        logger.debug("GDELT GEO fetch failed: %s", e)
+        return []
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS, ReliefWeb/ACLED, UCDP (Uppsala), and EO Browser links.
@@ -927,6 +1029,7 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
         "reliefweb_reports": [],
         "ucdp_events": [],
         "eo_browser_links": {},
+        "gdelt_geo_countries": [],
         "summary": "No thermal anomaly data available.",
         "_meta": meta.model_dump(mode="json"),
     }
@@ -953,12 +1056,15 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         eo_links = get_eo_browser_links(conflict=conflict)
         if not isinstance(eo_links, dict):
             eo_links = {}
+        gdelt_geo_countries = get_gdelt_geo_countries(conflict=conflict)
         score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
         if ucdp_events:
             score = min(100.0, score + min(15, len(ucdp_events) * 2))
         high = sum(1 for a in anomalies if a.get("confidence") == "high")
         hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
         summary_extra = f" {len(ucdp_events)} UCDP events." if ucdp_events else ""
+        if gdelt_geo_countries:
+            summary_extra += f" GDELT GEO: {len(gdelt_geo_countries)} countries."
         if has_acled_cfg and not has_acled_reports:
             summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and UCDP/ReliefWeb."
         duration_ms = int((time.perf_counter() - start) * 1000)
@@ -967,6 +1073,7 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             SourceResult(name="ReliefWeb/ACLED", status="ok" if reliefweb_reports else "error", fetched_at=fetched_at, record_count=len(reliefweb_reports)),
             SourceResult(name="UCDP", status="ok" if ucdp_events else "error", fetched_at=fetched_at, record_count=len(ucdp_events)),
             SourceResult(name="EO Browser", status="ok" if eo_links else "error", fetched_at=fetched_at, record_count=len(eo_links) if isinstance(eo_links, dict) else 0),
+            SourceResult(name="GDELT GEO", status="ok" if gdelt_geo_countries else "error", fetched_at=fetched_at, record_count=len(gdelt_geo_countries)),
         ]
         reg = get_health_registry()
         if reg:
@@ -999,6 +1106,7 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             "reliefweb_reports": reliefweb_reports,
             "ucdp_events": ucdp_events,
             "eo_browser_links": eo_links,
+            "gdelt_geo_countries": gdelt_geo_countries,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included. Score {score:.0f}.",
             "_meta": meta.model_dump(mode="json"),
         }

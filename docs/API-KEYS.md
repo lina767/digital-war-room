@@ -57,6 +57,39 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 
 **Ohne ACLED-API:** Auf der ACLED-Webseite gibt es öffentlich einsehbare Crisis-Live-Daten, z. B. **[Iran Crisis Live](https://acleddata.com/iran-crisis-live)** – tägliche Updates, Karten und Analysen zum Iran-Konflikt (täglich 10:30 EST / 15:30 CET). Für die Plattform-Heatmap und PROTEST-Events wird weiterhin ein API-Key benötigt; die Webseite eignet sich als manuelle Ergänzung.
 
+**Wenn ACLED nicht funktioniert:**
+
+1. **OAuth (empfohlen):** In `backend/.env` müssen **ACLED_EMAIL** und **ACLED_PASSWORD** gesetzt sein (E-Mail/Passwort deines [myACLED](https://acleddata.com)-Accounts). Kein Leerzeichen am Anfang/Ende.
+2. **Token-Fehler:** Beim Start bzw. beim ersten ACLED-Aufruf schreibt das Backend bei Fehlern in die Logs (z. B. „ACLED OAuth token failed: HTTP 401“). Bei 401: E-Mail/Passwort prüfen und auf [acleddata.com](https://acleddata.com) per Browser einloggen.
+3. **Keine Credentials:** Wenn weder OAuth noch Legacy-Key gesetzt sind, liefern PROTEST/GEOINT/Heatmap keine ACLED-Daten; die Meldung „ACLED OAuth: no credentials“ erscheint dann in den Logs.
+4. **Legacy API:** Der alte Endpoint `api.acleddata.com` (ACLED_API_KEY) kann eingestellt sein; bevorzugt OAuth mit ACLED_EMAIL + ACLED_PASSWORD nutzen.
+
+---
+
+## ReliefWeb API (kein Key nötig)
+
+Die [ReliefWeb API](https://reliefweb.int/help/api) von UN OCHA liefert humanitäre Reports, Jobs und Training – **ohne API-Key**. Für Nutzungsstatistik wird der Parameter **appname** mitgesendet (von ReliefWeb ausdrücklich gewünscht).
+
+| Aspekt | Details |
+|--------|--------|
+| **Dokumentation** | [ReliefWeb API Help](https://reliefweb.int/help/api) · [API Documentation](https://reliefweb.int/docs/api) (live examples) |
+| **Auth** | Keine. Alle Requests per HTTPS mit Parameter `appname` (z. B. `digital-war-room`). |
+| **Limits** | Max. **1000 Einträge pro Request**, max. **1000 Requests/Tag**. |
+| **Endpoints** | `reports`, `jobs`, `training`, `disasters` (v1/v2). |
+
+**Integration im Projekt:**
+
+- **GEOINT** (`backend/agents/geoint_agent.py`): `get_conflict_hotspot_news()` – ruft **Reports** ab, gefiltert nach Land (`filter[field]=country`, `filter[value]=Iran` etc.), `preset=latest`, Felder `title`, `date`, `body`, `source`, `country`. Kombiniert mit optionalem ACLED.
+- **SOCMINT** (`backend/agents/socmint_agent.py`): `fetch_reliefweb_reports()` – gleicher Reports-Endpoint, Konflikt-Keywords-Filter, Sentiment.
+
+**Beispiel-Request (Reports):**
+
+```http
+GET https://api.reliefweb.int/v2/reports?appname=digital-war-room&limit=10&filter[field]=country&filter[value]=Iran&preset=latest&fields[include][]=title&fields[include][]=date&fields[include][]=body&fields[include][]=source.name&fields[include][]=country.name
+```
+
+**Optional – eigener App-Name:** In `backend/.env` kannst du setzen: `RELIEFWEB_APPNAME=dein-app-name`. Ohne Setzung wird `digital-war-room` verwendet.
+
 **DIPLO** benötigt **keine** Keys (OFAC, EU-Liste, UN/ICJ-RSS sind öffentlich).
 
 ---
@@ -107,6 +140,27 @@ Der NEWS-Agent nutzt alle gesetzten Keys **parallel** in einem Lauf; pro API wir
 5. **Frische:** NewsAPI hat 24 h Verzögerung; GDELT, RSS, NewsData und GNews liefern oft aktuellere Artikel und gleichen das aus.
 
 **Empfehlung:** Alle drei Keys setzen, wenn verfügbar. Scheduler so wählen, dass pro Tag nicht mehr als 100 NEWS-Läufe ausgeführt werden (z. B. alle 15–30 Minuten), damit NewsAPI und GNews im Limit bleiben. NewsData erlaubt bis 200 Läufe/Tag.
+
+---
+
+## GDELT (gdeltproject.org) – Daten & APIs
+
+GDELT ist kostenlos und ohne API-Key nutzbar. Übersicht aller Daten und Zugangswege: **[The GDELT Project – Data](https://www.gdeltproject.org/data.html)** (Querying, Analyzing, Downloading).
+
+**Im Projekt genutzt:**
+
+| Nutzung | Endpoint | Wo im Code |
+|--------|----------|------------|
+| **DOC 2.0 API** (Volltext-Suche, Artikel-Liste) | `https://api.gdeltproject.org/api/v2/doc/doc` | [news_agent.py](backend/agents/news_agent.py) (`search_gdelt_news`: Konflikt-Artikel, 48H, artlist, max 25), [chokepoint_agent.py](backend/agents/chokepoint_agent.py) (Chokepoint-Queries Hormuz/Bab el-Mandeb/Suez, 24H/72H/6H, Trefferzahlen), [protest_agent.py](backend/agents/protest_agent.py) (Protest-Artikel) |
+| **GEO 2.0 API** (Länderkarte zu Keyword, 7 Tage, 15-Min-Update) | `https://api.gdeltproject.org/api/v2/geo/geo` | [geoint_agent.py](backend/agents/geoint_agent.py) (`get_gdelt_geo_countries`: mode=country, format=geojson, timespan=2d → welche Länder in Kontext des Konflikts erwähnt werden). Ref: [GDELT GEO 2.0 API Debuts](https://blog.gdeltproject.org/gdelt-geo-2-0-api-debuts/). |
+
+DOC 2.0: Rolling Window ca. 3 Monate, 65 Sprachen (englische Suchbegriffe), Updates alle 15 Min; Ausgabe JSON/JSONFeed. Kein Key nötig.
+
+**Weitere Optionen laut [GDELT Data](https://www.gdeltproject.org/data.html) (derzeit nicht integriert):**
+- **GDELT GEO 2.0** weitere Modi: ADM1, PointData, SourceCountry, Image-Suchen (im Projekt nur Country-Level integriert).
+- **GDELT Analysis Service** – webbasierte Visualisierung/Export (aktuell GDELT 1.0).
+- **Google BigQuery** – Vollständige GDELT-Daten per SQL, 15-Min-Updates; erfordert GCP.
+- **Raw Data Files** – CSV-Downloads (2.5TB+ pro Jahr), für Offline-Analysen.
 
 ---
 

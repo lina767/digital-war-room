@@ -80,6 +80,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "ACLED", description: "Conflict events (ACLED OAuth or API). Iran: acleddata.com/iran-crisis-live" },
       { name: "ACLED Reference", description: "Curated ACLED analysis pages (Middle East updates, expert comments); Firecrawl or httpx" },
       { name: "Firecrawl", description: "Robust scraping for ACLED reference pages (optional FIRECRAWL_API_KEY)" },
+      { name: "GDELT GEO", description: "GDELT GEO 2.0 API – country-level map of locations mentioned near conflict keywords (no key)" },
     ],
   },
   {

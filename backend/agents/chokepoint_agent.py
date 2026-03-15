@@ -90,6 +90,7 @@ HISTORY_FILE = Path(__file__).resolve().parent.parent / "data" / "chokepoint_his
 BRENT_HISTORY_FILE = Path(__file__).resolve().parent.parent / "data" / "brent_history.json"
 OVERRIDES_FILE = Path(__file__).resolve().parent.parent / "data" / "chokepoint_overrides.json"
 
+# GDELT DOC 2.0 API; data overview: https://www.gdeltproject.org/data.html
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 GDELT_QUERIES = {
     "Strait of Hormuz": '"strait of hormuz" (blockade OR closed OR disrupted OR "no transit" OR IRGC)',
