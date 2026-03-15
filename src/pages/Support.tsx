@@ -18,7 +18,11 @@ const Support = () => {
           asChild
           className="w-full sm:w-auto"
         >
-          <a href={BUY_ME_A_COFFEE_URL} target="_blank" rel="noopener noreferrer">
+          <a
+            href={BUY_ME_A_COFFEE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             Support the Mission
           </a>
         </Button>
