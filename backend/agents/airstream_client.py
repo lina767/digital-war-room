@@ -57,19 +57,19 @@ async def collect_tankers_by_chokepoint(
         bounding_boxes: List of boxes in AISStream format [[lat, lon], [lat, lon]].
         cp_bounds: Dict cp_name -> (lat_min, lat_max, lon_min, lon_max).
         tanker_keywords: Keywords to match in vessel name (e.g. tanker, vlcc).
-        api_key: AISStream API key; if None, reads AIRSTREAM_API_KEY from env.
+        api_key: AISStream API key; if None, reads AISSTREAM_API_KEY or AIRSTREAM_API_KEY or AIRSTREAM_API from env.
         collect_seconds: How long to collect messages.
 
     Returns:
         Dict[cp_name, List[{name, type, lat, lon, source: "airstream"}]] or None on error.
     """
-    key = (api_key or os.getenv("AIRSTREAM_API_KEY") or "").strip()
+    key = (api_key or os.getenv("AISSTREAM_API_KEY") or os.getenv("AIRSTREAM_API_KEY") or os.getenv("AIRSTREAM_API") or "").strip()
     if not key:
         return None
 
     try:
         collect_seconds = float(
-            os.getenv("AIRSTREAM_COLLECT_SECONDS", str(collect_seconds))
+            os.getenv("AISSTREAM_COLLECT_SECONDS") or os.getenv("AIRSTREAM_COLLECT_SECONDS") or str(collect_seconds)
         )
     except (TypeError, ValueError):
         collect_seconds = DEFAULT_COLLECT_SECONDS
@@ -79,7 +79,7 @@ async def collect_tankers_by_chokepoint(
         cp_name: {} for cp_name in cp_bounds
     }
 
-    async def collect():
+    async def collect() -> Optional[Dict[str, List[Dict[str, Any]]]]:
         async with websockets.connect(
             AISTREAM_WS_URL,
             ping_interval=20,
@@ -105,8 +105,8 @@ async def collect_tankers_by_chokepoint(
                 except json.JSONDecodeError:
                     continue
                 if isinstance(data, dict) and data.get("error"):
-                    logger.debug("airstream: server error %s", data.get("error"))
-                    continue
+                    logger.warning("airstream: server error %s", data.get("error"))
+                    return None  # do not treat as "0 tankers"
                 if data.get("MessageType") != "PositionReport":
                     continue
                 meta = data.get("MetaData") or data.get("Metadata") or {}
@@ -140,15 +140,17 @@ async def collect_tankers_by_chokepoint(
                         by_cp[cp_name][mmsi] = vessel
                         break
 
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for cp_name, mmsi_to_vessel in by_cp.items():
+            out[cp_name] = list(mmsi_to_vessel.values())
+        return out
+
     try:
-        await asyncio.wait_for(collect(), timeout=collect_seconds + 10.0)
+        result = await asyncio.wait_for(collect(), timeout=collect_seconds + 10.0)
+        return result
     except asyncio.TimeoutError:
         logger.debug("airstream: collect timeout")
+        return None
     except Exception as e:
         logger.debug("airstream: collect failed: %s", e)
         return None
-
-    out: Dict[str, List[Dict[str, Any]]] = {}
-    for cp_name, mmsi_to_vessel in by_cp.items():
-        out[cp_name] = list(mmsi_to_vessel.values())
-    return out

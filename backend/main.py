@@ -2,8 +2,12 @@ import os
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from dotenv import load_dotenv
+
 load_dotenv()
+# Ensure backend/.env is loaded when running from project root (e.g. uvicorn backend.main:app)
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware

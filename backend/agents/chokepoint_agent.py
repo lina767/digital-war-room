@@ -119,6 +119,8 @@ BRENT_PCT_THRESHOLD_DEFAULT = 5.0
 # GDELT 6h window: if hits_6h >= this, apply at least CONTESTED risk floor
 GDELT_6H_THRESHOLD = 2
 GDELT_RISK_FLOOR_6H = 50.0
+# When no live AIS (baseline_only/estimated): 1+ GDELT hit still raises floor so "closed" can show
+GDELT_NO_LIVE_AIS_MIN_HITS = 1
 
 # ── EMA temporal smoothing ───────────────────────────────────────────────────
 
@@ -589,7 +591,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
 
         # AISStream: one WebSocket session for all three chokepoints (if key set)
         tankers_by_cp: Dict[str, List[Dict[str, Any]]] = {}
-        airstream_configured = bool((os.getenv("AIRSTREAM_API_KEY") or "").strip())
+        airstream_configured = bool((os.getenv("AISSTREAM_API_KEY") or os.getenv("AIRSTREAM_API_KEY") or os.getenv("AIRSTREAM_API") or "").strip())
         bounding_boxes = []
         cp_bounds = {}
         for cp_name, baseline in CHOKEPOINT_BASELINES.items():
@@ -691,6 +693,9 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             elif cp["data_quality"] == "live_ais" and avg_t > 0 and cp["tanker_count"] < avg_t * LIVE_AIS_RESTRICTED_RATIO:
                 smoothed = max(smoothed, GDELT_RISK_FLOOR_MED)
             gdelt_floor = _gdelt_risk_floor(gdelt_24h, hits_closure_24h=hits_closure_24h, hits_6h=hits_6h)
+            # When no live AIS (e.g. AISStream failed), 1+ GDELT hit still raises floor so closure/restricted can show
+            if cp["data_quality"] != "live_ais" and gdelt_24h >= GDELT_NO_LIVE_AIS_MIN_HITS and gdelt_floor == 0:
+                gdelt_floor = GDELT_RISK_FLOOR_LOW
             if gdelt_floor > 0:
                 smoothed = max(smoothed, gdelt_floor)
             cp["disruption_risk"] = round(smoothed, 1)
@@ -890,6 +895,9 @@ def enrich_chokepoints(
         elif cp.get("data_quality") == "live_ais" and avg_tankers > 0 and cp["tanker_count"] < avg_tankers * LIVE_AIS_RESTRICTED_RATIO:
             smoothed = max(smoothed, GDELT_RISK_FLOOR_MED)
         gdelt_floor = _gdelt_risk_floor(gdelt_24h, hits_closure_24h=hits_closure_24h, hits_6h=hits_6h)
+        # When no live AIS, 1+ GDELT hit still raises floor so closure/restricted can show
+        if cp.get("data_quality") != "live_ais" and gdelt_24h >= GDELT_NO_LIVE_AIS_MIN_HITS and gdelt_floor == 0:
+            gdelt_floor = GDELT_RISK_FLOOR_LOW
         if gdelt_floor > 0:
             smoothed = max(smoothed, gdelt_floor)
         cp["disruption_risk"] = round(smoothed, 1)
