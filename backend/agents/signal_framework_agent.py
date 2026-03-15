@@ -10,6 +10,7 @@ Output: Source comparison table, signal assessment, synthesis (Bayesian-style), 
 All output in English for frontend.
 """
 import logging
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Exile source that provides English content (prioritized for display)
 ENGLISH_EXILE_SOURCE = "Iran International"
 FEED_REQUEST_TIMEOUT = 18
+# State feeds: longer timeout and optional retry; Firecrawl fallback when direct fetch fails
+FEED_REQUEST_TIMEOUT_STATE = int(os.getenv("SIGNAL_FRAMEWORK_STATE_TIMEOUT", "25"))
+SIGNAL_FRAMEWORK_USE_FIRECRAWL = os.getenv("SIGNAL_FRAMEWORK_USE_FIRECRAWL", "").strip().lower() in ("1", "true", "yes")
 
 # ── Source groups (Iran narrative comparison) ────────────────────────────────
 
@@ -41,6 +45,8 @@ EXILE_SOURCES: List[Dict[str, str]] = [
     {"name": "Radio Farda", "url": "https://www.radiofarda.com/api/zkqopekqqop_ztql"},  # RFE/RL Farda feed
     {"name": "BBC Persian", "url": "https://www.bbc.com/persian/index.xml"},
 ]
+
+STATE_SOURCE_NAMES = {s["name"] for s in STATE_SOURCES}
 
 # Lexical framing: terms often used by state vs exile (for comparison hints)
 STATE_FRAMING_TERMS = [
@@ -125,39 +131,100 @@ def _parse_feed_item_published(entry: Any) -> Optional[float]:
     return None
 
 
-def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
-    """Fetch RSS via httpx (timeout, browser UA) then parse; each item gets published_ts or fallback fetch time."""
+def _fetch_state_via_firecrawl(url: str, source_name: str) -> List[Dict[str, Any]]:
+    """
+    Fallback for state feeds: scrape URL via Firecrawl and extract headline-like lines from markdown.
+    Returns list of items with title, link (if found), source_name, published_ts (now), text.
+    """
     items: List[Dict[str, Any]] = []
     fallback_ts = time.time()
     try:
-        with httpx.Client(timeout=FEED_REQUEST_TIMEOUT, follow_redirects=True) as client:
-            r = client.get(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0"},
-            )
-            r.raise_for_status()
-            parsed = feedparser.parse(r.content)
+        from firecrawl import Firecrawl
+        api_key = os.getenv("FIRECRAWL_API_KEY")
+        if not api_key:
+            return items
+        app = Firecrawl(api_key=api_key)
+        result = app.scrape(url, formats=["markdown"])
+        if not result:
+            return items
+        if isinstance(result, dict) and not result.get("success", True):
+            return items
+        data = (result or {}).get("data", result) if isinstance(result, dict) else result
+        if not isinstance(data, dict):
+            data = {"markdown": str(data)} if data else {}
+        markdown = (data.get("markdown") or "").strip()
+        if not markdown:
+            return items
+        # Extract lines that look like headlines: 20–400 chars, not just whitespace/symbols
+        for line in markdown.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#") or len(line) < 20 or len(line) > 400:
+                continue
+            # Remove markdown list prefix and link syntax for display
+            title = re.sub(r"^\s*[-*]\s*", "", line)
+            title = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", title)
+            if len(title) < 15:
+                continue
+            items.append({
+                "title": title[:500],
+                "link": "",
+                "published_ts": fallback_ts,
+                "source_name": source_name,
+                "text": title[:2000],
+            })
+        if items:
+            logger.info("SignalFramework: state source %s got %d items via Firecrawl fallback.", source_name, len(items))
     except Exception as e:
-        logger.warning("SignalFramework: fetch failed for %s (%s): %s", source_name, url[:50], e)
-        return items
-    for entry in getattr(parsed, "entries", [])[:25]:
-        title = (getattr(entry, "title", None) or "").strip()
-        link = getattr(entry, "link", None) or ""
-        summary = (getattr(entry, "summary", None) or getattr(entry, "description", None) or "").strip()
-        if not title and not link:
-            continue
-        ts = _parse_feed_item_published(entry)
-        if ts is None:
-            ts = fallback_ts
-        text = f"{title} {summary}"
-        items.append({
-            "title": title[:500],
-            "link": link,
-            "published_ts": ts,
-            "source_name": source_name,
-            "text": text[:2000],
-        })
-    if not items and source_name in (s["name"] for s in STATE_SOURCES):
+        logger.debug("SignalFramework: Firecrawl fallback for %s failed: %s", source_name, e)
+    return items[:25]
+
+
+def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
+    """Fetch RSS via httpx (timeout, browser UA). On state failure: retry once, then Firecrawl fallback if enabled."""
+    items: List[Dict[str, Any]] = []
+    fallback_ts = time.time()
+    is_state = source_name in STATE_SOURCE_NAMES
+    timeout = FEED_REQUEST_TIMEOUT_STATE if is_state else FEED_REQUEST_TIMEOUT
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0"}
+
+    def _do_fetch() -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                r = client.get(url, headers=headers)
+                r.raise_for_status()
+                parsed = feedparser.parse(r.content)
+        except Exception as e:
+            logger.warning("SignalFramework: fetch failed for %s (%s): %s", source_name, url[:50], e)
+            return out
+        for entry in getattr(parsed, "entries", [])[:25]:
+            title = (getattr(entry, "title", None) or "").strip()
+            link = getattr(entry, "link", None) or ""
+            summary = (getattr(entry, "summary", None) or getattr(entry, "description", None) or "").strip()
+            if not title and not link:
+                continue
+            ts = _parse_feed_item_published(entry)
+            if ts is None:
+                ts = fallback_ts
+            text = f"{title} {summary}"
+            out.append({
+                "title": title[:500],
+                "link": link,
+                "published_ts": ts,
+                "source_name": source_name,
+                "text": text[:2000],
+            })
+        return out
+
+    items = _do_fetch()
+    # Option 4: one retry for state sources when first attempt returned 0 items (transient timeout/5xx)
+    if is_state and not items:
+        logger.debug("SignalFramework: retrying state source %s once.", source_name)
+        time.sleep(0.5)
+        items = _do_fetch()
+    if is_state and not items and SIGNAL_FRAMEWORK_USE_FIRECRAWL and os.getenv("FIRECRAWL_API_KEY"):
+        items = _fetch_state_via_firecrawl(url, source_name)
+    if not items and is_state:
         logger.warning("SignalFramework: state source %s returned 0 items (may be geo-restricted).", source_name)
     return items
 
