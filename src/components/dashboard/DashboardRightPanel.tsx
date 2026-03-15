@@ -1,4 +1,5 @@
 import { UpdatedBriefing } from "@/components/dashboard/UpdatedBriefing";
+import { SignalFrameworkPanel } from "@/components/dashboard/SignalFrameworkPanel";
 import { GlobalImpactPanel } from "@/components/dashboard/GlobalImpactPanel";
 import { ChokePointPanel } from "@/components/dashboard/ChokePointPanel";
 import { LatestHeadlines } from "@/components/dashboard/LatestHeadlines";
@@ -85,6 +86,7 @@ export function DashboardRightPanel({
         ) : (
           <>
             <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+            <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} />
             <PredictivePanel data={conflictData} />
             <CompliancePanel data={conflictData} />
             <ChokePointPanel data={conflictData} />

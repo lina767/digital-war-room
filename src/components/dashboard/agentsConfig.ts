@@ -147,4 +147,13 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "Tunnel / military sites", description: "Optional GeoJSON (TUNNEL_SITES_GEOJSON_URL) for human-shield flag" },
     ],
   },
+  {
+    name: "SIGNAL FRAMEWORK",
+    fullName: "State vs. Exile Narrative",
+    sources: [
+      { name: "IRNA / Fars", description: "State-aligned Persian sources (RSS)" },
+      { name: "Iran International / Radio Farda", description: "Exile/independent (RSS)" },
+      { name: "Comparison", description: "Synthesis, latency, credibility gaps (Iran conflict)" },
+    ],
+  },
 ];
