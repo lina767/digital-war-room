@@ -30,8 +30,8 @@ GREYNOISE_GNQL_STATS_URL = "https://api.greynoise.io/v2/experimental/gnql/stats"
 NVD_CVE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 INTERNETDB_BASE = "https://internetdb.shodan.io"
 THREAT_RSS = [
-    "https://www.mandiant.com/resources/blog/rss.xml",
-    "https://www.crowdstrike.com/blog/feed/",
+    "https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/",
+    "https://www.crowdstrike.com/en-us/blog/feed",
 ]
 OTX_PULSES_URL = "https://otx.alienvault.com/api/v1/pulses/subscribed"
 
@@ -476,11 +476,18 @@ async def _fetch_greynoise_scan_context(client: Any, api_key: str) -> GreyNoiseS
         return GreyNoiseScanContext(available=False, error=str(e), count=0, fetched_at=fetched_at)
 
 
+INTERNETDB_DEFAULT_IPS = [
+    "78.39.159.1",     # Iran (AS12880, IRNIC)
+    "185.143.233.1",   # Iran (AS203214, HiWeb)
+    "5.160.218.1",     # Iran (AS48159, Telecommunication Infrastructure)
+    "91.108.128.1",    # Iran (AS44208, IRANCELL)
+]
+
 def _get_internetdb_ips() -> List[str]:
-    """Conflict-relevant IPs for Shodan InternetDB: from env CYBER_INTERNETDB_IPS (comma-separated)."""
+    """Conflict-relevant IPs for Shodan InternetDB: from env CYBER_INTERNETDB_IPS or defaults."""
     raw = (os.getenv("CYBER_INTERNETDB_IPS") or "").strip()
     if not raw:
-        return []
+        return INTERNETDB_DEFAULT_IPS[:MAX_INTERNETDB_IPS]
     return [ip.strip() for ip in raw.split(",") if ip.strip()][:MAX_INTERNETDB_IPS]
 
 

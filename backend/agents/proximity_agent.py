@@ -154,9 +154,12 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
             result["error_message"] = error_message
         duration_ms = int((time.perf_counter() - start) * 1000)
         evidence = result.get("evidence") or []
+        overpass_status = "ok" if events else "ok"
+        if result.get("reason_empty") == "error" or result.get("error_message"):
+            overpass_status = "error"
         source_results = [
-            SourceResult(name="NASA FIRMS", status="ok" if events else "error", fetched_at=fetched_at, record_count=len(events)),
-            SourceResult(name="Overpass/OSM", status="ok" if evidence else "error", fetched_at=fetched_at, record_count=len(evidence)),
+            SourceResult(name="NASA FIRMS", status="ok" if events or not error_message else "error", fetched_at=fetched_at, record_count=len(events)),
+            SourceResult(name="Overpass/OSM", status=overpass_status, fetched_at=fetched_at, record_count=len(evidence)),
         ]
         reg = get_health_registry()
         if reg:

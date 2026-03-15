@@ -788,7 +788,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             SourceResult(name="AISStream/MT", status="ok" if live_ais_count > 0 else "error", fetched_at=fetched_at, record_count=sum(len(cp.get("tanker_details") or []) for cp in cps)),
             SourceResult(name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at),
             SourceResult(name="EIA baseline", status="ok", fetched_at=fetched_at),
-            SourceResult(name="External status", status="ok" if (out.get("external_status") or {}) else "error", fetched_at=fetched_at),
+            SourceResult(name="External status", status="ok" if (out.get("external_status") or {}) else ("ok" if not os.getenv(CHOKEPOINT_STATUS_URL_ENV) else "error"), fetched_at=fetched_at),
         ]
         reg = get_health_registry()
         if reg:

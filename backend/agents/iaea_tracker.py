@@ -408,7 +408,7 @@ def fetch_notams(
     is_autorouter = "autorouter.aero" in NOTAM_API_URL
     if is_autorouter and not NOTAM_API_KEY:
         logger.debug(
-            "NOTAMs: NOTAM_API_KEY not set. Autorouter.aero may require an API key (see autorouter.aero); if you get HTTP 401/403, add NOTAM_API_KEY to backend/.env."
+            "NOTAMs: NOTAM_API_KEY not set. Autorouter.aero requires an API key. Add NOTAM_API_KEY to backend/.env."
         )
 
     async def _get() -> List[Dict[str, Any]]:
@@ -428,13 +428,20 @@ def fetch_notams(
                     params["locations"] = ",".join(locations)
             try:
                 resp = await client.get(NOTAM_API_URL, params=params)
+                if resp.status_code in (401, 403) and is_autorouter and not NOTAM_API_KEY:
+                    logger.info(
+                        "NOTAMs: autorouter.aero requires API key (HTTP %s). Set NOTAM_API_KEY in backend/.env. "
+                        "Trying FAA NOTAM fallback.",
+                        resp.status_code,
+                    )
+                    return await _faa_notam_fallback(client, locations)
                 if resp.status_code != 200:
                     try:
                         err_body = (resp.text or "")[:300]
                     except Exception:
                         err_body = ""
                     logger.warning(
-                        "NOTAMs API returned HTTP %s. Check NOTAM_API_URL and NOTAM_API_KEY (autorouter.aero). %s",
+                        "NOTAMs API returned HTTP %s. Check NOTAM_API_URL and NOTAM_API_KEY. %s",
                         resp.status_code,
                         err_body,
                     )
@@ -449,6 +456,30 @@ def fetch_notams(
             except Exception as e:
                 logger.warning("NOTAMs request failed: %s. Check NOTAM_API_URL and network.", e)
             return []
+
+    async def _faa_notam_fallback(client: httpx.AsyncClient, locs: list) -> List[Dict[str, Any]]:
+        """Fallback: try FAA NOTAM API (requires client_id + client_secret) or return synthetic entry."""
+        faa_key = os.getenv("FAA_NOTAM_API_KEY", "").strip()
+        if faa_key:
+            try:
+                resp = await client.get(
+                    "https://external-api.faa.gov/notamapi/v1/notams",
+                    params={"locationIdent": ",".join(locs[:4])},
+                    headers={"client_id": faa_key},
+                    timeout=15.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("items") or data.get("notamList") or (data if isinstance(data, list) else [])
+            except Exception:
+                pass
+        return [{
+            "id": "FALLBACK",
+            "text": f"NOTAM data unavailable – set NOTAM_API_KEY (autorouter.aero) in backend/.env for live data. Locations: {', '.join(locs)}",
+            "effective": None,
+            "expiry": None,
+            "location": ",".join(locs),
+        }]
 
     try:
         out = run_async(_get())

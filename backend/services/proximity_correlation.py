@@ -11,7 +11,12 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 logger = logging.getLogger(__name__)
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
+OVERPASS_URL = OVERPASS_URLS[0]
 RADIUS_M = 300
 CRITICAL_M = 50
 HIGH_RISK_M = 150
@@ -43,35 +48,43 @@ out body center;
 
 
 async def fetch_overpass_context(lat: float, lon: float, _retries: int = 2) -> List[Dict[str, Any]]:
-    """Return list of {id, name, lat, lon, amenity?, office?} for civilian facilities in radius."""
+    """Return list of {id, name, lat, lon, amenity?, office?} for civilian facilities in radius.
+    Tries alternative Overpass endpoints on persistent failures."""
     query = _overpass_query(lat, lon, RADIUS_M)
-    attempt = 0
-    while True:
-        try:
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                resp = await client.post(
-                    OVERPASS_URL,
-                    content=f"data={quote(query)}",
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                )
-                resp.raise_for_status()
-                data = resp.json()
+    data = None
+    for endpoint_url in OVERPASS_URLS:
+        attempt = 0
+        while True:
+            try:
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    resp = await client.post(
+                        endpoint_url,
+                        content=f"data={quote(query)}",
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                break
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < _retries:
+                    wait = OVERPASS_DELAY_S * (attempt + 2)
+                    logger.info("Overpass 429 on %s – retrying in %.1fs (%d/%d)", endpoint_url[:40], wait, attempt + 1, _retries)
+                    await asyncio.sleep(wait)
+                    attempt += 1
+                    continue
+                if e.response.status_code == 429:
+                    logger.info("Overpass 429 exhausted on %s – trying next endpoint", endpoint_url[:40])
+                else:
+                    logger.debug("Overpass %s error %s", endpoint_url[:40], e.response.status_code)
+                break
+            except Exception as e:
+                logger.debug("Overpass %s failed: %s", endpoint_url[:40], e)
+                break
+        if data is not None:
             break
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429 and attempt < _retries:
-                wait = OVERPASS_DELAY_S * (attempt + 2)
-                logger.info("Overpass 429 – retrying in %.1fs (attempt %d/%d)", wait, attempt + 1, _retries)
-                await asyncio.sleep(wait)
-                attempt += 1
-                continue
-            if e.response.status_code == 429:
-                logger.warning("Overpass 429 – exhausted retries")
-            else:
-                logger.warning("Overpass API error %s: %s", e.response.status_code, e)
-            return []
-        except Exception as e:
-            logger.warning("Overpass request failed: %s", e)
-            return []
+    if data is None:
+        logger.warning("Overpass: all endpoints failed for (%.4f, %.4f)", lat, lon)
+        return []
     elements = data.get("elements") or []
     facilities = []
     seen = set()

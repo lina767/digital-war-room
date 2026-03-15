@@ -54,9 +54,10 @@ TELEGRAM_CHANNELS = {
 }
 
 NITTER_INSTANCES = [
+    "https://nitter.net",
+    "https://xcancel.com",
     "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
-    "https://nitter.1d4.us",
+    "https://lightbrd.com",
 ]
 
 CONFLICT_TWITTER_ACCOUNTS = {
@@ -333,6 +334,26 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                 continue
         return []
 
+    def _fetch_account_firecrawl(account: str) -> List[Dict[str, Any]]:
+        """Last-resort fallback: scrape X profile via Firecrawl (requires FIRECRAWL_API_KEY)."""
+        try:
+            from firecrawl import Firecrawl
+            api_key = os.getenv("FIRECRAWL_API_KEY")
+            if not api_key:
+                return []
+            fc = Firecrawl(api_key=api_key)
+            result = fc.scrape(f"https://x.com/{account}", formats=["markdown"])
+            md = (result or {}).get("markdown") or ""
+            lines = [l.strip() for l in md.split("\n") if l.strip() and len(l.strip()) > 20]
+            posts = []
+            for line in lines[:15]:
+                if not any(kw in line.lower() for kw in keywords):
+                    continue
+                posts.append(_make_post(account, line[:300]))
+            return posts
+        except Exception:
+            return []
+
     async def _fetch_account(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
         posts = await _fetch_account_html(client, account)
         if not posts:
@@ -347,6 +368,10 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             for r in results:
                 if isinstance(r, list):
                     posts.extend(r)
+            if not posts and os.getenv("FIRECRAWL_API_KEY"):
+                for acc in accounts[:3]:
+                    fc_posts = _fetch_account_firecrawl(acc)
+                    posts.extend(fc_posts)
             posts.sort(key=lambda x: x.get("sentiment_score", 0), reverse=True)
             return posts[:15]
 
@@ -536,10 +561,44 @@ RELIEFWEB_COUNTRY_NAMES = {
 }
 
 
+async def _reliefweb_rss_fallback(country_name: str, keywords: List[str]) -> List[Dict[str, Any]]:
+    """Fallback: scrape ReliefWeb RSS feed when API returns 403."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get("https://reliefweb.int/updates/rss.xml", follow_redirects=True)
+            if resp.status_code != 200:
+                return []
+            feed = feedparser.parse(resp.text)
+            results = []
+            for entry in (getattr(feed, "entries", None) or [])[:40]:
+                title = (entry.get("title") or "").strip()
+                summary = re.sub(r"<[^>]+>", "", entry.get("summary") or entry.get("description") or "")[:200]
+                combined = f"{title} {summary}".lower()
+                if not any(kw in combined for kw in keywords):
+                    continue
+                score = _sentiment(combined)
+                results.append({
+                    "title": title[:400],
+                    "date": entry.get("published") or "",
+                    "body_excerpt": summary,
+                    "source": "ReliefWeb (RSS)",
+                    "url": entry.get("link") or "",
+                    "sentiment_score": score,
+                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
+                    "platform": "reliefweb",
+                })
+                if len(results) >= 10:
+                    break
+            return results
+    except Exception as e:
+        logger.debug("SOCMINT ReliefWeb RSS fallback failed: %s", e)
+        return []
+
+
 def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
     """
     Fetch recent conflict reports from ReliefWeb API v2.
-    Free, no API key, covers humanitarian and conflict events globally.
+    Falls back to RSS feed if API returns 403 (appname not approved).
     """
     cl = conflict.lower()
     country_name = next(
@@ -561,6 +620,9 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
             }
             async with httpx.AsyncClient(timeout=14.0) as client:
                 resp = await client.get(url, params=params)
+                if resp.status_code == 403:
+                    logger.info("SOCMINT ReliefWeb: 403 – appname not approved, falling back to RSS. Register at https://apidoc.reliefweb.int/parameters#appname")
+                    return await _reliefweb_rss_fallback(country_name, keywords)
                 if resp.status_code != 200:
                     return []
                 data = resp.json()

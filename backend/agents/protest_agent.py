@@ -98,35 +98,51 @@ async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 100) -
 
 
 async def _fetch_gdelt_protest(conflict: str) -> List[Dict[str, Any]]:
-    """Fetch GDELT doc API for protest-related articles (free, no key)."""
+    """Fetch GDELT doc API for protest-related articles (free, no key).
+    Retries once on 429 (rate limit) after a 6-second wait."""
     query = f'("{conflict}" OR "protest" OR "demonstration" OR "civil unrest") ("protest" OR "riot" OR "strike")'
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                GDELT_DOC_URL,
-                params={
-                    "query": query,
-                    "mode": "ArtList",
-                    "format": "JSON",
-                    "maxrecords": 15,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        articles = data.get("articles") or []
-        if not isinstance(articles, list):
-            articles = []
-        return [
-            {
-                "title": a.get("title"),
-                "url": a.get("url"),
-                "date": a.get("date"),
-                "source": a.get("source", {}).get("name") if isinstance(a.get("source"), dict) else None,
-            }
-            for a in articles[:15]
-        ]
-    except Exception as e:
-        return [{"error": str(e)}]
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    GDELT_DOC_URL,
+                    params={
+                        "query": query,
+                        "mode": "ArtList",
+                        "format": "JSON",
+                        "maxrecords": 15,
+                    },
+                )
+                if resp.status_code == 429 and attempt < max_retries - 1:
+                    await asyncio.sleep(6)
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(6)
+                        continue
+                    return [{"error": f"GDELT returned non-JSON (HTTP {resp.status_code})"}]
+                resp.raise_for_status()
+                data = resp.json()
+            articles = data.get("articles") or []
+            if not isinstance(articles, list):
+                articles = []
+            return [
+                {
+                    "title": a.get("title"),
+                    "url": a.get("url"),
+                    "date": a.get("date"),
+                    "source": a.get("source", {}).get("name") if isinstance(a.get("source"), dict) else None,
+                }
+                for a in articles[:15]
+            ]
+        except Exception as e:
+            if attempt < max_retries - 1:
+                await asyncio.sleep(6)
+                continue
+            return [{"error": str(e)}]
+    return []
 
 
 def _compute_protest_score(acled_events: List[Dict], gdelt_articles: List[Dict]) -> float:

@@ -891,11 +891,14 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         )
         out = result.model_dump(mode="json")
         duration_ms = int((time.perf_counter() - start) * 1000)
+        adsb_has_error = any(isinstance(a, dict) and a.get("error") for a in (raw_aircraft or []))
+        notam_has_error = isinstance(notam_result, dict) and notam_result.get("error")
+        hormuz_not_configured = not os.getenv("AISSTREAM_API_KEY", "").strip() and not os.getenv("AIRSTREAM_API_KEY", "").strip()
         source_results = [
-            SourceResult(name="ADS-B", status="ok" if aircraft else "error", fetched_at=fetched_at, record_count=len(aircraft)),
+            SourceResult(name="ADS-B", status="error" if adsb_has_error else "ok", fetched_at=fetched_at, record_count=len(aircraft)),
             SourceResult(name="Conflict Reports", status="ok" if reports else "error", fetched_at=fetched_at, record_count=len(reports)),
-            SourceResult(name="NOTAMs", status="ok" if notams else "error", fetched_at=fetched_at, record_count=len(notams)),
-            SourceResult(name="Hormuz Tankers", status="ok" if hormuz_tankers else "error", fetched_at=fetched_at, record_count=len(hormuz_tankers)),
+            SourceResult(name="NOTAMs", status="error" if notam_has_error else "ok", fetched_at=fetched_at, record_count=len(notams)),
+            SourceResult(name="Hormuz Tankers", status="ok" if hormuz_not_configured else ("ok" if hormuz_tankers else "error"), fetched_at=fetched_at, record_count=len(hormuz_tankers)),
         ]
         reg = get_health_registry()
         if reg:

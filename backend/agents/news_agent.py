@@ -376,11 +376,21 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
         }
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(NEWS_API_URL, params=params)
+            if resp.status_code == 429:
+                return {"articles": [], "_rate_limited": True}
+            if resp.status_code == 426:
+                return {"articles": [], "_rate_limited": True}
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if data.get("status") == "error" and "rateLimited" in (data.get("code") or ""):
+                return {"articles": [], "_rate_limited": True}
+            return data
 
     try:
         data = run_async(_fetch(hours_back))
+        if data.get("_rate_limited"):
+            logger.warning("NewsAPI: rate limited (free tier: 100 req/day). Wait or upgrade plan.")
+            return [{"error": "NewsAPI rate limited (free tier: 100 req/day)"}]
         articles = []
         for art in data.get("articles", []):
             title = art.get("title") or ""
@@ -399,7 +409,6 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                 "language": "en",
                 "source_type": "newsapi",
             })
-        # No fallback to 72h: Free tier = 100 req/day only; one request per run to conserve quota.
         return articles
     except Exception as e:
         return [{"error": str(e)}]
@@ -424,7 +433,6 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
     query = _build_query(conflict).strip() or conflict
 
     async def _fetch():
-        # GDELT accepts timespan as "48H" or "2d"; format=json for JSON response
         params = {
             "query": query,
             "mode": "artlist",
@@ -432,13 +440,22 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
             "format": "json",
             "timespan": "48H",
         }
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(GDELT_URL, params=params)
-            resp.raise_for_status()
-            ct = (resp.headers.get("content-type") or "").lower()
-            if "json" not in ct and "javascript" not in ct:
-                return []
-            return resp.json()
+        max_retries = 2
+        for attempt in range(max_retries):
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(GDELT_URL, params=params)
+                if resp.status_code == 429 and attempt < max_retries - 1:
+                    await asyncio.sleep(6)
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(6)
+                        continue
+                    return []
+                resp.raise_for_status()
+                return resp.json()
+        return []
 
     try:
         data = run_async(_fetch())

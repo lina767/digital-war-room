@@ -8,6 +8,7 @@ import csv
 import io
 import logging
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
@@ -30,8 +31,8 @@ from .utils import (
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
 
-# GDELT GEO 2.0 API – map locations mentioned near a keyword (country/ADM1/point). No key. See: https://blog.gdeltproject.org/gdelt-geo-2-0-api-debuts/
-GDELT_GEO_URL = "https://api.gdeltproject.org/api/v2/geo/geo"
+# GDELT DOC 2.0 API – replaces the retired GEO 2.0 endpoint (/api/v2/geo/geo → 404 since late 2025).
+GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 # Bounding boxes for FIRMS area API (W,S,E,N = lon_min, lat_min, lon_max, lat_max)
 REGION_BBOX = {
@@ -317,10 +318,45 @@ ACLED_COUNTRY_NAMES = {
 }
 
 
+async def _reliefweb_rss_fallback(countries: list) -> List[Dict[str, Any]]:
+    """Fallback: scrape ReliefWeb RSS feed when API returns 403 (appname not approved)."""
+    import re
+    try:
+        import feedparser
+    except ImportError:
+        return []
+    reports: List[Dict[str, Any]] = []
+    country_kw = [c.lower() for c in countries]
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get("https://reliefweb.int/updates/rss.xml", follow_redirects=True)
+            if resp.status_code != 200:
+                return []
+            feed = feedparser.parse(resp.text)
+            for entry in (getattr(feed, "entries", None) or [])[:40]:
+                title = (entry.get("title") or "").strip()
+                summary = re.sub(r"<[^>]+>", "", entry.get("summary") or entry.get("description") or "")[:200]
+                combined = f"{title} {summary}".lower()
+                if not any(kw in combined for kw in country_kw):
+                    continue
+                reports.append({
+                    "title": title[:300],
+                    "date": entry.get("published") or "",
+                    "body_excerpt": summary,
+                    "source": "ReliefWeb (RSS)",
+                    "country": next((c for c in countries if c.lower() in combined), countries[0] if countries else ""),
+                })
+                if len(reports) >= 10:
+                    break
+    except Exception as e:
+        logger.debug("ReliefWeb RSS fallback failed: %s", e)
+    return reports
+
+
 def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     """
-    Fetch recent geospatial event reports from ReliefWeb API v2 (free, no key) and optionally ACLED.
-    ReliefWeb: filter by country name; returns title, date, body excerpt, source.
+    Fetch recent geospatial event reports from ReliefWeb API v2 and optionally ACLED.
+    ReliefWeb: filter by country name; falls back to RSS if API returns 403.
     ACLED: optional, uses country name; requires ACLED_API_KEY (and ACLED_EMAIL if needed).
     """
     cl = conflict.lower()
@@ -335,8 +371,8 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
 
     async def _reliefweb() -> List[Dict[str, Any]]:
         reports = []
-        # ReliefWeb v2: filter[field]=country&filter[value]=CountryName; multiple with filter[value][]=A&filter[value][]=B&filter[operator]=OR
         last_rw_error = None
+        use_rss_fallback = False
         for country_name in rw_countries[:3]:
             try:
                 url = "https://api.reliefweb.int/v2/reports"
@@ -350,6 +386,10 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                 }
                 async with httpx.AsyncClient(timeout=14.0) as client:
                     resp = await client.get(url, params=params)
+                    if resp.status_code == 403:
+                        last_rw_error = "HTTP 403 – appname not approved. Register at https://apidoc.reliefweb.int/parameters#appname"
+                        use_rss_fallback = True
+                        break
                     if resp.status_code != 200:
                         last_rw_error = f"HTTP {resp.status_code}"
                         continue
@@ -391,9 +431,13 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
             except Exception as e:
                 last_rw_error = str(e)
                 continue
+
+        if use_rss_fallback and not reports:
+            reports = await _reliefweb_rss_fallback(rw_countries)
+
         if not reports and last_rw_error:
             logger.warning(
-                "ReliefWeb/ACLED: ReliefWeb request failed (%s). Check network and api.reliefweb.int.",
+                "ReliefWeb/ACLED: ReliefWeb request failed (%s). Check RELIEFWEB_APPNAME or register at https://apidoc.reliefweb.int/parameters#appname.",
                 last_rw_error,
             )
         elif not reports:
@@ -891,52 +935,57 @@ def _gdelt_geo_query(conflict: str) -> str:
 
 def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
     """
-    Fetch GDELT GEO 2.0 API (country-level): which countries are mentioned in proximity to the conflict query.
-    Free, no API key. Returns list of { "country": str, "percent": float } from GeoJSON features.
-    Ref: https://blog.gdeltproject.org/gdelt-geo-2-0-api-debuts/
+    Fetch geo-relevant articles via GDELT DOC API (replaces retired GEO 2.0 endpoint).
+    Extracts source-country distribution from article metadata.
+    Free, no API key. Returns list of { "country": str, "percent": float }.
     """
     query = _gdelt_geo_query(conflict)
 
-    async def _fetch() -> Dict[str, Any]:
+    async def _fetch() -> list:
         params = {
             "query": query,
-            "mode": "country",
-            "format": "geojson",
-            "timespan": "2d",
+            "mode": "artlist",
+            "format": "json",
+            "maxrecords": 75,
+            "timespan": "48H",
         }
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(GDELT_GEO_URL, params=params)
-            resp.raise_for_status()
-            ct = (resp.headers.get("content-type") or "").lower()
-            if "json" not in ct and "geojson" not in ct:
-                return {}
-            return resp.json()
+        max_retries = 2
+        for attempt in range(max_retries):
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(GDELT_DOC_URL, params=params)
+                if resp.status_code == 429 and attempt < max_retries - 1:
+                    await asyncio.sleep(6)
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(6)
+                        continue
+                    return []
+                resp.raise_for_status()
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data.get("articles") or []
+                return data if isinstance(data, list) else []
+        return []
 
     try:
-        data = run_async(_fetch())
-        if not isinstance(data, dict):
+        articles = run_async(_fetch())
+        if not articles:
             return []
-        features = data.get("features") or []
-        out: List[Dict[str, Any]] = []
-        for f in features:
-            if not isinstance(f, dict):
+        country_counts: Dict[str, int] = {}
+        for art in articles:
+            if not isinstance(art, dict):
                 continue
-            props = f.get("properties") or {}
-            name = props.get("name") or props.get("NAME") or props.get("ADM0_NAME") or props.get("country") or ""
-            if not name:
-                continue
-            percent = None
-            for key in ("percent", "percentmention", "density", "value", "count"):
-                if key in props and props[key] is not None:
-                    try:
-                        percent = float(props[key])
-                        break
-                    except (TypeError, ValueError):
-                        pass
-            if percent is None:
-                percent = 0.0
-            out.append({"country": str(name).strip(), "percent": round(percent, 2)})
-        return sorted(out, key=lambda x: (x.get("percent") or 0), reverse=True)[:30]
+            sc = (art.get("sourcecountry") or art.get("domain") or "").strip()
+            if sc:
+                country_counts[sc] = country_counts.get(sc, 0) + 1
+        total = sum(country_counts.values()) or 1
+        out: List[Dict[str, Any]] = [
+            {"country": c, "percent": round(n / total * 100, 2)}
+            for c, n in country_counts.items()
+        ]
+        return sorted(out, key=lambda x: x.get("percent", 0), reverse=True)[:30]
     except Exception as e:
         logger.debug("GDELT GEO fetch failed: %s", e)
         return []
