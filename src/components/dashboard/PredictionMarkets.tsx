@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { formatTimeAgo } from "@/lib/utils";
 
 const FALLBACK_MARKETS = [
   { question: "US military strike on Iran in 2025?", probability: 0.34, volume: 0 },
@@ -43,22 +44,6 @@ function formatEndDate(iso: string | undefined): string | null {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return null;
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return null;
-  }
-}
-
-function formatTimeAgo(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    if (diff < 0) return "just now";
-    const mins = Math.floor(diff / 60_000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
   } catch {
     return null;
   }
@@ -107,7 +92,7 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
       endLabel: formatEndDate(m.end_date_iso),
     }));
 
-  const timeAgo = formatTimeAgo(fetchedAt);
+  const timeAgo = fetchedAt ? formatTimeAgo(fetchedAt) : null;
 
   return (
     <IntelPanel
@@ -134,7 +119,7 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {list.map((m, i) => (
           <div
-            key={i}
+            key={m.question ?? `market-${i}`}
             className="rounded-lg border border-border bg-muted/20 p-3 flex flex-col min-h-[180px]"
             role="article"
             aria-label={`${m.question} – ${m.pct}% YES probability`}

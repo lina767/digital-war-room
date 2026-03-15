@@ -1,5 +1,6 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { formatTimeAgo } from "@/lib/utils";
 
 interface UpdatedBriefingProps {
   data: ConflictData | null;
@@ -7,15 +8,6 @@ interface UpdatedBriefingProps {
   lastUpdated: Date | null;
   /** True while initial fetch of cached analysis is in progress (improves perceived load time). */
   isLoading?: boolean;
-}
-
-function formatTimeAgo(date: Date | null): string {
-  if (!date) return "—";
-  const sec = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (sec < 60) return "Just now";
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-  return `${Math.floor(sec / 86400)}d ago`;
 }
 
 export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }: UpdatedBriefingProps) {

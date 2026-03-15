@@ -1,4 +1,5 @@
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { formatTimeAgo } from "@/lib/utils";
 
 interface NewsSentimentProps {
   /** 0–100: higher = more escalatory/bullish for conflict coverage */
@@ -8,15 +9,7 @@ interface NewsSentimentProps {
 
 export function NewsSentiment({ newsScore, lastUpdated }: NewsSentimentProps) {
   const sentiment = typeof newsScore === "number" ? Math.min(100, Math.max(0, newsScore)) : 50;
-
-  const timeAgo = lastUpdated
-    ? (() => {
-        const sec = Math.floor((Date.now() - lastUpdated.getTime()) / 1000);
-        if (sec < 60) return "Just now";
-        if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-        return `${Math.floor(sec / 3600)}h ago`;
-      })()
-    : "—";
+  const timeAgo = formatTimeAgo(lastUpdated);
 
   return (
     <IntelPanel

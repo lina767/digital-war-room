@@ -62,7 +62,7 @@ export function EventsTimeline({ data }: EventsTimelineProps) {
           </li>
         )}
         {filtered.slice(0, 20).map((f, i) => (
-          <li key={i} className="py-2 text-xs leading-relaxed flex gap-2">
+          <li key={`${filter}-${i}-${f.slice(0, 40)}`} className="py-2 text-xs leading-relaxed flex gap-2">
             <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
             <span>{f}</span>
           </li>

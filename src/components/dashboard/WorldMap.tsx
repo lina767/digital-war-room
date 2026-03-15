@@ -38,12 +38,7 @@ const WorldGeographies = memo(() => (
 ));
 WorldGeographies.displayName = "WorldGeographies";
 
-interface WorldMapProps {
-  /** Current conflict for optional highlight on world map */
-  activeConflict?: string | null;
-}
-
-export function WorldMap({ activeConflict = null }: WorldMapProps) {
+export function WorldMap() {
   const [zoom, setZoom] = useState(DEFAULT_WORLD_ZOOM);
   const [center, setCenter] = useState<[number, number]>(DEFAULT_WORLD_CENTER);
   const [showLinks, setShowLinks] = useState(true);

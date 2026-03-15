@@ -42,8 +42,11 @@ FOOD_SYMBOLS = [
 
 COMMODITY_SYMBOLS = OIL_SYMBOLS + FOOD_SYMBOLS
 
-# FAO Food Price Index CSV (free, monthly)
-FAO_FPI_URL = "https://www.fao.org/fileadmin/templates/worldfood/Reports_and_docs/Food_price_indices_data_jul14.csv"
+# FAO Food Price Index CSV (free, monthly). FAO updates the filename; override via FAO_FPI_URL env if needed.
+FAO_FPI_URL = os.getenv(
+    "FAO_FPI_URL",
+    "https://www.fao.org/fileadmin/templates/worldfood/Reports_and_docs/Food_price_indices_data_jul14.csv",
+)
 
 # World Bank commodity prices API (free, monthly)
 WORLD_BANK_COMMODITIES_URL = "https://api.worldbank.org/v2/country/WLD/indicator"
@@ -100,6 +103,10 @@ async def _fetch_fao_fpi() -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(FAO_FPI_URL, follow_redirects=True)
             if resp.status_code != 200:
+                if resp.status_code == 404:
+                    logger.warning(
+                        "ENERGY: FAO FPI URL returned 404 (file may have been moved). Set FAO_FPI_URL env to current CSV URL."
+                    )
                 return {"error": f"FAO FPI HTTP {resp.status_code}"}
             reader = csv.reader(io.StringIO(resp.text))
             rows = list(reader)

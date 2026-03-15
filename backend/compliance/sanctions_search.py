@@ -13,13 +13,14 @@ import csv
 import io
 import logging
 import re
+import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Literal, Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-OFAC_SDN_CSV_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
+OFAC_SDN_CSV_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV"
 EU_SANCTIONS_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xml/fullSanctionsList_1_1.xml"
 
 MatchLevel = Literal["EXACT", "STRONG_FUZZY", "WEAK_FUZZY", "REVIEW", "NOT_LISTED"]
@@ -140,15 +141,78 @@ async def _load_ofac_sdn() -> List[SanctionsEntity]:
     return entities
 
 
+def _strip_ns(tag: str) -> str:
+    """Remove XML namespace from tag, e.g. {http://...}sanctionEntity -> sanctionEntity."""
+    if "}" in tag:
+        return tag.split("}", 1)[1]
+    return tag
+
+
+async def _load_eu_sanctions() -> List[SanctionsEntity]:
+    """Fetch EU FSD consolidated sanctions XML and parse into SanctionsEntity list."""
+    entities: List[SanctionsEntity] = []
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(EU_SANCTIONS_URL)
+            if resp.status_code != 200:
+                logger.warning("Failed to load EU sanctions list: HTTP %s", resp.status_code)
+                return entities
+            text = resp.text
+        root = ET.fromstring(text)
+        # EU FSD XML: sanctionEntity (or sanction-entity) with nameAlias / name-alias, regulation
+        for elem in root.iter():
+            tag = _strip_ns(elem.tag)
+            if tag not in ("sanctionEntity", "sanction-entity", "entity"):
+                continue
+            names: List[str] = []
+            program = ""
+            entity_type = ""
+            source_id = elem.get("logicalId") or elem.get("id") or ""
+            for child in elem:
+                ctag = _strip_ns(child.tag)
+                if ctag in ("nameAlias", "name-alias"):
+                    whole = child.get("wholeName") or child.get("whole-name") or child.text
+                    if whole and isinstance(whole, str) and whole.strip():
+                        names.append(whole.strip())
+                elif ctag in ("regulation", "regulationSummary"):
+                    prog = child.get("programme") or child.get("program") or child.text
+                    if prog and isinstance(prog, str) and prog.strip():
+                        program = prog.strip()
+                        break
+            if not names:
+                continue
+            primary = names[0]
+            aliases = names[1:] if len(names) > 1 else []
+            for attr in ("type", "entityType", "entity-type"):
+                val = elem.get(attr)
+                if val:
+                    entity_type = val
+                    break
+            entities.append(SanctionsEntity(
+                name=primary,
+                aliases=aliases,
+                entity_type=entity_type,
+                program=program,
+                source="EU",
+                source_id=source_id,
+            ))
+    except ET.ParseError as e:
+        logger.warning("Failed to parse EU sanctions XML: %s", e)
+    except Exception as e:
+        logger.warning("Failed to load EU sanctions list: %s", e)
+    return entities
+
+
 async def _ensure_index():
     """Load index if not yet loaded."""
     global _SANCTIONS_INDEX, _INDEX_LOADED
     if _INDEX_LOADED:
         return
     ofac = await _load_ofac_sdn()
-    _SANCTIONS_INDEX = ofac
+    eu = await _load_eu_sanctions()
+    _SANCTIONS_INDEX = ofac + eu
     _INDEX_LOADED = True
-    logger.info("Sanctions index loaded: %d entities", len(_SANCTIONS_INDEX))
+    logger.info("Sanctions index loaded: %d entities (%d OFAC, %d EU)", len(_SANCTIONS_INDEX), len(ofac), len(eu))
 
 
 def _match_level_from_score(score: float) -> MatchLevel:

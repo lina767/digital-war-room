@@ -21,10 +21,10 @@ export function LiveTicker({ conflictData }: LiveTickerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const fromData =
-    (conflictData?.news?.articles?.length ?? 0) > 0
-      ? conflictData!.news!.articles!.slice(0, 12).map((a) => `● ${a.title || ""}`).filter(Boolean)
-      : [];
+  const fromData = (conflictData?.news?.articles ?? [])
+    .slice(0, 12)
+    .map((a) => `● ${a.title || ""}`)
+    .filter(Boolean);
   const tickerItems = fromData.length > 0 ? (fromData as string[]) : FALLBACK_ITEMS;
 
   useEffect(() => {

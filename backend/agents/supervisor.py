@@ -172,14 +172,6 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     if agent_name == "chokepoint":
         out["chokepoints"] = (result.get("chokepoints") or [])[:5]
         out["chokepoint_score"] = result.get("chokepoint_score", 0.0)
-    if agent_name == "narrative":
-        out["synthesis_text"] = (result.get("synthesis_text") or "")[:500]
-        out["synthesis_probability"] = result.get("synthesis_probability")
-        sa = result.get("signal_assessment") or {}
-        out["latency"] = (sa.get("latency") or "")[:200]
-        out["anomalies"] = (result.get("anomalies") or [])[:5]
-        out["state_item_count"] = result.get("state_item_count", 0)
-        out["exile_item_count"] = result.get("exile_item_count", 0)
     return out
 
 
@@ -296,6 +288,7 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         "protest": protest_score,
         "diplo": diplo_score,
         "proximity": proximity_score,
+        "chokepoint": chokepoint_score,
     }
 
     use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")

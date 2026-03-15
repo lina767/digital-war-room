@@ -10,7 +10,6 @@ from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
 from agents.supervisor import analyze_conflict
-from agents.utils import run_async
 from agents.geoint_agent import get_thermal_anomalies, get_conflict_events_for_heatmap, get_theater_events
 from agents.iaea_tracker import run_iaea_tracker, fetch_notams
 from api.proximity_correlation import run_correlation_for_events
@@ -94,7 +93,7 @@ async def get_latest_analysis(request: Request, conflict: str = "Iran"):
     cache = _get_cache(request)
     entry = cache.get(conflict)
     if not entry:
-        return Response(status_code=404)
+        return JSONResponse(status_code=404, content={"error": "no_cached_analysis", "conflict": conflict})
     return entry["result"]
 
 

@@ -277,7 +277,7 @@ async def find_relevant_chunks(
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [
-        {"similarity": s, "doc_id": did, "text_preview": c[:200], "source": "in_memory"}
+        {"similarity": s, "doc_id": did, "text_preview": c[:200], "text": c, "source": "in_memory"}
         for s, did, c in scored[:top_k]
     ]
 
@@ -299,7 +299,7 @@ def list_documents() -> List[Dict[str, Any]]:
 
 
 # Well-known document URLs for auto-ingest
-OFAC_SDN_PDF_URL = "https://www.treasury.gov/ofac/downloads/sdnlist.pdf"
+OFAC_SDN_PDF_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDNLIST.PDF"
 UN_SC_IRAN_RESOLUTIONS = [
-    "https://undocs.org/S/RES/2231(2015)",
+    "https://undocs.org/pdf?symbol=S/RES/2231(2015)",
 ]

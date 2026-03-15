@@ -3,6 +3,7 @@ import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { Anchor, Droplets, Wheat, AlertTriangle, Shield, Settings2 } from "lucide-react";
 import { getApiBase } from "@/lib/api";
+import { toast } from "sonner";
 
 interface ChokePointPanelProps {
   data: ConflictData | null;
@@ -116,7 +117,12 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
       if (res.ok) {
         const updated = (await res.json()) as Record<string, string>;
         setOverrides(updated ?? {});
+      } else {
+        const msg = await res.text();
+        toast.error(msg || "Failed to update chokepoint status");
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update chokepoint status");
     } finally {
       setOverrideLoading(null);
     }

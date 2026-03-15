@@ -394,14 +394,14 @@ async def _fetch_greynoise_scan_context(client: Any, api_key: str) -> GreyNoiseS
         count = int(data.get("count") or 0)
         stats = data.get("stats") or {}
         actors = [x for x in (stats.get("actors") or [])[:5] if isinstance(x, dict) and x.get("actor")]
-        source_countries = [x for x in (stats.get("source_countries") or [])[:5] if isinstance(x, dict) and x.get("actor")]
+        source_countries = [x for x in (stats.get("source_countries") or [])[:5] if isinstance(x, dict) and x.get("country")]
         classifications = [x for x in (stats.get("classifications") or []) if isinstance(x, dict)]
         return GreyNoiseScanContext(
             available=True,
             count=count,
             query=query,
             top_actors=[{"actor": a.get("actor"), "count": a.get("count")} for a in actors],
-            top_source_countries=[{"country": c.get("actor"), "count": c.get("count")} for c in source_countries],
+            top_source_countries=[{"country": c.get("country"), "count": c.get("count")} for c in source_countries],
             classifications=[{"classification": c.get("classification"), "count": c.get("count")} for c in classifications],
             fetched_at=fetched_at,
         )
