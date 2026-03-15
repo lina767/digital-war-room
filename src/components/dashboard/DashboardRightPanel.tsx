@@ -14,20 +14,10 @@ import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
 import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
 import { CompliancePanel } from "@/components/dashboard/CompliancePanel";
 import { WorldMap } from "@/components/dashboard/WorldMap";
-import { useState } from "react";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
-import { getApiBase } from "@/lib/api";
-import { Target, X, Globe, Play } from "lucide-react";
+import { Target, X, Globe } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
-
-function regionFromConflict(conflict: string | null | undefined): string {
-  const c = (conflict || "").toLowerCase();
-  if (c.includes("ukraine") || c.includes("russia")) return "eastern_europe";
-  if (c.includes("gaza") || c.includes("israel")) return "gaza_israel";
-  if (c.includes("yemen")) return "yemen";
-  return "middle_east";
-}
 
 interface ProximityAnalyzerBlockProps {
   analysisLoading?: boolean;
@@ -35,7 +25,6 @@ interface ProximityAnalyzerBlockProps {
   proximitySummary?: string;
   reasonEmpty?: string;
   errorMessage?: string;
-  activeConflict?: string | null;
 }
 
 function ProximityAnalyzerBlock({
@@ -44,52 +33,13 @@ function ProximityAnalyzerBlock({
   proximitySummary,
   reasonEmpty,
   errorMessage,
-  activeConflict,
 }: ProximityAnalyzerBlockProps) {
-  const [onDemand, setOnDemand] = useState<{
-    evidence: ProximityEvidence[];
-    reason_empty?: string;
-    error_message?: string;
-  } | null>(null);
-  const [onDemandLoading, setOnDemandLoading] = useState(false);
-
-  const evidence = onDemand !== null ? onDemand.evidence : proximityEvidence;
-  const reason = onDemand !== null ? onDemand.reason_empty : reasonEmpty;
-  const errMsg = onDemand !== null ? onDemand.error_message : errorMessage;
+  const evidence = proximityEvidence;
+  const reason = reasonEmpty;
+  const errMsg = errorMessage;
   const summary = proximitySummary;
 
   const isError = typeof summary === "string" && summary.startsWith("PROXIMITY error:");
-
-  async function handleRunProximity() {
-    setOnDemandLoading(true);
-    setOnDemand(null);
-    try {
-      const region = regionFromConflict(activeConflict);
-      const res = await fetch(
-        `${getApiBase()}/api/proximity/analyze?region=${encodeURIComponent(region)}&days=3`,
-        { signal: AbortSignal.timeout(120_000) }
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as {
-        evidence?: ProximityEvidence[];
-        reason_empty?: string;
-        error_message?: string;
-      };
-      setOnDemand({
-        evidence: Array.isArray(data.evidence) ? data.evidence : [],
-        reason_empty: data.reason_empty,
-        error_message: data.error_message,
-      });
-    } catch (e) {
-      setOnDemand({
-        evidence: [],
-        reason_empty: "error",
-        error_message: e instanceof Error ? e.message : "Request failed",
-      });
-    } finally {
-      setOnDemandLoading(false);
-    }
-  }
 
   return (
     <div className="pt-4 border-t border-border">
@@ -98,25 +48,13 @@ function ProximityAnalyzerBlock({
           <Target className="h-3.5 w-3.5" />
           PROXIMITY ANALYZER
         </h3>
-        <button
-          type="button"
-          onClick={handleRunProximity}
-          disabled={onDemandLoading}
-          aria-label="Run proximity analysis"
-          className="flex items-center gap-1 rounded border border-border bg-muted/50 px-2 py-1 text-[11px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50"
-        >
-          <Play className="h-3 w-3" />
-          {onDemandLoading ? "…" : "Run"}
-        </button>
+        <span className="text-[10px] text-muted-foreground/80 font-mono">with analysis</span>
       </div>
       <div className="space-y-2 max-h-64 overflow-y-auto overscroll-contain">
-        {onDemandLoading && (
-          <p className="text-xs text-muted-foreground py-2 italic">Running proximity analysis…</p>
-        )}
-        {!onDemandLoading && analysisLoading && evidence.length === 0 && onDemand === null && (
+        {analysisLoading && evidence.length === 0 && (
           <p className="text-xs text-muted-foreground py-2 italic">Running with analysis…</p>
         )}
-        {!analysisLoading && evidence.length === 0 && onDemand === null && (
+        {!analysisLoading && evidence.length === 0 && (
           <>
             {isError && (
               <p className="text-xs text-destructive py-2">{summary}</p>
@@ -136,27 +74,6 @@ function ProximityAnalyzerBlock({
               <p className="text-xs text-muted-foreground py-2">
                 Strike–civilian correlation from latest analysis. No proximity evidence in current window.
               </p>
-            )}
-          </>
-        )}
-        {evidence.length === 0 && onDemand !== null && (
-          <>
-            {reason === "no_strikes" && (
-              <p className="text-xs text-muted-foreground py-2">
-                No thermal anomalies in region (check NASA FIRMS key and region).
-                {errMsg && <span className="block mt-1 text-destructive/90">{errMsg}</span>}
-              </p>
-            )}
-            {reason === "no_facilities_near_strikes" && (
-              <p className="text-xs text-muted-foreground py-2">
-                Strikes in window but no schools/hospitals within 300 m in OSM.
-              </p>
-            )}
-            {reason === "error" && errMsg && (
-              <p className="text-xs text-destructive py-2">{errMsg}</p>
-            )}
-            {reason !== "no_strikes" && reason !== "no_facilities_near_strikes" && reason !== "error" && (
-              <p className="text-xs text-muted-foreground py-2">No proximity evidence in this run.</p>
             )}
           </>
         )}
@@ -254,7 +171,6 @@ export function DashboardRightPanel({
         proximitySummary={conflictData?.proximity?.summary}
         reasonEmpty={conflictData?.proximity?.reason_empty}
         errorMessage={conflictData?.proximity?.error_message}
-        activeConflict={activeConflict}
       />
 
       {/* Activity & Connectivity (Iran Monitor style) */}
