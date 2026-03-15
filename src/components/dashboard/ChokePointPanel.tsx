@@ -126,7 +126,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
   const oilCommodities = energy?.commodities ?? [];
   const foodCommodities = energy?.food_commodities ?? [];
   const faoFpi = energy?.fao_fpi;
-  const foodRisk = energy?.food_security_risk ?? 0;
+  const foodRisk = Number(energy?.food_security_risk) || 0;
 
   if (chokepoints.length === 0 && oilCommodities.length === 0 && foodCommodities.length === 0) {
     return null;
@@ -248,14 +248,12 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
                 </span>
               </div>
             )}
-            {foodRisk > 0 && (
-              <div className="flex justify-between text-[11px] pt-0.5">
-                <span className="text-muted-foreground">Food Risk</span>
-                <span className={`font-mono ${foodRisk >= 60 ? "text-red-400" : foodRisk >= 40 ? "text-amber-400" : "text-emerald-400"}`}>
-                  {foodRisk.toFixed(0)}/100
-                </span>
-              </div>
-            )}
+            <div className="flex justify-between text-[11px] pt-0.5">
+              <span className="text-muted-foreground">Food Risk</span>
+              <span className={`font-mono ${foodRisk >= 60 ? "text-red-400" : foodRisk >= 40 ? "text-amber-400" : "text-emerald-400"}`}>
+                {energy != null ? `${Math.round(foodRisk)}/100` : "—"}
+              </span>
+            </div>
           </div>
         </div>
 
