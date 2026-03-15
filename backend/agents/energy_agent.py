@@ -1,6 +1,6 @@
 """
 ENERGY / Commodities Agent – Gas storage (AGSI+), commodity indices, food & fertilizer.
-Fetches: EU gas storage (AGSI+), oil + food commodity prices (Alpha Vantage),
+Fetches: EU gas storage (AGSI+), oil (EIA then FRED then Alpha Vantage), food (FRED then Alpha Vantage),
 FAO Food Price Index, World Bank fertilizer prices, and computes food_security_risk.
 Rule-based score from storage levels and price volatility. No LLM.
 """
@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 # AGSI+ API (free with registration) – EU gas storage
 AGSI_BASE = "https://agsi.gie.eu/api"
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
+EIA_BASE = "https://api.eia.gov/v2/seriesid"
+FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
+# EIA spot price series (daily)
+EIA_BRENT_SERIES = "PET.RBRTE.D"
+EIA_WTI_SERIES = "PET.RWTC.D"
+# FRED: oil daily, food monthly
+FRED_OIL_SERIES = [("DCOILBRENTEU", "BRENT", "Brent crude"), ("DCOILWTICO", "WTI", "WTI crude")]
+FRED_FOOD_SERIES = [("PWHEAMTUSDM", "WHEAT", "Wheat"), ("PMAIZMTUSDM", "CORN", "Corn"), ("PSOYBUSDM", "SOYBEAN", "Soybean")]
 
 OIL_SYMBOLS = [
     ("BRENT", "Brent crude"),
@@ -231,7 +239,7 @@ def _build_summary(
     if food_risk >= 60:
         parts.append(f"Food security risk: {food_risk:.0f}/100 (exposed: {', '.join(EXPOSED_COUNTRIES[:3])})")
     if not parts:
-        return "ENERGY: No AGSI or commodity data (set AGSI_API_KEY and/or ALPHAVANTAGE_API_KEY)."
+        return "ENERGY: No AGSI or commodity data (set AGSI_API_KEY, EIA_API_KEY/FRED_API_KEY for oil/food, or ALPHAVANTAGE_API_KEY)."
     out = "ENERGY: " + " ".join(parts)
     if conflict and "iran" in conflict.lower():
         max_up = max(
@@ -243,8 +251,146 @@ def _build_summary(
     return out
 
 
+def _commodity_entry(
+    symbol: str, label: str, price: float, prev_price: float, as_of: str
+) -> Dict[str, Any]:
+    """Build one commodity dict in the standard format."""
+    change_pct = ((price - prev_price) / prev_price * 100) if prev_price and prev_price != 0 else None
+    return {
+        "symbol": symbol,
+        "label": label,
+        "price": f"{price:.2f}" if price else None,
+        "change_pct": f"{change_pct:+.1f}%" if change_pct is not None else "0%",
+        "change_pct_raw": change_pct,
+        "as_of": as_of,
+    }
+
+
+async def _fetch_eia_oil_prices(api_key: str) -> List[Dict[str, Any]]:
+    """Fetch oil (Brent, WTI) from EIA API v2 spot series. Returns empty list if no key or error."""
+    if not api_key or not api_key.strip():
+        return []
+    results = []
+    mapping = [(EIA_BRENT_SERIES, "BRENT", "Brent crude"), (EIA_WTI_SERIES, "WTI", "WTI crude")]
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for series_id, symbol, label in mapping:
+                try:
+                    resp = await client.get(
+                        f"{EIA_BASE}/{series_id}/data",
+                        params={
+                            "api_key": api_key.strip(),
+                            "length": 5,
+                            "sort[0][column]": "period",
+                            "sort[0][direction]": "desc",
+                        },
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    # EIA v2: response.data with period, value (strings)
+                    records = (data.get("response") or {}).get("data") if isinstance(data, dict) else None
+                    if not isinstance(records, list) or len(records) < 2:
+                        continue
+                    valid = [r for r in records if isinstance(r, dict) and r.get("value") not in (None, "", ".")]
+                    if len(valid) < 2:
+                        continue
+                    latest, prev = valid[0], valid[1]
+                    price = _safe_float(latest.get("value"), 0)
+                    prev_p = _safe_float(prev.get("value"), 0)
+                    if not price or not prev_p:
+                        continue
+                    period = latest.get("period") or latest.get("date") or ""
+                    results.append(_commodity_entry(symbol, label, price, prev_p, period))
+                except Exception as e:
+                    logger.debug("ENERGY: EIA series %s failed: %s", series_id, e)
+    except Exception as e:
+        logger.debug("ENERGY: EIA oil fetch failed: %s", e)
+    return results
+
+
+async def _fetch_fred_oil_prices(api_key: str) -> List[Dict[str, Any]]:
+    """Fetch oil (Brent, WTI) from FRED. Returns empty list if no key or error."""
+    if not api_key or not api_key.strip():
+        return []
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for series_id, symbol, label in FRED_OIL_SERIES:
+                try:
+                    resp = await client.get(
+                        FRED_BASE,
+                        params={
+                            "series_id": series_id,
+                            "api_key": api_key.strip(),
+                            "file_type": "json",
+                            "sort_order": "desc",
+                            "limit": 5,
+                        },
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    obs = (data.get("observations") or []) if isinstance(data, dict) else []
+                    valid = [o for o in obs if isinstance(o, dict) and o.get("value") not in (None, "", ".")]
+                    if len(valid) < 2:
+                        continue
+                    latest, prev = valid[0], valid[1]
+                    price = _safe_float(latest.get("value"), 0)
+                    prev_p = _safe_float(prev.get("value"), 0)
+                    if not price or not prev_p:
+                        continue
+                    as_of = latest.get("date") or ""
+                    results.append(_commodity_entry(symbol, label, price, prev_p, as_of))
+                except Exception as e:
+                    logger.debug("ENERGY: FRED oil series %s failed: %s", series_id, e)
+    except Exception as e:
+        logger.debug("ENERGY: FRED oil fetch failed: %s", e)
+    return results
+
+
+async def _fetch_fred_food_prices(api_key: str) -> List[Dict[str, Any]]:
+    """Fetch food (Wheat, Corn, Soybean) from FRED monthly series. Returns empty list if no key or error."""
+    if not api_key or not api_key.strip():
+        return []
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for series_id, symbol, label in FRED_FOOD_SERIES:
+                try:
+                    resp = await client.get(
+                        FRED_BASE,
+                        params={
+                            "series_id": series_id,
+                            "api_key": api_key.strip(),
+                            "file_type": "json",
+                            "sort_order": "desc",
+                            "limit": 5,
+                        },
+                    )
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    obs = (data.get("observations") or []) if isinstance(data, dict) else []
+                    valid = [o for o in obs if isinstance(o, dict) and o.get("value") not in (None, "", ".")]
+                    if len(valid) < 2:
+                        continue
+                    latest, prev = valid[0], valid[1]
+                    price = _safe_float(latest.get("value"), 0)
+                    prev_p = _safe_float(prev.get("value"), 0)
+                    if not price or not prev_p:
+                        continue
+                    as_of = latest.get("date") or ""
+                    results.append(_commodity_entry(symbol, label, price, prev_p, as_of))
+                except Exception as e:
+                    logger.debug("ENERGY: FRED food series %s failed: %s", series_id, e)
+    except Exception as e:
+        logger.debug("ENERGY: FRED food fetch failed: %s", e)
+    return results
+
+
 async def _fetch_oil_prices(api_key: str) -> List[Dict[str, Any]]:
-    """Fetch oil commodity quotes only (Brent, WTI)."""
+    """Fetch oil commodity quotes only (Brent, WTI) from Alpha Vantage."""
     return await _fetch_commodity_prices_for(api_key, OIL_SYMBOLS)
 
 
@@ -291,23 +437,34 @@ async def _fetch_commodity_prices_for(
 
 
 def run_energy_agent(conflict: str) -> Dict[str, Any]:
-    """Run ENERGY/Commodities agent: AGSI+, oil/food prices, FAO FPI, fertilizer."""
+    """Run ENERGY/Commodities agent: AGSI+, oil/food prices (EIA/FRED/Alpha Vantage), FAO FPI, fertilizer."""
     agsi_key = os.getenv("AGSI_API_KEY")
+    eia_key = (os.getenv("EIA_API_KEY") or "").strip()
+    fred_key = (os.getenv("FRED_API_KEY") or "").strip()
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
 
     async def _run() -> Dict[str, Any]:
         agsi_task = _fetch_agsi_storage(agsi_key or "")
-        async def _empty_list():
-            return []
-
-        oil_task = _fetch_oil_prices(av_key) if av_key else _empty_list()
-        food_task = _fetch_food_prices(av_key) if av_key else _empty_list()
         fao_task = _fetch_fao_fpi()
         fert_task = _fetch_fertilizer_prices()
 
-        agsi, oil_commodities, food_commodities, fao_fpi, fertilizer = await asyncio.gather(
-            agsi_task, oil_task, food_task, fao_task, fert_task,
-        )
+        # Oil: EIA first, then FRED, then Alpha Vantage
+        oil_commodities: List[Dict[str, Any]] = []
+        if eia_key:
+            oil_commodities = await _fetch_eia_oil_prices(eia_key)
+        if not oil_commodities and fred_key:
+            oil_commodities = await _fetch_fred_oil_prices(fred_key)
+        if not oil_commodities and av_key:
+            oil_commodities = await _fetch_oil_prices(av_key)
+
+        # Food: FRED first, then Alpha Vantage
+        food_commodities: List[Dict[str, Any]] = []
+        if fred_key:
+            food_commodities = await _fetch_fred_food_prices(fred_key)
+        if not food_commodities and av_key:
+            food_commodities = await _fetch_food_prices(av_key)
+
+        agsi, fao_fpi, fertilizer = await asyncio.gather(agsi_task, fao_task, fert_task)
 
         # Legacy: keep combined commodities for backward compat
         all_commodities = oil_commodities + food_commodities
