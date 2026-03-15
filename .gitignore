@@ -30,4 +30,8 @@ dist-ssr
 backend/.env
 backend/.env.*
 !backend/.env.example
+
+# Backend runtime/cache (generierte History, GreyNoise-Snapshots etc.)
+backend/data/
+
 **/__pycache__
