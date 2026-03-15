@@ -487,9 +487,7 @@ def fetch_iaea_flight_plan_status() -> Dict[str, Any]:
         return out
 
     if not IAEA_FLIGHTPLAN_STATUS_URL:
-        out["correlation_hint"] = (
-            "Flight plan status not configured. Set IAEA_FLIGHTPLAN_STATUS_URL or IAEA_FLIGHTPLAN_STATUS."
-        )
+        out["correlation_hint"] = "Flight plan status not configured."
         return out
 
     try:
@@ -593,7 +591,7 @@ def fetch_iaea_press_releases(days: int = 14) -> Dict[str, Any]:
         except Exception:
             continue
 
-    hint = f"{len(items)} IAEA-Press/News mit Bezug zu Rafael Grossi (Zeitraum {days} Tage, nur neue innerhalb TTL)."
+    hint = f"{len(items)} IAEA press/news items related to Rafael Grossi (last {days} days, new within TTL)."
     confidence = "medium" if items else "low"
     return {
         "items": items,
