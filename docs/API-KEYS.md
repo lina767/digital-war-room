@@ -96,6 +96,8 @@ GET https://api.reliefweb.int/v2/reports?appname=digital-war-room&limit=10&filte
 
 **DIPLO** benötigt **keine** Keys (OFAC, EU-Liste, UN/ICJ-RSS sind öffentlich).
 
+**Wenn UN/ICJ nicht funktioniert:** Die Quelle holt RSS von **UN** (press.un.org bzw. Fallback news.un.org) und **ICJ** (icj-cij.org). (1) **HTTP 404:** Die offiziellen RSS-URLs werden gelegentlich umgestellt; im Backend-Log erscheint z. B. „DIPLO: UN RSS failed HTTP 404“. Es wird automatisch ein Fallback auf den UN-News-Feed versucht. (2) **ICJ 404:** Unter [icj-cij.org/en/press-releases](https://www.icj-cij.org/en/press-releases) prüfen, ob eine neue RSS-URL angegeben ist, und ggf. `ICJ_RSS` in `backend/agents/diplo_agent.py` anpassen. (3) **0 Einträge trotz OK:** Es erscheint „no items after filter (UN: ok but 0 match, ICJ: …)“ – die Feeds werden nach Konflikt-Keywords gefiltert; bei passenden Schlagwörtern können Einträge fehlen. Kein API-Key nötig. **OFAC recent** (RSS für OFAC/Treasury Recent Actions) wurde entfernt, da OFAC das Feed zum 31.01.2025 eingestellt hat.
+
 ---
 
 ## Weitere optionale Keys (bestehende Agents)
@@ -125,7 +127,7 @@ GET https://api.reliefweb.int/v2/reports?appname=digital-war-room&limit=10&filte
 
 **Wenn NOTAMs nicht funktionieren:** (1) **NOTAM_API_URL** ist standardmäßig `https://api.autorouter.aero/v1.0/notam`; nur setzen, wenn du einen anderen Endpunkt nutzt. (2) Viele NOTAM-APIs (z. B. Autorouter.aero) verlangen **NOTAM_API_KEY** – in `backend/.env` setzen, siehe [autorouter.aero](https://www.autorouter.aero/). (3) Im Backend-Log erscheinen bei Fehlern Meldungen wie „NOTAMs API returned HTTP 401“ oder „NOTAMs request failed“; dann URL und Key prüfen.
 
-**Hormuz Tankers (SIGINT):** Die Liste „Hormuz Tankers“ wird **nicht mehr von VesselFinder** befüllt, sondern aus dem **Chokepoint-Agent** übernommen: Wenn **AIRSTREAM_API_KEY** gesetzt ist, nutzt der Chokepoint-Agent AISStream (Hormuz, Bab el-Mandeb, Suez) für Tanker; der Supervisor überträgt die Tanker des „Strait of Hormuz“ in das SIGINT-Ergebnis. Ohne AIRSTREAM_API_KEY bleibt die SIGINT-Liste „Hormuz Tankers“ leer (kein Fallback auf VesselFinder).
+**Hormuz Tankers (SIGINT):** Die Liste „Hormuz Tankers“ wird aus dem **Chokepoint-Agent** (AISStream) übernommen, wenn **AIRSTREAM_API_KEY** gesetzt ist. Ohne Key bleibt die Liste leer. **VesselFinder ist aus dem Code entfernt** (keine Naval-Vessels- noch Tanker-Quelle mehr).
 
 **Wenn Threat RSS (CYBER) nicht funktioniert:** Die Quelle holt RSS-Feeds von **Mandiant** und **CrowdStrike** (ohne API-Key). (1) **Beide Feeds fehlgeschlagen:** Im Log erscheint „CYBER: Threat RSS – no articles (feeds failed: …)“ – oft liefert Mandiant RSS temporär HTTP 500; CrowdStrike-Feed ist meist erreichbar. (2) **Feeds OK, aber 0 Einträge:** Es erscheint „no article matched conflict 'X' (keywords: …)“ – die Artikel werden nach Konflikt-Keywords gefiltert (z. B. Iran: iran, apt33, apt34, muddywater …). Wenn aktuell keine Blog-Posts zu diesem Konflikt erscheinen, bleibt die Liste leer. Kein API-Key nötig; bei dauerhaften Fehlern URLs in `cyber_agent.py` (THREAT_RSS) prüfen.
 

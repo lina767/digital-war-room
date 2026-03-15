@@ -191,7 +191,7 @@ export function DashboardRightPanel({
         <AgentsStatusBar />
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise · FAO · EIA · AIS
+        Data sources: News API · GDELT · RSS · Polymarket · ADSB · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise · FAO · EIA · AIS
       </p>
     </aside>
   );

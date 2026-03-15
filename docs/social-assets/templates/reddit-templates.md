@@ -23,7 +23,7 @@ The Digital War Room runs 11 specialized AI agents in parallel — each one tapp
 | Agent | What it monitors | Data sources |
 |-------|-----------------|--------------|
 | FININT | Oil prices, prediction markets, sanctions | Brent/WTI, Polymarket, OFAC |
-| SIGINT | Military aircraft and naval vessels | ADS-B (adsb.fi), VesselFinder |
+| SIGINT | Military aircraft, intel reports, Hormuz tankers | ADS-B (adsb.fi), Conflict RSS, Chokepoint AISStream |
 | NEWS | Media sentiment and coverage | NewsAPI, GDELT, RSS |
 | GEOINT | Satellite thermal anomalies | NASA FIRMS, UCDP |
 | SOCMINT | Social media signals | Telegram, Reddit, RSS |

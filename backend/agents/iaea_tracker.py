@@ -5,7 +5,6 @@ Säulen:
 - ADS-B: OE-III per Registration + ICAO-Hex (440333), Boden-Modus, ORER-Erkennung.
 - NOTAMs: Autorouter.aero / Eurocontrol EAD.
 - IAEA-Press: RSS, Filter Grossi/DG.
-- METAR ORER: NOAA API (aviationweather.gov/api/data/metar), RVR/Sicht, operative Verzögerung.
 - Flugplan-Status: optional IAEA_FLIGHTPLAN_STATUS_URL (IFPS/NMOC-Proxy).
 - Telegram: optional IAEA_TELEGRAM_CHANNELS (Erbil/Kurdistan); t.me/s-Scraping ist fragil/rate-limited,
   für ernsthaftes Monitoring wäre Telethon/Pyrogram mit eigenem Account stabiler (technische Schuld).
@@ -77,9 +76,6 @@ GROSSI_KEYWORDS = ("grossi", "director general", "dg grossi", "iaea chief", "raf
 NOTAM_API_URL = os.getenv("NOTAM_API_URL", "https://api.autorouter.aero/v1.0/notam").strip()
 NOTAM_API_KEY = os.getenv("NOTAM_API_KEY", "").strip()
 NOTAM_ICAO_DEFAULT = ["EDDS", "LOWW", "OIIE", "ORER"]
-
-# METAR – neuer NOAA-Endpunkt (Legacy cgi-bin/data/metar.php deprecated 2024)
-METAR_ORER_URL = "https://aviationweather.gov/api/data/metar?ids=ORER&format=raw"
 
 # Flugplan-Status (optional: eigener Proxy oder manuell gepflegter JSON)
 IAEA_FLIGHTPLAN_STATUS_URL = os.getenv("IAEA_FLIGHTPLAN_STATUS_URL", "").strip()
@@ -498,89 +494,6 @@ def fetch_notams(
     }
 
 
-def _parse_metar_visibility(raw: str) -> Optional[float]:
-    """METAR visibility: 9999 = unbeschränkt (m), 0500 = 500m, M0500 = <500m."""
-    if not raw:
-        return None
-    raw = raw.strip().upper()
-    if raw == "9999" or raw == "P6SM" or "9999" in raw:
-        return 10000.0
-    m = re.match(r"M?(\d{4})", raw)
-    if m:
-        return float(m.group(1))
-    m = re.match(r"(\d+)\s*SM", raw)
-    if m:
-        return float(m.group(1)) * 1609.34  # statute miles -> m
-    return None
-
-
-def _parse_metar_rvr(raw: str) -> Optional[float]:
-    """RVR aus METAR z.B. R36R/0500V0800."""
-    if not raw:
-        return None
-    m = re.search(r"R\d*[LCR]?/(\d{4})", raw)
-    if m:
-        return float(m.group(1))
-    return None
-
-
-def fetch_metar_orer() -> Dict[str, Any]:
-    """
-    METAR für ORER (Erbil) – neuer NOAA-Endpunkt (aviationweather.gov/api/data/metar).
-    Liefert visibility_m, rvr_m, operational_delay_risk, correlation_hint, confidence.
-    """
-    out: Dict[str, Any] = {
-        "raw": None,
-        "visibility_m": None,
-        "rvr_m": None,
-        "operational_delay_risk": False,
-        "summary": "",
-        "source": "metar",
-        "correlation_hint": "",
-        "confidence": "low",
-    }
-
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            resp = client.get(METAR_ORER_URL, headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"})
-            if resp.status_code not in (200, 204):
-                out["correlation_hint"] = "METAR ORER: request failed (HTTP %s)." % resp.status_code
-                return out
-            raw = (resp.text or "").strip()
-            if resp.status_code == 204 or not raw or "No data" in raw or "error" in raw.lower():
-                out["correlation_hint"] = "METAR ORER: no data (204 or empty response)."
-                return out
-    except Exception as e:
-        logger.warning("METAR fetch failed: %s", e)
-        out["correlation_hint"] = "METAR ORER: request failed."
-        out["error"] = str(e)
-        return out
-
-    out["raw"] = raw
-    # Einfaches Parsing: Visibility und RVR
-    vis = _parse_metar_visibility(raw)
-    rvr = _parse_metar_rvr(raw)
-    out["visibility_m"] = vis
-    out["rvr_m"] = rvr
-
-    delay_risk = False
-    if rvr is not None and rvr < 500:
-        delay_risk = True
-    if vis is not None and vis < 800:
-        delay_risk = True
-    out["operational_delay_risk"] = delay_risk
-
-    if delay_risk:
-        out["summary"] = "RVR/visibility below threshold; operational delays possible (without CAT III)."
-        out["correlation_hint"] = "METAR ORER: low RVR/visibility -> operational delays possible."
-        out["confidence"] = "high"
-    else:
-        out["summary"] = "Visibility/RVR acceptable."
-        out["correlation_hint"] = "METAR ORER: visibility/RVR acceptable."
-        out["confidence"] = "medium"
-    return out
-
-
 def fetch_iaea_flight_plan_status() -> Dict[str, Any]:
     """
     Optionaler Flugplan-Status (IFPS/NMOC-Proxy). Wenn IAEA_FLIGHTPLAN_STATUS_URL gesetzt:
@@ -828,7 +741,6 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
 def _build_correlation_notes(
     adsb: Dict[str, Any],
     notam: Dict[str, Any],
-    metar: Dict[str, Any],
     flight_plan: Dict[str, Any],
     press: Dict[str, Any],
     telegram: Dict[str, Any],
@@ -841,7 +753,6 @@ def _build_correlation_notes(
     for name, data in [
         ("ADS-B", adsb),
         ("NOTAM", notam),
-        ("METAR", metar),
         ("Flugplan", flight_plan),
         ("IAEA Press", press),
         ("Telegram", telegram),
@@ -862,14 +773,10 @@ async def _generate_haiku_summary_iaea(result: Dict[str, Any]) -> Optional[str]:
         from services.haiku_service import analyst_summary
         import json
         oe = result.get("oeiii_adsb") or {}
-        metar = result.get("metar_orer") or {}
         press = result.get("iaea_press_grossi") or {}
         compact = {
             "adsb_count": oe.get("count", 0),
             "adsb_hint": oe.get("correlation_hint"),
-            "metar_visibility": metar.get("visibility_m"),
-            "metar_operational_delay_risk": metar.get("operational_delay_risk"),
-            "metar_summary": metar.get("summary"),
             "flight_plan_status": (result.get("flight_plan_status") or {}).get("status"),
             "press_count": press.get("count", 0),
             "telegram_count": (result.get("iaea_telegram_signals") or {}).get("count", 0),
@@ -878,7 +785,7 @@ async def _generate_haiku_summary_iaea(result: Dict[str, Any]) -> Optional[str]:
         data = json.dumps(compact, indent=2)
         system = (
             "You are an IAEA/OSINT analyst. Summarize the following OE-III (IAEA aircraft) multi-sensor "
-            "fusion data in 3-4 sentences: ADS-B sightings, NOTAM/METAR, flight plan status, IAEA press, "
+            "fusion data in 3-4 sentences: ADS-B sightings, NOTAM, flight plan status, IAEA press, "
             "Telegram. Give a concise assessment (e.g. operational status, visibility constraints, recent coverage). "
             "Write in English."
         )
@@ -891,7 +798,6 @@ async def _generate_haiku_summary_iaea(result: Dict[str, Any]) -> Optional[str]:
 def correlate_iaea_tracker(
     adsb_result: Optional[Dict[str, Any]] = None,
     notam_result: Optional[Dict[str, Any]] = None,
-    metar_result: Optional[Dict[str, Any]] = None,
     flight_plan_result: Optional[Dict[str, Any]] = None,
     press_result: Optional[Dict[str, Any]] = None,
     telegram_result: Optional[Dict[str, Any]] = None,
@@ -902,12 +808,11 @@ def correlate_iaea_tracker(
     """
     adsb = adsb_result or {}
     notam = notam_result or {}
-    metar = metar_result or {}
     flight_plan = flight_plan_result or {}
     press = press_result or {}
     telegram = telegram_result or {}
 
-    correlation_notes, summary = _build_correlation_notes(adsb, notam, metar, flight_plan, press, telegram)
+    correlation_notes, summary = _build_correlation_notes(adsb, notam, flight_plan, press, telegram)
 
     return {
         "oeiii_adsb": {
@@ -922,15 +827,6 @@ def correlate_iaea_tracker(
             "count": notam.get("count", 0),
             "correlation_hint": notam.get("correlation_hint"),
             "confidence": notam.get("confidence"),
-        },
-        "metar_orer": {
-            "raw": metar.get("raw"),
-            "visibility_m": metar.get("visibility_m"),
-            "rvr_m": metar.get("rvr_m"),
-            "operational_delay_risk": metar.get("operational_delay_risk", False),
-            "summary": metar.get("summary"),
-            "correlation_hint": metar.get("correlation_hint"),
-            "confidence": metar.get("confidence"),
         },
         "flight_plan_status": {
             "status": flight_plan.get("status", "unknown"),
@@ -975,13 +871,11 @@ def run_iaea_tracker() -> Dict[str, Any]:
 
     async def _run_all() -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
-        # Fetches die sync sind im Executor; METAR/Flugplan/Telegram/Press sync, ADS-B/NOTAM haben ggf. schon async
+        # Fetches die sync sind im Executor; Flugplan/Telegram/Press sync, ADS-B/NOTAM haben ggf. schon async
         def run_adsb():
             return _safe_fetch("ADS-B", fetch_adsb_oeiii)
         def run_notams():
             return _safe_fetch("NOTAM", fetch_notams, 3)
-        def run_metar():
-            return _safe_fetch("METAR", fetch_metar_orer)
         def run_fp():
             return _safe_fetch("Flight plan", fetch_iaea_flight_plan_status)
         def run_press():
@@ -992,7 +886,6 @@ def run_iaea_tracker() -> Dict[str, Any]:
         tasks = [
             loop.run_in_executor(None, run_adsb),
             loop.run_in_executor(None, run_notams),
-            loop.run_in_executor(None, run_metar),
             loop.run_in_executor(None, run_fp),
             loop.run_in_executor(None, run_press),
             loop.run_in_executor(None, run_telegram),
@@ -1007,15 +900,13 @@ def run_iaea_tracker() -> Dict[str, Any]:
 
         adsb = _unwrap(0, "ADS-B")
         notam = _unwrap(1, "NOTAM")
-        metar = _unwrap(2, "METAR")
-        flight_plan = _unwrap(3, "Flight plan")
-        press = _unwrap(4, "IAEA Press")
-        telegram = _unwrap(5, "Telegram")
+        flight_plan = _unwrap(2, "Flight plan")
+        press = _unwrap(3, "IAEA Press")
+        telegram = _unwrap(4, "Telegram")
 
         result = correlate_iaea_tracker(
             adsb_result=adsb,
             notam_result=notam,
-            metar_result=metar,
             flight_plan_result=flight_plan,
             press_result=press,
             telegram_result=telegram,
@@ -1032,14 +923,12 @@ def run_iaea_tracker() -> Dict[str, Any]:
         duration_ms = int((time.perf_counter() - start) * 1000)
         oa = result.get("oeiii_adsb") or {}
         no = result.get("notams") or {}
-        me = result.get("metar_orer") or {}
         fp = result.get("flight_plan_status") or {}
         pr = result.get("iaea_press_grossi") or {}
         tg = result.get("iaea_telegram_signals") or {}
         source_results = [
             SourceResult(name="ADS-B", status="ok" if not oa.get("error") and (oa.get("count") or oa.get("aircraft")) else "error", fetched_at=fetched_at, record_count=oa.get("count", 0) or len(oa.get("aircraft") or [])),
             SourceResult(name="NOTAMs", status="ok" if not no.get("error") and (no.get("count") or no.get("notams")) else "error", fetched_at=fetched_at, record_count=no.get("count", 0) or len(no.get("notams") or [])),
-            SourceResult(name="METAR", status="ok" if not me.get("error") and me.get("raw") else "error", fetched_at=fetched_at),
             SourceResult(name="Flight plan", status="ok" if not fp.get("error") and fp.get("status") != "unknown" else "error", fetched_at=fetched_at),
             SourceResult(name="IAEA Press", status="ok" if not pr.get("error") and (pr.get("count") or pr.get("items")) else "error", fetched_at=fetched_at, record_count=pr.get("count", 0) or len(pr.get("items") or [])),
             SourceResult(name="Telegram", status="ok" if not tg.get("error") and (tg.get("count") or tg.get("posts")) else "error", fetched_at=fetched_at, record_count=tg.get("count", 0) or len(tg.get("posts") or [])),
@@ -1060,7 +949,6 @@ def run_iaea_tracker() -> Dict[str, Any]:
         result = correlate_iaea_tracker(
             adsb_result={"correlation_hint": "Tracker failed.", "confidence": "low", "error": str(e)},
             notam_result={},
-            metar_result={},
             flight_plan_result={},
             press_result={},
             telegram_result={},

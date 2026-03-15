@@ -11,7 +11,7 @@ Jeder Agent hat eine feste Tool-Liste und eine regelbasierte Fallback-Kette. Erw
 | Agent | Aktuelle Tools/Quellen | Mögliche Erweiterungen |
 |-------|------------------------|------------------------|
 | **FININT** | Brent, WTI (Alpha Vantage), Polymarket, Tracked Wallets | Weitere Rohstoff-Indizes (Gas, Gold), weitere Prediction Markets (z. B. Kalshi), Sanctions/Treasury-Listen (OFAC) als Tool |
-| **SIGINT** | ADS-B (Flugzeuge), VesselFinder, Conflict Reports RSS | MarineTraffic API (wenn Key), NOTAM-Integration (iaea_tracker hat NOTAMs), weitere RSS/Intel-Feeds; **Tool-Kette parallel** (wie FININT/NEWS) für Latenz |
+| **SIGINT** | ADS-B (Flugzeuge), Conflict Reports RSS, Hormuz Tankers (Chokepoint AISStream) | MarineTraffic/anderer AIS-Anbieter für Naval Vessels (VesselFinder entfernt); NOTAM-Integration (iaea_tracker); weitere RSS/Intel-Feeds |
 | **NEWS** | NewsAPI, GDELT, RSS | Weitere Sprachen (GDELT filter), regionale Nachrichten-APIs, Alert-System (Keyword-Webhook) |
 | **GEOINT** | NASA FIRMS, ReliefWeb, UCDP (optional), ACLED (optional), EO Browser Links | **Liveuamap API** (kostenpflichtig, in DEPLOYMENT erwähnt), **Sentinel Hub Process API** (SENTINELHUB_CLIENT_ID/SECRET für automatische Tiles), weitere Regionen in `REGION_BBOX` |
 | **SOCMINT** | Telegram, Nitter, Reddit, RSS, ReliefWeb | Weitere Telegram-Kanäle/Regionen in `TELEGRAM_CHANNELS`, Mastodon/Bluesky als Tool (wenn stabile API), mehr Subreddits pro Region |

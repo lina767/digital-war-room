@@ -9,9 +9,7 @@ ADS-B sources (no API key needed):
 Optional: ADSBexchange via RapidAPI (ADSBEXCHANGE_RAPIDAPI_KEY) for target tracking (e.g. OE-III).
   - https://rapidapi.com/adsbx/api/adsbexchange-com1
 
-Ship sources:
-  - VesselFinder public endpoint (multiple bounding boxes)
-  - MarineTraffic RSS
+Naval vessels: no external API in use (VesselFinder removed). Ships list can be extended via Chokepoint/AISStream or future source.
 
 Intelligence reports:
   - CriticalThreats, LongWarJournal, UnderstandingWar RSS feeds
@@ -102,16 +100,7 @@ HIGH_PRIORITY_CALLSIGNS = [
     "DARKSTAR",         # classified ISR
     "GORDO",            # RQ-4 alternate
 ]
-WARSHIP_KEYWORDS = [
-    "warship", "destroyer", "frigate", "carrier", "corvette",
-    "navy", "patrol", "amphibious", "cruiser", "military", "naval", "combat", "guard",
-]
-WARSHIP_PREFIXES = ["USS ", "HMS ", "FS ", "INS ", "USNS ", "RFS ", "IRIS "]
-# AIS ship type 30-39 = military (ICAO/IEC 62287)
-MILITARY_SHIP_TYPE_CODES = (30, 31, 32, 33, 34, 35, 36, 37, 38, 39)
-
 # Hormuz tankers: filled from Chokepoint agent (AISStream) in supervisor when AIRSTREAM_API_KEY is set.
-# No VesselFinder dependency; see _run_rule_based_sigint and supervisor._synthesize merge.
 
 # Optional target aircraft profiles – track multiple high-value aircraft via ADSBexchange/RapidAPI + free ADS-B.
 # Add entries here or via env (e.g. OEIII_HEX for ICAO). Each key = target name, value = { hex?, regs?, notes? }.
@@ -463,101 +452,6 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-def _normalize_vessel(v: dict, label: str) -> dict | None:
-    """Extract name, type, lat, lon from vessel dict (multiple possible field names)."""
-    name = str(
-        v.get("name") or v.get("NAME") or v.get("shipname") or v.get("vesselName") or ""
-    ).strip()
-    ship_type_raw = v.get("type") or v.get("TYPE") or v.get("shiptype") or v.get("vesselType")
-    ship_type = str(ship_type_raw or "").strip()
-    lat = safe_float(v.get("lat") or v.get("latitude") or v.get("LAT"))
-    lon = safe_float(v.get("lon") or v.get("longitude") or v.get("LON"))
-    # AIS military type codes 30-39
-    try:
-        t = int(float(ship_type_raw)) if ship_type_raw is not None else None
-    except (TypeError, ValueError):
-        t = None
-    is_military_type = t in MILITARY_SHIP_TYPE_CODES
-    is_warship = (
-        is_military_type
-        or any(kw in name.lower() or kw in ship_type.lower() for kw in WARSHIP_KEYWORDS)
-        or any(name.upper().startswith(p.strip()) for p in WARSHIP_PREFIXES)
-    )
-    if not is_warship:
-        return None
-    return {
-        "name": name or ship_type or "Vessel",
-        "type": ship_type,
-        "lat": lat,
-        "lon": lon,
-        "region": label,
-    }
-
-
-def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
-    """
-    Fetch warships in the Persian Gulf, Red Sea, Eastern Med, and Gulf of Aden.
-    Uses VesselFinder public map API; falls back to relaxed filter if no warships detected.
-    """
-    # bbox: try both "minLon,minLat,maxLon,maxLat" and "minLat,maxLat,minLon,maxLon"
-    SHIP_REGIONS = [
-        ("Persian Gulf", "48,22,62,30"),   # lon,lat,lon,lat
-        ("Red Sea", "32,12,44,28"),
-        ("Eastern Med", "25,30,38,37"),
-        ("Gulf of Aden", "42,10,52,16"),
-    ]
-
-    async def _fetch(client: httpx.AsyncClient, bbox: str) -> List[Dict]:
-        for param_name in ("bbox", "bb", "bounds"):
-            try:
-                resp = await client.get(
-                    "https://www.vesselfinder.com/api/pub/vesselsonmap",
-                    params={param_name: bbox}, timeout=12.0,
-                )
-                if resp.status_code != 200:
-                    continue
-                ct = (resp.headers.get("content-type") or "").lower()
-                if "json" not in ct and "javascript" not in ct:
-                    continue
-                data = resp.json()
-                if isinstance(data, list):
-                    return data
-                for key in ("vessels", "data", "rows", "results", "ships"):
-                    if isinstance(data.get(key), list):
-                        return data[key]
-            except Exception:
-                continue
-        return []
-
-    async def _run():
-        results = []
-        seen = set()
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
-            tasks = [_fetch(client, bbox) for _, bbox in SHIP_REGIONS]
-            all_vessels = await asyncio.gather(*tasks, return_exceptions=True)
-            for (label, _), vessels in zip(SHIP_REGIONS, all_vessels):
-                if not isinstance(vessels, list):
-                    continue
-                for v in vessels:
-                    if not isinstance(v, dict):
-                        continue
-                    out = _normalize_vessel(v, label)
-                    if not out:
-                        continue
-                    key = (out.get("name") or "").lower()[:40] or str(out.get("lat")) + "," + str(out.get("lon"))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    results.append(out)
-        return results
-
-    try:
-        return run_async(_run())
-    except Exception as e:
-        logger.exception("SIGINT: get_naval_vessels failed: %s", e)
-        return [{"error": str(e)}]
-
-
 def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """
     Fetch recent military/conflict reports from diverse OSINT and media feeds:
@@ -844,7 +738,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     try:
         with ThreadPoolExecutor(max_workers=8) as executor:
             fut_air = executor.submit(get_military_aircraft)
-            fut_ships = executor.submit(get_naval_vessels)
             fut_reports = executor.submit(get_conflict_reports, conflict)
             fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
             # Track all configured target aircraft (OE-III + any from TARGET_AIRCRAFT_EXTRA)
@@ -857,11 +750,8 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 logger.exception("SIGINT: aircraft fetch failed: %s", e)
                 raw_aircraft = [{"error": str(e)}]
 
-            try:
-                raw_ships = fut_ships.result(timeout=40)
-            except Exception as e:
-                logger.exception("SIGINT: naval vessels fetch failed: %s", e)
-                raw_ships = [{"error": str(e)}]
+            # Naval vessels: no source (VesselFinder removed)
+            raw_ships: List[Dict[str, Any]] = []
 
             try:
                 raw_reports = fut_reports.result(timeout=40)
@@ -995,7 +885,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
             SourceResult(name="ADS-B", status="ok" if aircraft else "error", fetched_at=fetched_at, record_count=len(aircraft)),
-            SourceResult(name="VesselFinder", status="ok" if ships else "error", fetched_at=fetched_at, record_count=len(ships)),
             SourceResult(name="Conflict Reports", status="ok" if reports else "error", fetched_at=fetched_at, record_count=len(reports)),
             SourceResult(name="NOTAMs", status="ok" if notams else "error", fetched_at=fetched_at, record_count=len(notams)),
             SourceResult(name="Hormuz Tankers", status="ok" if hormuz_tankers else "error", fetched_at=fetched_at, record_count=len(hormuz_tankers)),

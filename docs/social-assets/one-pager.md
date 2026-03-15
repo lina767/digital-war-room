@@ -52,7 +52,7 @@ flowchart TB
 
   subgraph agents [11 Intelligence Agents — parallel]
     FININT["FININT\nBrent, WTI, Gold\nPolymarket, Metaculus\nOFAC, On-Chain"]
-    SIGINT["SIGINT\nADS-B, VesselFinder\nMarineTraffic\nIntel RSS"]
+    SIGINT["SIGINT\nADS-B, Intel RSS\nHormuz Tankers (AISStream)"]
     NEWS["NEWS\nNewsAPI, GDELT\nRSS Feeds"]
     GEOINT["GEOINT\nNASA FIRMS\nUCDP, Sentinel Hub"]
     SOCMINT["SOCMINT\nTelegram, Reddit\nRSS, ReliefWeb"]
@@ -84,7 +84,7 @@ flowchart TB
 | Agent | Sources | What It Measures |
 |-------|---------|-----------------|
 | **FININT** | Brent/WTI/Gold, Polymarket, Metaculus, OFAC, Etherscan | Financial stress and market-implied conflict probability |
-| **SIGINT** | ADS-B (adsb.fi, adsb.lol), VesselFinder, MarineTraffic, CriticalThreats RSS | Military aircraft, naval vessel movements, intel reports |
+| **SIGINT** | ADS-B (adsb.fi, adsb.lol), CriticalThreats RSS, Hormuz Tankers (Chokepoint AISStream) | Military aircraft, intel reports, Hormuz tankers |
 | **NEWS** | NewsAPI, GDELT Doc API, RSS (BBC, DW, Al Jazeera, RFE/RL) | Open-source media sentiment and coverage volume |
 | **GEOINT** | NASA FIRMS (thermal), UCDP (Uppsala), Sentinel Hub EO Browser | Satellite-detected thermal anomalies and conflict events |
 | **SOCMINT** | Telegram, Nitter/X, Reddit, RSS, ReliefWeb | Social signal detection and grassroots sentiment |

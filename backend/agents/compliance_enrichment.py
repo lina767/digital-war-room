@@ -71,8 +71,6 @@ def build_compliance_and_alerts(
         ofac_sdn=ofac_sdn,
         eu_sanctions=eu_sanctions,
     )
-    ofac_recent = diplo_result.get("ofac_recent_actions") or []
-
     sigint_result = agent_results.get("sigint") or {}
     alerts: List[Dict[str, Any]] = []
     for a in (sigint_result.get("alerts") or []):
@@ -119,12 +117,6 @@ def build_compliance_and_alerts(
             "keyword_mentions": eu_sanctions.get("keyword_mentions", 0),
             "error": eu_sanctions.get("error"),
         },
-        "ofac_recent_actions": [
-            {"title": a.get("title"), "url": a.get("url"),
-             "published": a.get("published"), "source": a.get("source"),
-             "summary": a.get("summary")}
-            for a in ofac_recent[:5]
-        ],
         "disclaimer": (
             "Intelligence signals only – not legal advice. "
             "Supports due diligence but does not replace legal review."

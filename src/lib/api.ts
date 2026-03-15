@@ -234,7 +234,7 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   return out;
 }
 
-/** GET /api/iaea-tracker – Multisensor-Fusion (ADS-B, NOTAM, METAR ORER, Flugplan, Press, Telegram). */
+/** GET /api/iaea-tracker – Multisensor-Fusion (ADS-B, NOTAM, Flugplan, Press, Telegram). */
 export interface IaeaTrackerCorrelationNote {
   hint: string;
   confidence: "high" | "medium" | "low";
@@ -258,15 +258,6 @@ export interface IaeaTrackerResponse {
     confidence?: string;
   };
   notams?: { notams?: unknown[]; count?: number; correlation_hint?: string; confidence?: string };
-  metar_orer?: {
-    raw?: string | null;
-    visibility_m?: number | null;
-    rvr_m?: number | null;
-    operational_delay_risk?: boolean;
-    summary?: string;
-    correlation_hint?: string;
-    confidence?: string;
-  };
   flight_plan_status?: {
     status?: string;
     last_updated_iso?: string | null;

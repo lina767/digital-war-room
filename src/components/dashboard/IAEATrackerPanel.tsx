@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { IntelPanel, IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 import { getIaeaTracker, type IaeaTrackerResponse, type IaeaTrackerCorrelationNote } from "@/lib/api";
-import { Plane, ChevronDown, ChevronRight, Cloud, FileText, MessageCircle, Calendar, MapPin } from "lucide-react";
+import { Plane, ChevronDown, ChevronRight, FileText, MessageCircle, Calendar, MapPin } from "lucide-react";
 
 const CONFIDENCE_STYLES: Record<string, string> = {
   high: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -34,7 +34,6 @@ export function IAEATrackerPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAdsB, setShowAdsB] = useState(false);
-  const [showMetar, setShowMetar] = useState(false);
   const [showFlightPlan, setShowFlightPlan] = useState(false);
   const [showPress, setShowPress] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
@@ -67,7 +66,6 @@ export function IAEATrackerPanel() {
   const notes = (data?.correlation_notes ?? []) as IaeaTrackerCorrelationNote[];
   const adsb = data?.oeiii_adsb;
   const aircraft = adsb?.aircraft ?? [];
-  const metar = data?.metar_orer;
   const flightPlan = data?.flight_plan_status;
   const press = data?.iaea_press_grossi;
   const telegram = data?.iaea_telegram_signals;
@@ -142,32 +140,6 @@ export function IAEATrackerPanel() {
                 </div>
               ))}
               {aircraft.length > 5 && <p>+{aircraft.length - 5} more</p>}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* METAR ORER */}
-      {metar && (metar.raw || metar.correlation_hint) && (
-        <div className="border-t border-border/60 pt-2 space-y-1">
-          <button
-            type="button"
-            onClick={() => setShowMetar(!showMetar)}
-            className="flex items-center gap-1.5 w-full text-left text-[11px] font-medium text-foreground"
-          >
-            {showMetar ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-            <Cloud className="h-3.5 w-3.5 text-sky-400" />
-            METAR ORER
-            {metar.operational_delay_risk && (
-              <span className="text-amber-400 font-medium">Delay risk</span>
-            )}
-          </button>
-          {showMetar && (
-            <div className="pl-5 space-y-0.5 text-[11px] text-muted-foreground">
-              {metar.correlation_hint && <p>{metar.correlation_hint}</p>}
-              {metar.visibility_m != null && <p>Visibility: {metar.visibility_m} m</p>}
-              {metar.rvr_m != null && <p>RVR: {metar.rvr_m} m</p>}
-              {metar.raw && <p className="font-mono text-[10px] break-all">{metar.raw}</p>}
             </div>
           )}
         </div>

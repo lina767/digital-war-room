@@ -448,37 +448,6 @@ export default function DailyIntelligenceBriefing() {
                     </div>
                   )}
 
-                  {/* OFAC / Treasury Recent Actions */}
-                  {(data.compliance?.ofac_recent_actions?.length ?? 0) > 0 && (
-                    <div>
-                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
-                        Recent OFAC / Treasury Actions
-                      </p>
-                      <ul className="space-y-1 text-xs">
-                        {(data.compliance?.ofac_recent_actions ?? []).slice(0, 5).map((action, i) => {
-                          const url = action?.url;
-                          const isSafeUrl = typeof url === "string" && url.startsWith("https://");
-                          return (
-                            <li key={i} className="flex gap-2">
-                              <span className="text-primary shrink-0">→</span>
-                              <span>
-                                {isSafeUrl ? (
-                                  <a href={url} target="_blank" rel="noopener noreferrer"
-                                    className="underline hover:text-primary">{action?.title}</a>
-                                ) : (
-                                  <span>{action?.title}</span>
-                                )}
-                                {action?.published && (
-                                  <span className="text-muted-foreground ml-1">({action.published})</span>
-                                )}
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-
                   {/* Geofencing */}
                   {(data.compliance?.geofencing_alerts?.length ?? 0) > 0 ? (
                     <>

@@ -50,7 +50,6 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     fullName: "Signals Intelligence",
     sources: [
       { name: "ADSB", description: "opendata.adsb.fi, api.adsb.lol – military aircraft (v2/mil + regions)" },
-      { name: "VesselFinder", description: "Naval vessels, bounding boxes (Persian Gulf, Red Sea, Med, Gulf of Aden)" },
       { name: "Hormuz Tankers", description: "From Chokepoint (AISStream) when AIRSTREAM_API_KEY set – Strait of Hormuz tankers; separate from Chokepoint panel" },
       { name: "ADSBexchange", description: "Target aircraft via RapidAPI (optional ADSBEXCHANGE_RAPIDAPI_KEY)" },
       { name: "NOTAM", description: "Autorouter.aero / Eurocontrol – NOTAMs (optional NOTAM_API_KEY)" },

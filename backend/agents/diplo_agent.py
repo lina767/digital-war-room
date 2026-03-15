@@ -1,8 +1,7 @@
 """
 DIPLO / Legal Agent – Sanctions (OFAC, EU), UN/ICJ feeds, diplomatic signals.
 Fetches: OFAC SDN list (bulk CSV/XML), EU consolidated sanctions (open data),
-UN Security Council / ICJ RSS or press releases, Treasury/OFAC recent actions.
-Rule-based score from new listings and resolutions. No LLM.
+UN Security Council / ICJ RSS or press releases. Rule-based score from new listings and resolutions. No LLM.
 """
 import asyncio
 import csv
@@ -35,12 +34,10 @@ OFAC_SDN_CSV_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 # EU consolidated list – CSV version (much smaller than the XML)
 EU_SANCTIONS_CSV_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw"
 EU_SANCTIONS_XML_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xml/fullSanctionsList_1_1.xml"
-# Treasury press releases (includes OFAC actions, advisories)
-TREASURY_RSS_URL = "https://home.treasury.gov/system/files/126/ofac_rss.xml"
-TREASURY_PRESS_RSS = "https://home.treasury.gov/rss/press-releases"
-# UN press releases (RSS)
+# UN press releases (RSS) – primary and fallback (press.un.org often 404; news.un.org more stable)
 UN_PRESS_RSS = "https://press.un.org/en/rss/press.xml"
-# ICJ press (RSS)
+UN_NEWS_RSS = "https://news.un.org/feed/subscribe/en/news/all/rss.xml"
+# ICJ press (RSS) – URL may change; check https://www.icj-cij.org/en/press-releases
 ICJ_RSS = "https://www.icj-cij.org/rss/en-press-releases.xml"
 
 CONFLICT_SANCTION_KEYWORDS: Dict[str, List[str]] = {
@@ -176,7 +173,7 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
     import feedparser
     keywords = _conflict_to_keywords(conflict)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=_HTTP_HEADERS) as client:
             resp = await client.get(url)
             resp.raise_for_status()
             feed = feedparser.parse(resp.text)
@@ -193,16 +190,30 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
                     "summary": summary,
                 })
         return entries
+    except httpx.HTTPStatusError as e:
+        logger.warning("DIPLO: %s RSS failed HTTP %s – %s", label, e.response.status_code, url[:60])
+        return [{"title": f"{label} error", "error": f"HTTP {e.response.status_code}"}]
     except Exception as e:
+        logger.warning("DIPLO: %s RSS fetch failed: %s – %s", label, e, url[:60])
         return [{"title": f"{label} error", "error": str(e)}]
 
 
 async def _fetch_un_icj_news(conflict: str) -> List[Dict[str, Any]]:
-    """Combine UN and ICJ RSS for conflict-relevant items. Optionally classify via Haiku."""
+    """Combine UN and ICJ RSS for conflict-relevant items. Optionally classify via Haiku. Tries UN fallback if primary 404."""
     un_entries = await _fetch_diplo_rss(UN_PRESS_RSS, "UN", conflict)
+    # If UN primary returned only error (e.g. 404), try UN News feed
+    if un_entries and len(un_entries) == 1 and un_entries[0].get("error"):
+        un_entries = await _fetch_diplo_rss(UN_NEWS_RSS, "UN News", conflict)
     icj_entries = await _fetch_diplo_rss(ICJ_RSS, "ICJ", conflict)
     combined = (un_entries or [])[:10] + (icj_entries or [])[:10]
     items = [e for e in combined if isinstance(e, dict) and "error" not in e][:15]
+    if not items and (un_entries or icj_entries):
+        err_un = (un_entries or [{}])[0].get("error") if un_entries else None
+        err_icj = (icj_entries or [{}])[0].get("error") if icj_entries else None
+        logger.info(
+            "DIPLO: UN/ICJ – no items after filter (UN: %s, ICJ: %s). Keywords for conflict '%s' may not match feed content.",
+            err_un or "ok but 0 match", err_icj or "ok but 0 match", conflict,
+        )
     items = _classify_un_icj_news(items)
     return items
 
@@ -233,45 +244,6 @@ def _classify_un_icj_news(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.debug("DIPLO Haiku classify skipped: %s", e)
         return items
-
-
-async def _fetch_ofac_recent_actions(conflict: str) -> List[Dict[str, Any]]:
-    """Fetch OFAC/Treasury recent actions from RSS feeds.
-    Tries the OFAC-specific RSS first, then the general Treasury press releases."""
-    import feedparser
-    keywords = _conflict_to_keywords(conflict)
-    sanctions_keywords = ["sanction", "ofac", "sdn", "advisory", "designation",
-                          "enforcement", "compliance", "embargo"]
-    all_keywords = keywords + sanctions_keywords
-    entries: List[Dict[str, Any]] = []
-
-    for url, label in [(TREASURY_RSS_URL, "OFAC"), (TREASURY_PRESS_RSS, "Treasury")]:
-        try:
-            async with httpx.AsyncClient(
-                timeout=15.0, follow_redirects=True, headers=_HTTP_HEADERS,
-            ) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                feed = feedparser.parse(resp.text)
-            for e in getattr(feed, "entries", [])[:30]:
-                title = (e.get("title") or "").strip()
-                summary = (e.get("summary") or e.get("description") or "")[:600]
-                combined_text = (title + " " + summary).lower()
-                if any(k in combined_text for k in all_keywords):
-                    entries.append({
-                        "title": title,
-                        "url": e.get("link"),
-                        "published": e.get("published"),
-                        "source": label,
-                        "summary": summary[:300],
-                    })
-            if entries:
-                break
-        except Exception as e:
-            logger.debug("OFAC recent actions fetch from %s failed: %s", url, e)
-            continue
-
-    return entries[:10]
 
 
 def _compute_diplo_score(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Dict[str, Any]]) -> float:
@@ -354,13 +326,12 @@ def _build_summary(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Dict[str
 
 
 def run_diplo_agent(conflict: str) -> Dict[str, Any]:
-    """Run DIPLO/Legal agent: OFAC SDN, EU sanctions, UN/ICJ RSS, OFAC recent actions."""
+    """Run DIPLO/Legal agent: OFAC SDN, EU sanctions, UN/ICJ RSS."""
     async def _run() -> Dict[str, Any]:
-        ofac, eu, news, recent_actions = await asyncio.gather(
+        ofac, eu, news = await asyncio.gather(
             _fetch_ofac_sdn(conflict),
             _fetch_eu_sanctions(conflict),
             _fetch_un_icj_news(conflict),
-            _fetch_ofac_recent_actions(conflict),
         )
         diplo_score = _compute_diplo_score(ofac, eu, news)
         rule_summary = _build_summary(ofac, eu, news, diplo_score)
@@ -371,7 +342,6 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
             "ofac_sdn": ofac,
             "eu_sanctions": eu,
             "un_icj_news": news,
-            "ofac_recent_actions": recent_actions,
             "summary": summary,
         }
 
@@ -388,7 +358,6 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
             SourceResult(name="OFAC SDN", status="ok" if ofac_ok else "error", fetched_at=fetched_at, record_count=out.get("ofac_sdn", {}).get("total_matches", 0) if ofac_ok else 0),
             SourceResult(name="EU sanctions", status="ok" if eu_ok else "error", fetched_at=fetched_at),
             SourceResult(name="UN/ICJ", status="ok" if news_ok else "error", fetched_at=fetched_at, record_count=len(news_list) if isinstance(news_list, list) else 0),
-            SourceResult(name="OFAC recent", status="ok" if (out.get("ofac_recent_actions") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("ofac_recent_actions") or [])),
         ]
         reg = get_health_registry()
         if reg:
@@ -396,7 +365,7 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "diplo", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if out.get("diplo_score", 0) > 0 else "unavailable"
+        data_freshness = "live" if ok_count >= 2 else "recent" if ok_count >= 1 else "stale" if out.get("diplo_score", 0) > 0 else "unavailable"
         meta = AgentMetadata(agent="diplo", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
         out["_meta"] = meta.model_dump(mode="json")
         return out
@@ -408,7 +377,6 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
             "ofac_sdn": {"total_matches": 0, "sample": [], "error": str(e)},
             "eu_sanctions": {"keyword_mentions": 0, "error": str(e)},
             "un_icj_news": [],
-            "ofac_recent_actions": [],
             "summary": f"DIPLO error: {e}",
             "_meta": meta.model_dump(mode="json"),
         }

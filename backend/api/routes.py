@@ -523,11 +523,10 @@ async def get_iaea_tracker():
     Multisensor-Fusion für IAEO/OE-III (Rafael Grossi):
     - ADS-B: OE-III per Registration + ICAO-Hex (OEIII_ICAO_HEX), Boden-Modus, ORER-Erkennung.
     - NOTAMs: Autorouter.aero (NOTAM_API_URL).
-    - METAR ORER: NOAA API (aviationweather.gov/api/data/metar).
     - Flugplan-Status: optional IAEA_FLIGHTPLAN_STATUS_URL.
     - IAEA-Press: RSS, Filter Grossi/DG; Cache TTL (IAEA_CACHE_TTL_MINUTES).
     - Telegram: optional IAEA_TELEGRAM_CHANNELS (Erbil/Kurdistan).
-    Antwort: oeiii_adsb, notams, metar_orer, flight_plan_status, iaea_press_grossi,
+    Antwort: oeiii_adsb, notams, flight_plan_status, iaea_press_grossi,
     iaea_telegram_signals, ground_ops_signals, correlation_notes (hint + confidence), summary.
     """
     try:
@@ -796,7 +795,6 @@ class ComplianceDocumentQAContext(BaseModel):
     ofac_programs_summary: Optional[str] = None
     risk_level: Optional[str] = None
     risk_drivers_summary: Optional[str] = None
-    recent_actions_summary: Optional[str] = None
 
 
 class ComplianceDocumentQARequest(BaseModel):
@@ -819,8 +817,6 @@ def _build_compliance_context(conflict: str, ctx: Optional[ComplianceDocumentQAC
             parts.append(f"OFAC SDN sample entities (from current run): {names}.")
         if ctx.ofac_programs_summary:
             parts.append(f"OFAC programs (name, count): {ctx.ofac_programs_summary}")
-        if ctx.recent_actions_summary:
-            parts.append(f"Recent OFAC / Treasury actions: {ctx.recent_actions_summary}")
     return "\n".join(parts)
 
 

@@ -301,7 +301,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
 
       <div className="flex items-center justify-between pt-1 border-t border-border/40">
         <span className="text-[11px] text-muted-foreground">
-          ADS-B (opendata.adsb.fi, ADSBexchange) · AIS (VesselFinder)
+          ADS-B (opendata.adsb.fi, ADSBexchange)
         </span>
       </div>
     </IntelPanel>

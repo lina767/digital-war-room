@@ -9,7 +9,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 | Agent | Integrierte Quellen |
 |-------|---------------------|
 | **FININT** | Alpha Vantage (Brent, WTI), Polymarket (Odds + Tracked Wallets via Data API) |
-| **SIGINT** | ADS-B (adsb.fi, adsb.lol), VesselFinder (public map API), Conflict Reports RSS |
+| **SIGINT** | ADS-B (adsb.fi, adsb.lol), Conflict Reports RSS, Hormuz Tankers (from Chokepoint AISStream) |
 | **GEOINT** | NASA FIRMS, ReliefWeb, UCDP (optional), ACLED (optional), Sentinel Hub EO Browser Links |
 | **SOCMINT** | Telegram, Nitter (X), Reddit, RSS, ReliefWeb |
 | **TECHINT** | Alpha Vantage (ETFs), NewsAPI (Export Control), IODA, OONI, Cloudflare Radar, Shodan |
@@ -40,7 +40,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 | PDF-Tool | Im Projekt? | Anmerkung |
 |----------|-------------|-----------|
 | **ADSB-Exchange / Flightradar24** | ✅ Äquivalent | Stattdessen: **adsb.fi** + **adsb.lol** (Military + Region) |
-| **MarineTraffic / VesselFinder** | ✅ VesselFinder | `get_naval_vessels` nutzt VesselFinder public map API |
+| **MarineTraffic / VesselFinder** | ❌ entfernt | VesselFinder aus Code entfernt; Naval vessels derzeit keine externe Quelle. |
 | WebSDR (Militär-Funk) | ❌ | Audio-Streams, kaum automatisierbar als „Tool“ |
 | SkyGlass (Flugrouten visualisieren) | ❌ | Visuelles Tool, keine Standard-API für Backend |
 
@@ -107,10 +107,10 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
    - **API:** whois über System-Call oder Bibliothek (python-whois); DNS über Standard-Resolve oder z. B. SecurityTrails/WhoisXML (kostenpflichtig). Einfachste Variante: whois + DNS-Abfrage für konfliktbezogene Domains (Liste in Config).
    - **Aufwand:** 1 Tool `get_domain_whois(domains: List[str])` oder pro Konflikt vordefinierte Domains; Ergebnis: Registrar, Creation/Expiry, Nameserver.
 
-7. **SIGINT: MarineTraffic (optional zu VesselFinder)**
-   - **Zweck:** PDF nennt beide; MarineTraffic größeres Netz, oft „bessere“ Abdeckung.
-   - **API:** MarineTraffic API existiert (Basic/Essential/Enterprise), Preise oft auf Anfrage. VesselFinder bereits im Einsatz (public map).
-   - **Aufwand:** Nur lohnend wenn ihr MarineTraffic-Key habt; dann zweite Quelle parallel zu VesselFinder, Deduplizierung nach MMSI/Name.
+7. **SIGINT: Naval Vessels (optional)**
+   - **Zweck:** Kriegsschiffe in Region (Persian Gulf, Red Sea, etc.). VesselFinder wurde aus dem Code entfernt.
+   - **API:** MarineTraffic API (Basic/Essential/Enterprise) oder anderer AIS-Anbieter; Preise oft auf Anfrage.
+   - **Aufwand:** Neuer Fetch parallel zu bestehender Tool-Kette, Deduplizierung nach MMSI/Name; nur lohnend bei vorhandenem API-Key.
 
 ### Geringerer Nutzen / Nische / manuell
 

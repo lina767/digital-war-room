@@ -11,7 +11,7 @@ Kurzfassung für den ersten Prompt an einen neuen Agenten (z. B. neuen Chat).
 - **Backend:** FastAPI (`backend/main.py`), CORS `*`, Routen unter `/api/*` (u. a. `POST /api/analyze`, `POST /api/export/pdf`). Alle Agents laufen im **Supervisor** per `ThreadPoolExecutor` parallel; danach synthetisiert **Claude Sonnet** ein Gesamtergebnis (Score, Threat Level, Key Findings, Scenarios, Summary).
 - **Agents (je `run_*_agent(conflict: str) -> Dict`):**
   - **FININT:** Öl (Brent/WTI, Alpha Vantage), Polymarket (Gamma + Data API), getrackte Wallets (z. B. rundeep). Optional: `POLYMARKET_BUILDER_API_KEY`.
-  - **SIGINT:** Militärflugzeuge (ADSB: opendata.adsb.fi, api.adsb.lol; /v2/mil + Regionen), Schiffe (VesselFinder-BBoxes), Conflict Reports (RSS: CriticalThreats, LongWarJournal, UnderstandingWar). Rückgabe: `aircraft`, `ships`, `conflict_reports`, `sigint_score`, `alerts`, `summary`.
+  - **SIGINT:** Militärflugzeuge (ADSB: opendata.adsb.fi, api.adsb.lol; /v2/mil + Regionen), Conflict Reports (RSS: CriticalThreats, LongWarJournal, UnderstandingWar), Hormuz Tankers (aus Chokepoint AISStream). Rückgabe: `aircraft`, `ships` (derzeit leer, VesselFinder entfernt), `hormuz_tankers`, `conflict_reports`, `sigint_score`, `alerts`, `summary`.
   - **NEWS:** NewsAPI, konfliktbezogene Queries, Sentiment, `news_score`.
   - **GEOINT:** NASA FIRMS (Thermal Anomalies), Middle East BBox, `geoint_score`, `hotspots`.
   - **SOCMINT:** Telegram, Reddit, RSS; `socmint_score`, `top_signals`.

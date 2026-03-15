@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, ExternalLink, Info, Download, MessageCircle, MapPin, FileText } from "lucide-react";
+import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, Info, Download, MessageCircle, MapPin, FileText } from "lucide-react";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -898,15 +898,11 @@ function DocumentQASection({ data }: { data: ConflictData | null }) {
     const riskDriversSummary = drivers.length > 0
       ? drivers.slice(0, 6).map((d) => `${d.factor}: ${d.detail}`).join("; ")
       : undefined;
-    const recent = c.ofac_recent_actions?.slice(0, 3).map((a) =>
-      a?.summary ? `${a.title}: ${a.summary}` : (a?.title ?? "")
-    ).filter(Boolean).join(" | ") || undefined;
     return {
       ofac_sample: ofacSample.length > 0 ? ofacSample : undefined,
       ofac_programs_summary: ofacProgramsSummary,
       risk_level: riskLevel ?? undefined,
       risk_drivers_summary: riskDriversSummary,
-      recent_actions_summary: recent,
     };
   }
 
@@ -1139,52 +1135,6 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
               </p>
             )}
           </div>
-        )}
-
-        {(compliance?.ofac_recent_actions?.length ?? 0) > 0 && (
-          <ErrorBoundary sectionLabel="OFAC Recent Actions">
-            <div className="border-t border-border/50 pt-2 space-y-1.5">
-              <span className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">
-                Recent OFAC / Treasury Actions
-              </span>
-              {compliance.ofac_recent_actions?.slice(0, 3).map((action, i) => {
-              const url = action?.url;
-              const isSafeUrl = typeof url === "string" && url.startsWith("https://");
-              const content = (
-                <>
-                  <ExternalLink className="h-3 w-3 mt-0.5 flex-shrink-0 group-hover:text-primary" />
-                  <span>
-                    <span className="font-semibold">{action?.title}</span>
-                    {action?.published && (
-                      <span className="text-[11px] text-muted-foreground/60 ml-1">({action.published})</span>
-                    )}
-                    {action?.summary && (
-                      <>
-                        <br />
-                        <span className="text-[11px]">{action.summary}</span>
-                      </>
-                    )}
-                  </span>
-                </>
-              );
-              return isSafeUrl ? (
-                <a
-                  key={i}
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-start gap-1.5 text-[11px] text-muted-foreground hover:text-foreground group"
-                >
-                  {content}
-                </a>
-              ) : (
-                <span key={i} className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                  {content}
-                </span>
-              );
-            })}
-            </div>
-          </ErrorBoundary>
         )}
 
         <p className="text-[11px] text-muted-foreground border-t border-border/50 pt-2">
