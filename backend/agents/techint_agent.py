@@ -16,6 +16,7 @@ from .utils import run_async
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 NEWS_API_URL = "https://newsapi.org/v2/everything"
+GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"  # fallback for export control (no key)
 # IODA v2 API – outages, signals (BGP/Ping/Telescope), alerts, entities (ASNs)
 IODA_BASE = "https://api.ioda.inetintel.cc.gatech.edu/v2"
 OONI_MEASUREMENTS_URL = "https://api.ooni.io/api/v1/measurements"
@@ -593,44 +594,86 @@ async def _fetch_tech_indicators(api_key: str) -> List[Dict[str, Any]]:
     return results
 
 
-async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[str, Any]]:
-    """Search NewsAPI for export control / tech sanctions articles."""
+async def _fetch_export_control_gdelt() -> List[Dict[str, Any]]:
+    """Fallback: fetch export-control related articles from GDELT DOC 2.0 (no API key)."""
     try:
-        from_date = datetime.now(timezone.utc) - timedelta(hours=72)
-        query = f"({EXPORT_CONTROL_QUERY})"
-        # Optionally narrow by conflict
-        cl = (conflict or "").lower()
-        if "china" in cl or "iran" in cl or "russia" in cl:
-            query = f"{query} AND ({conflict})"
-        params = {
-            "q": query,
-            "language": "en",
-            "sortBy": "relevance",
-            "pageSize": 15,
-            "from": from_date.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "domains": NEWS_DOMAINS,
-            "apiKey": api_key,
-        }
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(NEWS_API_URL, params=params)
-            resp.raise_for_status()
+        query = '("export control" OR "export controls" OR "semiconductor sanctions" OR "BIS entity list" OR "technology sanctions" OR "dual-use")'
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                GDELT_DOC_URL,
+                params={
+                    "query": query,
+                    "mode": "artlist",
+                    "format": "json",
+                    "timespan": "72H",
+                    "maxrecords": 25,
+                },
+            )
+            if resp.status_code != 200:
+                return []
             data = resp.json()
         articles = []
-        for art in data.get("articles", []):
-            title = (art.get("title") or "").strip()
+        items = data if isinstance(data, list) else data.get("articles", data.get("articleList", data.get("results", [])))
+        if not isinstance(items, list):
+            return []
+        for art in items[:15]:
+            if not isinstance(art, dict):
+                continue
+            title = (art.get("title") or art.get("title_orig") or "").strip()
             if not title:
                 continue
-            source = (art.get("source") or {}).get("name") or ""
             articles.append({
                 "title": title,
-                "source": source,
-                "url": art.get("url"),
-                "published_at": art.get("publishedAt"),
-                "description": (art.get("description") or "")[:200],
+                "source": art.get("source", art.get("source domain", "")),
+                "url": art.get("url", art.get("link", "")),
+                "published_at": art.get("date", art.get("publishedAt", "")),
+                "description": (art.get("description") or art.get("socialimage") or "")[:200],
             })
         return articles
-    except Exception as e:
-        return [{"error": str(e)}]
+    except Exception:
+        return []
+
+
+async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[str, Any]]:
+    """Search NewsAPI for export control / tech sanctions articles. Falls back to GDELT if NewsAPI fails or returns empty."""
+    articles: List[Dict[str, Any]] = []
+    if api_key:
+        try:
+            from_date = datetime.now(timezone.utc) - timedelta(hours=72)
+            query = f"({EXPORT_CONTROL_QUERY})"
+            cl = (conflict or "").lower()
+            if "china" in cl or "iran" in cl or "russia" in cl:
+                query = f"{query} AND ({conflict})"
+            params = {
+                "q": query,
+                "language": "en",
+                "sortBy": "relevance",
+                "pageSize": 15,
+                "from": from_date.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "domains": NEWS_DOMAINS,
+                "apiKey": api_key,
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(NEWS_API_URL, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+            for art in data.get("articles", []):
+                title = (art.get("title") or "").strip()
+                if not title:
+                    continue
+                source = (art.get("source") or {}).get("name") or ""
+                articles.append({
+                    "title": title,
+                    "source": source,
+                    "url": art.get("url"),
+                    "published_at": art.get("publishedAt"),
+                    "description": (art.get("description") or "")[:200],
+                })
+        except Exception:
+            pass
+    if not articles:
+        articles = await _fetch_export_control_gdelt()
+    return articles
 
 
 async def _fetch_wigle_networks(conflict: str) -> Dict[str, Any]:
@@ -934,7 +977,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
             SourceResult(name="Tech indicators", status="ok" if (out.get("tech_indicators") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("tech_indicators") or [])),
-            SourceResult(name="Export control", status="ok" if (out.get("export_controls") and not (out.get("export_controls") or [{}])[0].get("error")) else "error", fetched_at=fetched_at),
+            SourceResult(name="Export control", status="ok" if any(isinstance(a, dict) and "error" not in a for a in (out.get("export_controls") or [])) else "error", fetched_at=fetched_at),
             SourceResult(name="IODA", status="ok" if (out.get("ioda_events") or out.get("ioda_outages") or out.get("ioda_alerts")) else "error", fetched_at=fetched_at),
             SourceResult(name="OONI", status="ok" if (out.get("ooni") and not out.get("ooni", {}).get("error")) else "error", fetched_at=fetched_at),
             SourceResult(name="Shodan/Wigle", status="ok" if (out.get("shodan") or out.get("wigle")) else "error", fetched_at=fetched_at),

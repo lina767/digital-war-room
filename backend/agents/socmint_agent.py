@@ -262,13 +262,24 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
 def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
     """
     Scrape conflict-relevant Twitter/X accounts via public Nitter instances.
-    No API key required. Falls back through multiple Nitter instances.
+    No API key required. Tries HTML first, then Nitter RSS feed per account (more reliable when instances change layout).
     """
     region = _conflict_to_region(conflict)
     keywords = _conflict_keywords(conflict)
     accounts = CONFLICT_TWITTER_ACCOUNTS.get(region, CONFLICT_TWITTER_ACCOUNTS["middle_east"])
 
-    async def _fetch_account(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
+    def _make_post(account: str, text: str) -> Dict[str, Any]:
+        score = _sentiment(text)
+        return {
+            "source": f"twitter:{account}",
+            "text": text[:300],
+            "sentiment_score": score,
+            "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
+            "platform": "twitter",
+            "account": account,
+        }
+
+    async def _fetch_account_html(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
         for base in NITTER_INSTANCES:
             try:
                 url = f"{base}/{account}"
@@ -276,7 +287,6 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                 if resp.status_code != 200:
                     continue
                 html = resp.text
-                # Nitter tweet content: common class names
                 for pattern in [
                     r'<div class="tweet-content[^"]*"[^>]*>(.*?)</div>',
                     r'class="tweet-content"[^>]*>(.*?)</div>',
@@ -292,19 +302,42 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                             continue
                         if not any(kw in text.lower() for kw in keywords):
                             continue
-                        score = _sentiment(text)
-                        results.append({
-                            "source": f"twitter:{account}",
-                            "text": text[:300],
-                            "sentiment_score": score,
-                            "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                            "platform": "twitter",
-                            "account": account,
-                        })
+                        results.append(_make_post(account, text))
                     return results
             except Exception:
                 continue
         return []
+
+    async def _fetch_account_rss(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
+        """Fallback: Nitter RSS feed (often more stable than HTML)."""
+        for base in NITTER_INSTANCES:
+            try:
+                url = f"{base}/{account}/rss"
+                resp = await client.get(url, follow_redirects=True, timeout=12.0)
+                if resp.status_code != 200:
+                    continue
+                feed = feedparser.parse(resp.text)
+                results = []
+                for entry in (feed.entries or [])[:10]:
+                    title = (entry.get("title") or "").strip()
+                    summary = (entry.get("summary") or entry.get("description") or "")
+                    text = (title + " " + re.sub(r"<[^>]+>", " ", summary)).strip() or title
+                    if not text or len(text) < 15:
+                        continue
+                    if not any(kw in text.lower() for kw in keywords):
+                        continue
+                    results.append(_make_post(account, text))
+                if results:
+                    return results
+            except Exception:
+                continue
+        return []
+
+    async def _fetch_account(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
+        posts = await _fetch_account_html(client, account)
+        if not posts:
+            posts = await _fetch_account_rss(client, account)
+        return posts
 
     async def _run():
         async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"}) as client:
@@ -325,22 +358,25 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
 
 def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
     """
-    Search Reddit for recent conflict-related posts using public JSON API.
+    Search Reddit for recent conflict-related posts. Tries JSON API first; falls back to RSS when JSON returns 403/429 or fails.
     No API key required.
     """
     region = _conflict_to_region(conflict)
     subreddits = REDDIT_SUBREDDITS.get(region, ["geopolitics", "worldnews"])
     keywords = _conflict_keywords(conflict)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    reddit_headers = {"User-Agent": "DigitalWarRoom/1.0 (conflict analysis research; https://github.com/)"}
 
-    async def _fetch_subreddit(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
+    async def _fetch_subreddit_json(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
         try:
             url = f"https://www.reddit.com/r/{subreddit}/new.json"
             resp = await client.get(url, params={"limit": limit})
+            if resp.status_code in (403, 429):
+                return []
             resp.raise_for_status()
             data = resp.json()
             posts = data.get("data", {}).get("children", [])
             results = []
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
             for post in posts:
                 p = post.get("data", {})
                 created = datetime.fromtimestamp(p.get("created_utc", 0), tz=timezone.utc)
@@ -367,11 +403,59 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
         except Exception:
             return []
 
+    async def _fetch_subreddit_rss(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
+        """Fallback: Reddit RSS (often still works when JSON API is restricted)."""
+        try:
+            url = f"https://www.reddit.com/r/{subreddit}/new.rss"
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return []
+            feed = feedparser.parse(resp.text)
+            if getattr(feed, "bozo", False) and not feed.entries:
+                return []
+            results = []
+            for entry in (feed.entries or [])[:limit]:
+                title = (entry.get("title") or "").strip()
+                summary = (entry.get("summary") or entry.get("description") or "")
+                text = re.sub(r"<[^>]+>", " ", summary).strip() or ""
+                combined = f"{title} {text}".lower()
+                if not any(kw in combined for kw in keywords):
+                    continue
+                published = None
+                if hasattr(entry, "published_parsed") and entry.published_parsed:
+                    try:
+                        import calendar
+                        published = datetime.fromtimestamp(
+                            calendar.timegm(entry.published_parsed), tz=timezone.utc
+                        )
+                    except Exception:
+                        pass
+                if published and published < cutoff:
+                    continue
+                score = _sentiment(combined)
+                results.append({
+                    "source": f"reddit:r/{subreddit}",
+                    "title": title,
+                    "text": text[:200] if text else "",
+                    "url": entry.get("link", ""),
+                    "upvotes": 0,
+                    "sentiment_score": score,
+                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
+                    "platform": "reddit",
+                    "published_at": published.isoformat() if published else "",
+                })
+            return results
+        except Exception:
+            return []
+
+    async def _fetch_subreddit(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
+        results = await _fetch_subreddit_json(client, subreddit)
+        if not results:
+            results = await _fetch_subreddit_rss(client, subreddit)
+        return results
+
     async def _run():
-        async with httpx.AsyncClient(
-            timeout=10.0,
-            headers={"User-Agent": "DigitalWarRoom/1.0 (conflict analysis research)"}
-        ) as client:
+        async with httpx.AsyncClient(timeout=10.0, headers=reddit_headers) as client:
             tasks = [_fetch_subreddit(client, sr) for sr in subreddits]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             posts = []

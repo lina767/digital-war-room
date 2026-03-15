@@ -200,20 +200,79 @@ def _save_overrides(overrides: Dict[str, str]) -> None:
         logger.debug("chokepoint: failed to save overrides: %s", e)
 
 
+# Map alternative external keys to canonical chokepoint names
+CHOKEPOINT_KEY_ALIASES: Dict[str, str] = {
+    "hormuz": "Strait of Hormuz",
+    "strait of hormuz": "Strait of Hormuz",
+    "mandeb": "Bab el-Mandeb",
+    "bab el-mandeb": "Bab el-Mandeb",
+    "bab al-mandab": "Bab el-Mandeb",
+    "suez": "Suez Canal",
+    "suez canal": "Suez Canal",
+}
+
+
+def _normalize_external_status_key(key: str) -> Optional[str]:
+    """Map external JSON key to canonical chokepoint name."""
+    k = (key or "").strip()
+    if not k:
+        return None
+    if k in CHOKEPOINT_BASELINES:
+        return k
+    lower = k.lower()
+    for alias, canonical in CHOKEPOINT_KEY_ALIASES.items():
+        if alias in lower or lower in alias:
+            return canonical
+    if "hormuz" in lower:
+        return "Strait of Hormuz"
+    if "mandeb" in lower or "mandab" in lower:
+        return "Bab el-Mandeb"
+    if "suez" in lower:
+        return "Suez Canal"
+    return None
+
+
 async def _fetch_external_status() -> Dict[str, str]:
-    """Fetch optional external status JSON from CHOKEPOINT_STATUS_URL. Returns dict cp_name -> OPEN|RESTRICTED|CONTESTED|DISRUPTED."""
+    """Fetch optional external status JSON from CHOKEPOINT_STATUS_URL. Returns dict cp_name -> OPEN|RESTRICTED|CONTESTED|DISRUPTED.
+    Supports: flat {"Strait of Hormuz": "DISRUPTED", ...} or nested {"chokepoints": [{"name": "...", "status": "..."}]}.
+    Keys are normalized (e.g. Hormuz -> Strait of Hormuz).
+    """
     url = (os.getenv(CHOKEPOINT_STATUS_URL_ENV) or "").strip()
     if not url:
         return {}
+    valid = ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")
+    result: Dict[str, str] = {}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url)
             if resp.status_code != 200:
+                logger.debug("chokepoint: external status HTTP %s", resp.status_code)
                 return {}
             data = resp.json()
             if not isinstance(data, dict):
                 return {}
-            return {k: str(v).upper() for k, v in data.items() if str(v).upper() in ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")}
+            # Nested format: {"chokepoints": [{"name": "Hormuz", "status": "DISRUPTED"}, ...]}
+            if "chokepoints" in data and isinstance(data["chokepoints"], list):
+                for item in data["chokepoints"]:
+                    if not isinstance(item, dict):
+                        continue
+                    name = (item.get("name") or item.get("id") or "").strip()
+                    status = (item.get("status") or item.get("value") or "").strip().upper()
+                    if status not in valid:
+                        continue
+                    canonical = _normalize_external_status_key(name) or (name if name in CHOKEPOINT_BASELINES else None)
+                    if canonical:
+                        result[canonical] = status
+                return result
+            # Flat format: {"Strait of Hormuz": "DISRUPTED", "Hormuz": "OPEN", ...}
+            for k, v in data.items():
+                status = str(v).strip().upper()
+                if status not in valid:
+                    continue
+                canonical = _normalize_external_status_key(k) or (k if k in CHOKEPOINT_BASELINES else None)
+                if canonical:
+                    result[canonical] = status
+            return result
     except Exception as e:
         logger.debug("chokepoint: external status fetch failed: %s", e)
         return {}
