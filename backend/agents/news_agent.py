@@ -194,13 +194,53 @@ def _normalize_url(url: str) -> str:
 SOURCE_WEIGHTS = {"newsapi": 0.5, "gdelt": 0.3, "rss": 0.2}
 
 
+# Max articles per source in top-N so one outlet (e.g. Al Jazeera) doesn't dominate. Override via env.
+NEWS_MAX_PER_SOURCE = int(os.getenv("NEWS_MAX_PER_SOURCE", "5"))
+NEWS_TOP_K = int(os.getenv("NEWS_TOP_K", "20"))
+
+
+def _normalize_source_for_cap(article: Dict[str, Any]) -> str:
+    """Normalize source name for per-source capping (avoid one outlet dominating)."""
+    src = (article.get("source") or "").strip() or "unknown"
+    if src.startswith("http"):
+        return urlparse(src).netloc or src
+    # Common feed titles → domain-like key
+    lower = src.lower()
+    if "al jazeera" in lower:
+        return "aljazeera.com"
+    if "bbc" in lower:
+        return "bbc.com"
+    if "reuters" in lower:
+        return "reuters.com"
+    if "guardian" in lower:
+        return "theguardian.com"
+    return src[:50]
+
+
+def _apply_source_cap(articles: List[Dict[str, Any]], top_k: int, max_per_source: int) -> List[Dict[str, Any]]:
+    """Keep relevance order but cap articles per source so the list stays diverse."""
+    if max_per_source <= 0 or top_k <= 0:
+        return articles[:top_k]
+    counts: Dict[str, int] = {}
+    result: List[Dict[str, Any]] = []
+    for a in articles:
+        if len(result) >= top_k:
+            break
+        src = _normalize_source_for_cap(a)
+        if counts.get(src, 0) >= max_per_source:
+            continue
+        result.append(a)
+        counts[src] = counts.get(src, 0) + 1
+    return result
+
+
 def _merge_news_results(
     newsapi_list: List[Dict[str, Any]],
     gdelt_list: List[Dict[str, Any]],
     rss_list: List[Dict[str, Any]],
     conflict: str = "",
 ) -> Dict[str, Any]:
-    """Deduplicate by URL, then semantically, rank by relevance, compute weighted overall_sentiment, source_breakdown."""
+    """Deduplicate by URL, then semantically, rank by relevance, apply per-source cap, compute weighted overall_sentiment, source_breakdown."""
     seen: Dict[str, Dict[str, Any]] = {}
     for item in newsapi_list + gdelt_list + rss_list:
         if "error" in item or not item.get("url"):
@@ -238,17 +278,18 @@ def _merge_news_results(
                 for a in articles
             ]
             if texts:
-                ranked = run_async(rank_by_relevance(query, texts, top_k=20))
+                ranked = run_async(rank_by_relevance(query, texts, top_k=NEWS_TOP_K * 2))  # rank more, then cap
                 articles = [articles[i] for i, _ in ranked if i < len(articles)]
         except Exception as e:
             logger.debug("HF cross-encoder ranking failed: %s", e)
             articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
-            articles = articles[:20]
+            articles = articles[: NEWS_TOP_K * 2]
     else:
         articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
-        articles = articles[:20]
+        articles = articles[: NEWS_TOP_K * 2]
 
-    top20 = articles[:20]
+    # Per-source cap so one outlet (e.g. Al Jazeera) doesn't dominate the top list
+    top20 = _apply_source_cap(articles, top_k=NEWS_TOP_K, max_per_source=NEWS_MAX_PER_SOURCE)
     for a in top20:
         _tag_chokepoint(a)
 
