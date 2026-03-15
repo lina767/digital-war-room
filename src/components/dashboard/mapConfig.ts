@@ -60,6 +60,25 @@ export const THEATER_EVENT_STYLE: Record<
   other: { label: "Other", fill: "#6b7280", stroke: "#4b5563" },
 };
 
+/**
+ * Conflict keys for which SAM / Air routes / Sea lanes overlay data exists (Iran/Gulf/Levant).
+ * For other conflicts, those overlays are not rendered.
+ */
+export const OVERLAY_CONFLICT_KEYS = [
+  "iran",
+  "us-iran",
+  "israel-palestine",
+  "lebanon",
+  "yemen",
+  "syria",
+] as const;
+
+export function hasOverlayDataForConflict(conflict: string | null): boolean {
+  if (!conflict) return false;
+  const key = matchConflict(conflict);
+  return key != null && (OVERLAY_CONFLICT_KEYS as readonly string[]).includes(key);
+}
+
 /** Fuzzy match: "Iran" → "iran" */
 export function matchConflict(name: string): string | null {
   if (!name) return null;

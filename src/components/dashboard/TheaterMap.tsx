@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useReducer, memo } from "react";
+import { useEffect, useState, useCallback, useMemo, useReducer, memo, useRef } from "react";
 import { Plus, Minus, X, AlertTriangle } from "lucide-react";
 import {
   ComposableMap,
@@ -13,6 +13,7 @@ import {
   GEO_URL,
   CONFLICT_CENTERS,
   matchConflict,
+  hasOverlayDataForConflict,
   THEATER_EVENT_STYLE,
   type GeointAnomaly,
   type SigintAircraft,
@@ -48,8 +49,8 @@ const INITIAL_LAYERS: LayerVisibility = {
   sigint: true,
   heatmap: false,
   samRings: false,
-  airRoutes: false,
-  seaLanes: false,
+  airRoutes: true,
+  seaLanes: true,
   chokepoints: true,
 };
 
@@ -270,7 +271,7 @@ const GeointLayer = memo(function GeointLayer({
             <g
               filter="url(#theater-glow-geoint)"
               className="cursor-pointer"
-              onMouseEnter={(e) => onTooltipShow(label, "#ff4400", e)}
+              onMouseEnter={(e) => onTooltipShow(label, "var(--map-geoint)", e)}
               onMouseLeave={onTooltipHide}
             >
               <circle
@@ -278,13 +279,13 @@ const GeointLayer = memo(function GeointLayer({
                 style={{ animationDelay: `${(i % 15) * 0.17}s` }}
                 r={r * 2.5}
                 fill="none"
-                stroke="#ff4400"
+                stroke="var(--map-geoint)"
                 strokeWidth={0.4 * s}
               />
               <polygon
                 points={`0,${-r * 1.8} ${r * 1.2},${r * 0.9} ${-r * 1.2},${r * 0.9}`}
                 fill={`rgba(255, ${Math.floor(68 + (1 - intensity) * 100)}, 0, ${0.7 + intensity * 0.3})`}
-                stroke="#ff2200"
+                stroke="var(--map-geoint-stroke)"
                 strokeWidth={0.3 * s}
               />
             </g>
@@ -296,6 +297,19 @@ const GeointLayer = memo(function GeointLayer({
   return <>{markers}</>;
 });
 
+/* ---- SIGINT Air icon: stilisierter Jet (Dreieck) ----------------- */
+const SIGINT_AIR_COLOR = "var(--map-sigint-air)";
+const SIGINT_AIR_STROKE = "var(--map-sigint-air-stroke)";
+function SigintAirIcon({ r, s }: { r: number; s: number }) {
+  return (
+    <g fill={SIGINT_AIR_COLOR} stroke={SIGINT_AIR_STROKE} strokeWidth={0.25 * s}>
+      <polygon
+        points={`0,${-r * 1.15} ${r * 0.65},${r * 0.35} ${r * 0.45},${r} 0,${r * 0.55} ${-r * 0.45},${r} ${-r * 1.15},${r * 0.35}`}
+      />
+    </g>
+  );
+}
+
 /* ---- SigintAircraftLayer ----------------------------------------- */
 
 interface SigintAircraftLayerProps {
@@ -303,6 +317,7 @@ interface SigintAircraftLayerProps {
   s: number;
   onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
   onTooltipHide: () => void;
+  onAircraftSelect?: (ac: SigintAircraft) => void;
 }
 
 const SigintAircraftLayer = memo(function SigintAircraftLayer({
@@ -310,6 +325,7 @@ const SigintAircraftLayer = memo(function SigintAircraftLayer({
   s,
   onTooltipShow,
   onTooltipHide,
+  onAircraftSelect,
 }: SigintAircraftLayerProps) {
   const valid = useMemo(
     () => aircraft.filter((a) => typeof a.lat === "number" && typeof a.lon === "number" && isFinite(a.lat) && isFinite(a.lon)),
@@ -317,32 +333,53 @@ const SigintAircraftLayer = memo(function SigintAircraftLayer({
   );
   const markers = useMemo(
     () =>
-      valid.map((ac) => (
-        <Marker
-          key={`ac-${ac.lat.toFixed(4)}-${ac.lon.toFixed(4)}-${ac.flight}`}
-          coordinates={[ac.lon, ac.lat]}
-        >
-          <g
-            className="cursor-pointer"
-            onMouseEnter={(e) => onTooltipShow(ac.flight, "#60a5fa", e)}
-            onMouseLeave={onTooltipHide}
+      valid.map((ac, i) => {
+        const r = 3 * s;
+        const tooltipContent = ac.category ? `${ac.flight} · ${ac.category}` : ac.flight;
+        return (
+          <Marker
+            key={`ac-${ac.lat.toFixed(4)}-${ac.lon.toFixed(4)}-${ac.flight}`}
+            coordinates={[ac.lon, ac.lat]}
           >
-            <text
-              textAnchor="middle"
-              fontSize={12 * s}
-              fill="#60a5fa"
-              opacity={0.9}
-              style={{ userSelect: "none" }}
+            <g
+              className="cursor-pointer"
+              onClick={() => onAircraftSelect?.(ac)}
+              onMouseEnter={(e) => onTooltipShow(tooltipContent, SIGINT_AIR_COLOR, e)}
+              onMouseLeave={onTooltipHide}
             >
-              ✈
-            </text>
-          </g>
-        </Marker>
-      )),
-    [valid, s, onTooltipShow, onTooltipHide],
+              <circle
+                className="sigint-air-pulse"
+                style={{ animationDelay: `${(i % 15) * 0.12}s` }}
+                r={r * 2}
+                fill="none"
+                stroke={SIGINT_AIR_COLOR}
+                strokeWidth={0.3 * s}
+              />
+              <SigintAirIcon r={r} s={s} />
+            </g>
+          </Marker>
+        );
+      }),
+    [valid, s, onTooltipShow, onTooltipHide, onAircraftSelect],
   );
   return <>{markers}</>;
 });
+
+/* ---- SIGINT Sea icon: stilisierte Schiff-Silhouette (Rumpf + Aufbauten) -- */
+const SIGINT_SEA_COLOR = "var(--map-sigint-sea)";
+const SIGINT_SEA_STROKE = "var(--map-sigint-sea-stroke)";
+function SigintShipIcon({ r, s }: { r: number; s: number }) {
+  return (
+    <g fill={SIGINT_SEA_COLOR} stroke={SIGINT_SEA_STROKE} strokeWidth={0.25 * s}>
+      {/* Rumpf */}
+      <path
+        d={`M ${-r * 1.1} ${r * 0.25} L ${-r * 0.6} ${r * 0.5} L ${r * 1} ${r * 0.5} L ${r * 1.2} ${r * 0.2} L ${r * 0.8} ${-r * 0.1} L ${-r * 0.9} ${-r * 0.05} Z`}
+      />
+      {/* Aufbau / Brücke */}
+      <rect x={-r * 0.3} y={-r * 0.35} width={r * 0.5} height={r * 0.5} rx={r * 0.08} />
+    </g>
+  );
+}
 
 /* ---- SigintShipsLayer -------------------------------------------- */
 
@@ -351,6 +388,7 @@ interface SigintShipsLayerProps {
   s: number;
   onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
   onTooltipHide: () => void;
+  onShipSelect?: (ship: SigintShip) => void;
 }
 
 const SigintShipsLayer = memo(function SigintShipsLayer({
@@ -358,6 +396,7 @@ const SigintShipsLayer = memo(function SigintShipsLayer({
   s,
   onTooltipShow,
   onTooltipHide,
+  onShipSelect,
 }: SigintShipsLayerProps) {
   const valid = useMemo(
     () => ships.filter((sh) => typeof sh.lat === "number" && typeof sh.lon === "number" && isFinite(sh.lat) && isFinite(sh.lon)),
@@ -365,29 +404,34 @@ const SigintShipsLayer = memo(function SigintShipsLayer({
   );
   const markers = useMemo(
     () =>
-      valid.map((ship) => (
-        <Marker
-          key={`ship-${ship.lat.toFixed(4)}-${ship.lon.toFixed(4)}-${ship.name}`}
-          coordinates={[ship.lon, ship.lat]}
-        >
-          <g
-            className="cursor-pointer"
-            onMouseEnter={(e) => onTooltipShow(ship.name, "#34d399", e)}
-            onMouseLeave={onTooltipHide}
+      valid.map((ship, i) => {
+        const r = 3 * s;
+        const tooltipContent = ship.type ? `${ship.name} · ${ship.type}` : ship.name;
+        return (
+          <Marker
+            key={`ship-${ship.lat.toFixed(4)}-${ship.lon.toFixed(4)}-${ship.name}`}
+            coordinates={[ship.lon, ship.lat]}
           >
-            <text
-              textAnchor="middle"
-              fontSize={11 * s}
-              fill="#34d399"
-              opacity={0.9}
-              style={{ userSelect: "none" }}
+            <g
+              className="cursor-pointer"
+              onClick={() => onShipSelect?.(ship)}
+              onMouseEnter={(e) => onTooltipShow(tooltipContent, SIGINT_SEA_COLOR, e)}
+              onMouseLeave={onTooltipHide}
             >
-              ⚓
-            </text>
-          </g>
-        </Marker>
-      )),
-    [valid, s, onTooltipShow, onTooltipHide],
+              <circle
+                className="sigint-sea-pulse"
+                style={{ animationDelay: `${(i % 15) * 0.12}s` }}
+                r={r * 2}
+                fill="none"
+                stroke={SIGINT_SEA_COLOR}
+                strokeWidth={0.3 * s}
+              />
+              <SigintShipIcon r={r} s={s} />
+            </g>
+          </Marker>
+        );
+      }),
+    [valid, s, onTooltipShow, onTooltipHide, onShipSelect],
   );
   return <>{markers}</>;
 });
@@ -444,6 +488,9 @@ export function TheaterMap({
 
   /* ---- core UI state --------------------------------------------- */
   const [selectedEvent, setSelectedEvent] = useState<TheaterEvent | null>(null);
+  const [selectedSigint, setSelectedSigint] = useState<
+    { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
+  >(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4);
   const [center, setCenter] = useState<[number, number]>([53, 32]);
@@ -460,16 +507,43 @@ export function TheaterMap({
   /* ---- derived: logarithmic marker scale ------------------------- */
   const s = markerScale(zoom);
 
-  /* ---- stable tooltip callbacks for memo children ---------------- */
+  /* ---- tooltip with delay (150–200 ms) to reduce flicker --------- */
+  const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const TOOLTIP_DELAY_MS = 180;
+
   const handleTooltipShow = useCallback(
     (content: string, color: string, e: React.MouseEvent) => {
-      setTooltip({ content, color, x: e.clientX, y: e.clientY });
+      if (tooltipTimeoutRef.current) {
+        clearTimeout(tooltipTimeoutRef.current);
+        tooltipTimeoutRef.current = null;
+      }
+      tooltipTimeoutRef.current = setTimeout(() => {
+        tooltipTimeoutRef.current = null;
+        setTooltip({ content, color, x: e.clientX, y: e.clientY });
+      }, TOOLTIP_DELAY_MS);
     },
     [],
   );
-  const handleTooltipHide = useCallback(() => setTooltip(null), []);
+  const handleTooltipHide = useCallback(() => {
+    if (tooltipTimeoutRef.current) {
+      clearTimeout(tooltipTimeoutRef.current);
+      tooltipTimeoutRef.current = null;
+    }
+    setTooltip(null);
+  }, []);
   const handleEventSelect = useCallback((evt: TheaterEvent) => {
     setSelectedEvent(evt);
+    setSelectedSigint(null);
+    setTooltip(null);
+  }, []);
+  const handleAircraftSelect = useCallback((ac: SigintAircraft) => {
+    setSelectedSigint({ type: "aircraft", data: ac });
+    setSelectedEvent(null);
+    setTooltip(null);
+  }, []);
+  const handleShipSelect = useCallback((ship: SigintShip) => {
+    setSelectedSigint({ type: "ship", data: ship });
+    setSelectedEvent(null);
     setTooltip(null);
   }, []);
 
@@ -545,7 +619,7 @@ export function TheaterMap({
 
   /* ---- render ---------------------------------------------------- */
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0" role="application" aria-label="Theater map, conflict region">
       <ComposableMap
         projectionConfig={{ rotate: [-10, 0, 0], scale: 160 }}
         projection="geoNaturalEarth1"
@@ -555,7 +629,7 @@ export function TheaterMap({
         <defs>
           <filter id="theater-glow-geoint" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="2" result="blur" />
-            <feFlood floodColor="#ff4400" floodOpacity="0.7" result="color" />
+            <feFlood floodColor="var(--map-geoint)" floodOpacity="0.7" result="color" />
             <feComposite in="color" in2="blur" operator="in" result="shadow" />
             <feMerge>
               <feMergeNode in="shadow" />
@@ -576,7 +650,7 @@ export function TheaterMap({
         >
           <TheaterGeographies />
 
-          {layers.samRings &&
+          {layers.samRings && hasOverlayDataForConflict(activeConflict) &&
             samRingLines.map((sam) => (
               <Line
                 key={sam.id}
@@ -588,28 +662,63 @@ export function TheaterMap({
               />
             ))}
 
-          {layers.airRoutes &&
+          {layers.airRoutes && hasOverlayDataForConflict(activeConflict) &&
             AIR_ROUTES.map((route) => (
               <Line
                 key={route.id}
                 coordinates={route.coordinates}
-                stroke="hsl(210 80% 55% / 0.7)"
-                strokeWidth={0.6}
+                stroke="hsl(210 80% 55% / 0.85)"
+                strokeWidth={0.8}
                 fill="none"
                 strokeDasharray="4 2"
               />
             ))}
 
-          {layers.seaLanes &&
+          {layers.airRoutes && hasOverlayDataForConflict(activeConflict) && zoom >= 4 &&
+            AIR_ROUTES.map((route) => {
+              const mid = route.coordinates[Math.floor(route.coordinates.length / 2)];
+              return (
+                <Marker key={`air-label-${route.id}`} coordinates={mid}>
+                  <text
+                    textAnchor="middle"
+                    fontSize={2.2}
+                    fill="hsl(210 80% 55% / 0.9)"
+                    style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}
+                  >
+                    {route.name}
+                  </text>
+                </Marker>
+              );
+            })}
+
+          {layers.seaLanes && hasOverlayDataForConflict(activeConflict) &&
             SEA_LANES.map((lane) => (
               <Line
                 key={lane.id}
                 coordinates={lane.coordinates}
-                stroke="hsl(160 70% 45% / 0.7)"
-                strokeWidth={0.6}
+                stroke="hsl(160 70% 45% / 0.85)"
+                strokeWidth={0.75}
                 fill="none"
+                strokeDasharray="3 2"
               />
             ))}
+
+          {layers.seaLanes && hasOverlayDataForConflict(activeConflict) && zoom >= 4 &&
+            SEA_LANES.map((lane) => {
+              const mid = lane.coordinates[Math.floor(lane.coordinates.length / 2)];
+              return (
+                <Marker key={`sea-label-${lane.id}`} coordinates={mid}>
+                  <text
+                    textAnchor="middle"
+                    fontSize={2.2}
+                    fill="hsl(160 70% 45% / 0.9)"
+                    style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}
+                  >
+                    {lane.name}
+                  </text>
+                </Marker>
+              );
+            })}
 
           {layers.chokepoints &&
             CHOKEPOINT_ZONES.map((zone) => {
@@ -627,14 +736,23 @@ export function TheaterMap({
                   : risk >= 40
                     ? "hsla(40, 80%, 50%, 0.4)"
                     : "hsla(160, 70%, 45%, 0.3)";
+              const tooltipContent = match
+                ? `${zone.name} · ${match.status} · Risk ${match.disruption_risk}%`
+                : `${zone.name}`;
               return (
-                <Line
+                <g
                   key={zone.id}
-                  coordinates={zone.vertices}
-                  stroke={strokeColor}
-                  strokeWidth={0.8}
-                  fill={fillColor}
-                />
+                  onMouseEnter={(e) => handleTooltipShow(tooltipContent, strokeColor, e)}
+                  onMouseLeave={handleTooltipHide}
+                  style={{ cursor: "pointer" }}
+                >
+                  <Line
+                    coordinates={zone.vertices}
+                    stroke={strokeColor}
+                    strokeWidth={0.8}
+                    fill={fillColor}
+                  />
+                </g>
               );
             })}
 
@@ -668,12 +786,14 @@ export function TheaterMap({
                 s={s}
                 onTooltipShow={handleTooltipShow}
                 onTooltipHide={handleTooltipHide}
+                onAircraftSelect={handleAircraftSelect}
               />
               <SigintShipsLayer
                 ships={sigintShips}
                 s={s}
                 onTooltipShow={handleTooltipShow}
                 onTooltipHide={handleTooltipHide}
+                onShipSelect={handleShipSelect}
               />
             </>
           )}
@@ -683,12 +803,12 @@ export function TheaterMap({
       {/* HTML tooltip portal — single instance for all layers */}
       <MapTooltip tooltip={tooltip} />
 
-      {/* Zoom controls */}
-      <div className="absolute top-2 right-2 flex flex-col gap-1">
+      {/* Zoom controls – 44px touch targets on mobile, compact on desktop */}
+      <div className="absolute top-2 right-2 flex flex-col gap-2 sm:gap-1">
         <button
           type="button"
           onClick={() => setZoom((z) => Math.min(z * 1.5, 8))}
-          className="w-6 h-6 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+          className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 sm:w-6 sm:h-6 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors touch-manipulation"
           aria-label="Zoom in"
         >
           <Plus size={12} />
@@ -696,7 +816,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => setZoom((z) => Math.max(z / 1.5, 2))}
-          className="w-6 h-6 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors"
+          className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 sm:w-6 sm:h-6 flex items-center justify-center rounded bg-card/80 border border-border/50 text-muted-foreground hover:text-foreground hover:bg-card transition-colors touch-manipulation"
           aria-label="Zoom out"
         >
           <Minus size={12} />
@@ -749,23 +869,75 @@ export function TheaterMap({
         </div>
       )}
 
+      {/* SIGINT track detail panel (aircraft / ship) */}
+      {selectedSigint && (
+        <div
+          className="absolute bottom-24 right-2 max-w-xs w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2"
+          style={
+            selectedSigint.type === "aircraft"
+              ? { borderColor: SIGINT_AIR_COLOR }
+              : { borderColor: SIGINT_SEA_COLOR }
+          }
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col">
+              <span className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase">
+                Track detail
+              </span>
+              <span className="text-xs font-semibold">
+                {selectedSigint.type === "aircraft"
+                  ? selectedSigint.data.flight
+                  : selectedSigint.data.name}
+              </span>
+            </div>
+            <button
+              type="button"
+              aria-label="Close track details"
+              className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              onClick={() => setSelectedSigint(null)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span>Type</span>
+            <span className="text-right">
+              {selectedSigint.type === "aircraft"
+                ? (selectedSigint.data.category ?? "—")
+                : (selectedSigint.data.type ?? "—")}
+            </span>
+            <span>Location</span>
+            <span className="text-right">
+              {selectedSigint.data.lon.toFixed(1)}E · {selectedSigint.data.lat.toFixed(1)}N
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Layer toggle bar */}
       <div className="absolute bottom-12 left-2 flex items-center gap-3 flex-wrap">
         <button
           type="button"
           onClick={() => toggleLayer("geoint")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          aria-label={layers.geoint ? "Hide GEOINT layer" : "Show GEOINT layer"}
         >
-          <span style={{ color: layers.geoint ? "#ff4400" : undefined }}>△</span>
+          <span style={{ color: layers.geoint ? "var(--map-geoint)" : undefined }}>△</span>
           GEOINT
         </button>
         <button
           type="button"
           onClick={() => toggleLayer("sigint")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          title="Live tracks: Air / Sea"
+          aria-label={layers.sigint ? "Hide SIGINT layer (air and sea tracks)" : "Show SIGINT layer (air and sea tracks)"}
         >
-          <span style={{ color: layers.sigint ? "#60a5fa" : undefined }}>✈</span>
-          <span style={{ color: layers.sigint ? "#34d399" : undefined }}>⚓</span>
+          <svg width="12" height="10" viewBox="-1.2 -1 2.4 2" className="shrink-0" style={{ color: layers.sigint ? SIGINT_AIR_COLOR : undefined }}>
+            <polygon points="0,-1 0.65,0.35 0.45,1 0,0.55 -0.45,1 -1.2,0.35" fill="currentColor" stroke="currentColor" strokeWidth="0.15" />
+          </svg>
+          <svg width="12" height="10" viewBox="-1.2 -0.5 2.4 1.2" className="shrink-0" style={{ color: layers.sigint ? SIGINT_SEA_COLOR : undefined }}>
+            <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
+          </svg>
           SIGINT
         </button>
         <button
@@ -773,6 +945,7 @@ export function TheaterMap({
           onClick={() => toggleLayer("heatmap")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Conflict intensity from ACLED"
+          aria-label={layers.heatmap ? "Hide heatmap layer" : "Show heatmap layer"}
         >
           <span
             className={`w-2.5 h-2.5 rounded-full border ${layers.heatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
@@ -785,6 +958,7 @@ export function TheaterMap({
           onClick={() => toggleLayer("samRings")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="SAM engagement zones"
+          aria-label={layers.samRings ? "Hide SAM rings layer" : "Show SAM rings layer"}
         >
           <span
             className={`w-2.5 h-2.5 rounded-full border ${layers.samRings ? "border-destructive" : "border-border"}`}
@@ -801,8 +975,11 @@ export function TheaterMap({
           onClick={() => toggleLayer("airRoutes")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Main air corridors"
+          aria-label={layers.airRoutes ? "Hide air corridors layer" : "Show air corridors layer"}
         >
-          <span style={{ color: layers.airRoutes ? "hsl(210 80% 55%)" : undefined }}>✈</span>
+          <svg width="12" height="10" viewBox="-1.2 -1 2.4 2" className="shrink-0" style={{ color: layers.airRoutes ? "hsl(210 80% 55%)" : undefined }}>
+            <polygon points="0,-1 0.65,0.35 0.45,1 0,0.55 -0.45,1 -1.2,0.35" fill="currentColor" stroke="currentColor" strokeWidth="0.15" />
+          </svg>
           AIR
         </button>
         <button
@@ -810,8 +987,11 @@ export function TheaterMap({
           onClick={() => toggleLayer("seaLanes")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Sea lanes"
+          aria-label={layers.seaLanes ? "Hide sea lanes layer" : "Show sea lanes layer"}
         >
-          <span style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>⚓</span>
+          <svg width="12" height="10" viewBox="-1.2 -0.5 2.4 1.2" className="shrink-0" style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>
+            <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
+          </svg>
           SEA
         </button>
         <button
@@ -819,6 +999,7 @@ export function TheaterMap({
           onClick={() => toggleLayer("chokepoints")}
           className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
           title="Chokepoint zones"
+          aria-label={layers.chokepoints ? "Hide chokepoints layer" : "Show chokepoints layer"}
         >
           <span
             className="w-2.5 h-2.5 rounded-sm border"
@@ -830,6 +1011,22 @@ export function TheaterMap({
           />
           CHP
         </button>
+        {(layers.airRoutes || layers.seaLanes) && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {layers.airRoutes && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(210 80% 55%)" }} title="Air corridors" />
+                <span className="text-[11px] font-mono text-muted-foreground">Air corridors</span>
+              </div>
+            )}
+            {layers.seaLanes && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: "hsl(160 70% 45%)" }} title="Sea lanes" />
+                <span className="text-[11px] font-mono text-muted-foreground">Sea lanes</span>
+              </div>
+            )}
+          </div>
+        )}
         {eventLegendItems.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             {eventLegendItems.map(({ key, label, fill }) => (

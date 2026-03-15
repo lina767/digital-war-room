@@ -39,6 +39,14 @@
     --ring: 135 100% 50%;
 
     --radius: 0.5rem;
+
+    /* Theater map layer colors (overridable for theming) */
+    --map-sigint-air: #60a5fa;
+    --map-sigint-air-stroke: #2563eb;
+    --map-sigint-sea: #34d399;
+    --map-sigint-sea-stroke: #059669;
+    --map-geoint: #ff4400;
+    --map-geoint-stroke: #ff2200;
   }
 }
 
@@ -111,6 +119,24 @@
 }
 .geoint-pulse {
   animation: geoint-marker-pulse 2.5s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes sigint-air-pulse-keyframes {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50%      { transform: scale(1.2); opacity: 0.15; }
+}
+@keyframes sigint-sea-pulse-keyframes {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50%      { transform: scale(1.2); opacity: 0.15; }
+}
+.sigint-air-pulse {
+  animation: sigint-air-pulse-keyframes 2.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.sigint-sea-pulse {
+  animation: sigint-sea-pulse-keyframes 2.2s ease-in-out infinite;
   transform-box: fill-box;
   transform-origin: center;
 }
