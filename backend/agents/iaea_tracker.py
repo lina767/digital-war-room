@@ -71,6 +71,8 @@ METAR_ORER_URL = "https://aviationweather.gov/api/data/metar?ids=ORER&format=raw
 
 # Flugplan-Status (optional: eigener Proxy oder manuell gepflegter JSON)
 IAEA_FLIGHTPLAN_STATUS_URL = os.getenv("IAEA_FLIGHTPLAN_STATUS_URL", "").strip()
+IAEA_FLIGHTPLAN_STATUS = os.getenv("IAEA_FLIGHTPLAN_STATUS", "").strip().lower()
+IAEA_FLIGHTPLAN_LAST_UPDATED_ISO = os.getenv("IAEA_FLIGHTPLAN_LAST_UPDATED_ISO", "").strip() or None
 
 # Telegram: Erbil/Kurdistan/IAEA-spezifische Kanäle (kommagetrennt)
 # Hinweis: t.me/s-Scraping ist fragil und rate-limited; für ernsthaftes Monitoring Telethon/Pyrogram empfohlen.
@@ -241,20 +243,20 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
                 await asyncio.sleep(0.3)
         # correlation_hint + confidence
         if not results:
-            hint = "OE-III derzeit nicht in ADS-B sichtbar (am Boden außer Reichweite oder Transponder aus)."
+            hint = "OE-III is currently not visible in ADS-B (on ground out of coverage or transponder off)."
             confidence = "low"
         else:
             ac0 = results[0]
             on_ground = ac0.get("on_ground")
             loc = ac0.get("location_interpretation")
             if on_ground and loc == "parked_erbil":
-                hint = f"OE-III am Boden in Erbil (Hex {OEIII_ICAO_HEX} bestätigt)."
+                hint = f"OE-III on ground in Erbil (hex {OEIII_ICAO_HEX} confirmed)."
                 confidence = "high"
             elif on_ground:
-                hint = f"OE-III am Boden gemeldet ({len(results)} Quelle(n), Hex {OEIII_ICAO_HEX})."
+                hint = f"OE-III reported on ground ({len(results)} source(s), hex {OEIII_ICAO_HEX})."
                 confidence = "high"
             else:
-                hint = f"OE-III in der Luft: {len(results)} Position(en) via ADS-B."
+                hint = f"OE-III airborne: {len(results)} position(s) via ADS-B."
                 confidence = "high"
         return {
             "registration": OEIII_REGISTRATION,
@@ -275,7 +277,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
             "count": 0,
             "source": "adsb",
             "error": str(e),
-            "correlation_hint": f"ADS-B: Abfrage fehlgeschlagen ({e}).",
+            "correlation_hint": f"ADS-B: request failed ({e}).",
             "confidence": "low",
         }
 
@@ -294,7 +296,7 @@ def fetch_notams(
             "notams": [],
             "count": 0,
             "source": "notam",
-            "correlation_hint": "NOTAM: Keine API-URL konfiguriert.",
+            "correlation_hint": "NOTAM: no API URL configured.",
             "confidence": "low",
         }
 
@@ -360,7 +362,11 @@ def fetch_notams(
                 "location": n.get("location") or n.get("traffic") or "",
             })
 
-    hint = f"{len(notams)} NOTAM(s) im Zeitraum – ggf. Luftraum-Einschränkungen für DG-Reisen." if notams else "Keine NOTAMs abgerufen."
+    hint = (
+        f"{len(notams)} NOTAM(s) in selected period; potential airspace constraints for DG travel."
+        if notams
+        else "No NOTAMs retrieved."
+    )
     return {
         "notams": notams,
         "count": len(notams),
@@ -416,15 +422,15 @@ def fetch_metar_orer() -> Dict[str, Any]:
         with httpx.Client(timeout=8.0) as client:
             resp = client.get(METAR_ORER_URL, headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"})
             if resp.status_code not in (200, 204):
-                out["correlation_hint"] = "METAR ORER: Abfrage fehlgeschlagen (HTTP %s)." % resp.status_code
+                out["correlation_hint"] = "METAR ORER: request failed (HTTP %s)." % resp.status_code
                 return out
             raw = (resp.text or "").strip()
             if resp.status_code == 204 or not raw or "No data" in raw or "error" in raw.lower():
-                out["correlation_hint"] = "METAR ORER: Keine Daten (204 oder leer)."
+                out["correlation_hint"] = "METAR ORER: no data (204 or empty response)."
                 return out
     except Exception as e:
         logger.warning("METAR fetch failed: %s", e)
-        out["correlation_hint"] = "METAR ORER: Abfrage fehlgeschlagen."
+        out["correlation_hint"] = "METAR ORER: request failed."
         out["error"] = str(e)
         return out
 
@@ -443,12 +449,12 @@ def fetch_metar_orer() -> Dict[str, Any]:
     out["operational_delay_risk"] = delay_risk
 
     if delay_risk:
-        out["summary"] = "RVR/Sicht unter Schwellwert – operative Verzögerung möglich (ohne CAT-III)."
-        out["correlation_hint"] = "METAR ORER: RVR/Sicht gering → operative Verzögerung möglich."
+        out["summary"] = "RVR/visibility below threshold; operational delays possible (without CAT III)."
+        out["correlation_hint"] = "METAR ORER: low RVR/visibility -> operational delays possible."
         out["confidence"] = "high"
     else:
-        out["summary"] = "Sicht/RVR ausreichend."
-        out["correlation_hint"] = "METAR ORER: Sicht/RVR ausreichend."
+        out["summary"] = "Visibility/RVR acceptable."
+        out["correlation_hint"] = "METAR ORER: visibility/RVR acceptable."
         out["confidence"] = "medium"
     return out
 
@@ -462,10 +468,28 @@ def fetch_iaea_flight_plan_status() -> Dict[str, Any]:
         "status": "unknown",
         "last_updated_iso": None,
         "source": "flight_plan",
-        "correlation_hint": "Flugplan-Status: nicht konfiguriert.",
+        "correlation_hint": "Flight plan status not configured.",
         "confidence": "low",
     }
+    if not IAEA_FLIGHTPLAN_STATUS_URL and IAEA_FLIGHTPLAN_STATUS:
+        out["status"] = IAEA_FLIGHTPLAN_STATUS
+        out["last_updated_iso"] = IAEA_FLIGHTPLAN_LAST_UPDATED_ISO
+        s = out["status"]
+        if s == "no_new_request":
+            out["correlation_hint"] = "Flight plan: no new request; aircraft likely parked (no new slot)."
+            out["confidence"] = "medium"
+        elif s == "cancelled":
+            out["correlation_hint"] = "Flight plan: cancelled (CNL); slot not activated."
+            out["confidence"] = "medium"
+        else:
+            out["correlation_hint"] = f"Flight plan status: {s}."
+            out["confidence"] = "low"
+        return out
+
     if not IAEA_FLIGHTPLAN_STATUS_URL:
+        out["correlation_hint"] = (
+            "Flight plan status not configured. Set IAEA_FLIGHTPLAN_STATUS_URL or IAEA_FLIGHTPLAN_STATUS."
+        )
         return out
 
     try:
@@ -475,7 +499,7 @@ def fetch_iaea_flight_plan_status() -> Dict[str, Any]:
                 headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"},
             )
             if resp.status_code != 200:
-                out["correlation_hint"] = "Flugplan: Abfrage fehlgeschlagen."
+                out["correlation_hint"] = "Flight plan: request failed."
                 out["error"] = f"HTTP {resp.status_code}"
                 return out
             data = resp.json() if resp.text else {}
@@ -484,17 +508,17 @@ def fetch_iaea_flight_plan_status() -> Dict[str, Any]:
                 out["last_updated_iso"] = data.get("last_updated_iso")
                 s = out["status"]
                 if s == "no_new_request":
-                    out["correlation_hint"] = "Flugplan: Keine neue Anfrage; Maschine parked (kein neuer Slot)."
+                    out["correlation_hint"] = "Flight plan: no new request; aircraft likely parked (no new slot)."
                     out["confidence"] = "medium"
                 elif s == "cancelled":
-                    out["correlation_hint"] = "Flugplan: Storniert (CNL) – Slot nicht aktiviert."
+                    out["correlation_hint"] = "Flight plan: cancelled (CNL); slot not activated."
                     out["confidence"] = "medium"
                 else:
-                    out["correlation_hint"] = f"Flugplan-Status: {s}."
+                    out["correlation_hint"] = f"Flight plan status: {s}."
                     out["confidence"] = "low"
     except Exception as e:
         logger.warning("Flight plan status fetch failed: %s", e)
-        out["correlation_hint"] = "Flugplan: Abfrage fehlgeschlagen."
+        out["correlation_hint"] = "Flight plan: request failed."
         out["error"] = str(e)
     return out
 
@@ -590,7 +614,7 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
         "posts": [],
         "count": 0,
         "source": "iaea_telegram",
-        "correlation_hint": "Telegram (IAEA): Keine Kanäle konfiguriert.",
+        "correlation_hint": "Telegram (IAEA): no channels configured.",
         "confidence": "low",
     }
     if not IAEA_TELEGRAM_CHANNELS:
@@ -650,7 +674,7 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
     except Exception as e:
         logger.warning("IAEA Telegram fetch failed: %s", e)
         out["error"] = str(e)
-        out["correlation_hint"] = "Telegram (IAEA): Abfrage fehlgeschlagen."
+        out["correlation_hint"] = "Telegram (IAEA): request failed."
         return out
 
     # Cache: gesehene Post-IDs (source + text_hash) mit TTL
@@ -672,10 +696,12 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
     out["posts"] = deduped
     out["count"] = len(deduped)
     if deduped:
-        out["correlation_hint"] = f"{len(deduped)} Telegram-Hinweise (Erbil/Kurdistan/IAEA) – Konvoi/Checkpoint möglich."
+        out["correlation_hint"] = (
+            f"{len(deduped)} Telegram signals (Erbil/Kurdistan/IAEA); convoy/checkpoint activity possible."
+        )
         out["confidence"] = "medium"
     else:
-        out["correlation_hint"] = "Telegram (IAEA): Keine passenden Meldungen in konfigurierten Kanälen."
+        out["correlation_hint"] = "Telegram (IAEA): no matching posts in configured channels."
     return out
 
 
@@ -706,7 +732,7 @@ def _build_correlation_notes(
         conf = (data.get("confidence") or "low").lower()
         if hint:
             hints_with_conf.append({"hint": hint, "confidence": conf})
-    summary = " | ".join(h["hint"] for h in hints_with_conf) if hints_with_conf else "Keine Korrelationsdaten."
+    summary = " | ".join(h["hint"] for h in hints_with_conf) if hints_with_conf else "No correlation data."
     return hints_with_conf, summary
 
 
@@ -790,7 +816,7 @@ def run_iaea_tracker() -> Dict[str, Any]:
         except Exception as e:
             logger.warning("%s fetch failed: %s", name, e)
             return {
-                "correlation_hint": f"{name}: Abfrage fehlgeschlagen.",
+                "correlation_hint": f"{name}: request failed.",
                 "confidence": "low",
                 "error": str(e),
             }
@@ -805,7 +831,7 @@ def run_iaea_tracker() -> Dict[str, Any]:
         def run_metar():
             return _safe_fetch("METAR", fetch_metar_orer)
         def run_fp():
-            return _safe_fetch("Flugplan", fetch_iaea_flight_plan_status)
+            return _safe_fetch("Flight plan", fetch_iaea_flight_plan_status)
         def run_press():
             return _safe_fetch("IAEA Press", fetch_iaea_press_releases, 14)
         def run_telegram():
@@ -824,13 +850,13 @@ def run_iaea_tracker() -> Dict[str, Any]:
         def _unwrap(i: int, name: str) -> Dict[str, Any]:
             r = results[i]
             if isinstance(r, Exception):
-                return {"correlation_hint": f"{name}: Fehler.", "confidence": "low", "error": str(r)}
-            return r if isinstance(r, dict) else {"correlation_hint": f"{name}: Ungültige Antwort.", "confidence": "low"}
+                return {"correlation_hint": f"{name}: error.", "confidence": "low", "error": str(r)}
+            return r if isinstance(r, dict) else {"correlation_hint": f"{name}: invalid response.", "confidence": "low"}
 
         adsb = _unwrap(0, "ADS-B")
         notam = _unwrap(1, "NOTAM")
         metar = _unwrap(2, "METAR")
-        flight_plan = _unwrap(3, "Flugplan")
+        flight_plan = _unwrap(3, "Flight plan")
         press = _unwrap(4, "IAEA Press")
         telegram = _unwrap(5, "Telegram")
 
@@ -848,7 +874,7 @@ def run_iaea_tracker() -> Dict[str, Any]:
     except Exception as e:
         logger.exception("run_iaea_tracker failed")
         return correlate_iaea_tracker(
-            adsb_result={"correlation_hint": "Tracker fehlgeschlagen.", "confidence": "low", "error": str(e)},
+            adsb_result={"correlation_hint": "Tracker failed.", "confidence": "low", "error": str(e)},
             notam_result={},
             metar_result={},
             flight_plan_result={},

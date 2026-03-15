@@ -9,6 +9,16 @@ const CONFIDENCE_STYLES: Record<string, string> = {
   low: "bg-muted/50 text-muted-foreground border-border",
 };
 
+function formatFlightPlanStatus(status: string | undefined) {
+  const normalized = (status || "unknown").toLowerCase();
+  const labels: Record<string, string> = {
+    no_new_request: "No new request",
+    cancelled: "Cancelled",
+    unknown: "Unknown",
+  };
+  return labels[normalized] ?? normalized.replace(/_/g, " ");
+}
+
 function ConfidenceBadge({ confidence }: { confidence: string }) {
   const c = (confidence || "low").toLowerCase();
   const style = CONFIDENCE_STYLES[c] ?? CONFIDENCE_STYLES.low;
@@ -160,7 +170,7 @@ export function IAEATrackerPanel() {
           >
             {showFlightPlan ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-            Flugplan: {flightPlan.status}
+            Flight plan: {formatFlightPlanStatus(flightPlan.status)}
           </button>
           {showFlightPlan && flightPlan.correlation_hint && (
             <p className="pl-5 text-[11px] text-muted-foreground">{flightPlan.correlation_hint}</p>
