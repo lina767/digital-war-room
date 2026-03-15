@@ -79,6 +79,7 @@ TANKER_KEYWORDS = [
 
 HISTORY_FILE = Path(__file__).resolve().parent.parent / "data" / "chokepoint_history.json"
 BRENT_HISTORY_FILE = Path(__file__).resolve().parent.parent / "data" / "brent_history.json"
+OVERRIDES_FILE = Path(__file__).resolve().parent.parent / "data" / "chokepoint_overrides.json"
 
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 GDELT_QUERIES = {
@@ -86,13 +87,37 @@ GDELT_QUERIES = {
     "Bab el-Mandeb": '("bab el-mandeb" OR "bab al-mandab") (houthi OR blockade OR suspended OR reroute)',
     "Suez Canal": '"suez canal" (suspended OR halted OR reroute OR "cape of good hope")',
 }
+# Narrow closure-only queries: if hits_closure_24h > 0, force DISRUPTED (hard override)
+GDELT_QUERIES_CLOSURE = {
+    "Strait of Hormuz": '"strait of hormuz" (closed OR shut OR "no transit" OR blockaded)',
+    "Bab el-Mandeb": '("bab el-mandeb" OR "bab al-mandab") (closed OR shut OR blockaded OR "no transit")',
+    "Suez Canal": '"suez canal" (closed OR shut OR blockaded OR "no transit")',
+}
 CHOKEPOINT_SATURATION = {
-    "Strait of Hormuz": 40,
+    "Strait of Hormuz": 15,  # lowered so closure-level GDELT hits yield strong signal
     "Bab el-Mandeb": 12,
     "Suez Canal": 20,
 }
 # Minimum risk when data_quality is baseline_only; unknown != safe
 BASELINE_ONLY_RISK_FLOOR = 15.0
+# When GDELT disruption hits exceed these, enforce minimum risk so status reflects closure
+GDELT_RISK_FLOOR_HIGH = 75.0   # gdelt_24h >= 10 -> at least DISRUPTED
+GDELT_RISK_FLOOR_MED = 50.0    # gdelt_24h >= 5  -> at least CONTESTED
+GDELT_RISK_FLOOR_LOW = 30.0    # gdelt_24h >= 3  -> at least RESTRICTED
+GDELT_THRESHOLD_HIGH = 10
+GDELT_THRESHOLD_MED = 5
+GDELT_THRESHOLD_LOW = 3
+# Live-AIS: if tanker_count < avg * this ratio, enforce DISRUPTED-level risk
+LIVE_AIS_DISRUPTED_RATIO = 0.3
+# Live-AIS: if tanker_count < avg * this ratio (and >= above), enforce CONTESTED-level risk
+LIVE_AIS_RESTRICTED_RATIO = 0.5
+# Optional external status URL returning JSON {"Strait of Hormuz": "DISRUPTED", ...}
+CHOKEPOINT_STATUS_URL_ENV = "CHOKEPOINT_STATUS_URL"
+# Brent signal threshold (percent move); env CHOKEPOINT_BRENT_PCT_THRESHOLD overrides
+BRENT_PCT_THRESHOLD_DEFAULT = 5.0
+# GDELT 6h window: if hits_6h >= this, apply at least CONTESTED risk floor
+GDELT_6H_THRESHOLD = 2
+GDELT_RISK_FLOOR_6H = 50.0
 
 # ── EMA temporal smoothing ───────────────────────────────────────────────────
 
@@ -141,6 +166,55 @@ def _save_brent_history(prices: List[float]) -> None:
         BRENT_HISTORY_FILE.write_text(json.dumps(prices[-30:], indent=0))
     except Exception as e:
         logger.debug("chokepoint: failed to save brent history: %s", e)
+
+
+def _load_overrides() -> Dict[str, str]:
+    """Load manual status overrides from JSON (e.g. from UI). Keys: chokepoint name, values: OPEN|RESTRICTED|CONTESTED|DISRUPTED."""
+    try:
+        if OVERRIDES_FILE.exists():
+            data = json.loads(OVERRIDES_FILE.read_text())
+            if isinstance(data, dict):
+                return {k: str(v).upper() for k, v in data.items() if str(v).upper() in ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_overrides(overrides: Dict[str, str]) -> None:
+    try:
+        OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        OVERRIDES_FILE.write_text(json.dumps(overrides, indent=2))
+    except Exception as e:
+        logger.debug("chokepoint: failed to save overrides: %s", e)
+
+
+async def _fetch_external_status() -> Dict[str, str]:
+    """Fetch optional external status JSON from CHOKEPOINT_STATUS_URL. Returns dict cp_name -> OPEN|RESTRICTED|CONTESTED|DISRUPTED."""
+    url = (os.getenv(CHOKEPOINT_STATUS_URL_ENV) or "").strip()
+    if not url:
+        return {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return {}
+            data = resp.json()
+            if not isinstance(data, dict):
+                return {}
+            return {k: str(v).upper() for k, v in data.items() if str(v).upper() in ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")}
+    except Exception as e:
+        logger.debug("chokepoint: external status fetch failed: %s", e)
+        return {}
+
+
+def _risk_for_status(status: str) -> float:
+    if status == "DISRUPTED":
+        return 75.0
+    if status == "CONTESTED":
+        return 50.0
+    if status == "RESTRICTED":
+        return 30.0
+    return 0.0
 
 
 # ── Data fetching (tiered) ───────────────────────────────────────────────────
@@ -355,7 +429,7 @@ async def _fetch_gdelt_one(query: str, timespan: str) -> int:
 
 
 async def _fetch_gdelt_chokepoint_events() -> Dict[str, Dict[str, int]]:
-    """Dual-window GDELT queries per chokepoint (24h = severity, 72h = recent crisis flag)."""
+    """GDELT per chokepoint: 24h, 72h, 6h, and narrow closure query (hits_closure_24h)."""
     tasks = []
     keys = []
     for cp_name, query in GDELT_QUERIES.items():
@@ -363,11 +437,16 @@ async def _fetch_gdelt_chokepoint_events() -> Dict[str, Dict[str, int]]:
         keys.append((cp_name, "hits_24h"))
         tasks.append(_fetch_gdelt_one(query, "72H"))
         keys.append((cp_name, "hits_72h"))
+        tasks.append(_fetch_gdelt_one(query, "6H"))
+        keys.append((cp_name, "hits_6h"))
+    for cp_name, query in GDELT_QUERIES_CLOSURE.items():
+        tasks.append(_fetch_gdelt_one(query, "24H"))
+        keys.append((cp_name, "hits_closure_24h"))
     results = await asyncio.gather(*tasks)
     out: Dict[str, Dict[str, int]] = {
-        "Strait of Hormuz": {"hits_24h": 0, "hits_72h": 0},
-        "Bab el-Mandeb": {"hits_24h": 0, "hits_72h": 0},
-        "Suez Canal": {"hits_24h": 0, "hits_72h": 0},
+        "Strait of Hormuz": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
+        "Bab el-Mandeb": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
+        "Suez Canal": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
     }
     for (cp_name, key), count in zip(keys, results):
         out[cp_name][key] = count
@@ -456,6 +535,22 @@ def _disruption_factor(cp_name: str, gdelt_24h: int, gdelt_72h: int) -> float:
     return acute
 
 
+def _gdelt_risk_floor(gdelt_24h: int, hits_closure_24h: int = 0, hits_6h: int = 0) -> float:
+    """Minimum risk when GDELT shows significant disruption/closure coverage."""
+    floor = 0.0
+    if hits_closure_24h > 0:
+        floor = max(floor, GDELT_RISK_FLOOR_HIGH)  # hard override: explicit closure wording
+    if gdelt_24h >= GDELT_THRESHOLD_HIGH:
+        floor = max(floor, GDELT_RISK_FLOOR_HIGH)
+    elif gdelt_24h >= GDELT_THRESHOLD_MED:
+        floor = max(floor, GDELT_RISK_FLOOR_MED)
+    elif gdelt_24h >= GDELT_THRESHOLD_LOW:
+        floor = max(floor, GDELT_RISK_FLOOR_LOW)
+    if hits_6h >= GDELT_6H_THRESHOLD:
+        floor = max(floor, GDELT_RISK_FLOOR_6H)
+    return floor
+
+
 # ── Main agent function ─────────────────────────────────────────────────────
 
 def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
@@ -467,6 +562,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         gdelt_task = _fetch_gdelt_chokepoint_events()
         eia_data = await eia_data_task
         gdelt_disruption = await gdelt_task
+        external_status = await _fetch_external_status()
         chokepoints = []
 
         for cp_name, baseline in CHOKEPOINT_BASELINES.items():
@@ -525,6 +621,8 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         for cp in chokepoints:
             gdelt = gdelt_disruption.get(cp["name"], {})
             gdelt_24h = gdelt.get("hits_24h", 0)
+            hits_closure_24h = gdelt.get("hits_closure_24h", 0)
+            hits_6h = gdelt.get("hits_6h", 0)
             news_hit_count = min(10, gdelt_24h)
             sub = _compute_sub_scores(
                 tanker_count=cp["tanker_count"],
@@ -540,6 +638,14 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             smoothed = _ema_score(raw_risk, cp_history)
             if cp["data_quality"] == "baseline_only":
                 smoothed = max(smoothed, BASELINE_ONLY_RISK_FLOOR)
+            avg_t = CHOKEPOINT_BASELINES[cp["name"]]["avg_daily_tankers"]
+            if cp["data_quality"] == "live_ais" and avg_t > 0 and cp["tanker_count"] < avg_t * LIVE_AIS_DISRUPTED_RATIO:
+                smoothed = max(smoothed, GDELT_RISK_FLOOR_HIGH)
+            elif cp["data_quality"] == "live_ais" and avg_t > 0 and cp["tanker_count"] < avg_t * LIVE_AIS_RESTRICTED_RATIO:
+                smoothed = max(smoothed, GDELT_RISK_FLOOR_MED)
+            gdelt_floor = _gdelt_risk_floor(gdelt_24h, hits_closure_24h=hits_closure_24h, hits_6h=hits_6h)
+            if gdelt_floor > 0:
+                smoothed = max(smoothed, gdelt_floor)
             cp["disruption_risk"] = round(smoothed, 1)
             cp["status"] = _status_from_risk(smoothed)
 
@@ -566,6 +672,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             "chokepoint_score": chokepoint_score,
             "summary": summary,
             "gdelt_disruption": gdelt_disruption,
+            "external_status": external_status,
         }
 
     try:
@@ -577,6 +684,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             "chokepoint_score": 0.0,
             "summary": f"CHOKEPOINT error: {e}",
             "gdelt_disruption": {},
+            "external_status": {},
         }
 
 
@@ -658,7 +766,14 @@ def enrich_chokepoints(
     if compliance_data:
         ais_total = len(compliance_data.get("ais_anomalies") or [])
 
-    brent_signal = abs(brent_pct) >= 5.0 or (brent_above_baseline_pct is not None and brent_above_baseline_pct >= 8.0)
+    try:
+        brent_threshold = float(os.getenv("CHOKEPOINT_BRENT_PCT_THRESHOLD", str(BRENT_PCT_THRESHOLD_DEFAULT)))
+    except (TypeError, ValueError):
+        brent_threshold = BRENT_PCT_THRESHOLD_DEFAULT
+    brent_signal = abs(brent_pct) >= float(brent_threshold) or (brent_above_baseline_pct is not None and brent_above_baseline_pct >= 8.0)
+
+    # Merge external status (from URL) and manual overrides (from UI); overrides take precedence
+    status_overrides = {**chokepoint_data.get("external_status") or {}, **_load_overrides()}
 
     for cp in chokepoints:
         cp_name = cp["name"]
@@ -669,6 +784,8 @@ def enrich_chokepoints(
         gdelt = gdelt_disruption.get(cp_name, {})
         gdelt_24h = gdelt.get("hits_24h", 0)
         gdelt_72h = gdelt.get("hits_72h", 0)
+        hits_closure_24h = gdelt.get("hits_closure_24h", 0)
+        hits_6h = gdelt.get("hits_6h", 0)
         news_disruption_count = news_disruption_by_cp.get(cp_name, 0)
 
         # Confirmation gate: 2 of 3 for live_ais; 1 of 3 for estimated/baseline_only
@@ -720,8 +837,18 @@ def enrich_chokepoints(
         smoothed = _ema_score(raw_risk, cp_history)
         if cp.get("data_quality") == "baseline_only":
             smoothed = max(smoothed, BASELINE_ONLY_RISK_FLOOR)
+        if cp.get("data_quality") == "live_ais" and avg_tankers > 0 and cp["tanker_count"] < avg_tankers * LIVE_AIS_DISRUPTED_RATIO:
+            smoothed = max(smoothed, GDELT_RISK_FLOOR_HIGH)
+        elif cp.get("data_quality") == "live_ais" and avg_tankers > 0 and cp["tanker_count"] < avg_tankers * LIVE_AIS_RESTRICTED_RATIO:
+            smoothed = max(smoothed, GDELT_RISK_FLOOR_MED)
+        gdelt_floor = _gdelt_risk_floor(gdelt_24h, hits_closure_24h=hits_closure_24h, hits_6h=hits_6h)
+        if gdelt_floor > 0:
+            smoothed = max(smoothed, gdelt_floor)
         cp["disruption_risk"] = round(smoothed, 1)
         cp["status"] = _status_from_risk(smoothed)
+        if cp_name in status_overrides:
+            cp["status"] = status_overrides[cp_name]
+            cp["disruption_risk"] = round(_risk_for_status(cp["status"]), 1)
 
         cp_history.append(round(smoothed, 1))
         history[cp_name] = cp_history[-30:]

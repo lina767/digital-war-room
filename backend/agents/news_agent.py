@@ -98,13 +98,14 @@ DE_ESCALATION_KW_FA = [
 
 # Chokepoint tagging for CHOKEPOINT agent (single place for NLP logic)
 CHOKEPOINT_KEYWORDS: Dict[str, List[str]] = {
-    "Strait of Hormuz": ["hormuz", "persian gulf", "irgc"],
-    "Bab el-Mandeb": ["mandeb", "bab el", "bab al-mandab", "houthi", "red sea"],
-    "Suez Canal": ["suez"],
+    "Strait of Hormuz": ["hormuz", "hormus", "persian gulf", "irgc", "strait of hormuz"],
+    "Bab el-Mandeb": ["mandeb", "bab el", "bab al-mandab", "houthi", "red sea", "bab el-mandeb"],
+    "Suez Canal": ["suez", "suez canal"],
 }
 DISRUPTION_VERBS = [
-    "blockade", "halt", "suspend", "close", "shut",
-    "no transit", "reroute", "cape of good hope", "disrupt",
+    "blockade", "blockaded", "halt", "halted", "suspend", "suspended",
+    "close", "closed", "shut", "shut down", "no transit", "reroute", "rerouted",
+    "cape of good hope", "disrupt", "disrupted", "restricted", "closure",
 ]
 
 

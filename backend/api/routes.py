@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Request, Header
+from fastapi import APIRouter, Request, Header, Body
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
@@ -20,6 +20,7 @@ from compliance.sanctions_search import search_sanctions, get_threshold_policy
 from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
 from compliance.supply_chain import screen_route, get_intermediary_policy
 from compliance.risk_score import compute_compliance_risk
+from agents.chokepoint_agent import _load_overrides, _save_overrides
 
 router = APIRouter()
 
@@ -247,6 +248,38 @@ async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
         return out
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ── Chokepoint manual status overrides ─────────────────────────────────────────
+
+VALID_CHOKEPOINT_STATUSES = {"OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED"}
+CHOKEPOINT_NAMES = {"Strait of Hormuz", "Bab el-Mandeb", "Suez Canal"}
+
+
+@router.get("/chokepoints/overrides")
+async def get_chokepoint_overrides():
+    """GET /api/chokepoints/overrides – return current manual status overrides."""
+    overrides = _load_overrides()
+    return overrides
+
+
+@router.post("/chokepoints/overrides")
+async def set_chokepoint_overrides(body: Dict[str, Optional[str]] = Body(default={})):
+    """
+    POST /api/chokepoints/overrides
+    Body: { "Strait of Hormuz": "DISRUPTED", "Bab el-Mandeb": null, ... }
+    Merges with existing overrides; null removes override for that chokepoint.
+    """
+    current = _load_overrides()
+    for cp_name, value in body.items():
+        if cp_name not in CHOKEPOINT_NAMES:
+            continue
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            current.pop(cp_name, None)
+        elif isinstance(value, str) and value.strip().upper() in VALID_CHOKEPOINT_STATUSES:
+            current[cp_name] = value.strip().upper()
+    _save_overrides(current)
+    return current
 
 
 # ── IAEA / OE-III Tracker (ADS-B, NOTAMs, IAEA Press – Rafael Grossi) ───────────

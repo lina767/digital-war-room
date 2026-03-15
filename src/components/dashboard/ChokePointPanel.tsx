@@ -1,6 +1,8 @@
+import { useState, useEffect, useCallback } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
-import { Anchor, Droplets, Wheat, AlertTriangle, Shield } from "lucide-react";
+import { Anchor, Droplets, Wheat, AlertTriangle, Shield, Settings2 } from "lucide-react";
+import { getApiBase } from "@/lib/api";
 
 interface ChokePointPanelProps {
   data: ConflictData | null;
@@ -18,6 +20,9 @@ const DQ_LABELS: Record<string, string> = {
   estimated: "est.",
   baseline_only: "baseline",
 };
+
+const STATUS_OPTIONS = ["OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED"] as const;
+type ChokepointStatus = (typeof STATUS_OPTIONS)[number];
 
 function riskColor(risk: number): string {
   if (risk >= 75) return "text-red-400";
@@ -75,6 +80,48 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
   const chokepoints = cpData?.chokepoints ?? [];
   const score = cpData?.chokepoint_score ?? 0;
 
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const [overrideLoading, setOverrideLoading] = useState<string | null>(null);
+
+  const loadOverrides = useCallback(async () => {
+    try {
+      const res = await fetch(`${getApiBase()}/api/chokepoints/overrides`);
+      if (res.ok) {
+        const next = (await res.json()) as Record<string, string>;
+        setOverrides(next ?? {});
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    loadOverrides();
+  }, [loadOverrides]);
+
+  async function setOverride(cpName: string, status: ChokepointStatus | "") {
+    setOverrideLoading(cpName);
+    try {
+      const next = { ...overrides };
+      if (status === "") {
+        delete next[cpName];
+      } else {
+        next[cpName] = status;
+      }
+      const res = await fetch(`${getApiBase()}/api/chokepoints/overrides`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (res.ok) {
+        const updated = (await res.json()) as Record<string, string>;
+        setOverrides(updated ?? {});
+      }
+    } finally {
+      setOverrideLoading(null);
+    }
+  }
+
   const energy = data?.energy;
   const oilCommodities = energy?.commodities ?? [];
   const foodCommodities = energy?.food_commodities ?? [];
@@ -85,8 +132,13 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
     return null;
   }
 
+  const effectiveStatus = (cp: { name: string; status?: string }) => overrides[cp.name] ?? cp.status ?? "OPEN";
   const maxRisk = chokepoints.length > 0
-    ? Math.max(...chokepoints.map((c) => c.disruption_risk))
+    ? Math.max(
+        ...chokepoints.map((c) =>
+          overrides[c.name] ? (overrides[c.name] === "DISRUPTED" ? 75 : overrides[c.name] === "CONTESTED" ? 50 : overrides[c.name] === "RESTRICTED" ? 30 : 0) : c.disruption_risk
+        )
+      )
     : score;
 
   return (
@@ -94,21 +146,47 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
       title="CHOKEPOINT MONITOR"
       icon={<Anchor className="h-3.5 w-3.5 text-muted-foreground" />}
     >
-        {/* Status badges row */}
+        {/* Status badges row + override dropdown */}
         {chokepoints.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {chokepoints.map((cp) => (
-              <div
-                key={cp.name}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${STATUS_COLORS[cp.status] || STATUS_COLORS.OPEN}`}
-              >
-                <span>{cp.name.replace("Strait of ", "").replace(" Canal", "")}</span>
-                <span className="font-bold">{cp.status}</span>
-                <span className="text-muted-foreground ml-0.5">
-                  [{DQ_LABELS[cp.data_quality] || cp.data_quality}]
-                </span>
-              </div>
-            ))}
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {chokepoints.map((cp) => (
+                <div
+                  key={cp.name}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono border ${STATUS_COLORS[effectiveStatus(cp)] || STATUS_COLORS.OPEN}`}
+                >
+                  <span>{cp.name.replace("Strait of ", "").replace(" Canal", "")}</span>
+                  <span className="font-bold">{effectiveStatus(cp)}</span>
+                  {overrides[cp.name] && (
+                    <span className="text-[10px] text-muted-foreground" title="Manual override">*</span>
+                  )}
+                  <span className="text-muted-foreground ml-0.5">
+                    [{DQ_LABELS[cp.data_quality] || cp.data_quality}]
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 items-center">
+              <Settings2 className="h-3 w-3 text-muted-foreground" />
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Override</span>
+              {chokepoints.map((cp) => (
+                <div key={cp.name} className="flex items-center gap-1">
+                  <span className="text-[10px] text-muted-foreground truncate max-w-20">{cp.name.replace("Strait of ", "").replace(" Canal", "")}</span>
+                  <select
+                    value={overrides[cp.name] ?? ""}
+                    onChange={(e) => setOverride(cp.name, (e.target.value || "") as ChokepointStatus | "")}
+                    disabled={overrideLoading === cp.name}
+                    className="bg-muted/50 border border-border rounded px-1.5 py-0.5 text-[10px] font-mono"
+                    aria-label={`Override status for ${cp.name}`}
+                  >
+                    <option value="">auto</option>
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
