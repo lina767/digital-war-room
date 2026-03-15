@@ -12,7 +12,6 @@ import SourceDirectory from "./pages/SourceDirectory";
 import DailyIntelligenceBriefing from "./pages/DailyIntelligenceBriefing";
 import Privacy from "./pages/Privacy";
 import Support from "./pages/Support";
-import SupportReturn from "./pages/SupportReturn";
 
 const App = () => (
   <TooltipProvider>
@@ -29,7 +28,6 @@ const App = () => (
           <Route path="/impressum" element={<Impressum />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/support" element={<Support />} />
-          <Route path="/support/return" element={<SupportReturn />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </AuthProvider>
