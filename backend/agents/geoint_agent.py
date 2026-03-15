@@ -771,8 +771,16 @@ def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
     API: ucdpapi.pcr.uu.se/api/gedevents/25.1. Requires UCDP_API_TOKEN (x-ucdp-access-token).
     Returns events for the conflict country (e.g. Iran=630); optional StartDate/EndDate for last 90 days.
     """
-    token = (os.getenv("UCDP_API_TOKEN") or os.getenv("UCDP_ACCESS_TOKEN") or "").strip()
+    token = (
+        os.getenv("UCDP_API_TOKEN")
+        or os.getenv("UCDP_ACCESS_TOKEN")
+        or os.getenv("UCDP__API_TOKEN")  # common typo: double underscore
+        or ""
+    ).strip()
     if not token:
+        logger.info(
+            "UCDP: no token. Set UCDP_API_TOKEN (or UCDP_ACCESS_TOKEN) in backend/.env. See ucdp.uu.se / API docs for access."
+        )
         return []
     # One request per analysis; stay under 5,000/day (UCDP limit)
 
@@ -794,6 +802,16 @@ def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.get(url, params=params, headers=headers)
                 if resp.status_code != 200:
+                    try:
+                        err_body = resp.text[:300] if resp.text else str(resp.status_code)
+                    except Exception:
+                        err_body = str(resp.status_code)
+                    logger.warning(
+                        "UCDP API returned HTTP %s (country_id=%s). Check UCDP_API_TOKEN and quota (5,000 req/day). %s",
+                        resp.status_code,
+                        country_id,
+                        err_body,
+                    )
                     return []
                 data = resp.json()
                 result = data.get("Result", [])
@@ -817,13 +835,14 @@ def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
                         "latitude": e.get("latitude"),
                         "longitude": e.get("longitude"),
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("UCDP request failed: %s. Check network and UCDP_API_TOKEN.", e)
         return events
 
     try:
         return run_async(_fetch())
-    except Exception:
+    except Exception as e:
+        logger.warning("UCDP fetch failed: %s", e)
         return []
 
 

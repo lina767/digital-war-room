@@ -66,7 +66,7 @@ Erweiterung des Digital War Room um Sanctions-Compliance: Echtzeit-Sanktionschec
 - **Differentiator** gegenüber reinen Listen-Tools (z. B. Dow Jones Risk & Compliance, World-Check): Nutzung von **AIS-Daten** nicht nur für Position, sondern für **Anomalien**.
   - **Spoofing:** Verdacht auf manipulierte AIS-Positionen (z. B. Schiff „springt“ unrealistisch, oder sendet in Sanktionszone, während andere Quellen woanders zeigen).
   - **Dark Activity:** Schiffe mit AIS ausgeschaltet in sensiblen Zonen (z. B. Hormuz), Korrelation mit anderen Quellen (Satellit, Radar-Meldungen) wo möglich.
-- Heuristiken und Datenquellen (z. B. Spire, SatAIS) in einem eigenen Unterabschnitt der Architektur planen; Ausgabe als **Anomalie-Flag** pro Asset, optional Integration in Compliance-Risiko-Score und Alerts.
+- Heuristiken und Datenquellen (z. B. AISStream, SatAIS) in einem eigenen Unterabschnitt der Architektur planen; Ausgabe als **Anomalie-Flag** pro Asset, optional Integration in Compliance-Risiko-Score und Alerts.
 
 ---
 

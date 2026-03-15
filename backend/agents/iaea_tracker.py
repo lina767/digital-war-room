@@ -398,6 +398,9 @@ def fetch_notams(
     locations = (icao_locations or NOTAM_ICAO_DEFAULT)[:20]
     out: List[Dict[str, Any]] = []
     if not NOTAM_API_URL:
+        logger.info(
+            "NOTAMs: no API URL. Set NOTAM_API_URL in backend/.env (e.g. https://api.autorouter.aero/v1.0/notam)."
+        )
         return {
             "notams": [],
             "count": 0,
@@ -407,6 +410,10 @@ def fetch_notams(
         }
 
     is_autorouter = "autorouter.aero" in NOTAM_API_URL
+    if is_autorouter and not NOTAM_API_KEY:
+        logger.debug(
+            "NOTAMs: NOTAM_API_KEY not set. Autorouter.aero may require an API key (see autorouter.aero); if you get HTTP 401/403, add NOTAM_API_KEY to backend/.env."
+        )
 
     async def _get() -> List[Dict[str, Any]]:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -426,6 +433,15 @@ def fetch_notams(
             try:
                 resp = await client.get(NOTAM_API_URL, params=params)
                 if resp.status_code != 200:
+                    try:
+                        err_body = (resp.text or "")[:300]
+                    except Exception:
+                        err_body = ""
+                    logger.warning(
+                        "NOTAMs API returned HTTP %s. Check NOTAM_API_URL and NOTAM_API_KEY (autorouter.aero). %s",
+                        resp.status_code,
+                        err_body,
+                    )
                     return []
                 data = resp.json()
                 if is_autorouter and isinstance(data, dict):
@@ -434,8 +450,8 @@ def fetch_notams(
                     return data
                 if isinstance(data, dict):
                     return data.get("notams") or data.get("items") or data.get("rows") or []
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("NOTAMs request failed: %s. Check NOTAM_API_URL and network.", e)
             return []
 
     try:

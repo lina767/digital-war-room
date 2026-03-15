@@ -75,7 +75,7 @@ Here's the thing: when you study geopolitics deeply enough, you realize the anal
 
 So I built the Digital War Room. 11 specialized agents — FININT (financial markets), SIGINT (military aircraft and ships), NEWS, GEOINT (NASA satellite thermal data), SOCMINT (social media), TECHINT (internet disruptions), CYBER, ENERGY, PROTEST, DIPLO (sanctions), and PROXIMITY (strike-civilian correlation). They run in parallel, each hitting 2-5 APIs with 75-second timeouts and automatic fallbacks. An LLM supervisor synthesizes everything into a single threat assessment.
 
-Everyone told me to use LangGraph or CrewAI. I didn't. When your SIGINT agent has 75 seconds to query ADS-B endpoints, VesselFinder, and Spire Maritime — and any of them might timeout — you need explicit control, not a framework deciding your execution order.
+Everyone told me to use LangGraph or CrewAI. I didn't. When your SIGINT agent has 75 seconds to query ADS-B endpoints, and VesselFinder — and any of them might timeout — you need explicit control, not a framework deciding your execution order.
 
 The result: 11 agents, 20+ public APIs, one composite threat score. The system runs every 6 hours automatically and has never fully crashed.
 

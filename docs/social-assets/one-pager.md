@@ -31,7 +31,7 @@ An AI-powered multi-agent OSINT platform that monitors geopolitical conflicts in
      │ FININT │ │ SIGINT │ │  NEWS  │ │ GEOINT │ │SOCMINT │ ... │PROXIMITY │
      │        │ │        │ │        │ │        │ │        │     │          │
      │Brent   │ │ADS-B   │ │NewsAPI │ │NASA    │ │Telegram│     │FIRMS +   │
-     │WTI     │ │Spire   │ │GDELT   │ │FIRMS   │ │Reddit  │     │Overpass  │
+     │WTI     │ │        │ │GDELT   │ │FIRMS   │ │Reddit  │     │Overpass  │
      │Gold    │ │VesselF.│ │RSS     │ │UCDP    │ │RSS     │     │OSM       │
      │Polymar.│ │Marine  │ │        │ │Sentinel│ │ReliefW │     │          │
      │Metacul.│ │Traffic │ │        │ │        │ │        │     │          │
@@ -52,7 +52,7 @@ flowchart TB
 
   subgraph agents [11 Intelligence Agents — parallel]
     FININT["FININT\nBrent, WTI, Gold\nPolymarket, Metaculus\nOFAC, On-Chain"]
-    SIGINT["SIGINT\nADS-B, VesselFinder\nSpire, MarineTraffic\nIntel RSS"]
+    SIGINT["SIGINT\nADS-B, VesselFinder\nMarineTraffic\nIntel RSS"]
     NEWS["NEWS\nNewsAPI, GDELT\nRSS Feeds"]
     GEOINT["GEOINT\nNASA FIRMS\nUCDP, Sentinel Hub"]
     SOCMINT["SOCMINT\nTelegram, Reddit\nRSS, ReliefWeb"]
@@ -84,7 +84,7 @@ flowchart TB
 | Agent | Sources | What It Measures |
 |-------|---------|-----------------|
 | **FININT** | Brent/WTI/Gold, Polymarket, Metaculus, OFAC, Etherscan | Financial stress and market-implied conflict probability |
-| **SIGINT** | ADS-B (adsb.fi, adsb.lol), Spire Maritime/Airsafe, VesselFinder, MarineTraffic, CriticalThreats RSS | Military aircraft, naval vessel movements, intel reports |
+| **SIGINT** | ADS-B (adsb.fi, adsb.lol), VesselFinder, MarineTraffic, CriticalThreats RSS | Military aircraft, naval vessel movements, intel reports |
 | **NEWS** | NewsAPI, GDELT Doc API, RSS (BBC, DW, Al Jazeera, RFE/RL) | Open-source media sentiment and coverage volume |
 | **GEOINT** | NASA FIRMS (thermal), UCDP (Uppsala), Sentinel Hub EO Browser | Satellite-detected thermal anomalies and conflict events |
 | **SOCMINT** | Telegram, Nitter/X, Reddit, RSS, ReliefWeb | Social signal detection and grassroots sentiment |

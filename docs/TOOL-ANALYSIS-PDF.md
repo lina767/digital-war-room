@@ -9,7 +9,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 | Agent | Integrierte Quellen |
 |-------|---------------------|
 | **FININT** | Alpha Vantage (Brent, WTI), Polymarket (Odds + Tracked Wallets via Data API) |
-| **SIGINT** | ADS-B (adsb.fi, adsb.lol), VesselFinder (public map API), Spire Maritime (optional), Conflict Reports RSS |
+| **SIGINT** | ADS-B (adsb.fi, adsb.lol), VesselFinder (public map API), Conflict Reports RSS |
 | **GEOINT** | NASA FIRMS, ReliefWeb, UCDP (optional), ACLED (optional), Sentinel Hub EO Browser Links |
 | **SOCMINT** | Telegram, Nitter (X), Reddit, RSS, ReliefWeb |
 | **TECHINT** | Alpha Vantage (ETFs), NewsAPI (Export Control), IODA, OONI, Cloudflare Radar, Shodan |
@@ -40,7 +40,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 | PDF-Tool | Im Projekt? | Anmerkung |
 |----------|-------------|-----------|
 | **ADSB-Exchange / Flightradar24** | ✅ Äquivalent | Stattdessen: **adsb.fi** + **adsb.lol** (Military + Region) |
-| **MarineTraffic / VesselFinder** | ✅ VesselFinder | `get_naval_vessels` nutzt VesselFinder public map API; optional Spire |
+| **MarineTraffic / VesselFinder** | ✅ VesselFinder | `get_naval_vessels` nutzt VesselFinder public map API |
 | WebSDR (Militär-Funk) | ❌ | Audio-Streams, kaum automatisierbar als „Tool“ |
 | SkyGlass (Flugrouten visualisieren) | ❌ | Visuelles Tool, keine Standard-API für Backend |
 
@@ -110,7 +110,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 7. **SIGINT: MarineTraffic (optional zu VesselFinder)**
    - **Zweck:** PDF nennt beide; MarineTraffic größeres Netz, oft „bessere“ Abdeckung.
    - **API:** MarineTraffic API existiert (Basic/Essential/Enterprise), Preise oft auf Anfrage. VesselFinder bereits im Einsatz (public map).
-   - **Aufwand:** Nur lohnend wenn ihr MarineTraffic-Key habt; dann zweite Quelle parallel zu VesselFinder (wie Spire), Deduplizierung nach MMSI/Name.
+   - **Aufwand:** Nur lohnend wenn ihr MarineTraffic-Key habt; dann zweite Quelle parallel zu VesselFinder, Deduplizierung nach MMSI/Name.
 
 ### Geringerer Nutzen / Nische / manuell
 

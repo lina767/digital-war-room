@@ -11,7 +11,7 @@ Jeder Agent hat eine feste Tool-Liste und eine regelbasierte Fallback-Kette. Erw
 | Agent | Aktuelle Tools/Quellen | Mögliche Erweiterungen |
 |-------|------------------------|------------------------|
 | **FININT** | Brent, WTI (Alpha Vantage), Polymarket, Tracked Wallets | Weitere Rohstoff-Indizes (Gas, Gold), weitere Prediction Markets (z. B. Kalshi), Sanctions/Treasury-Listen (OFAC) als Tool |
-| **SIGINT** | ADS-B (Flugzeuge), VesselFinder, Spire Maritime (optional), Conflict Reports RSS | MarineTraffic API (wenn Key), NOTAM-Integration (iaea_tracker hat NOTAMs), weitere RSS/Intel-Feeds; **Tool-Kette parallel** (wie FININT/NEWS) für Latenz |
+| **SIGINT** | ADS-B (Flugzeuge), VesselFinder, Conflict Reports RSS | MarineTraffic API (wenn Key), NOTAM-Integration (iaea_tracker hat NOTAMs), weitere RSS/Intel-Feeds; **Tool-Kette parallel** (wie FININT/NEWS) für Latenz |
 | **NEWS** | NewsAPI, GDELT, RSS | Weitere Sprachen (GDELT filter), regionale Nachrichten-APIs, Alert-System (Keyword-Webhook) |
 | **GEOINT** | NASA FIRMS, ReliefWeb, UCDP (optional), ACLED (optional), EO Browser Links | **Liveuamap API** (kostenpflichtig, in DEPLOYMENT erwähnt), **Sentinel Hub Process API** (SENTINELHUB_CLIENT_ID/SECRET für automatische Tiles), weitere Regionen in `REGION_BBOX` |
 | **SOCMINT** | Telegram, Nitter, Reddit, RSS, ReliefWeb | Weitere Telegram-Kanäle/Regionen in `TELEGRAM_CHANNELS`, Mastodon/Bluesky als Tool (wenn stabile API), mehr Subreddits pro Region |
@@ -45,7 +45,7 @@ Agents liefern ein Dict mit mindestens **Score** und **Summary**; der Supervisor
 | **Intervall** | `AUTO_ANALYZE_INTERVAL_SEC` | Wie oft der Supervisor läuft (Default 6h). |
 | **Zeitfenster** | Noch fest im Code | `hours_back` (NEWS), `days` (GEOINT FIRMS), TECHINT 7d: als Env auslagern (z. B. `NEWS_HOURS_BACK=48`, `FIRMS_DAYS=3`) für „mehr Echtzeit“ vs. „mehr Kontext“. |
 | **Gewichtung** | `supervisor.py` | Composite Score: Gewichte FININT/SIGINT/… aktuell fest; könnten als Env (z. B. `AGENT_WEIGHT_FININT=0.18`) gelesen werden. |
-| **Optionale APIs** | Bereits Env | Spire, UCDP, ACLED, Shodan, Cloudflare Radar, Sentinel Hub, etc. – wenn gesetzt, nutzt der Agent die Quelle. |
+| **Optionale APIs** | Bereits Env | UCDP, ACLED, Shodan, Cloudflare Radar, Sentinel Hub, etc. – wenn gesetzt, nutzt der Agent die Quelle. |
 | **Regelbasiert vs. LLM** | `USE_RULE_BASED_AGENTS`, `USE_RULE_BASED_SUPERVISOR` | Kosten vs. Flexibilität. |
 
 Erweiterung „Funktionen“ im Sinne Konfiguration: Neue Env-Variablen für Zeitfenster und Gewichtung einführen, in den Agents bzw. im Supervisor auslesen und verwenden.

@@ -51,8 +51,6 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "ADSB", description: "opendata.adsb.fi, api.adsb.lol – military aircraft (v2/mil + regions)" },
       { name: "VesselFinder", description: "Naval vessels, bounding boxes (Persian Gulf, Red Sea, Med, Gulf of Aden)" },
-      { name: "Spire Maritime", description: "AIS/vessels (optional SPIRE_MARITIME_API_KEY)" },
-      { name: "Spire Airsafe", description: "Aircraft tracking stream (optional SPIRE_AIRSAFE_TOKEN)" },
       { name: "ADSBexchange", description: "Target aircraft via RapidAPI (optional ADSBEXCHANGE_RAPIDAPI_KEY)" },
       { name: "NOTAM", description: "Autorouter.aero / Eurocontrol – NOTAMs (optional NOTAM_API_KEY)" },
       { name: "IAEA", description: "IAEA news and press release feeds – Grossi/DG correlation" },
@@ -134,7 +132,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     name: "CHOKEPOINT",
     fullName: "Maritime Chokepoint Monitor",
     sources: [
-      { name: "Spire Maritime", description: "AIS tanker positions (optional SPIRE_MARITIME_API_KEY)" },
+      { name: "AISStream/MT", description: "AISStream (optional AIRSTREAM_API_KEY), MarineTraffic, or AISHub – tanker positions" },
       { name: "AISHub", description: "Community AIS data (optional AISHUB_USERNAME)" },
       { name: "MarineTraffic", description: "Area vessel queries (optional MARINETRAFFIC_API_KEY)" },
       { name: "EIA API", description: "Persian Gulf oil export baseline (optional EIA_API_KEY)" },

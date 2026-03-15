@@ -86,7 +86,7 @@ Beispiel Hormuz: `"55,25,58,27.5"` → `[[25, 55], [27.5, 58]]`.
 
 3. **Integration im Agent**
    - Wenn `AIRSTREAM_API_KEY` gesetzt: zuerst Airstream-WebSocket-Session (eine Verbindung, eine Subscription mit drei BBoxen), Ergebnis pro Chokepoint für `tanker_count` / `tanker_details` / `data_quality = "live_ais"` nutzen.
-   - Bei Fehler/Timeout: Fallback auf Spire → MarineTraffic → AISHub wie bisher.
+   - Bei Fehler/Timeout: Fallback auf MarineTraffic → AISHub wie bisher.
 
 4. **Keine Frontend-Änderungen** – gleiches Agent-Output-Format.
 
@@ -108,7 +108,7 @@ Beispiel Hormuz: `"55,25,58,27.5"` → `[[25, 55], [27.5, 58]]`.
 
 - **Eine** WebSocket-Session pro Agent-Lauf: Connect → sofort Subscribe (alle 3 BBoxen) → Nachrichten für N Sekunden sammeln → sauber schließen.
 - AISStream liefert **alle** Schiffe in den Boxen; Zuordnung zu Chokepoint über Punkt-in-BBox; Tanker-Filter über **Namen** (TANKER_KEYWORDS), ohne ShipStaticData (später erweiterbar).
-- Agent-API unverändert: weiterhin `Dict[cp_name, tanker_count, tanker_details, data_quality, ...]`. Fallback Spire/MarineTraffic/AISHub nur, wenn AISStream nicht konfiguriert oder Fehler.
+- Agent-API unverändert: weiterhin `Dict[cp_name, tanker_count, tanker_details, data_quality, ...]`. Fallback MarineTraffic/AISHub nur, wenn AISStream nicht konfiguriert oder Fehler.
 
 ### Schritt 1: Konfiguration
 
@@ -161,11 +161,11 @@ Beispiel Hormuz: `"55,25,58,27.5"` → `[[25, 55], [27.5, 58]]`.
     - `tankers_by_cp = await collect_tankers_by_chokepoint()` aufrufen (Import aus `airstream_client`).  
     - Wenn `tankers_by_cp is None`, bleibt `tankers_by_cp = {}` (oder nicht setzen und im Loop nur Fallback nutzen).
   - In der **for-Schleife** über `CHOKEPOINT_BASELINES`:  
-    - Statt zuerst Spire/MarineTraffic/AISHub:  
+    - Statt zuerst MarineTraffic/AISHub:  
       - Wenn `tankers_by_cp` vorhanden und `cp_name in tankers_by_cp`:  
         - `tankers = tankers_by_cp[cp_name]`  
         - `data_quality = "live_ais"`  
-      - Sonst: bestehende Kaskade `_fetch_spire_tankers(bbox)` → `_fetch_marinetraffic_tankers(bbox)` → `_fetch_aishub_tankers(bbox)` wie bisher.
+      - Sonst: bestehende Kaskade `_fetch_marinetraffic_tankers(bbox)` → `_fetch_aishub_tankers(bbox)` wie bisher.
   - Rest der Schleife unverändert (tanker_count, oil_flow, cp_entry, etc.).
 - **Docstring** des Moduls anpassen: Tier 1 um „AISStream (aisstream.io), wenn AIRSTREAM_API_KEY gesetzt“ ergänzen.
 
@@ -189,14 +189,14 @@ Beispiel Hormuz: `"55,25,58,27.5"` → `[[25, 55], [27.5, 58]]`.
 | `backend/.env.example` | `AIRSTREAM_API_KEY=`, optional `AIRSTREAM_COLLECT_SECONDS` |
 | `docs/API-KEYS.md` | Eintrag AISStream |
 | `backend/agents/airstream_client.py` | **Neu**: `collect_tankers_by_chokepoint(bounding_boxes, cp_bounds, tanker_keywords, ...)` – WebSocket, Subscription, Parsing, Tanker-Filter, Dedup; keine Imports aus chokepoint_agent |
-| `backend/agents/chokepoint_agent.py` | BBox-Helfer (string → airstream_box + bounds); zu Beginn von `_run()` aus BASELINES `bounding_boxes` und `cp_bounds` bauen, `collect_tankers_by_chokepoint(..., TANKER_KEYWORDS)` aufrufen; in der for-Schleife zuerst `tankers_by_cp.get(cp_name)`, sonst Fallback Spire/MarineTraffic/AISHub |
+| `backend/agents/chokepoint_agent.py` | BBox-Helfer (string → airstream_box + bounds); zu Beginn von `_run()` aus BASELINES `bounding_boxes` und `cp_bounds` bauen, `collect_tankers_by_chokepoint(..., TANKER_KEYWORDS)` aufrufen; in der for-Schleife zuerst `tankers_by_cp.get(cp_name)`, sonst Fallback MarineTraffic/AISHub |
 
 ### Warum diese Lösung elegant ist
 
 - **Eine** WebSocket-Runde pro Lauf, **eine** Subscription mit drei BBoxen (kein dreifaches Polling).
 - **Kein Zirkelimport:** Client kennt nur BBox-Listen und Keywords; der Agent stellt sie aus `CHOKEPOINT_BASELINES` / `TANKER_KEYWORDS` bereit.
-- **Gleiche Datenform:** Rückgabe wie bei Spire/AISHub (`name`, `type`, `lat`, `lon`, `source`); bestehende Scoring- und Enrich-Logik bleibt unverändert.
-- **Klare Fallback-Kette:** AISStream → Spire → MarineTraffic → AISHub; bei Fehlern oder fehlendem Key automatisch nächstes Tier.
+- **Gleiche Datenform:** Rückgabe wie bei AISHub (`name`, `type`, `lat`, `lon`, `source`); bestehende Scoring- und Enrich-Logik bleibt unverändert.
+- **Klare Fallback-Kette:** AISStream → MarineTraffic → AISHub; bei Fehlern oder fehlendem Key automatisch nächstes Tier.
 
 ---
 

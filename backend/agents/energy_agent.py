@@ -25,7 +25,7 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-# AGSI+ API (free with registration) – EU gas storage
+# AGSI+ API (free with registration) – EU gas storage. GIE API v013: type=eu for EU/country data, size max 300, auth via x-key header.
 AGSI_BASE = "https://agsi.gie.eu/api"
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 EIA_BASE = "https://api.eia.gov/v2/seriesid"
@@ -73,18 +73,28 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 
 async def _fetch_agsi_storage(api_key: str) -> Dict[str, Any]:
-    """Fetch EU gas storage data from AGSI+ (optional AGSI_API_KEY)."""
+    """Fetch EU gas storage data from AGSI+ (optional AGSI_API_KEY). Key from agsi.gie.eu/account, sent as header x-key."""
     if not api_key or not api_key.strip():
+        logger.info(
+            "AGSI+: no API key. Set AGSI_API_KEY in backend/.env (free registration at agsi.gie.eu/account)."
+        )
         return {"full": [], "error": "AGSI_API_KEY not set"}
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            # EU aggregate and key countries (Germany, Italy, etc.)
+            # GIE API v013: type=eu for EU/country facility reports, size=max 300 per page (default 30)
             resp = await client.get(
-                f"{AGSI_BASE}/",
-                params={"limit": 100},
+                AGSI_BASE,
+                params={"type": "eu", "size": 100},
                 headers={"x-key": api_key.strip()},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                err_body = (resp.text or "")[:200]
+                logger.warning(
+                    "AGSI+ API returned HTTP %s. Check AGSI_API_KEY (agsi.gie.eu/account). %s",
+                    resp.status_code,
+                    err_body,
+                )
+                return {"full": [], "error": f"AGSI+ HTTP {resp.status_code}"}
             data = resp.json()
         # AGSI returns { "data": [...], "gas_day": "..." }
         records = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
@@ -102,6 +112,7 @@ async def _fetch_agsi_storage(api_key: str) -> Dict[str, Any]:
             }
         return {"full": list(by_country.values())[:15], "error": None}
     except Exception as e:
+        logger.warning("AGSI+ request failed: %s. Check AGSI_API_KEY and network (agsi.gie.eu).", e)
         return {"full": [], "error": str(e)}
 
 

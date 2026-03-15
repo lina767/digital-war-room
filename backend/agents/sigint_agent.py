@@ -11,8 +11,6 @@ Optional: ADSBexchange via RapidAPI (ADSBEXCHANGE_RAPIDAPI_KEY) for target track
 
 Ship sources:
   - VesselFinder public endpoint (multiple bounding boxes)
-  - Spire Maritime (optional SPIRE_MARITIME_API_KEY) – AIS/vessels in Persian Gulf, Red Sea, etc.
-  - Spire Airsafe (optional SPIRE_AIRSAFE_TOKEN) – aircraft tracking stream api.airsafe.spire.com/v2/targets/stream
   - MarineTraffic RSS
 
 Intelligence reports:
@@ -119,17 +117,6 @@ COMMERCIAL_TANKER_KEYWORDS = [
 ]
 COMMERCIAL_TANKER_AIS_TYPES = tuple(range(80, 90))
 HORMUZ_TANKER_BBOX = "55,25,58,27.5"
-
-# Spire Maritime (optional): legacy Vessels API – https://api.sense.spire.com/ (short token) or https://ais.spire.com/ (long token)
-SPIRE_VESSELS_URL = "https://api.sense.spire.com/vessels"
-# Spire Airsafe (optional): aircraft tracking stream – https://api.airsafe.spire.com/v2/targets/stream (Bearer token)
-SPIRE_AIRSAFE_STREAM_URL = "https://api.airsafe.spire.com/v2/targets/stream"
-SPIRE_REGIONS = [
-    ("Persian Gulf", 22, 30, 48, 62),
-    ("Red Sea", 12, 28, 32, 44),
-    ("Eastern Med", 30, 37, 25, 38),
-    ("Gulf of Aden", 10, 16, 42, 52),
-]  # (label, lat_lo, lat_hi, lon_lo, lon_hi)
 
 # Optional target aircraft profiles – track multiple high-value aircraft via ADSBexchange/RapidAPI + free ADS-B.
 # Add entries here or via env (e.g. OEIII_HEX for ICAO). Each key = target name, value = { hex?, regs?, notes? }.
@@ -576,67 +563,6 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
         return [{"error": str(e)}]
 
 
-def get_spire_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
-    """
-    Fetch vessel positions from Spire Maritime AIS (subagent). Requires SPIRE_MARITIME_API_KEY.
-    Returns vessels in Persian Gulf, Red Sea, Eastern Med, Gulf of Aden. Filter client-side by bbox if API has no bbox param.
-    """
-    token = (os.getenv("SPIRE_MARITIME_API_KEY") or os.getenv("SPIRE_API_KEY") or "").strip()
-    if not token:
-        return []
-
-    base_url = os.getenv("SPIRE_MARITIME_BASE_URL", "https://api.sense.spire.com").rstrip("/")
-    url = f"{base_url}/vessels"
-
-    async def _fetch():
-        out = []
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                # Legacy API: limit; some versions support bbox. Fetch and filter by our regions.
-                resp = await client.get(
-                    url,
-                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                    params={"limit": 200},
-                )
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
-                vessels = data if isinstance(data, list) else data.get("data", data.get("vessels", []))
-                if not isinstance(vessels, list):
-                    return []
-                for v in vessels:
-                    lat = safe_float(v.get("latitude") or v.get("lat"))
-                    lon = safe_float(v.get("longitude") or v.get("lon"))
-                    if lat is None or lon is None:
-                        continue
-                    for label, lat_lo, lat_hi, lon_lo, lon_hi in SPIRE_REGIONS:
-                        if lat_lo <= lat <= lat_hi and lon_lo <= lon <= lon_hi:
-                            name = v.get("name") or v.get("vessel_name") or "Vessel"
-                            ship_type = v.get("type") or v.get("ship_type") or v.get("vessel_type") or ""
-                            is_mil = any(
-                                kw in (name or "").lower() or kw in (ship_type or "").lower()
-                                for kw in WARSHIP_KEYWORDS
-                            ) or (isinstance(v.get("type_of_ship"), int) and 30 <= v.get("type_of_ship", 0) <= 39)
-                            out.append({
-                                "name": name,
-                                "type": ship_type or "unknown",
-                                "lat": lat,
-                                "lon": lon,
-                                "region": label,
-                                "source": "spire",
-                            })
-                            break
-        except Exception as e:
-            logger.debug("SIGINT: Spire vessels fetch failed: %s", e)
-        return out[:80]
-
-    try:
-        return run_async(_fetch())
-    except Exception as e:
-        logger.exception("SIGINT: get_spire_vessels failed: %s", e)
-        return []
-
-
 def _is_commercial_tanker(v: dict) -> bool:
     """Check if a vessel dict describes a commercial tanker (oil, LNG, LPG, chemical)."""
     name = str(v.get("name") or v.get("NAME") or v.get("shipname") or "").lower()
@@ -713,63 +639,6 @@ def get_hormuz_tankers() -> List[Dict[str, Any]]:
         return run_async(_run())
     except Exception as e:
         logger.debug("SIGINT: get_hormuz_tankers failed: %s", e)
-        return []
-
-
-def get_spire_airsafe_targets(hours_back: float = 1.0) -> List[Dict[str, Any]]:
-    """
-    Fetch aircraft targets from Spire Airsafe tracking stream (batch mode).
-    https://api.airsafe.spire.com/v2/targets/stream – requires SPIRE_AIRSAFE_TOKEN (Bearer).
-    Uses start/end query params for batch; filters to conflict zone (Middle East).
-    """
-    token = (os.getenv("SPIRE_AIRSAFE_TOKEN") or os.getenv("SPIRE_API_KEY") or "").strip()
-    if not token:
-        return []
-
-    async def _fetch() -> List[Dict[str, Any]]:
-        from datetime import timedelta
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(hours=max(0.25, min(6.0, hours_back)))
-        params = {"start": start.isoformat(), "end": end.isoformat()}
-        out: List[Dict[str, Any]] = []
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(
-                    SPIRE_AIRSAFE_STREAM_URL,
-                    headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                    params=params,
-                )
-                if resp.status_code != 200:
-                    logger.debug("SIGINT: Spire Airsafe stream returned %s", resp.status_code)
-                    return []
-                data = resp.json()
-                targets = data if isinstance(data, list) else data.get("targets", data.get("data", []))
-                if not isinstance(targets, list):
-                    return []
-                for t in targets:
-                    if not isinstance(t, dict):
-                        continue
-                    lat = safe_float(t.get("latitude") or t.get("lat"))
-                    lon = safe_float(t.get("longitude") or t.get("lon"))
-                    if lat is None or lon is None or not _in_conflict_zone(lat, lon):
-                        continue
-                    out.append({
-                        "flight": t.get("callsign") or t.get("flight_number") or t.get("icao_address") or "",
-                        "type": t.get("aircraft_type") or t.get("type") or "",
-                        "lat": lat,
-                        "lon": lon,
-                        "alt_baro": safe_float(t.get("altitude") or t.get("alt_baro")),
-                        "hex": t.get("icao_address") or t.get("hex"),
-                        "source": "spire_airsafe",
-                    })
-        except Exception as e:
-            logger.debug("SIGINT: Spire Airsafe targets fetch failed: %s", e)
-        return out[:100]
-
-    try:
-        return run_async(_fetch())
-    except Exception as e:
-        logger.exception("SIGINT: get_spire_airsafe_targets failed: %s", e)
         return []
 
 
@@ -1051,7 +920,7 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
-    """Execute SIGINT tool chain: aircraft → vessels → spire_vessels → conflict_reports → NOTAMs (iaea_tracker). No LLM."""
+    """Execute SIGINT tool chain: aircraft → vessels → conflict_reports → NOTAMs (iaea_tracker). No LLM."""
     from .iaea_tracker import fetch_notams
 
     start = time.perf_counter()
@@ -1060,8 +929,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         with ThreadPoolExecutor(max_workers=8) as executor:
             fut_air = executor.submit(get_military_aircraft)
             fut_ships = executor.submit(get_naval_vessels)
-            fut_spire = executor.submit(get_spire_vessels)
-            fut_spire_airsafe = executor.submit(get_spire_airsafe_targets)
             fut_tankers = executor.submit(get_hormuz_tankers)
             fut_reports = executor.submit(get_conflict_reports, conflict)
             fut_notams = executor.submit(lambda: fetch_notams(days=3, limit=15))
@@ -1080,18 +947,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             except Exception as e:
                 logger.exception("SIGINT: naval vessels fetch failed: %s", e)
                 raw_ships = [{"error": str(e)}]
-
-            try:
-                raw_spire = fut_spire.result(timeout=40)
-            except Exception as e:
-                logger.debug("SIGINT: Spire vessels fetch in orchestrator failed: %s", e)
-                raw_spire = []
-
-            try:
-                raw_spire_airsafe = fut_spire_airsafe.result(timeout=35)
-            except Exception as e:
-                logger.debug("SIGINT: Spire Airsafe targets fetch failed: %s", e)
-                raw_spire_airsafe = []
 
             try:
                 raw_reports = fut_reports.result(timeout=40)
@@ -1124,31 +979,10 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             a for a in (raw_aircraft or [])
             if isinstance(a, dict) and "error" not in a
         ]
-        spire_airsafe = [a for a in (raw_spire_airsafe or []) if isinstance(a, dict) and "error" not in a]
-        seen_ac = {(a.get("hex") or a.get("flight") or f"{a.get('lat')},{a.get('lon')}"): a for a in aircraft}
-        for a in spire_airsafe:
-            key = a.get("hex") or a.get("flight") or f"{a.get('lat')},{a.get('lon')}"
-            if key and key not in seen_ac:
-                seen_ac[key] = a
-                aircraft.append(a)
         ships = [
             s for s in (raw_ships or [])
             if isinstance(s, dict) and "error" not in s
         ]
-        spire_ships = [
-            s for s in (raw_spire or [])
-            if isinstance(s, dict) and "error" not in s
-        ]
-        # merge Spire vessels into ships (dedup by name/position)
-        seen_ship = {
-            (s.get("name") or "").lower()[:40] or f"{s.get('lat')},{s.get('lon')}"
-            for s in ships
-        }
-        for s in spire_ships:
-            key = (s.get("name") or "").lower()[:40] or f"{s.get('lat')},{s.get('lon')}"
-            if key not in seen_ship:
-                seen_ship.add(key)
-                ships.append(s)
 
         reports = [
             r for r in (raw_reports or [])
@@ -1201,8 +1035,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         for name, data in (
             ("aircraft", aircraft),
             ("ships", ships),
-            ("spire_vessels", spire_ships),
-            ("spire_airsafe", spire_airsafe),
             ("conflict_reports", reports),
             ("notams", notams),
         ):
@@ -1256,8 +1088,6 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         source_results = [
             SourceResult(name="ADS-B", status="ok" if aircraft else "error", fetched_at=fetched_at, record_count=len(aircraft)),
             SourceResult(name="VesselFinder", status="ok" if ships else "error", fetched_at=fetched_at, record_count=len(ships)),
-            SourceResult(name="Spire Vessels", status="ok" if spire_ships else "error", fetched_at=fetched_at, record_count=len(spire_ships)),
-            SourceResult(name="Spire Airsafe", status="ok" if spire_airsafe else "error", fetched_at=fetched_at, record_count=len(spire_airsafe)),
             SourceResult(name="Conflict Reports", status="ok" if reports else "error", fetched_at=fetched_at, record_count=len(reports)),
             SourceResult(name="NOTAMs", status="ok" if notams else "error", fetched_at=fetched_at, record_count=len(notams)),
             SourceResult(name="Hormuz Tankers", status="ok" if hormuz_tankers else "error", fetched_at=fetched_at, record_count=len(hormuz_tankers)),
@@ -1336,15 +1166,11 @@ No markdown, no explanation, just JSON."""
 _SIGINT_TOOL_FNS = {
     "get_military_aircraft": get_military_aircraft,
     "get_naval_vessels": get_naval_vessels,
-    "get_spire_vessels": get_spire_vessels,
-    "get_spire_airsafe_targets": get_spire_airsafe_targets,
     "get_conflict_reports": get_conflict_reports,
 }
 _SIGINT_TOOL_SCHEMAS = [
     {"name": "get_military_aircraft", "description": "Fetch military aircraft in conflict regions via ADS-B.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_naval_vessels", "description": "Fetch naval vessels in conflict regions.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_spire_vessels", "description": "Fetch Spire Maritime AIS vessel data.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_spire_airsafe_targets", "description": "Fetch aircraft targets from Spire Airsafe tracking stream (Bearer token).", "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_conflict_reports", "description": "Fetch conflict intelligence reports from RSS feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
 ]
 

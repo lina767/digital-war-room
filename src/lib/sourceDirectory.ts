@@ -42,8 +42,6 @@ const SOURCE_META: Record<
   "Etherscan": { reliability: "curated", keyRequired: true, free: true, url: "https://etherscan.io/myapikey" },
   ADSB: { reliability: "community", keyRequired: false, free: true, url: "https://opendata.adsb.fi" },
   VesselFinder: { reliability: "community", keyRequired: false, free: true },
-  "Spire Maritime": { reliability: "curated", keyRequired: true, free: false, url: "https://spire.com" },
-  "Spire Airsafe": { reliability: "curated", keyRequired: true, free: false, url: "https://api.airsafe.spire.com" },
   ADSBexchange: { reliability: "community", keyRequired: true, free: false, url: "https://rapidapi.com/adsbx/api/adsbexchange-com1" },
   NOTAM: { reliability: "curated", keyRequired: true, free: false, url: "https://www.autorouter.aero" },
   IAEA: { reliability: "official", keyRequired: false, free: true, url: "https://www.iaea.org/newscenter" },

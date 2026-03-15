@@ -3,7 +3,7 @@ CHOKEPOINT Agent – Maritime chokepoint monitoring (Hormuz, Bab el-Mandeb, Suez
 
 Tracks tanker density, oil flow estimates, and disruption risk across key maritime
 chokepoints. Uses a tiered data-quality model:
-  - Tier 1 (live_ais): AISStream (aisstream.io) when AIRSTREAM_API_KEY set, else Spire / MarineTraffic / AISHub
+  - Tier 1 (live_ais): AISStream (aisstream.io) when AIRSTREAM_API_KEY set, else MarineTraffic / AISHub
   - Tier 2 (estimated): EIA baseline + SIGINT warship proxy + news signals + oil spikes
   - Tier 3 (baseline_only): Static EIA baseline only
 
@@ -301,59 +301,6 @@ async def _fetch_aishub_tankers(bbox: str) -> Optional[List[Dict[str, Any]]]:
             return tankers
     except Exception as e:
         logger.debug("chokepoint: AISHub fetch failed: %s", e)
-        return None
-
-
-async def _fetch_spire_tankers(bbox: str) -> Optional[List[Dict[str, Any]]]:
-    """Fetch tankers from Spire Maritime AIS. Returns None if key not set."""
-    token = (os.getenv("SPIRE_MARITIME_API_KEY") or os.getenv("SPIRE_API_KEY") or "").strip()
-    if not token:
-        return None
-    base_url = os.getenv("SPIRE_MARITIME_BASE_URL", "https://api.sense.spire.com").rstrip("/")
-    parts = bbox.split(",")
-    if len(parts) != 4:
-        return None
-    lon_min, lat_min, lon_max, lat_max = [float(x) for x in parts]
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{base_url}/vessels",
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-                params={"limit": 200},
-            )
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
-            vessels = data if isinstance(data, list) else data.get("data", data.get("vessels", []))
-            if not isinstance(vessels, list):
-                return None
-            tankers = []
-            for v in vessels:
-                lat = safe_float(v.get("latitude") or v.get("lat"))
-                lon = safe_float(v.get("longitude") or v.get("lon"))
-                if lat is None or lon is None:
-                    continue
-                if not (float(lat_min) <= lat <= float(lat_max) and float(lon_min) <= lon <= float(lon_max)):
-                    continue
-                name = v.get("name") or v.get("vessel_name") or ""
-                ship_type = str(v.get("type") or v.get("ship_type") or v.get("vessel_type") or "")
-                type_num = v.get("type_of_ship")
-                is_tanker = (
-                    (isinstance(type_num, int) and 80 <= type_num <= 89)
-                    or any(kw in name.lower() for kw in TANKER_KEYWORDS)
-                    or any(kw in ship_type.lower() for kw in TANKER_KEYWORDS)
-                )
-                if is_tanker:
-                    tankers.append({
-                        "name": name,
-                        "type": ship_type or "tanker",
-                        "lat": lat,
-                        "lon": lon,
-                        "source": "spire",
-                    })
-            return tankers
-    except Exception as e:
-        logger.debug("chokepoint: Spire tanker fetch failed: %s", e)
         return None
 
 
@@ -660,7 +607,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             avg_tankers = baseline["avg_daily_tankers"]
             oil_baseline = baseline["oil_flow_baseline_mbd"]
 
-            # Tier 1: AISStream when configured; otherwise Spire / MarineTraffic / AISHub
+            # Tier 1: AISStream when configured; otherwise MarineTraffic / AISHub
             # When AIRSTREAM_API_KEY is set, use only AISStream (no fallback to other APIs without keys)
             tankers: Optional[List[Dict]] = None
             data_quality = "baseline_only"
@@ -669,17 +616,13 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
                 tankers = tankers_by_cp[cp_name]
                 data_quality = "live_ais"
             elif not airstream_configured:
-                tankers = await _fetch_spire_tankers(bbox)
+                tankers = await _fetch_marinetraffic_tankers(bbox)
                 if tankers is not None:
                     data_quality = "live_ais"
                 else:
-                    tankers = await _fetch_marinetraffic_tankers(bbox)
+                    tankers = await _fetch_aishub_tankers(bbox)
                     if tankers is not None:
                         data_quality = "live_ais"
-                    else:
-                        tankers = await _fetch_aishub_tankers(bbox)
-                        if tankers is not None:
-                            data_quality = "live_ais"
 
             tanker_count = len(tankers) if tankers is not None else 0
 
@@ -783,7 +726,7 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         cps = out.get("chokepoints") or []
         live_ais_count = sum(1 for cp in cps if cp.get("data_quality") == "live_ais")
         source_results = [
-            SourceResult(name="AISStream/Spire/MT", status="ok" if live_ais_count > 0 else "error", fetched_at=fetched_at, record_count=sum(len(cp.get("tanker_details") or []) for cp in cps)),
+            SourceResult(name="AISStream/MT", status="ok" if live_ais_count > 0 else "error", fetched_at=fetched_at, record_count=sum(len(cp.get("tanker_details") or []) for cp in cps)),
             SourceResult(name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at),
             SourceResult(name="EIA baseline", status="ok", fetched_at=fetched_at),
             SourceResult(name="External status", status="ok" if (out.get("external_status") or {}) else "error", fetched_at=fetched_at),

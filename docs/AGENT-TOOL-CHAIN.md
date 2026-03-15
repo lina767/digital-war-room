@@ -59,8 +59,8 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ### SIGINT
 
-- **Tools:** get_military_aircraft, get_naval_vessels, get_spire_vessels, get_conflict_reports; zusätzlich NOTAMs via `iaea_tracker.fetch_notams`.
-- **Fallback-Reihenfolge (fest):** aircraft → vessels → spire_vessels → conflict_reports → NOTAMs (fetch_notams, days=3, limit=15).
+- **Tools:** get_military_aircraft, get_naval_vessels, get_conflict_reports; zusätzlich NOTAMs via `iaea_tracker.fetch_notams`.
+- **Fallback-Reihenfolge (fest):** aircraft → vessels → conflict_reports → NOTAMs (fetch_notams, days=3, limit=15).
 - Danach: Score aus aircraft/ships/reports, Alerts; `notams` im Ergebnis (optional NOTAM_API_KEY für Autorouter).
 
 ---
@@ -170,7 +170,7 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 | Agent  | Anzahl/Quellen | Feste Reihenfolge (Fallback) |
 |--------|----------------|-------------------------------|
 | FININT | 8             | get_brent_price → get_wti_price → get_gold_price → get_polymarket_conflict_odds → get_metaculus_conflict_questions → get_ofac_sanctions_highlights → get_tracked_wallet_positions → get_tracked_chain_wallets (parallel) |
-| SIGINT | 4       | get_military_aircraft → get_naval_vessels → get_spire_vessels → get_conflict_reports |
+| SIGINT | 3       | get_military_aircraft → get_naval_vessels → get_conflict_reports |
 | NEWS   | 3       | search_conflict_news → search_gdelt_news → search_rss_feeds |
 | GEOINT | 5       | get_conflict_region → get_thermal_anomalies → get_conflict_hotspot_news → get_ucdp_events → get_eo_browser_links |
 | SOCMINT| 5       | scrape_telegram_channels → scrape_twitter_nitter → search_reddit → fetch_rss_feeds → fetch_reliefweb_reports |
