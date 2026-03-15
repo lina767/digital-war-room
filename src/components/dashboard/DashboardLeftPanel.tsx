@@ -46,8 +46,8 @@ export function DashboardLeftPanel({
             >
               <span className="h-2 w-2 rounded-full flex-shrink-0 bg-primary animate-pulse-dot" />
               <div className="flex-1 min-w-0">
-                <div className="font-mono text-xs font-medium">{agent.name}</div>
-                <div className="text-[11px] text-muted-foreground">{agent.fullName}</div>
+                <div className="font-mono text-xs font-medium truncate">{agent.name}</div>
+                <div className="text-[11px] text-muted-foreground line-clamp-2">{agent.fullName}</div>
               </div>
               <ChevronRight
                 className={`h-3 w-3 flex-shrink-0 text-muted-foreground transition-transform ${

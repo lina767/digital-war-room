@@ -63,6 +63,12 @@
   .touch-manipulation {
     touch-action: manipulation;
   }
+  .overflow-x-auto-touch {
+    -webkit-overflow-scrolling: touch;
+  }
+  .overscroll-contain-y {
+    overscroll-behavior-y: contain;
+  }
   .font-mono-terminal {
     font-family: 'JetBrains Mono', monospace;
   }

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 
 const FALLBACK_ITEMS = [
@@ -19,6 +19,7 @@ interface LiveTickerProps {
 
 export function LiveTicker({ conflictData }: LiveTickerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   const fromData =
     (conflictData?.news?.articles?.length ?? 0) > 0
@@ -27,6 +28,15 @@ export function LiveTicker({ conflictData }: LiveTickerProps) {
   const tickerItems = fromData.length > 0 ? (fromData as string[]) : FALLBACK_ITEMS;
 
   useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(mq.matches);
+    const handler = () => setPrefersReducedMotion(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    if (prefersReducedMotion) return;
     const el = scrollRef.current;
     if (!el) return;
     let animId: number;
@@ -41,13 +51,13 @@ export function LiveTicker({ conflictData }: LiveTickerProps) {
     };
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, [conflictData?.news?.articles?.length ?? 0]);
+  }, [conflictData?.news?.articles?.length ?? 0, prefersReducedMotion]);
 
   const content = tickerItems.join("     ");
 
   return (
-    <div className="w-full bg-card border-b border-border overflow-hidden h-7 flex items-center flex-shrink-0">
-      <div ref={scrollRef} className="whitespace-nowrap font-mono text-[11px] text-primary">
+    <div className="w-full bg-card border-b border-border overflow-hidden h-8 sm:h-7 flex items-center flex-shrink-0">
+      <div ref={scrollRef} className="whitespace-nowrap font-mono text-xs sm:text-[11px] text-primary">
         <span>{content}</span>
         <span className="ml-16">{content}</span>
       </div>

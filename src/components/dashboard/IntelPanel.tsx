@@ -18,7 +18,7 @@ export function IntelPanel({ title, icon, headerRight, children, className }: In
         </div>
         {headerRight && <div className="flex items-center gap-1.5 flex-shrink-0">{headerRight}</div>}
       </div>
-      <div className="p-3 space-y-3">{children}</div>
+      <div className="p-3 space-y-3 min-w-0">{children}</div>
     </div>
   );
 }

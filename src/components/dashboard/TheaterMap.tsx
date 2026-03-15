@@ -823,22 +823,22 @@ export function TheaterMap({
         </button>
       </div>
 
-      {/* Escalation detail panel */}
+      {/* Escalation detail panel – full width with margin on small screens, 44px close on touch */}
       {selectedEvent && (
-        <div className="absolute bottom-24 right-2 max-w-xs w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-col">
+        <div className="absolute bottom-24 left-2 right-2 sm:left-auto sm:right-2 sm:max-w-xs sm:w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="flex flex-col min-w-0 flex-1">
               <span className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase">
                 Escalation detail
               </span>
-              <span className="text-xs font-semibold">
+              <span className="text-xs font-semibold truncate">
                 {THEATER_EVENT_STYLE[selectedEvent.event_type]?.label ?? selectedEvent.event_type}
               </span>
             </div>
             <button
               type="button"
               aria-label="Close escalation details"
-              className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 sm:h-6 sm:w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 touch-manipulation flex-shrink-0"
               onClick={() => setSelectedEvent(null)}
             >
               <X className="h-3.5 w-3.5" />
@@ -869,22 +869,22 @@ export function TheaterMap({
         </div>
       )}
 
-      {/* SIGINT track detail panel (aircraft / ship) */}
+      {/* SIGINT track detail panel (aircraft / ship) – full width on small screens, 44px close on touch */}
       {selectedSigint && (
         <div
-          className="absolute bottom-24 right-2 max-w-xs w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2"
+          className="absolute bottom-24 left-2 right-2 sm:left-auto sm:right-2 sm:max-w-xs sm:w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2"
           style={
             selectedSigint.type === "aircraft"
               ? { borderColor: SIGINT_AIR_COLOR }
               : { borderColor: SIGINT_SEA_COLOR }
           }
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-col">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="flex flex-col min-w-0 flex-1">
               <span className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase">
                 Track detail
               </span>
-              <span className="text-xs font-semibold">
+              <span className="text-xs font-semibold truncate">
                 {selectedSigint.type === "aircraft"
                   ? selectedSigint.data.flight
                   : selectedSigint.data.name}
@@ -893,7 +893,7 @@ export function TheaterMap({
             <button
               type="button"
               aria-label="Close track details"
-              className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              className="min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 sm:h-6 sm:w-6 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 touch-manipulation flex-shrink-0"
               onClick={() => setSelectedSigint(null)}
             >
               <X className="h-3.5 w-3.5" />
@@ -914,12 +914,12 @@ export function TheaterMap({
         </div>
       )}
 
-      {/* Layer toggle bar */}
-      <div className="absolute bottom-12 left-2 flex items-center gap-3 flex-wrap">
+      {/* Layer toggle bar – horizontal scroll on small screens, wrap on md+ */}
+      <div className="absolute bottom-12 left-2 right-2 md:right-auto max-w-full overflow-x-auto overflow-y-hidden flex gap-2 flex-nowrap pb-1 md:overflow-visible md:flex-wrap md:gap-3 md:pb-0 overflow-x-auto-touch">
         <button
           type="button"
           onClick={() => toggleLayer("geoint")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           aria-label={layers.geoint ? "Hide GEOINT layer" : "Show GEOINT layer"}
         >
           <span style={{ color: layers.geoint ? "var(--map-geoint)" : undefined }}>△</span>
@@ -928,7 +928,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("sigint")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           title="Live tracks: Air / Sea"
           aria-label={layers.sigint ? "Hide SIGINT layer (air and sea tracks)" : "Show SIGINT layer (air and sea tracks)"}
         >
@@ -943,7 +943,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("heatmap")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           title="Conflict intensity from ACLED"
           aria-label={layers.heatmap ? "Hide heatmap layer" : "Show heatmap layer"}
         >
@@ -956,7 +956,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("samRings")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           title="SAM engagement zones"
           aria-label={layers.samRings ? "Hide SAM rings layer" : "Show SAM rings layer"}
         >
@@ -973,7 +973,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("airRoutes")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           title="Main air corridors"
           aria-label={layers.airRoutes ? "Hide air corridors layer" : "Show air corridors layer"}
         >
@@ -985,7 +985,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("seaLanes")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           title="Sea lanes"
           aria-label={layers.seaLanes ? "Hide sea lanes layer" : "Show sea lanes layer"}
         >
@@ -997,7 +997,7 @@ export function TheaterMap({
         <button
           type="button"
           onClick={() => toggleLayer("chokepoints")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
           title="Chokepoint zones"
           aria-label={layers.chokepoints ? "Hide chokepoints layer" : "Show chokepoints layer"}
         >

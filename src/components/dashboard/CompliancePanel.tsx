@@ -265,9 +265,9 @@ function GeofencingAlerts({ alerts }: { alerts: GeofencingAlert[] }) {
             <span className="text-[11px] font-semibold truncate">{a.asset_name}</span>
             <ZoneTypeBadge type={a.zone_type} />
           </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-1 min-w-0">
             <span>Zone</span>
-            <span className="text-right font-mono">{a.zone_name.replace(/_/g, " ")}</span>
+            <span className="text-right font-mono truncate">{a.zone_name.replace(/_/g, " ")}</span>
             <span>Type</span>
             <span className="text-right">{a.asset_type}</span>
             <span>Position</span>
@@ -494,9 +494,9 @@ function SanctionsSearch({ data }: { data: ConflictData | null }) {
                   </TooltipContent>
                 </Tooltip>
               </div>
-              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-1 min-w-0">
                 <span>Matched name</span>
-                <span className="text-right truncate">{m.matched_name}</span>
+                <span className="text-right truncate min-w-0">{m.matched_name}</span>
                 <span>Score</span>
                 <span className="text-right font-mono">{m.score}%</span>
                 <span>Type</span>

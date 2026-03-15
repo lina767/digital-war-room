@@ -138,7 +138,7 @@ export function DashboardRightPanel({
           <Globe className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-mono text-[11px] text-muted-foreground tracking-wider">WORLD OVERVIEW</span>
         </div>
-        <div className="h-40 sm:h-44 relative">
+        <div className="h-36 sm:h-40 md:h-44 relative">
           <WorldMap activeConflict={activeConflict} />
         </div>
       </div>
