@@ -551,10 +551,41 @@ def _build_summary(
     return "CYBER: " + " ".join(parts)
 
 
+def _greynoise_context_from_snapshot(conflict: str) -> Optional[GreyNoiseScanContext]:
+    """Use greynoise_agent SQLite snapshot for this conflict (avoids duplicate API calls)."""
+    try:
+        from agents.greynoise_agent import get_greynoise_context_for_cyber
+        data = get_greynoise_context_for_cyber(conflict)
+        if not data:
+            return None
+        fetched_at = data.get("fetched_at")
+        if isinstance(fetched_at, str):
+            try:
+                fetched_at = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                fetched_at = _utc_now()
+        elif not isinstance(fetched_at, datetime):
+            fetched_at = _utc_now()
+        return GreyNoiseScanContext(
+            available=data.get("available", True),
+            count=int(data.get("count") or 0),
+            query=data.get("query"),
+            top_actors=data.get("top_actors") or [],
+            top_source_countries=data.get("top_source_countries") or [],
+            classifications=data.get("classifications") or [],
+            error=data.get("error"),
+            fetched_at=fetched_at,
+        )
+    except Exception as e:
+        logger.debug("CYBER: GreyNoise snapshot for %s failed: %s", conflict, e)
+        return None
+
+
 def run_cyber_agent(conflict: str) -> Dict[str, Any]:
     """
     Run CYBER agent: CISA KEV (cached), threat RSS, OTX, GreyNoise, InternetDB, NVD CVSS.
     Returns structured dict (from CyberAgentResult) for backward compatibility with supervisor.
+    GreyNoise: uses greynoise_agent SQLite snapshot when available to avoid duplicate API calls.
     """
     otx_key = (os.getenv("OTX_API_KEY") or "").strip()
     greynoise_key = (os.getenv("GREYNOISE_API_KEY") or "").strip()
@@ -568,11 +599,19 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
 
     async def _run() -> CyberAgentResult:
         client = get_http_client()
+        # Prefer GreyNoise data from greynoise_agent SQLite (conflict-specific, no extra API call)
+        greynoise_snapshot = _greynoise_context_from_snapshot(conflict)
+
+        async def _greynoise_source():
+            if greynoise_snapshot is not None:
+                return greynoise_snapshot
+            return await (_fetch_greynoise_scan_context(client, greynoise_key) if greynoise_key else _no_gn())
+
         kev, threat_reports, otx_pulses, greynoise, internet_db = await asyncio.gather(
             _fetch_cisa_kev(client),
             _fetch_threat_rss(client, conflict),
             _fetch_otx_pulses(client, otx_key, conflict) if otx_key else _no_otx(),
-            _fetch_greynoise_scan_context(client, greynoise_key) if greynoise_key else _no_gn(),
+            _greynoise_source(),
             _fetch_internetdb(client, internetdb_ips),
         )
         cyber_score = _compute_cyber_score(kev, threat_reports, otx_pulses, greynoise, internet_db)

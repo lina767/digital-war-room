@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse, Response
 
-from agents.greynoise_agent import get_latest_snapshot, get_trend_data, run_greynoise_agent
+from agents.greynoise_agent import get_latest_ips, get_latest_snapshot, get_trend_data, run_greynoise_agent
 
 router = APIRouter(prefix="/greynoise", tags=["greynoise"])
 
@@ -22,12 +22,14 @@ async def greynoise_latest(conflict: str):
     """
     snapshot = get_latest_snapshot(conflict)
     if snapshot:
+        snapshot["top_ips"] = get_latest_ips(conflict, limit=30)
         return snapshot
 
     # No snapshot yet – run pipeline once (blocking, but only on first request)
     loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(None, lambda: run_greynoise_agent(conflict))
+        result["top_ips"] = get_latest_ips(conflict, limit=30)
         return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e), "conflict": conflict})

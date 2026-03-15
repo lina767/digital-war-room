@@ -10,10 +10,16 @@ import {
   Minus,
   Wifi,
   Bug,
+  ExternalLink,
 } from "lucide-react";
 import { useGreynoiseThreats } from "@/hooks/useGreynoiseThreats";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
-import type { GreynoiseEmergingThreat, GreynoiseTrendPoint } from "@/lib/api";
+import type {
+  GreynoiseEmergingThreat,
+  GreynoiseResult,
+  GreynoiseTrendPoint,
+  GreynoiseTopIp,
+} from "@/lib/api";
 
 interface GreyNoisePanelProps {
   conflict?: string;
@@ -41,6 +47,62 @@ const CATEGORY_LABELS: Record<string, string> = {
   ddos_botnet: "DDoS/Botnet",
   uncategorized: "Other",
 };
+
+function TopIpsSection({ ips }: { ips: GreynoiseTopIp[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 w-full text-left rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+        )}
+        <span className="font-mono text-[11px] font-medium text-foreground">
+          {ips.length} top IPs
+        </span>
+      </button>
+      {open && (
+        <div className="pl-4 space-y-0.5 max-h-32 overflow-y-auto text-[10px] font-mono">
+          {ips.slice(0, 20).map((r, i) => {
+            const meta = r.metadata as Record<string, unknown> | undefined;
+            const ctx = meta?.ip_context as Record<string, unknown> | undefined;
+            const country = ctx?.country ?? meta?.country ?? r.classification ?? "";
+            return (
+              <div key={`${r.ip}-${i}`} className="flex items-center gap-2 flex-wrap">
+                <span className="text-foreground/90">{r.ip}</span>
+                <span
+                  className={
+                    r.direction === "inbound"
+                      ? "text-red-400"
+                      : "text-blue-400"
+                  }
+                >
+                  {r.direction}
+                </span>
+                {country && (
+                  <span className="text-muted-foreground">{String(country)}</span>
+                )}
+                {Array.isArray(r.tags) && r.tags.length > 0 && (
+                  <span className="text-muted-foreground truncate max-w-[120px]">
+                    {r.tags.slice(0, 2).join(", ")}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {ips.length > 20 && (
+            <p className="text-muted-foreground">+{ips.length - 20} more</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TrendIcon({ trend }: { trend: string }) {
   if (trend === "rising")
@@ -77,10 +139,17 @@ function ScoreSparkline({ data }: { data: GreynoiseTrendPoint[] }) {
   );
 }
 
+const NVD_BASE = "https://nvd.nist.gov/vuln/detail/";
+
 function ThreatRow({ threat }: { threat: GreynoiseEmergingThreat }) {
   const cat = CATEGORY_LABELS[threat.category] || threat.category;
+  const delta = threat.scan_volume_change;
+  const countries =
+    threat.direction === "inbound"
+      ? threat.destination_countries
+      : threat.source_countries;
   return (
-    <div className="flex items-center justify-between gap-2 text-[11px]">
+    <div className="flex items-center justify-between gap-2 text-[11px] flex-wrap">
       <div className="flex items-center gap-1.5 truncate min-w-0">
         <span
           className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -93,7 +162,25 @@ function ThreatRow({ threat }: { threat: GreynoiseEmergingThreat }) {
         />
         <span className="font-mono text-foreground/90 truncate">{threat.tag}</span>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0 flex-wrap">
+        {threat.cve_id && (
+          <a
+            href={`${NVD_BASE}${threat.cve_id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline inline-flex items-center gap-0.5"
+            title={threat.cve_id}
+          >
+            <span className="font-mono">{threat.cve_id}</span>
+            <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )}
+        {countries?.length > 0 && (
+          <span className="text-muted-foreground" title={countries.join(", ")}>
+            {countries.slice(0, 2).join(", ")}
+            {countries.length > 2 ? "…" : ""}
+          </span>
+        )}
         <span className="text-muted-foreground">{cat}</span>
         <span
           className={`px-1 rounded text-[11px] border ${
@@ -115,6 +202,16 @@ function ThreatRow({ threat }: { threat: GreynoiseEmergingThreat }) {
             }`}
           >
             {threat.cvss_score.toFixed(1)}
+          </span>
+        )}
+        {delta != null && delta !== 0 && (
+          <span
+            className={
+              delta > 0 ? "text-red-400" : "text-green-400"
+            }
+            title={`Volume change: ${delta > 0 ? "+" : ""}${delta.toFixed(0)}%`}
+          >
+            {delta > 0 ? <ArrowUpRight className="h-3 w-3 inline" /> : <ArrowDownRight className="h-3 w-3 inline" />}
           </span>
         )}
         <span className="text-muted-foreground font-mono w-12 text-right">
@@ -162,11 +259,35 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
       headerRight={
         <div className="flex items-center gap-2">
           <ScoreSparkline data={trendData} />
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             <TrendIcon trend={data.trend} />
             <span className="font-mono text-[11px] text-muted-foreground">
               {data.greynoise_score.toFixed(0)}
             </span>
+            {data.delta_score != null && data.delta_score !== 0 && (
+              <span
+                className={`font-mono text-[10px] ${
+                  data.delta_score > 0 ? "text-red-400" : "text-green-400"
+                }`}
+                title="Score change vs baseline"
+              >
+                {data.delta_score > 0 ? "+" : ""}
+                {data.delta_score.toFixed(0)}
+              </span>
+            )}
+            {data.score_confidence?.level && (
+              <span
+                className="text-[10px] px-1 rounded border border-border/60 text-muted-foreground"
+                title={
+                  [
+                    ...(data.score_confidence.sources_ok || []),
+                    ...(data.score_confidence.sources_missing || []).map((s: string) => `missing: ${s}`),
+                  ].join(", ") || data.score_confidence.level
+                }
+              >
+                {data.score_confidence.level}
+              </span>
+            )}
           </div>
         </div>
       }
@@ -225,6 +346,47 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
               </span>
             ))}
         </div>
+      )}
+
+      {/* Top tags outbound / inbound */}
+      {((data.top_tags_outbound?.length ?? 0) > 0 || (data.top_tags_inbound?.length ?? 0) > 0) && (
+        <div className="space-y-1 text-[11px]">
+          {data.top_tags_outbound?.length > 0 && (
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+              <span className="text-muted-foreground shrink-0">Out:</span>
+              {(data.top_tags_outbound || []).slice(0, 5).map((t, i) => (
+                <span key={`out-${i}`} className="font-mono text-foreground/90">
+                  {t.tag}
+                  <span className="text-muted-foreground ml-0.5">({t.count})</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {data.top_tags_inbound?.length > 0 && (
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+              <span className="text-muted-foreground shrink-0">In:</span>
+              {(data.top_tags_inbound || []).slice(0, 5).map((t, i) => (
+                <span key={`in-${i}`} className="font-mono text-foreground/90">
+                  {t.tag}
+                  <span className="text-muted-foreground ml-0.5">({t.count})</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pending tags hint */}
+      {data.pending_tags?.length > 0 && (
+        <p className="text-[10px] text-muted-foreground">
+          Pending tags: {data.pending_tags.slice(0, 5).join(", ")}
+          {data.pending_tags.length > 5 ? "…" : ""}
+        </p>
+      )}
+
+      {/* Top IPs (expandable) */}
+      {data.top_ips && data.top_ips.length > 0 && (
+        <TopIpsSection ips={data.top_ips} />
       )}
 
       {/* Expandable threat list */}

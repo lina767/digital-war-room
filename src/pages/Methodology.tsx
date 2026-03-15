@@ -65,8 +65,20 @@ const Methodology = () => {
           <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
             The escalation score (0–100) is a weighted sum of each agent’s score. Weights reflect the relative importance of each stream for situational awareness. SIGINT and Chokepoint carry the highest weights because military movements and maritime chokepoints are strong leading indicators.
           </p>
-          <div className="rounded-lg border border-border bg-card/40 p-4 sm:p-5">
-            <p className="font-mono text-xs text-muted-foreground mb-3">
+          <div className="rounded-lg border border-border bg-card/40 p-4 sm:p-5 space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground/90">Formal definition</p>
+              <p className="text-xs text-muted-foreground">
+                Let n = 12 agents; s<sub>i</sub> ∈ [0, 100] the score of agent i; w<sub>i</sub> the weight with ∑<sub>i=1</sub><sup>n</sup> w<sub>i</sub> = 1. Then the composite score is:
+              </p>
+              <pre className="font-mono text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2 overflow-x-auto">
+                S = ∑<sub>i=1</sub><sup>n</sup> w<sub>i</sub> s<sub>i</sub>  ∈  [0, 100]
+              </pre>
+              <p className="text-xs text-muted-foreground">
+                The weights w<sub>i</sub> are given in the table and chart below.
+              </p>
+            </div>
+            <p className="font-mono text-xs text-muted-foreground">
               combined_score = Σ (agent_score × weight) with Σ weight = 100%
             </p>
             <div className="h-64 sm:h-72 w-full">
@@ -118,6 +130,19 @@ const Methodology = () => {
           <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
             The composite score is mapped to a single threat level used in the dashboard and briefing. When the supervisor LLM is used, it can override this with its own assessment; otherwise the rule-based thresholds below apply.
           </p>
+          <div className="rounded-lg border border-border bg-card/40 p-4 max-w-2xl">
+            <p className="text-xs font-medium text-foreground/90 mb-2">Decision rule L(S)</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Threat level as a function of composite score S:
+            </p>
+            <ul className="font-mono text-xs text-muted-foreground space-y-1.5">
+              <li>L(S) = CRITICAL  ⇔  S ≥ 80</li>
+              <li>L(S) = HIGH      ⇔  60 ≤ S &lt; 80</li>
+              <li>L(S) = ELEVATED  ⇔  40 ≤ S &lt; 60</li>
+              <li>L(S) = LOW       ⇔  20 ≤ S &lt; 40</li>
+              <li>L(S) = MINIMAL  ⇔  S &lt; 20</li>
+            </ul>
+          </div>
           <ul className="space-y-2 text-sm text-muted-foreground max-w-2xl">
             {THREAT_LEVELS.map((t) => (
               <li key={t.level} className="flex items-baseline gap-2">
@@ -137,8 +162,22 @@ const Methodology = () => {
             Peak-weighted escalation (predictive block)
           </h2>
           <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
-            For the predictive block and escalation forecast, a peak-weighted score is used so that the top three agent scores have more influence. This avoids a single quiet stream (e.g. no protest events) from dampening the overall escalation signal when other streams are spiking. The formula combines the average of the top three scores (60%) with the composite score (40%), then takes the maximum of that and the raw composite.
+            For the predictive block and escalation forecast, a peak-weighted score is used so that the top three agent scores have more influence. This avoids a single quiet stream (e.g. no protest events) from dampening the overall escalation signal when other streams are spiking.
           </p>
+          <div className="rounded-lg border border-border bg-card/40 p-4 max-w-3xl space-y-3">
+            <p className="text-xs font-medium text-foreground/90">Formal definition</p>
+            <p className="text-xs text-muted-foreground">
+              Let s<sub>(1)</sub> ≥ s<sub>(2)</sub> ≥ … ≥ s<sub>(n)</sub> be the agent scores sorted in descending order. Define:
+            </p>
+            <ul className="font-mono text-xs text-muted-foreground space-y-1.5 list-none pl-0">
+              <li>s̄<sub>top3</sub> = (1/3)(s<sub>(1)</sub> + s<sub>(2)</sub> + s<sub>(3)</sub>)  — average of top 3 scores</li>
+              <li>S<sub>peak</sub> = 0.6 · s̄<sub>top3</sub> + 0.4 · S  — peak-weighted combination</li>
+              <li>S<sub>esc</sub> = max(S, S<sub>peak</sub>)  — escalation score used in the predictive block</li>
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              Thus the displayed escalation score never drops below the composite S; when the top three streams are high, S<sub>esc</sub> increases.
+            </p>
+          </div>
         </section>
 
         {/* Signal Framework methodology */}
@@ -169,6 +208,22 @@ const Methodology = () => {
           </div>
           <p className="text-xs sm:text-[13px] text-muted-foreground max-w-3xl">
             The methodology is documented in the backend (<code className="text-foreground/80">signal_framework_agent</code>). Outputs include <code className="text-foreground/80">synthesis_text</code>, <code className="text-foreground/80">synthesis_probability</code>, <code className="text-foreground/80">source_comparison_table</code> and <code className="text-foreground/80">signal_assessment</code> (latency, credibility gaps). These feed the supervisor and the dashboard Narrative / Signal Framework panel.
+          </p>
+          <p className="text-xs sm:text-[13px] text-muted-foreground max-w-3xl">
+            <strong className="text-foreground/90">Synthesis:</strong> The narrative agent uses qualitative signals (Lexical, Latency, Discrepancy, Reaction) and produces a probabilistic synthesis from the state-vs.-exile comparison (Bayesian-style in the backend). For full formulas and logic see <code className="text-foreground/80">signal_framework_agent</code>.
+          </p>
+        </section>
+
+        {/* Further rule-based logic */}
+        <section className="space-y-4">
+          <h2 className="text-lg sm:text-xl font-semibold tracking-tight">
+            Further rule-based scores
+          </h2>
+          <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+            <strong className="text-foreground/90">Per-agent scores (0–100)</strong> are computed per stream, either by rule-based logic or LLM-assisted aggregation. Details are in the backend agents (e.g. TECHINT: base score plus increments for export-news volume, IODA outages, OONI blocks, Shodan exposure; CYBER: KEV, threat reports, GreyNoise context).
+          </p>
+          <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+            <strong className="text-foreground/90">Compliance risk</strong> (see <code className="text-foreground/80">backend/compliance/risk_score</code>) maps a numeric score (0–100) to an ordinal level: LOW (score &lt; 25), MEDIUM (25 ≤ score &lt; 50), HIGH (50 ≤ score &lt; 75), CRITICAL (score ≥ 75). Inputs include sanctions matches, geofencing alerts, supply-chain and AIS anomalies, and escalation context.
           </p>
         </section>
       </div>

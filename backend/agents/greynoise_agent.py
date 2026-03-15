@@ -40,6 +40,8 @@ GNQL_STATS_URL = f"{GREYNOISE_BASE_URL}/v2/experimental/gnql/stats"
 GNQL_QUERY_URL = f"{GREYNOISE_BASE_URL}/v3/gnql"
 CVE_LOOKUP_URL = f"{GREYNOISE_BASE_URL}/v1/cve"
 TAGS_API_URL = f"{GREYNOISE_BASE_URL}/v3/tags"
+NOISE_CONTEXT_URL = f"{GREYNOISE_BASE_URL}/v2/noise/context"
+RIOT_URL = f"{GREYNOISE_BASE_URL}/v3/riot"
 
 MAX_CVE_LOOKUPS = 5
 
@@ -337,6 +339,23 @@ def _ensure_db() -> sqlite3.Connection:
         ON greynoise_snapshots (conflict, timestamp DESC)
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS greynoise_ips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conflict TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            ip TEXT NOT NULL,
+            classification TEXT,
+            tags_json TEXT,
+            metadata_json TEXT,
+            snapshot_timestamp TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_gn_ips_conflict_ts
+        ON greynoise_ips (conflict, snapshot_timestamp DESC)
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS greynoise_pending_tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tag_name TEXT NOT NULL,
@@ -466,6 +485,167 @@ async def _fetch_tags_list(client: Any) -> List[Dict[str, Any]]:
         return []
 
 
+async def _fetch_riot(client: Any, ip: str) -> Optional[Dict[str, Any]]:
+    """
+    RIOT (Rule It Out): check if IP is known benign (Shodan, Censys, Google, etc.).
+    Returns dict with riot=True and name/category if benign, else None or riot=False.
+    Used to exclude false positives from scoring.
+    """
+    if not ip or not ip.strip():
+        return None
+    try:
+        url = f"{RIOT_URL}/{ip.strip()}"
+        resp = await client.get(url, headers=_gn_headers(), timeout=GREYNOISE_TIMEOUT)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if not isinstance(data, dict):
+            return None
+        # Response may have: riot=True, name, category, description, etc.
+        return data
+    except Exception as e:
+        logger.debug("GreyNoise RIOT check %s failed: %s", ip, e)
+        return None
+
+
+async def _fetch_ip_context(client: Any, ip: str) -> Optional[Dict[str, Any]]:
+    """
+    Full context for a single IP (v2/noise/context/{ip}): OS, ports, tags, CVEs, actor, ASN, RDNS.
+    Used to enrich top IPs from GNQL for detail view.
+    """
+    if not ip or not ip.strip():
+        return None
+    try:
+        url = f"{NOISE_CONTEXT_URL}/{ip.strip()}"
+        resp = await client.get(url, headers=_gn_headers(), timeout=GREYNOISE_TIMEOUT)
+        if resp.status_code != 200:
+            return None
+        return resp.json()
+    except Exception as e:
+        logger.debug("GreyNoise IP context %s failed: %s", ip, e)
+        return None
+
+
+async def _fetch_gnql_results(client: Any, query: str, size: int = 100) -> List[Dict[str, Any]]:
+    """
+    Full GNQL query (v3/gnql) – returns IP records with metadata/tags/classification.
+    Used to get concrete IPs (e.g. "which IPs are scanning Iranian infrastructure").
+    """
+    try:
+        resp = await client.get(
+            GNQL_QUERY_URL,
+            params={"query": query, "size": min(size, 500)},
+            headers=_gn_headers(),
+            timeout=GREYNOISE_TIMEOUT,
+        )
+        if resp.status_code not in (200, 206):
+            logger.warning("GreyNoise GNQL query returned %s for query: %s", resp.status_code, query[:80])
+            return []
+        data = resp.json()
+        items = data.get("data") or data.get("results") or []
+        if not isinstance(items, list):
+            return []
+        return items[:size]
+    except Exception as e:
+        logger.warning("GreyNoise GNQL query failed: %s", e)
+        return []
+
+
+def _save_gnql_ips(conflict: str, direction: str, ip_records: List[Dict[str, Any]], snapshot_timestamp: str) -> None:
+    """Persist top IPs from GNQL query to greynoise_ips table."""
+    if not ip_records:
+        return
+    conn = _ensure_db()
+    now = utc_now_iso()
+    try:
+        for rec in ip_records[:50]:
+            ip = rec.get("ip") or rec.get("address")
+            if not ip:
+                continue
+            classification = rec.get("classification") or rec.get("trust_level") or ""
+            tags = rec.get("tags") or []
+            metadata = rec.get("metadata") or {}
+            conn.execute(
+                """INSERT INTO greynoise_ips (conflict, direction, ip, classification, tags_json, metadata_json, snapshot_timestamp, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    conflict,
+                    direction,
+                    ip,
+                    classification,
+                    json.dumps(tags) if isinstance(tags, list) else json.dumps([]),
+                    json.dumps(metadata) if isinstance(metadata, dict) else "{}",
+                    snapshot_timestamp,
+                    now,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_greynoise_context_for_cyber(conflict: str) -> Optional[Dict[str, Any]]:
+    """
+    Return GreyNoise scan context from latest snapshot for use by cyber_agent.
+    Avoids duplicate API calls; returns None if no snapshot for conflict.
+    """
+    snapshot = get_latest_snapshot(conflict)
+    if not snapshot:
+        return None
+    out = int(snapshot.get("outbound_count") or 0)
+    inc = int(snapshot.get("inbound_count") or 0)
+    count = out + inc
+    top_out = snapshot.get("top_tags_outbound") or []
+    top_in = snapshot.get("top_tags_inbound") or []
+    top_actors = []
+    for t in (top_out + top_in)[:10]:
+        if isinstance(t, dict) and (t.get("tag") or t.get("count")):
+            top_actors.append({"actor": t.get("tag") or t.get("name"), "count": t.get("count", 0)})
+    return {
+        "available": True,
+        "count": count,
+        "query": f"conflict:{conflict}",
+        "top_actors": top_actors,
+        "top_source_countries": [],
+        "classifications": [],
+        "error": None,
+        "fetched_at": snapshot.get("fetched_at") or utc_now_iso(),
+    }
+
+
+def get_latest_ips(conflict: str, limit: int = 30) -> List[Dict[str, Any]]:
+    """Return latest stored IP records for conflict (from most recent snapshot)."""
+    conn = _ensure_db()
+    try:
+        row = conn.execute(
+            "SELECT snapshot_timestamp FROM greynoise_ips WHERE conflict = ? ORDER BY snapshot_timestamp DESC LIMIT 1",
+            (conflict,),
+        ).fetchone()
+        if not row:
+            return []
+        ts = row[0]
+        rows = conn.execute(
+            """SELECT ip, direction, classification, tags_json, metadata_json FROM greynoise_ips
+               WHERE conflict = ? AND snapshot_timestamp = ? ORDER BY id LIMIT ?""",
+            (conflict, ts, limit),
+        ).fetchall()
+        result = []
+        for r in rows:
+            ip, direction, classification, tags_json, metadata_json = r
+            rec = {"ip": ip, "direction": direction, "classification": classification or ""}
+            try:
+                if tags_json:
+                    rec["tags"] = json.loads(tags_json)
+                if metadata_json:
+                    rec["metadata"] = json.loads(metadata_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            result.append(rec)
+        return result
+    finally:
+        conn.close()
+
+
 # ── Core pipeline ────────────────────────────────────────────────────────
 
 def _match_tag_to_taxonomy(tag_name: str, taxonomy: Dict[str, Dict[str, Any]]) -> Tuple[Optional[str], float]:
@@ -491,16 +671,30 @@ def _extract_cves_from_tags(tags: List[Dict[str, Any]]) -> List[str]:
     return sorted(cves)[:MAX_CVE_LOOKUPS]
 
 
-def _build_gnql_query(countries: List[str], direction: str = "outbound", time_window: str = "1d") -> str:
+def _build_gnql_query(
+    countries: List[str],
+    direction: str = "outbound",
+    time_window: str = "1d",
+    conflict: Optional[str] = None,
+) -> str:
+    """Build GNQL query; optionally add critical-infrastructure ASN filters from MIDDLE_EAST_CRITICAL_ASNS."""
+    asns = (MIDDLE_EAST_CRITICAL_ASNS.get((conflict or "").lower(), []) or [])[:10]
+    asn_clause = " OR ".join(f"metadata.asn:{a}" for a in asns) if asns else ""
+    dest_asn_clause = " OR ".join(f"metadata.destination_asns:{a}" for a in asns) if asns else ""
+
     if direction == "outbound":
         country_clause = " OR ".join(f"metadata.country:{c}" for c in countries)
         if len(countries) > 1:
             country_clause = f"({country_clause})"
+        if asn_clause:
+            country_clause = f"({country_clause} OR {asn_clause})"
         return f"classification:malicious {country_clause} last_seen:{time_window}"
     else:
         country_clause = " OR ".join(f"metadata.destination_country:{c}" for c in countries)
         if len(countries) > 1:
             country_clause = f"({country_clause})"
+        if dest_asn_clause:
+            country_clause = f"({country_clause} OR {dest_asn_clause})"
         return f"classification:malicious {country_clause} last_seen:{time_window}"
 
 
@@ -788,8 +982,8 @@ async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
 
     async with httpx.AsyncClient(timeout=GREYNOISE_TIMEOUT) as client:
         # Parallel GNQL Stats: outbound + inbound
-        outbound_query = _build_gnql_query(countries, "outbound", "1d")
-        inbound_query = _build_gnql_query(countries, "inbound", "1d")
+        outbound_query = _build_gnql_query(countries, "outbound", "1d", conflict=conflict)
+        inbound_query = _build_gnql_query(countries, "inbound", "1d", conflict=conflict)
 
         outbound_data, inbound_data = await asyncio.gather(
             _fetch_gnql_stats(client, outbound_query),
@@ -798,6 +992,52 @@ async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
 
         outbound_count = int(outbound_data.get("count", 0))
         inbound_count = int(inbound_data.get("count", 0))
+
+        # Full GNQL query: fetch concrete IP records for detail view (stored in greynoise_ips)
+        outbound_ips = await _fetch_gnql_results(client, outbound_query, size=50)
+        inbound_ips = await _fetch_gnql_results(client, inbound_query, size=50)
+
+        # Enrich top 5 outbound + top 5 inbound IPs with full context (v2/noise/context/{ip})
+        for rec in outbound_ips[:5]:
+            ip = rec.get("ip") or rec.get("address")
+            if ip:
+                ctx = await _fetch_ip_context(client, ip)
+                if ctx:
+                    rec["metadata"] = dict(rec.get("metadata") or {})
+                    rec["metadata"]["ip_context"] = ctx
+        for rec in inbound_ips[:5]:
+            ip = rec.get("ip") or rec.get("address")
+            if ip:
+                ctx = await _fetch_ip_context(client, ip)
+                if ctx:
+                    rec["metadata"] = dict(rec.get("metadata") or {})
+                    rec["metadata"]["ip_context"] = ctx
+
+        # RIOT check: sample top IPs; if benign (Shodan/Censys/etc.), reduce count for scoring
+        riot_sample_size = 10
+        outbound_riot_benign = 0
+        for rec in outbound_ips[:riot_sample_size]:
+            ip = rec.get("ip") or rec.get("address")
+            if ip:
+                riot_data = await _fetch_riot(client, ip)
+                if riot_data and (riot_data.get("riot") is True or riot_data.get("trust_level") == "benign"):
+                    outbound_riot_benign += 1
+        inbound_riot_benign = 0
+        for rec in inbound_ips[:riot_sample_size]:
+            ip = rec.get("ip") or rec.get("address")
+            if ip:
+                riot_data = await _fetch_riot(client, ip)
+                if riot_data and (riot_data.get("riot") is True or riot_data.get("trust_level") == "benign"):
+                    inbound_riot_benign += 1
+        outbound_sample_n = min(riot_sample_size, len(outbound_ips)) or 1
+        inbound_sample_n = min(riot_sample_size, len(inbound_ips)) or 1
+        outbound_riot_ratio = outbound_riot_benign / outbound_sample_n
+        inbound_riot_ratio = inbound_riot_benign / inbound_sample_n
+        # Discount count by up to 50% based on RIOT benign fraction in sample
+        outbound_count_adj = int(outbound_count * (1.0 - 0.5 * outbound_riot_ratio))
+        inbound_count_adj = int(inbound_count * (1.0 - 0.5 * inbound_riot_ratio))
+        outbound_count_adj = max(0, outbound_count_adj)
+        inbound_count_adj = max(0, inbound_count_adj)
 
         outbound_threats, top_tags_out = _stats_to_threats(outbound_data, "outbound", taxonomy, countries)
         inbound_threats, top_tags_in = _stats_to_threats(inbound_data, "inbound", taxonomy, countries)
@@ -808,8 +1048,8 @@ async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
         # CVE enrichment
         cvss_bonus = await _enrich_cves(client, all_threats)
 
-        # Compute scores
-        absolute = _compute_absolute_score(all_threats, outbound_count, inbound_count) + cvss_bonus
+        # Compute scores (use RIOT-adjusted counts to reduce false-positive inflation)
+        absolute = _compute_absolute_score(all_threats, outbound_count_adj, inbound_count_adj) + cvss_bonus
         absolute = min(100.0, absolute)
 
         avg_7d = _get_historical_avg(conflict, days=7)
@@ -861,6 +1101,10 @@ async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
         # LLM summary (non-blocking fallback to rule-based)
         llm_summary = await _generate_llm_summary(conflict, result)
         result.summary = llm_summary if llm_summary else _rule_based_summary(result)
+
+        # Persist GNQL IP results for detail view (greynoise_ips table)
+        _save_gnql_ips(conflict, "outbound", outbound_ips, result.fetched_at)
+        _save_gnql_ips(conflict, "inbound", inbound_ips, result.fetched_at)
 
         return result
 

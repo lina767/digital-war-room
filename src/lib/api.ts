@@ -310,6 +310,14 @@ export interface GreynoiseEmergingThreat {
   weight: number;
 }
 
+export interface GreynoiseTopIp {
+  ip: string;
+  direction: string;
+  classification?: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface GreynoiseResult {
   conflict: string;
   emerging_threats: GreynoiseEmergingThreat[];
@@ -319,13 +327,14 @@ export interface GreynoiseResult {
   trend: "rising" | "stable" | "falling";
   alerts: string[];
   summary: string;
-  score_confidence: { level: string; sources_ok: string[]; sources_missing: string[] };
+  score_confidence: { level: string; sources_ok?: string[]; sources_missing?: string[] };
   fetched_at: string;
   outbound_count: number;
   inbound_count: number;
   top_tags_outbound: Array<{ tag: string; count: number }>;
   top_tags_inbound: Array<{ tag: string; count: number }>;
   pending_tags: string[];
+  top_ips?: GreynoiseTopIp[];
 }
 
 export interface GreynoiseTrendPoint {

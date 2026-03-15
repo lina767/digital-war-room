@@ -14,6 +14,7 @@ import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
 import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
 import { CompliancePanel } from "@/components/dashboard/CompliancePanel";
 import { WorldMap } from "@/components/dashboard/WorldMap";
+import { AgentsStatusBar } from "@/components/dashboard/AgentsStatusBar";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Target, X, Globe } from "lucide-react";
@@ -186,7 +187,10 @@ export function DashboardRightPanel({
         </div>
       </div>
 
-      <p className="mt-4 pt-3 border-t border-border text-[11px] text-muted-foreground">
+      <div className="mt-4 pt-3 border-t border-border">
+        <AgentsStatusBar />
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
         Data sources: News API · GDELT · RSS · Polymarket · ADSB · VesselFinder · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise · FAO · EIA · AIS
       </p>
     </aside>

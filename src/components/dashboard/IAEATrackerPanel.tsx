@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { IntelPanel, IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 import { getIaeaTracker, type IaeaTrackerResponse, type IaeaTrackerCorrelationNote } from "@/lib/api";
-import { Plane, ChevronDown, ChevronRight, Cloud, FileText, MessageCircle, Calendar } from "lucide-react";
+import { Plane, ChevronDown, ChevronRight, Cloud, FileText, MessageCircle, Calendar, MapPin } from "lucide-react";
 
 const CONFIDENCE_STYLES: Record<string, string> = {
   high: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -38,6 +38,7 @@ export function IAEATrackerPanel() {
   const [showFlightPlan, setShowFlightPlan] = useState(false);
   const [showPress, setShowPress] = useState(false);
   const [showTelegram, setShowTelegram] = useState(false);
+  const [showNotams, setShowNotams] = useState(false);
 
   const fetchTracker = useCallback(async () => {
     setLoading(true);
@@ -69,8 +70,10 @@ export function IAEATrackerPanel() {
   const flightPlan = data?.flight_plan_status;
   const press = data?.iaea_press_grossi;
   const telegram = data?.iaea_telegram_signals;
+  const notamsBlock = data?.notams;
   const pressItems = press?.items ?? [];
   const telegramPosts = telegram?.posts ?? [];
+  const notamList = Array.isArray(notamsBlock?.notams) ? notamsBlock.notams : [];
 
   return (
     <IntelPanel
@@ -155,6 +158,42 @@ export function IAEATrackerPanel() {
               {metar.visibility_m != null && <p>Visibility: {metar.visibility_m} m</p>}
               {metar.rvr_m != null && <p>RVR: {metar.rvr_m} m</p>}
               {metar.raw && <p className="font-mono text-[10px] break-all">{metar.raw}</p>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* NOTAMs */}
+      {notamsBlock && (notamList.length > 0 || notamsBlock.correlation_hint) && (
+        <div className="border-t border-border/60 pt-2 space-y-1">
+          <button
+            type="button"
+            onClick={() => setShowNotams(!showNotams)}
+            className="flex items-center gap-1.5 w-full text-left text-[11px] font-medium text-foreground"
+          >
+            {showNotams ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            <MapPin className="h-3.5 w-3.5 text-amber-400" />
+            NOTAMs ({notamList.length})
+          </button>
+          {showNotams && (
+            <div className="pl-5 space-y-1.5 text-[11px] text-muted-foreground">
+              {notamsBlock.correlation_hint && <p>{notamsBlock.correlation_hint}</p>}
+              {notamList.slice(0, 10).map((n, i) => {
+                const item = n as { id?: string; text?: string; effective?: string; expiry?: string; location?: string };
+                return (
+                  <div key={i} className="rounded border border-border/50 px-2 py-1 bg-background/30">
+                    {item.location && <p className="font-mono text-[10px] text-foreground/80">{item.location}</p>}
+                    {item.text && <p className="break-words">{item.text}</p>}
+                    {(item.effective || item.expiry) && (
+                      <p className="text-[10px] mt-0.5">
+                        {item.effective && <span>Valid from: {item.effective}</span>}
+                        {item.expiry && <span className="ml-2">Until: {item.expiry}</span>}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+              {notamList.length > 10 && <p>+{notamList.length - 10} more</p>}
             </div>
           )}
         </div>
