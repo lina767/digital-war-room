@@ -825,11 +825,11 @@ export function TheaterMap({
 
       {/* Escalation detail panel – full width with margin on small screens, 44px close on touch */}
       {selectedEvent && (
-        <div className="absolute bottom-24 left-2 right-2 sm:left-auto sm:right-2 sm:max-w-xs sm:w-[260px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2">
+        <div className="absolute bottom-24 left-2 right-2 sm:left-auto sm:right-2 sm:max-w-xs sm:w-[280px] rounded-lg border border-border bg-card/95 backdrop-blur-sm shadow-lg p-3 space-y-2 max-h-[60vh] overflow-y-auto">
           <div className="flex items-center justify-between gap-2 min-w-0">
             <div className="flex flex-col min-w-0 flex-1">
               <span className="font-mono text-[11px] text-muted-foreground tracking-wider uppercase">
-                Escalation detail
+                Event detail
               </span>
               <span className="text-xs font-semibold truncate">
                 {THEATER_EVENT_STYLE[selectedEvent.event_type]?.label ?? selectedEvent.event_type}
@@ -849,23 +849,74 @@ export function TheaterMap({
               {selectedEvent.label}
             </p>
           )}
+          {/* Casualties: fatalities (ACLED) or civilian/military (UCDP) */}
+          {(selectedEvent.fatalities != null || selectedEvent.deaths_civilians != null || selectedEvent.deaths_a != null || selectedEvent.deaths_b != null) && (
+            <div className="space-y-0.5">
+              <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Casualties</span>
+              <div className="text-[11px] text-foreground/90">
+                {selectedEvent.fatalities != null && (
+                  <p>Total reported: {selectedEvent.fatalities} fatality/fatalities</p>
+                )}
+                {selectedEvent.deaths_civilians != null && (
+                  <p>Civilian: {selectedEvent.deaths_civilians}</p>
+                )}
+                {(selectedEvent.deaths_a != null || selectedEvent.deaths_b != null) && (
+                  <p>
+                    Military/actors: {[selectedEvent.deaths_a, selectedEvent.deaths_b].filter((n): n is number => n != null).join(" / ")}
+                    {selectedEvent.side_a != null && selectedEvent.side_b != null && (
+                      <span className="text-muted-foreground"> ({selectedEvent.side_a} / {selectedEvent.side_b})</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          {/* Actors / sides */}
+          {(selectedEvent.actor1 != null || selectedEvent.actor2 != null || selectedEvent.side_a != null || selectedEvent.side_b != null) && (
+            <div className="space-y-0.5">
+              <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Actors</span>
+              <p className="text-[11px] text-foreground/90">
+                {selectedEvent.actor1 != null || selectedEvent.actor2 != null
+                  ? [selectedEvent.actor1, selectedEvent.actor2].filter(Boolean).join(" · ")
+                  : selectedEvent.side_a != null || selectedEvent.side_b != null
+                    ? `${selectedEvent.side_a ?? "—"} vs ${selectedEvent.side_b ?? "—"}`
+                    : "—"}
+              </p>
+            </div>
+          )}
+          {/* Date */}
+          {(selectedEvent.event_date != null || selectedEvent.date_start != null) && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-muted-foreground">Date</span>
+              <span className="text-right text-foreground/90">{selectedEvent.event_date ?? selectedEvent.date_start ?? "—"}</span>
+            </div>
+          )}
+          {/* Notes / reporting */}
+          {selectedEvent.notes != null && selectedEvent.notes !== "" && (
+            <div className="space-y-0.5">
+              <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Reporting / context</span>
+              <p className="text-[11px] text-foreground/90 leading-snug line-clamp-4">{selectedEvent.notes}</p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span>Source</span>
-            <span className="text-right">
-              {selectedEvent.source ?? "Mixed (FIRMS/ACLED/UCDP)"}
-            </span>
+            <span className="text-right">{selectedEvent.source ?? "FIRMS/ACLED/UCDP"}</span>
             <span>Confidence</span>
-            <span className="text-right">
-              {selectedEvent.confidence ?? "n/a"}
-            </span>
+            <span className="text-right">{selectedEvent.confidence ?? "n/a"}</span>
             <span>Location</span>
-            <span className="text-right">
-              {selectedEvent.lon.toFixed(1)}E · {selectedEvent.lat.toFixed(1)}N
-            </span>
+            <span className="text-right">{selectedEvent.lon.toFixed(1)}°E · {selectedEvent.lat.toFixed(1)}°N</span>
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Unified escalation event from GEOINT/SIGINT feeds. Use key findings and news panel for full narrative.
-          </p>
+          {selectedEvent.url != null && selectedEvent.url !== "" && (
+            <a
+              href={selectedEvent.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline"
+            >
+              {selectedEvent.source === "FIRMS" ? "Open EO Browser (satellite imagery)" : "Open source"}
+              <span aria-hidden>↗</span>
+            </a>
+          )}
         </div>
       )}
 

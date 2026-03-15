@@ -488,6 +488,12 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
                         for x in ("battle", "violence", "explosion", "attack", "armed", "riot")
                     ):
                         intensity = min(0.95, intensity + 0.2)
+                    actor1 = (rec.get("actor1") or "").strip() or None
+                    actor2 = (rec.get("actor2") or "").strip() or None
+                    notes = (rec.get("notes") or "").strip() or None
+                    if notes and len(notes) > 500:
+                        notes = notes[:497] + "..."
+                    event_date = (rec.get("event_date") or rec.get("date") or "").strip() or None
                     out.append({
                         "lat": round(lat, 5),
                         "lon": round(lon, 5),
@@ -495,6 +501,10 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
                         "source": "ACLED",
                         "event_type": event_type or None,
                         "fatalities": fatalities,
+                        "actor1": actor1,
+                        "actor2": actor2,
+                        "notes": notes,
+                        "event_date": event_date,
                     })
             return out
 
@@ -557,13 +567,17 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
             lon = _safe_float(a.get("lon"), 0)
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
+            frp = int(_safe_float(a.get("frp"), 0))
+            eo_url = f"https://apps.sentinel-hub.com/eo-browser/?lat={lat}&lng={lon}&zoom=10"
             out.append({
                 "lat": round(lat, 5),
                 "lon": round(lon, 5),
                 "event_type": _normalize_theater_event_type("FIRMS", a.get("type")),
                 "source": "FIRMS",
                 "confidence": a.get("confidence", "nominal"),
-                "label": f"FRP {int(_safe_float(a.get('frp'), 0))} MW",
+                "label": f"FRP {frp} MW (thermal anomaly – satellite)",
+                "url": eo_url,
+                "event_date": a.get("acquired"),
             })
     except Exception:
         pass
@@ -579,14 +593,23 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
             event_type = _normalize_theater_event_type("ACLED", e.get("event_type"))
-            out.append({
+            label = (e.get("event_type") or "Event")[:60]
+            if e.get("fatalities"):
+                label = f"{label} · {e.get('fatalities')} fatality/fatalities"
+            evt = {
                 "lat": round(lat, 5),
                 "lon": round(lon, 5),
                 "event_type": event_type,
                 "source": "ACLED",
                 "confidence": "high" if (e.get("fatalities") or 0) > 0 else "nominal",
-                "label": (e.get("event_type") or "Event")[:60],
-            })
+                "label": label,
+            }
+            if e.get("fatalities") is not None:
+                evt["fatalities"] = int(e["fatalities"])
+            for key in ("actor1", "actor2", "notes", "event_date"):
+                if e.get(key):
+                    evt[key] = e[key]
+            out.append(evt)
     except Exception:
         pass
 
@@ -606,14 +629,47 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
                 continue
             if not (-90 <= lat <= 90 and -180 <= lon <= 180):
                 continue
-            out.append({
+            best = e.get("best")
+            deaths_civ = e.get("deaths_civilians")
+            deaths_a = e.get("deaths_a")
+            deaths_b = e.get("deaths_b")
+            label = (e.get("side_a") or "") + " vs " + (e.get("side_b") or "")
+            if best is not None or deaths_civ is not None:
+                parts = []
+                if best is not None:
+                    try:
+                        parts.append(f"total {int(best)}")
+                    except (TypeError, ValueError):
+                        pass
+                if deaths_civ is not None:
+                    try:
+                        parts.append(f"{int(deaths_civ)} civilian")
+                    except (TypeError, ValueError):
+                        pass
+                if parts:
+                    label = f"{label} · " + ", ".join(parts)
+            evt = {
                 "lat": round(lat, 5),
                 "lon": round(lon, 5),
                 "event_type": _normalize_theater_event_type("UCDP", e.get("type_of_violence")),
                 "source": "UCDP",
                 "confidence": "high",
-                "label": (e.get("side_a") or "") + " vs " + (e.get("side_b") or ""),
-            })
+                "label": label,
+            }
+            if best is not None:
+                try:
+                    evt["fatalities"] = int(best)
+                except (TypeError, ValueError):
+                    pass
+            if deaths_civ is not None:
+                try:
+                    evt["deaths_civilians"] = int(deaths_civ)
+                except (TypeError, ValueError):
+                    pass
+            for key in ("deaths_a", "deaths_b", "side_a", "side_b", "date_start"):
+                if e.get(key) is not None:
+                    evt[key] = e[key]
+            out.append(evt)
     except Exception:
         pass
 

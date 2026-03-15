@@ -385,6 +385,25 @@ export interface TheaterEvent {
   source?: string;
   confidence?: string;
   label?: string;
+  /** Total fatalities (ACLED) or best estimate (UCDP). */
+  fatalities?: number;
+  /** Civilian deaths (UCDP). */
+  deaths_civilians?: number;
+  /** Military/actor deaths (UCDP). */
+  deaths_a?: number;
+  deaths_b?: number;
+  /** Actors (ACLED) or sides (UCDP). */
+  actor1?: string;
+  actor2?: string;
+  side_a?: string;
+  side_b?: string;
+  /** Date of event. */
+  event_date?: string;
+  date_start?: string;
+  /** Additional context / reporting. */
+  notes?: string;
+  /** Link to imagery (EO Browser) or source. */
+  url?: string;
 }
 
 /** GET /api/theater-events – unified events for Theater Map layer (Iran etc.). */
