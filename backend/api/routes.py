@@ -37,6 +37,35 @@ def _get_last_error(request: Request):
     return getattr(request.app.state, "analysis_last_error", {})
 
 
+# Escalation timeline: keep last N points per conflict for "escalation over the day" UI.
+ESCALATION_TIMELINE_MAX_POINTS = int(os.getenv("ESCALATION_TIMELINE_MAX_POINTS", "24"))
+
+
+def _get_escalation_timeline(request: Request):
+    return getattr(request.app.state, "escalation_timeline_history", {})
+
+
+def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dict) -> None:
+    """Append one point to escalation timeline history for the conflict. Call after caching analysis."""
+    history = getattr(app_state, "escalation_timeline_history", None)
+    if history is None:
+        return
+    score = None
+    if isinstance(result, dict):
+        score = result.get("escalation_score")
+    if score is None:
+        return
+    try:
+        score = float(score)
+    except (TypeError, ValueError):
+        return
+    if conflict not in history:
+        history[conflict] = []
+    history[conflict].append({"at": at_ts, "escalation_score": round(score, 1)})
+    # Keep last N points (e.g. 24 runs ≈ 24h at 1 run/hour, or 6 days at 1 run/6h)
+    history[conflict] = history[conflict][-ESCALATION_TIMELINE_MAX_POINTS:]
+
+
 @router.get("/analyze/status")
 async def analyze_status(request: Request, conflict: str = "Iran"):
     """
@@ -67,6 +96,36 @@ async def get_latest_analysis(request: Request, conflict: str = "Iran"):
     if not entry:
         return Response(status_code=404)
     return entry["result"]
+
+
+@router.get("/analyze/timeline")
+async def get_escalation_timeline(request: Request, conflict: str = "Iran"):
+    """
+    GET /analyze/timeline?conflict=Iran
+    Returns escalation score over time for the Escalation Timeline UI.
+    Each point is one completed analysis run (at, escalation_score). Points sorted by time ascending.
+    """
+    history = _get_escalation_timeline(request)
+    raw = list(history.get(conflict) or [])
+    points = []
+    for p in raw:
+        at_ts = p.get("at")
+        score = p.get("escalation_score")
+        try:
+            dt = datetime.fromtimestamp(float(at_ts), tz=timezone.utc)
+            # label = Uhrzeit (HH:MM), label_with_date = genaue Laufzeit inkl. Datum (DD.MM. HH:MM)
+            points.append({
+                "at": at_ts,
+                "escalation_score": score,
+                "datetime_iso": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "hour": dt.strftime("%H"),
+                "label": dt.strftime("%H:%M"),
+                "label_with_date": dt.strftime("%d.%m. %H:%M"),
+            })
+        except (TypeError, ValueError, OSError):
+            points.append({"at": at_ts, "escalation_score": score, "datetime_iso": "", "label": "", "label_with_date": ""})
+    points.sort(key=lambda x: x.get("at") or 0)
+    return {"conflict": conflict, "points": points}
 
 
 @router.post("/analyze")
@@ -112,7 +171,9 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
                 loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
-            app_state.analysis_cache[conflict] = {"result": result, "at": time.time()}
+            at_ts = time.time()
+            app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
+            push_escalation_timeline(app_state, conflict, at_ts, result)
             return {"status": "ok", "conflict": conflict}
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
@@ -130,7 +191,9 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
                 loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
-            app_state.analysis_cache[conflict] = {"result": result, "at": time.time()}
+            at_ts = time.time()
+            app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
+            push_escalation_timeline(app_state, conflict, at_ts, result)
             last_error.pop(conflict, None)
             print(f"[refresh] Analysis for {conflict} done and cached.")
         except asyncio.TimeoutError:
@@ -162,7 +225,9 @@ async def trigger_analysis(
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
         cache = _get_cache(request)
-        cache[conflict] = {"result": result, "at": time.time()}
+        at_ts = time.time()
+        cache[conflict] = {"result": result, "at": at_ts}
+        push_escalation_timeline(request.app.state, conflict, at_ts, result)
         return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

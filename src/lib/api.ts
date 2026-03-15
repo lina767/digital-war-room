@@ -62,6 +62,31 @@ export async function getAnalyzeStatus(conflict: string): Promise<{ cached: bool
   }
 }
 
+/** GET /api/analyze/timeline – escalation score over time (one point per analysis run). */
+export interface EscalationTimelinePoint {
+  at: number;
+  escalation_score: number;
+  datetime_iso?: string;
+  hour?: string;
+  label?: string;
+  /** Exact completion time with date (e.g. "15.03. 14:35"). */
+  label_with_date?: string;
+}
+
+export async function getEscalationTimeline(conflict: string): Promise<{ conflict: string; points: EscalationTimelinePoint[] } | null> {
+  try {
+    const res = await fetch(
+      `${getApiBase()}/api/analyze/timeline?conflict=${encodeURIComponent(conflict)}`,
+      { method: "GET" }
+    );
+    if (!res.ok) return null;
+    const raw = (await res.json()) as { conflict?: string; points?: EscalationTimelinePoint[] };
+    return { conflict: raw.conflict ?? conflict, points: raw.points ?? [] };
+  } catch {
+    return null;
+  }
+}
+
 /** GET last cached analysis (from auto-run every 6 hours). No analysis is run. */
 export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
   const controller = new AbortController();

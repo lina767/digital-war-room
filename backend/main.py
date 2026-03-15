@@ -1,9 +1,12 @@
+import logging
 import os
 import asyncio
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 # Ensure backend/.env is loaded when running from project root (e.g. uvicorn backend.main:app)
@@ -12,7 +15,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from api.routes import router as api_router
+from api.routes import router as api_router, push_escalation_timeline
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
 from agents.supervisor import analyze_conflict
@@ -33,6 +36,7 @@ async def lifespan(app: FastAPI):
     init_otel()  # OpenTelemetry TracerProvider + OTLP exporter when OTEL_EXPORTER_OTLP_ENDPOINT set
     app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
     app.state.analysis_last_error = {}  # conflict -> error message when background run failed
+    app.state.escalation_timeline_history = {}  # conflict -> [{"at": unix_ts, "escalation_score": float}, ...]
     app.state.job_queue = JobQueue()
 
     async def run_periodic_analysis():
@@ -55,7 +59,10 @@ async def lifespan(app: FastAPI):
                     pass
 
                 result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
-                app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": time.time()}
+                at_ts = time.time()
+                app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": at_ts}
+                app.state.analysis_last_error.pop(AUTO_ANALYZE_CONFLICT, None)
+                push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
 
                 # Log Haiku usage stats for this run
                 try:
@@ -63,14 +70,13 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     pass
 
-                print(f"[periodic] Analysis for {AUTO_ANALYZE_CONFLICT} done.")
+                logger.info("Analysis for %s done.", AUTO_ANALYZE_CONFLICT)
                 consecutive_failures = 0
                 await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
             except Exception as e:
                 consecutive_failures += 1
                 retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)
-                print(f"[periodic] Analysis failed (attempt {consecutive_failures}): {e}")
-                print(f"[periodic] Retrying in {retry_delay}s …")
+                logger.warning("Analysis failed (attempt %d): %s. Retrying in %ds.", consecutive_failures, e, retry_delay)
                 await asyncio.sleep(retry_delay)
 
     analysis_task = asyncio.create_task(run_periodic_analysis())
@@ -86,9 +92,9 @@ async def lifespan(app: FastAPI):
             while True:
                 try:
                     await run_greynoise_scheduler_cycle()
-                    print("[greynoise] Scheduler cycle complete.")
+                    logger.info("GreyNoise scheduler cycle complete.")
                 except Exception as e:
-                    print(f"[greynoise] Scheduler error: {e}")
+                    logger.warning("GreyNoise scheduler error: %s", e)
                 await asyncio.sleep(GREYNOISE_SCHEDULER_INTERVAL_SEC)
 
         async def run_greynoise_tag_discovery():
@@ -98,7 +104,7 @@ async def lifespan(app: FastAPI):
                 try:
                     await run_tag_discovery_cycle()
                 except Exception as e:
-                    print(f"[greynoise] Tag discovery error: {e}")
+                    logger.warning("GreyNoise tag discovery error: %s", e)
                 await asyncio.sleep(86400)  # once daily
 
         greynoise_task = asyncio.create_task(run_greynoise_scheduler())
@@ -182,7 +188,7 @@ manager = ConnectionManager()
 @app.websocket("/ws/{conflict}")
 async def websocket_endpoint(websocket: WebSocket, conflict: str):
     await manager.connect(websocket)
-    print(f"[WS] Client connected – conflict: {conflict}")
+    logger.info("WS client connected – conflict: %s", conflict)
     try:
         # Sofort gecachtes Ergebnis senden (von Auto-Run oder letztem POST)
         cache = getattr(app.state, "analysis_cache", {})
@@ -205,11 +211,15 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        print(f"[WS] Client disconnected – conflict: {conflict}")
+        logger.info("WS client disconnected – conflict: %s", conflict)
     except Exception as e:
-        print(f"[WS] Error: {e}")
+        logger.exception("WS error: %s", e)
         try:
             await websocket.send_json({"status": "error", "message": str(e)})
+        except Exception:
+            pass
+        try:
+            await websocket.close()
         except Exception:
             pass
         manager.disconnect(websocket)
