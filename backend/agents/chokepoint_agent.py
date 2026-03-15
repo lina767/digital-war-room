@@ -3,7 +3,7 @@ CHOKEPOINT Agent – Maritime chokepoint monitoring (Hormuz, Bab el-Mandeb, Suez
 
 Tracks tanker density, oil flow estimates, and disruption risk across key maritime
 chokepoints. Uses a tiered data-quality model:
-  - Tier 1 (live_ais): Spire Maritime / MarineTraffic / AISHub when API keys present
+  - Tier 1 (live_ais): AISStream (aisstream.io) when AIRSTREAM_API_KEY set, else Spire / MarineTraffic / AISHub
   - Tier 2 (estimated): EIA baseline + SIGINT warship proxy + news signals + oil spikes
   - Tier 3 (baseline_only): Static EIA baseline only
 
@@ -15,10 +15,11 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from .airstream_client import collect_tankers_by_chokepoint
 from .config import USER_AGENT, DEFAULT_TIMEOUT
 from .utils import run_async, safe_float
 
@@ -218,6 +219,28 @@ def _risk_for_status(status: str) -> float:
 
 
 # ── Data fetching (tiered) ───────────────────────────────────────────────────
+
+
+def _bbox_to_airstream(bbox: str) -> Tuple[Optional[List[List[float]]], Optional[Tuple[float, float, float, float]]]:
+    """Convert agent bbox string (lon_min,lat_min,lon_max,lat_max) to AISStream format and bounds.
+
+    Returns (airstream_box, bounds) or (None, None) on parse error.
+    airstream_box = [[lat_min, lon_min], [lat_max, lon_max]] for Subscription.
+    bounds = (lat_min, lat_max, lon_min, lon_max) for point-in-box checks.
+    """
+    parts = bbox.split(",")
+    if len(parts) != 4:
+        return None, None
+    try:
+        lon_min, lat_min, lon_max, lat_max = (float(x.strip()) for x in parts)
+    except ValueError:
+        return None, None
+    lat_lo, lat_hi = min(lat_min, lat_max), max(lat_min, lat_max)
+    lon_lo, lon_hi = min(lon_min, lon_max), max(lon_min, lon_max)
+    airstream_box = [[lat_lo, lon_lo], [lat_hi, lon_hi]]
+    bounds = (lat_lo, lat_hi, lon_lo, lon_hi)
+    return airstream_box, bounds
+
 
 async def _fetch_aishub_tankers(bbox: str) -> Optional[List[Dict[str, Any]]]:
     """Fetch tanker positions from AISHub (community, free). Returns None if unavailable."""
@@ -563,28 +586,52 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         eia_data = await eia_data_task
         gdelt_disruption = await gdelt_task
         external_status = await _fetch_external_status()
-        chokepoints = []
 
+        # AISStream: one WebSocket session for all three chokepoints (if key set)
+        tankers_by_cp: Dict[str, List[Dict[str, Any]]] = {}
+        airstream_configured = bool((os.getenv("AIRSTREAM_API_KEY") or "").strip())
+        bounding_boxes = []
+        cp_bounds = {}
+        for cp_name, baseline in CHOKEPOINT_BASELINES.items():
+            airstream_box, bounds = _bbox_to_airstream(baseline["bbox"])
+            if airstream_box is not None and bounds is not None:
+                bounding_boxes.append(airstream_box)
+                cp_bounds[cp_name] = bounds
+        if bounding_boxes and cp_bounds:
+            airstream_result = await collect_tankers_by_chokepoint(
+                bounding_boxes=bounding_boxes,
+                cp_bounds=cp_bounds,
+                tanker_keywords=TANKER_KEYWORDS,
+            )
+            if airstream_result is not None:
+                tankers_by_cp = airstream_result
+
+        chokepoints = []
         for cp_name, baseline in CHOKEPOINT_BASELINES.items():
             bbox = baseline["bbox"]
             avg_tankers = baseline["avg_daily_tankers"]
             oil_baseline = baseline["oil_flow_baseline_mbd"]
 
-            # Try tiered tanker data
+            # Tier 1: AISStream when configured; otherwise Spire / MarineTraffic / AISHub
+            # When AIRSTREAM_API_KEY is set, use only AISStream (no fallback to other APIs without keys)
             tankers: Optional[List[Dict]] = None
             data_quality = "baseline_only"
 
-            tankers = await _fetch_spire_tankers(bbox)
-            if tankers is not None:
+            if cp_name in tankers_by_cp:
+                tankers = tankers_by_cp[cp_name]
                 data_quality = "live_ais"
-            else:
-                tankers = await _fetch_marinetraffic_tankers(bbox)
+            elif not airstream_configured:
+                tankers = await _fetch_spire_tankers(bbox)
                 if tankers is not None:
                     data_quality = "live_ais"
                 else:
-                    tankers = await _fetch_aishub_tankers(bbox)
+                    tankers = await _fetch_marinetraffic_tankers(bbox)
                     if tankers is not None:
                         data_quality = "live_ais"
+                    else:
+                        tankers = await _fetch_aishub_tankers(bbox)
+                        if tankers is not None:
+                            data_quality = "live_ais"
 
             tanker_count = len(tankers) if tankers is not None else 0
 
