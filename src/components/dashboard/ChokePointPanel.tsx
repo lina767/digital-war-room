@@ -133,8 +133,9 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
   const foodCommodities = energy?.food_commodities ?? [];
   const faoFpi = energy?.fao_fpi;
   const foodRisk = Number(energy?.food_security_risk) || 0;
+  const hasFoodData = foodCommodities.length > 0 || (faoFpi != null && faoFpi.index != null) || (energy != null && foodRisk > 0);
 
-  if (chokepoints.length === 0 && oilCommodities.length === 0 && foodCommodities.length === 0) {
+  if (chokepoints.length === 0 && oilCommodities.length === 0 && !hasFoodData) {
     return null;
   }
 

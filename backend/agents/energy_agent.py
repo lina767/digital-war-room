@@ -42,10 +42,10 @@ FOOD_SYMBOLS = [
 
 COMMODITY_SYMBOLS = OIL_SYMBOLS + FOOD_SYMBOLS
 
-# FAO Food Price Index CSV (free, monthly). FAO updates the filename; override via FAO_FPI_URL env if needed.
+# FAO Food Price Index CSV (free, monthly). FAO may change the filename (e.g. _mar, _apr); override via FAO_FPI_URL env if 404.
 FAO_FPI_URL = os.getenv(
     "FAO_FPI_URL",
-    "https://www.fao.org/fileadmin/templates/worldfood/Reports_and_docs/Food_price_indices_data_jul14.csv",
+    "https://www.fao.org/media/docs/worldfoodsituationlibraries/default-document-library/food_price_indices_data_csv_mar.csv",
 )
 
 # World Bank commodity prices API (free, monthly)
@@ -501,12 +501,15 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         if not oil_commodities and av_key:
             oil_commodities = await _fetch_oil_prices(av_key)
 
-        # Food: FRED first, then Alpha Vantage
+        # Food: FRED first, then Alpha Vantage (resilient: failure must not drop whole result)
         food_commodities: List[Dict[str, Any]] = []
-        if fred_key:
-            food_commodities = await _fetch_fred_food_prices(fred_key)
-        if not food_commodities and av_key:
-            food_commodities = await _fetch_food_prices(av_key)
+        try:
+            if fred_key:
+                food_commodities = await _fetch_fred_food_prices(fred_key)
+            if not food_commodities and av_key:
+                food_commodities = await _fetch_food_prices(av_key)
+        except Exception as e:
+            logger.warning("ENERGY: food commodities fetch failed, continuing without: %s", e)
 
         agsi, fao_fpi, fertilizer = await asyncio.gather(agsi_task, fao_task, fert_task)
 
@@ -518,10 +521,14 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             agsi, oil_commodities, food_commodities, fao_fpi,
             energy_score, food_risk, conflict=conflict,
         )
-        llm_summary = await _generate_haiku_summary_energy(
-            conflict, agsi, oil_commodities, food_commodities, fao_fpi, energy_score, food_risk,
-        )
-        summary = llm_summary if llm_summary else rule_summary
+        try:
+            llm_summary = await _generate_haiku_summary_energy(
+                conflict, agsi, oil_commodities, food_commodities, fao_fpi, energy_score, food_risk,
+            )
+            summary = llm_summary if llm_summary else rule_summary
+        except Exception as e:
+            logger.debug("ENERGY: Haiku summary failed, using rule-based: %s", e)
+            summary = rule_summary
 
         global_impact_note = None
         if conflict and "iran" in conflict.lower():

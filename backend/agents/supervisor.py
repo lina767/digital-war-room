@@ -485,7 +485,7 @@ def _prefilter_and_summarize(agent_results: Dict[str, Any]) -> Dict[str, Any]:
     1. Zero-shot classification on NEWS articles and SOCMINT signals —
        remove items classified as "other" with low confidence.
     2. Summarize long text items to reduce LLM context consumption.
-    Operates in-place on agent_results. Graceful: skips if Haiku unavailable.
+    Operates in-place on agent_results. Graceful: skips if Haiku unavailable or any error.
     """
     try:
         from services.haiku_service import classify, summarize, is_haiku_failed
@@ -495,33 +495,36 @@ def _prefilter_and_summarize(agent_results: Dict[str, Any]) -> Dict[str, Any]:
     if is_haiku_failed():
         return agent_results
 
-    # 1. Classify + filter NEWS articles
-    news = agent_results.get("news", {})
-    articles = news.get("articles", [])
-    if articles:
-        articles = _classify_filter_items(
-            articles,
-            text_key_primary="title",
-            text_key_secondary="summary",
-        )
-        news["articles"] = articles
-        agent_results["news"] = news
-
-    # 2. Classify + filter SOCMINT top_signals (the raw post lists are large;
-    #    we only filter the items that flow into _compact_for_llm)
-    socmint = agent_results.get("socmint", {})
-    for post_key in ("telegram_posts", "twitter_posts", "reddit_posts"):
-        posts = socmint.get(post_key, [])
-        if posts:
-            socmint[post_key] = _classify_filter_items(
-                posts,
-                text_key_primary="text",
-                text_key_secondary="title",
+    try:
+        # 1. Classify + filter NEWS articles
+        news = agent_results.get("news", {})
+        articles = news.get("articles", [])
+        if articles:
+            articles = _classify_filter_items(
+                articles,
+                text_key_primary="title",
+                text_key_secondary="summary",
             )
-    agent_results["socmint"] = socmint
+            news["articles"] = articles
+            agent_results["news"] = news
 
-    # 3. Summarize long texts in articles and posts
-    _summarize_long_items(agent_results)
+        # 2. Classify + filter SOCMINT top_signals (the raw post lists are large;
+        #    we only filter the items that flow into _compact_for_llm)
+        socmint = agent_results.get("socmint", {})
+        for post_key in ("telegram_posts", "twitter_posts", "reddit_posts"):
+            posts = socmint.get(post_key, [])
+            if posts:
+                socmint[post_key] = _classify_filter_items(
+                    posts,
+                    text_key_primary="text",
+                    text_key_secondary="title",
+                )
+        agent_results["socmint"] = socmint
+
+        # 3. Summarize long texts in articles and posts
+        _summarize_long_items(agent_results)
+    except Exception as e:
+        _logger.warning("[supervisor] Pre-filter/summarize failed, continuing without: %s", e)
 
     return agent_results
 
@@ -544,7 +547,11 @@ def _classify_filter_items(
         ((it.get(text_key_primary) or "") + " " + (it.get(text_key_secondary) or "")).strip()[:500]
         for it in items
     ]
-    results = run_async(batch_classify(texts))
+    try:
+        results = run_async(batch_classify(texts))
+    except Exception as e:
+        _logger.debug("[supervisor] batch_classify failed: %s", e)
+        return items
     if not results or all(r is None for r in results):
         return items
 
