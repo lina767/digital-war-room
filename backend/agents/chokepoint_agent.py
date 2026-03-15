@@ -773,7 +773,8 @@ def enrich_chokepoints(
     brent_signal = abs(brent_pct) >= float(brent_threshold) or (brent_above_baseline_pct is not None and brent_above_baseline_pct >= 8.0)
 
     # Merge external status (from URL) and manual overrides (from UI); overrides take precedence
-    status_overrides = {**chokepoint_data.get("external_status") or {}, **_load_overrides()}
+    external_status = chokepoint_data.get("external_status") or {}
+    status_overrides = dict(external_status, **_load_overrides())
 
     for cp in chokepoints:
         cp_name = cp["name"]
