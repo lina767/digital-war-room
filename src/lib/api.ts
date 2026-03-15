@@ -161,6 +161,80 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   return out;
 }
 
+/** GET /api/iaea-tracker – Multisensor-Fusion (ADS-B, NOTAM, METAR ORER, Flugplan, Press, Telegram). */
+export interface IaeaTrackerCorrelationNote {
+  hint: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface IaeaTrackerResponse {
+  oeiii_adsb?: {
+    registration?: string;
+    aircraft?: Array<{
+      hex?: string;
+      flight?: string;
+      registration?: string;
+      lat?: number;
+      lon?: number;
+      on_ground?: boolean;
+      location_interpretation?: string;
+      region?: string;
+    }>;
+    count?: number;
+    correlation_hint?: string;
+    confidence?: string;
+  };
+  notams?: { notams?: unknown[]; count?: number; correlation_hint?: string; confidence?: string };
+  metar_orer?: {
+    raw?: string | null;
+    visibility_m?: number | null;
+    rvr_m?: number | null;
+    operational_delay_risk?: boolean;
+    summary?: string;
+    correlation_hint?: string;
+    confidence?: string;
+  };
+  flight_plan_status?: {
+    status?: string;
+    last_updated_iso?: string | null;
+    correlation_hint?: string;
+    confidence?: string;
+  };
+  iaea_press_grossi?: {
+    items?: Array<{ title?: string; link?: string; published?: string; summary?: string }>;
+    count?: number;
+    correlation_hint?: string;
+    confidence?: string;
+  };
+  iaea_telegram_signals?: {
+    posts?: Array<{ source?: string; text?: string; platform?: string }>;
+    count?: number;
+    correlation_hint?: string;
+    confidence?: string;
+  };
+  ground_ops_signals?: unknown;
+  correlation_notes?: IaeaTrackerCorrelationNote[];
+  summary?: string;
+  error?: string;
+}
+
+const IAEA_TRACKER_TIMEOUT_MS = 35_000;
+
+export async function getIaeaTracker(): Promise<IaeaTrackerResponse | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), IAEA_TRACKER_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${getApiBase()}/api/iaea-tracker`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+    const raw = (await res.json()) as IaeaTrackerResponse;
+    return raw ?? null;
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
 /** Conflict event for heatmap (ACLED lat/lon + intensity). */
 export interface ConflictEventForHeatmap {
   lat: number;

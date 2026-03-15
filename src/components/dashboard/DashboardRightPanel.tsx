@@ -8,6 +8,7 @@ import { EvidenceCard } from "@/components/dashboard/EvidenceCard";
 import { NewsSentiment } from "@/components/dashboard/NewsSentiment";
 import { InternetConnectivity } from "@/components/dashboard/InternetConnectivity";
 import { FlightRadar } from "@/components/dashboard/FlightRadar";
+import { IAEATrackerPanel } from "@/components/dashboard/IAEATrackerPanel";
 import { GreyNoisePanel } from "@/components/dashboard/GreyNoisePanel";
 import { PredictionMarkets } from "@/components/dashboard/PredictionMarkets";
 import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
@@ -263,6 +264,7 @@ export function DashboardRightPanel({
           <GreyNoisePanel conflict={activeConflict || "Iran"} />
           <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
           <InternetConnectivity />
+          <IAEATrackerPanel />
           <FlightRadar sigint={conflictData?.sigint} />
           <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} />
         </div>

@@ -288,10 +288,15 @@ async def set_chokepoint_overrides(body: Dict[str, Optional[str]] = Body(default
 async def get_iaea_tracker():
     """
     GET /api/iaea-tracker
-    Trackt die IAEO bzw. das Flugzeug von Rafael Grossi (OE-III):
-    - ADS-B: Filter auf OE-III (opendata.adsb.fi / api.adsb.lol).
-    - NOTAMs: Autorouter.aero (NOTAM_API_URL), itemas=[EDDS,LOWW,OIIE].
-    - IAEA-Pressemitteilungen: Erwähnungen Grossi/Director General; Korrelation mit Flugdaten.
+    Multisensor-Fusion für IAEO/OE-III (Rafael Grossi):
+    - ADS-B: OE-III per Registration + ICAO-Hex (OEIII_ICAO_HEX), Boden-Modus, ORER-Erkennung.
+    - NOTAMs: Autorouter.aero (NOTAM_API_URL).
+    - METAR ORER: NOAA API (aviationweather.gov/api/data/metar).
+    - Flugplan-Status: optional IAEA_FLIGHTPLAN_STATUS_URL.
+    - IAEA-Press: RSS, Filter Grossi/DG; Cache TTL (IAEA_CACHE_TTL_MINUTES).
+    - Telegram: optional IAEA_TELEGRAM_CHANNELS (Erbil/Kurdistan).
+    Antwort: oeiii_adsb, notams, metar_orer, flight_plan_status, iaea_press_grossi,
+    iaea_telegram_signals, ground_ops_signals, correlation_notes (hint + confidence), summary.
     """
     try:
         loop = asyncio.get_running_loop()

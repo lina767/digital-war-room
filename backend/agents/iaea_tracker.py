@@ -1,52 +1,91 @@
 """
-IAEA / OE-III Tracker – regelbasiertes Tracking von Rafael Grossi / IAEO-Flugzeug.
+IAEA / OE-III Tracker – Multisensor-Fusion für Rafael Grossi / IAEO-Flugzeug (2026).
 
-- ADS-B: gezieltes Mitlesen und Filtern nach OE-III (Austrian registration, IAEA DG aircraft).
-- NOTAMs: Abruf von Luftraum-Informationen und Korrelation mit Flugdaten (Autorouter.aero / Eurocontrol EAD).
-- IAEA-Pressemitteilungen: RSS/News von IAEA und Erwähnungen Rafael Grossi; Korrelation mit Flugdaten.
+Säulen:
+- ADS-B: OE-III per Registration + ICAO-Hex (440333), Boden-Modus, ORER-Erkennung.
+- NOTAMs: Autorouter.aero / Eurocontrol EAD.
+- IAEA-Press: RSS, Filter Grossi/DG.
+- METAR ORER: NOAA API (aviationweather.gov/api/data/metar), RVR/Sicht, operative Verzögerung.
+- Flugplan-Status: optional IAEA_FLIGHTPLAN_STATUS_URL (IFPS/NMOC-Proxy).
+- Telegram: optional IAEA_TELEGRAM_CHANNELS (Erbil/Kurdistan); t.me/s-Scraping ist fragil/rate-limited,
+  für ernsthaftes Monitoring wäre Telethon/Pyrogram mit eigenem Account stabiler (technische Schuld).
+Jede Fetch-Funktion liefert correlation_hint + confidence; _build_correlation_notes aggregiert nur.
 """
 import asyncio
 import json
+import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import feedparser
 import httpx
 
 from .utils import run_async
 
-# OE-III: österreichische Registration, typisch für das IAEA-DG-Flugzeug
+logger = logging.getLogger(__name__)
+
+# OE-III: österreichische Registration, IAEA DG Flugzeug
 OEIII_REGISTRATION = "OE-III"
 OEIII_CALLSIGN_VARIANTS = ("OE-III", "OEIII", "OE III")
+# ICAO Hex für OE-III (Diplomatenjets oft auf kommerziellen Karten ausgeblendet → direkt tracken)
+OEIII_ICAO_HEX = (os.getenv("OEIII_ICAO_HEX") or "440333").strip().upper()
 
-# ADS-B: Registration-Endpunkt (adsb.fi liefert nach Registration)
+# ORER Erbil International Airport (Referenz für „parked Erbil“)
+ORER_LAT, ORER_LON = 36.2375, 43.9631
+ORER_MAX_NM = 5.0
+
+# ADS-B
 ADSB_REGISTRATION_ENDPOINTS = [
     "https://opendata.adsb.fi/api/v2/registration/{reg}",
     "https://api.adsb.lol/v2/registration/{reg}",
 ]
-# Zusätzlich Region-Scan für Österreich / Europa / Naher Osten, dann Filter auf OE-III
+ADSB_HEX_ENDPOINTS = [
+    "https://api.adsb.lol/v2/hex/{hex}",
+    "https://opendata.adsb.fi/api/v2/hex/{hex}",
+]
 ADSB_REGIONS_OEIII = [
     ("Vienna/Austria", 48.2, 16.4, 350),
     ("Eastern Med", 33.0, 35.0, 400),
+    ("Erbil/ORER", ORER_LAT, ORER_LON, 80),
     ("Persian Gulf", 26.0, 55.0, 450),
 ]
 ADSB_LATLON_TEMPLATE = "https://opendata.adsb.fi/api/v2/lat/{lat}/lon/{lon}/dist/{dist}"
 
-# IAEA News/Press – RSS und Filter auf Grossi/Director General
+# IAEA Press
 IAEA_FEEDS = [
     "https://www.iaea.org/newscenter/news/feed",
     "https://www.iaea.org/newscenter/pressreleases/feed",
 ]
 GROSSI_KEYWORDS = ("grossi", "director general", "dg grossi", "iaea chief", "rafael grossi")
 
-# NOTAM – Autorouter.aero (Eurocontrol EAD) oder andere Quelle
-# Beispiel: https://api.autorouter.aero/v1.0/notam (GET: itemas=["EDDS","LOWW"], offset=0, limit=100)
+# NOTAM
 NOTAM_API_URL = os.getenv("NOTAM_API_URL", "https://api.autorouter.aero/v1.0/notam").strip()
 NOTAM_API_KEY = os.getenv("NOTAM_API_KEY", "").strip()
-# ICAO-Plätze für NOTAM-Abfrage (z. B. EDDS Stuttgart, LOWW Wien, OIIE Tehran)
-NOTAM_ICAO_DEFAULT = ["EDDS", "LOWW", "OIIE"]
+NOTAM_ICAO_DEFAULT = ["EDDS", "LOWW", "OIIE", "ORER"]
+
+# METAR – neuer NOAA-Endpunkt (Legacy cgi-bin/data/metar.php deprecated 2024)
+METAR_ORER_URL = "https://aviationweather.gov/api/data/metar?ids=ORER&format=raw"
+
+# Flugplan-Status (optional: eigener Proxy oder manuell gepflegter JSON)
+IAEA_FLIGHTPLAN_STATUS_URL = os.getenv("IAEA_FLIGHTPLAN_STATUS_URL", "").strip()
+
+# Telegram: Erbil/Kurdistan/IAEA-spezifische Kanäle (kommagetrennt)
+# Hinweis: t.me/s-Scraping ist fragil und rate-limited; für ernsthaftes Monitoring Telethon/Pyrogram empfohlen.
+IAEA_TELEGRAM_CHANNELS_RAW = os.getenv("IAEA_TELEGRAM_CHANNELS", "").strip()
+IAEA_TELEGRAM_CHANNELS = [c.strip() for c in IAEA_TELEGRAM_CHANNELS_RAW.split(",") if c.strip()]
+IAEA_TELEGRAM_KEYWORDS = (
+    "erbil", "kurdistan", "bashmakh", "haji omeran", "iaea", "grossi", "orer",
+    "convoy", "konvoi", "checkpoint", "oe-iii", "oeiii",
+)
+
+# Cache: Deduplication für Press/Telegram (TTL Minuten)
+IAEA_CACHE_TTL_MINUTES = max(1, min(120, int(os.getenv("IAEA_CACHE_TTL_MINUTES", "15"))))
+_seen_press_ids: Dict[str, float] = {}
+_seen_telegram_ids: Dict[str, float] = {}
+_cache_ttl_seconds = IAEA_CACHE_TTL_MINUTES * 60
 
 
 def _normalize_reg_callsign(s: Optional[str]) -> str:
@@ -56,9 +95,12 @@ def _normalize_reg_callsign(s: Optional[str]) -> str:
 
 
 def _is_oeiii(ac: Dict[str, Any]) -> bool:
-    """Prüft, ob ein Flugzeug-Obfekt OE-III (IAEA DG) ist."""
+    """Prüft, ob ein Flugzeug-Objekt OE-III (IAEA DG) ist (Registration oder Hex)."""
     reg = _normalize_reg_callsign(ac.get("r") or ac.get("registration") or "")
     flight = _normalize_reg_callsign(ac.get("flight") or ac.get("callsign") or "")
+    hex_val = str(ac.get("hex") or "").strip().upper()
+    if hex_val and hex_val == OEIII_ICAO_HEX:
+        return True
     if reg and "OEIII" in reg.replace("-", ""):
         return True
     if flight and any(v.replace("-", "") in flight for v in OEIII_CALLSIGN_VARIANTS):
@@ -66,12 +108,20 @@ def _is_oeiii(ac: Dict[str, Any]) -> bool:
     return False
 
 
+def _is_near_airport(lat: Optional[float], lon: Optional[float], ref_lat: float = ORER_LAT, ref_lon: float = ORER_LON, max_nm: float = ORER_MAX_NM) -> bool:
+    """Grobe Prüfung: Position innerhalb max_nm (nautische Meilen) des Referenzpunkts."""
+    if lat is None or lon is None:
+        return False
+    # Vereinfachte Distanz (ausreichend für kleine max_nm)
+    dlat = (lat - ref_lat) * 60.0
+    dlon = (lon - ref_lon) * 60.0 * 0.9  # cos(36°)
+    return (dlat * dlat + dlon * dlon) ** 0.5 <= max_nm
+
+
 async def _fetch_adsb_by_registration(client: httpx.AsyncClient, reg: str) -> List[Dict[str, Any]]:
-    """Holt ADS-B-Daten für eine Registration (z. B. OE-III) von adsb.fi / adsb.lol."""
     reg_clean = reg.replace("-", "").strip()
     if not reg_clean:
         return []
-    out = []
     for tpl in ADSB_REGISTRATION_ENDPOINTS:
         url = tpl.format(reg=reg_clean)
         try:
@@ -81,17 +131,35 @@ async def _fetch_adsb_by_registration(client: httpx.AsyncClient, reg: str) -> Li
             data = resp.json()
             ac = data if isinstance(data, list) else (data.get("ac") or data.get("aircraft") or [])
             if isinstance(ac, list) and ac:
-                out.extend(ac)
-                break
+                return ac
         except Exception:
             continue
-    return out
+    return []
+
+
+async def _fetch_adsb_by_hex(client: httpx.AsyncClient, hex_code: str) -> List[Dict[str, Any]]:
+    """Direkte Abfrage nach ICAO-Hex (Diplomatenjets oft ausgeblendet auf FR24 etc.)."""
+    hex_clean = hex_code.replace("0x", "").strip().lower()
+    if not hex_clean:
+        return []
+    for tpl in ADSB_HEX_ENDPOINTS:
+        url = tpl.format(hex=hex_clean)
+        try:
+            resp = await client.get(url, timeout=10.0)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+            ac = data if isinstance(data, list) else (data.get("ac") or data.get("aircraft") or [])
+            if isinstance(ac, list):
+                return ac
+        except Exception:
+            continue
+    return []
 
 
 async def _fetch_adsb_region(
     client: httpx.AsyncClient, lat: float, lon: float, dist: int
 ) -> List[Dict[str, Any]]:
-    """Holt alle Flugzeuge in einer Region (lat/lon/dist NM) und filtert auf OE-III."""
     url = ADSB_LATLON_TEMPLATE.format(lat=lat, lon=lon, dist=min(500, dist))
     try:
         resp = await client.get(url, timeout=12.0)
@@ -106,47 +174,6 @@ async def _fetch_adsb_region(
         return []
 
 
-def fetch_adsb_oeiii() -> Dict[str, Any]:
-    """
-    Liest ADS-B-Signale und filtert gezielt nach OE-III (IAEA DG Flugzeug).
-    Nutzt Registration-Endpunkt und optional Region-Scans (Wien, Eastern Med, Persian Gulf).
-    """
-    async def _run() -> Dict[str, Any]:
-        results: List[Dict[str, Any]] = []
-        seen_hex: set = set()
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"}
-        async with httpx.AsyncClient(headers=headers) as client:
-            # 1) Direkt nach Registration OE-III
-            by_reg = await _fetch_adsb_by_registration(client, OEIII_REGISTRATION)
-            for ac in by_reg:
-                icao = str(ac.get("hex") or "").strip().upper()
-                if icao and icao not in seen_hex:
-                    seen_hex.add(icao)
-                    results.append(_normalize_aircraft(ac, "registration"))
-
-            # 2) Region-Scans (nur wenn noch nichts gefunden oder um Abdeckung zu erhöhen)
-            for label, lat, lon, dist in ADSB_REGIONS_OEIII:
-                regional = await _fetch_adsb_region(client, lat, lon, dist)
-                for ac in regional:
-                    icao = str(ac.get("hex") or "").strip().upper()
-                    if icao and icao not in seen_hex:
-                        seen_hex.add(icao)
-                        results.append(_normalize_aircraft(ac, label))
-                await asyncio.sleep(0.3)  # Rate-Limit adsb.fi ~1/s
-
-        return {
-            "registration": OEIII_REGISTRATION,
-            "aircraft": results,
-            "count": len(results),
-            "source": "adsb",
-        }
-
-    try:
-        return run_async(_run())
-    except Exception as e:
-        return {"registration": OEIII_REGISTRATION, "aircraft": [], "count": 0, "error": str(e), "source": "adsb"}
-
-
 def _normalize_aircraft(ac: Dict[str, Any], region: str = "") -> Dict[str, Any]:
     lat = ac.get("lat")
     lon = ac.get("lon")
@@ -158,6 +185,12 @@ def _normalize_aircraft(ac: Dict[str, Any], region: str = "") -> Dict[str, Any]:
         lon_f = float(lon) if lon is not None else None
     except (TypeError, ValueError):
         lon_f = None
+    gnd = ac.get("gnd") if "gnd" in ac else ac.get("on_ground")
+    if gnd is None and (ac.get("alt_baro") is None or ac.get("alt_baro") == "ground"):
+        gnd = True
+    location_interpretation = None
+    if gnd and lat_f is not None and lon_f is not None and _is_near_airport(lat_f, lon_f):
+        location_interpretation = "parked_erbil"
     return {
         "hex": str(ac.get("hex") or "").strip().upper(),
         "flight": str(ac.get("flight") or ac.get("callsign") or "").strip(),
@@ -166,9 +199,85 @@ def _normalize_aircraft(ac: Dict[str, Any], region: str = "") -> Dict[str, Any]:
         "lat": lat_f,
         "lon": lon_f,
         "alt_baro": ac.get("alt_baro") or ac.get("altitude"),
+        "on_ground": bool(gnd) if gnd is not None else None,
         "region": region,
         "seen_at": ac.get("seen") or ac.get("timestamp"),
+        "location_interpretation": location_interpretation,
     }
+
+
+def fetch_adsb_oeiii() -> Dict[str, Any]:
+    """
+    ADS-B für OE-III: Registration, Hex-Lookup, Region-Scans.
+    Liefert correlation_hint + confidence (high bei Hex+Boden+ORER).
+    """
+    async def _run() -> Dict[str, Any]:
+        results: List[Dict[str, Any]] = []
+        seen_hex: set = set()
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"}
+        async with httpx.AsyncClient(headers=headers) as client:
+            # 1) Hex-Direktabfrage
+            hex_ac = await _fetch_adsb_by_hex(client, OEIII_ICAO_HEX)
+            for ac in hex_ac:
+                icao = str(ac.get("hex") or "").strip().upper()
+                if icao and icao not in seen_hex:
+                    seen_hex.add(icao)
+                    results.append(_normalize_aircraft(ac, "hex"))
+            # 2) Registration
+            by_reg = await _fetch_adsb_by_registration(client, OEIII_REGISTRATION)
+            for ac in by_reg:
+                icao = str(ac.get("hex") or "").strip().upper()
+                if icao and icao not in seen_hex:
+                    seen_hex.add(icao)
+                    results.append(_normalize_aircraft(ac, "registration"))
+            # 3) Region-Scans
+            for label, lat, lon, dist in ADSB_REGIONS_OEIII:
+                regional = await _fetch_adsb_region(client, lat, lon, dist)
+                for ac in regional:
+                    icao = str(ac.get("hex") or "").strip().upper()
+                    if icao and icao not in seen_hex:
+                        seen_hex.add(icao)
+                        results.append(_normalize_aircraft(ac, label))
+                await asyncio.sleep(0.3)
+        # correlation_hint + confidence
+        if not results:
+            hint = "OE-III derzeit nicht in ADS-B sichtbar (am Boden außer Reichweite oder Transponder aus)."
+            confidence = "low"
+        else:
+            ac0 = results[0]
+            on_ground = ac0.get("on_ground")
+            loc = ac0.get("location_interpretation")
+            if on_ground and loc == "parked_erbil":
+                hint = f"OE-III am Boden in Erbil (Hex {OEIII_ICAO_HEX} bestätigt)."
+                confidence = "high"
+            elif on_ground:
+                hint = f"OE-III am Boden gemeldet ({len(results)} Quelle(n), Hex {OEIII_ICAO_HEX})."
+                confidence = "high"
+            else:
+                hint = f"OE-III in der Luft: {len(results)} Position(en) via ADS-B."
+                confidence = "high"
+        return {
+            "registration": OEIII_REGISTRATION,
+            "aircraft": results,
+            "count": len(results),
+            "source": "adsb",
+            "correlation_hint": hint,
+            "confidence": confidence,
+        }
+
+    try:
+        return run_async(_run())
+    except Exception as e:
+        logger.exception("ADS-B fetch failed")
+        return {
+            "registration": OEIII_REGISTRATION,
+            "aircraft": [],
+            "count": 0,
+            "source": "adsb",
+            "error": str(e),
+            "correlation_hint": f"ADS-B: Abfrage fehlgeschlagen ({e}).",
+            "confidence": "low",
+        }
 
 
 def fetch_notams(
@@ -177,17 +286,17 @@ def fetch_notams(
     limit: int = 10,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    """
-    Holt NOTAMs für ICAO-Plätze (z. B. EDDS, LOWW, OIIE).
-
-    Bei NOTAM_API_URL = https://api.autorouter.aero/v1.0/notam (Default):
-    - GET mit itemas=["EDDS","LOWW",...] (JSON-Liste), offset, limit (max 100).
-    - Antwort: { "total", "rows": [ { "id", "iteme" (Text), "startvalidity", "endvalidity", "itema" } ] }.
-    """
+    """NOTAMs für ICAO-Plätze. Liefert correlation_hint + confidence."""
     locations = (icao_locations or NOTAM_ICAO_DEFAULT)[:20]
     out: List[Dict[str, Any]] = []
     if not NOTAM_API_URL:
-        return {"notams": [], "count": 0, "source": "notam"}
+        return {
+            "notams": [],
+            "count": 0,
+            "source": "notam",
+            "correlation_hint": "NOTAM: Keine API-URL konfiguriert.",
+            "confidence": "low",
+        }
 
     is_autorouter = "autorouter.aero" in NOTAM_API_URL
 
@@ -195,7 +304,6 @@ def fetch_notams(
         async with httpx.AsyncClient(timeout=15.0) as client:
             params: Dict[str, Any] = {}
             if is_autorouter:
-                # itemas: JSON-encoded list of ICAO identifiers
                 params["itemas"] = json.dumps(locations)
                 params["offset"] = offset
                 params["limit"] = min(100, max(1, limit))
@@ -224,17 +332,16 @@ def fetch_notams(
 
     try:
         out = run_async(_get())
-    except Exception:
+    except Exception as e:
         out = []
+        logger.warning("NOTAM fetch failed: %s", e)
 
-    # Einheitliches Format für Korrelation (id, text, effective, expiry, location)
     notams: List[Dict[str, Any]] = []
     for n in (out or [])[:100]:
         if not isinstance(n, dict):
             notams.append({"id": "", "text": str(n), "effective": None, "expiry": None, "location": ""})
             continue
         if is_autorouter:
-            # Autorouter: iteme = Text, startvalidity/endvalidity = Unix, itema = [ICAO, ...]
             itema = n.get("itema") or []
             location = ",".join(itema) if isinstance(itema, list) else str(itema)
             notams.append({
@@ -252,12 +359,172 @@ def fetch_notams(
                 "expiry": n.get("expiry") or n.get("end") or n.get("endDate"),
                 "location": n.get("location") or n.get("traffic") or "",
             })
-    return {"notams": notams, "count": len(notams), "source": "notam"}
+
+    hint = f"{len(notams)} NOTAM(s) im Zeitraum – ggf. Luftraum-Einschränkungen für DG-Reisen." if notams else "Keine NOTAMs abgerufen."
+    return {
+        "notams": notams,
+        "count": len(notams),
+        "source": "notam",
+        "correlation_hint": hint,
+        "confidence": "medium",
+    }
+
+
+def _parse_metar_visibility(raw: str) -> Optional[float]:
+    """METAR visibility: 9999 = unbeschränkt (m), 0500 = 500m, M0500 = <500m."""
+    if not raw:
+        return None
+    raw = raw.strip().upper()
+    if raw == "9999" or raw == "P6SM" or "9999" in raw:
+        return 10000.0
+    m = re.match(r"M?(\d{4})", raw)
+    if m:
+        return float(m.group(1))
+    m = re.match(r"(\d+)\s*SM", raw)
+    if m:
+        return float(m.group(1)) * 1609.34  # statute miles -> m
+    return None
+
+
+def _parse_metar_rvr(raw: str) -> Optional[float]:
+    """RVR aus METAR z.B. R36R/0500V0800."""
+    if not raw:
+        return None
+    m = re.search(r"R\d*[LCR]?/(\d{4})", raw)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def fetch_metar_orer() -> Dict[str, Any]:
+    """
+    METAR für ORER (Erbil) – neuer NOAA-Endpunkt (aviationweather.gov/api/data/metar).
+    Liefert visibility_m, rvr_m, operational_delay_risk, correlation_hint, confidence.
+    """
+    out: Dict[str, Any] = {
+        "raw": None,
+        "visibility_m": None,
+        "rvr_m": None,
+        "operational_delay_risk": False,
+        "summary": "",
+        "source": "metar",
+        "correlation_hint": "",
+        "confidence": "low",
+    }
+
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.get(METAR_ORER_URL, headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"})
+            if resp.status_code not in (200, 204):
+                out["correlation_hint"] = "METAR ORER: Abfrage fehlgeschlagen (HTTP %s)." % resp.status_code
+                return out
+            raw = (resp.text or "").strip()
+            if resp.status_code == 204 or not raw or "No data" in raw or "error" in raw.lower():
+                out["correlation_hint"] = "METAR ORER: Keine Daten (204 oder leer)."
+                return out
+    except Exception as e:
+        logger.warning("METAR fetch failed: %s", e)
+        out["correlation_hint"] = "METAR ORER: Abfrage fehlgeschlagen."
+        out["error"] = str(e)
+        return out
+
+    out["raw"] = raw
+    # Einfaches Parsing: Visibility und RVR
+    vis = _parse_metar_visibility(raw)
+    rvr = _parse_metar_rvr(raw)
+    out["visibility_m"] = vis
+    out["rvr_m"] = rvr
+
+    delay_risk = False
+    if rvr is not None and rvr < 500:
+        delay_risk = True
+    if vis is not None and vis < 800:
+        delay_risk = True
+    out["operational_delay_risk"] = delay_risk
+
+    if delay_risk:
+        out["summary"] = "RVR/Sicht unter Schwellwert – operative Verzögerung möglich (ohne CAT-III)."
+        out["correlation_hint"] = "METAR ORER: RVR/Sicht gering → operative Verzögerung möglich."
+        out["confidence"] = "high"
+    else:
+        out["summary"] = "Sicht/RVR ausreichend."
+        out["correlation_hint"] = "METAR ORER: Sicht/RVR ausreichend."
+        out["confidence"] = "medium"
+    return out
+
+
+def fetch_iaea_flight_plan_status() -> Dict[str, Any]:
+    """
+    Optionaler Flugplan-Status (IFPS/NMOC-Proxy). Wenn IAEA_FLIGHTPLAN_STATUS_URL gesetzt:
+    GET liefert z.B. {"status": "no_new_request"|"cancelled"|"unknown", "last_updated_iso": "..."}.
+    """
+    out: Dict[str, Any] = {
+        "status": "unknown",
+        "last_updated_iso": None,
+        "source": "flight_plan",
+        "correlation_hint": "Flugplan-Status: nicht konfiguriert.",
+        "confidence": "low",
+    }
+    if not IAEA_FLIGHTPLAN_STATUS_URL:
+        return out
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(
+                IAEA_FLIGHTPLAN_STATUS_URL,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"},
+            )
+            if resp.status_code != 200:
+                out["correlation_hint"] = "Flugplan: Abfrage fehlgeschlagen."
+                out["error"] = f"HTTP {resp.status_code}"
+                return out
+            data = resp.json() if resp.text else {}
+            if isinstance(data, dict):
+                out["status"] = (data.get("status") or "unknown").lower()
+                out["last_updated_iso"] = data.get("last_updated_iso")
+                s = out["status"]
+                if s == "no_new_request":
+                    out["correlation_hint"] = "Flugplan: Keine neue Anfrage; Maschine parked (kein neuer Slot)."
+                    out["confidence"] = "medium"
+                elif s == "cancelled":
+                    out["correlation_hint"] = "Flugplan: Storniert (CNL) – Slot nicht aktiviert."
+                    out["confidence"] = "medium"
+                else:
+                    out["correlation_hint"] = f"Flugplan-Status: {s}."
+                    out["confidence"] = "low"
+    except Exception as e:
+        logger.warning("Flight plan status fetch failed: %s", e)
+        out["correlation_hint"] = "Flugplan: Abfrage fehlgeschlagen."
+        out["error"] = str(e)
+    return out
+
+
+def _press_cache_key(item: Dict[str, Any]) -> str:
+    return (item.get("link") or "") + "|" + (item.get("published") or "")
+
+
+def _is_cached(id_key: str, cache: Dict[str, float], ttl_seconds: float) -> bool:
+    now = time.time()
+    if id_key in cache:
+        if now - cache[id_key] < ttl_seconds:
+            return True
+        del cache[id_key]
+    return False
+
+
+def _add_to_cache(id_key: str, cache: Dict[str, float]) -> None:
+    cache[id_key] = time.time()
+    # Grobes TTL-Cleanup: alte Einträge entfernen
+    cutoff = time.time() - _cache_ttl_seconds
+    to_del = [k for k, v in cache.items() if v < cutoff]
+    for k in to_del:
+        del cache[k]
 
 
 def fetch_iaea_press_releases(days: int = 14) -> Dict[str, Any]:
     """
-    Holt IAEA-Pressemitteilungen und News (RSS) und filtert nach Rafael Grossi / Director General.
+    IAEA-Pressemitteilungen/News (RSS), Filter Grossi/DG. Mit Cache: bereits gesehene
+    Posts werden nicht erneut als „neu“ gezählt (TTL IAEA_CACHE_TTL_MINUTES).
     """
     items: List[Dict[str, Any]] = []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=timezone.utc)
@@ -288,71 +555,303 @@ def fetch_iaea_press_releases(days: int = 14) -> Dict[str, Any]:
                 text = f"{title} {summary}".lower()
                 if not any(kw in text for kw in GROSSI_KEYWORDS):
                     continue
-                items.append({
+                item = {
                     "title": title[:500],
                     "link": link,
                     "published": published,
                     "summary": (summary[:1000] if summary else ""),
-                })
+                }
+                cache_key = _press_cache_key(item)
+                if _is_cached(cache_key, _seen_press_ids, _cache_ttl_seconds):
+                    continue
+                _add_to_cache(cache_key, _seen_press_ids)
+                items.append(item)
         except Exception:
             continue
 
-    return {"items": items, "count": len(items), "source": "iaea_press"}
+    hint = f"{len(items)} IAEA-Press/News mit Bezug zu Rafael Grossi (Zeitraum {days} Tage, nur neue innerhalb TTL)."
+    confidence = "medium" if items else "low"
+    return {
+        "items": items,
+        "count": len(items),
+        "source": "iaea_press",
+        "correlation_hint": hint,
+        "confidence": confidence,
+    }
+
+
+def fetch_iaea_telegram_signals() -> Dict[str, Any]:
+    """
+    Telegram-Posts aus IAEA-spezifischen Kanälen (Erbil/Kurdistan). Env: IAEA_TELEGRAM_CHANNELS.
+    Technische Schuld: t.me/s-Scraping ist fragil und rate-limited; für ernsthaftes Monitoring
+    wäre ein Telethon-/Pyrogram-Client mit eigenem Account stabiler. Für MVP reicht Web-Scrape.
+    """
+    out: Dict[str, Any] = {
+        "posts": [],
+        "count": 0,
+        "source": "iaea_telegram",
+        "correlation_hint": "Telegram (IAEA): Keine Kanäle konfiguriert.",
+        "confidence": "low",
+    }
+    if not IAEA_TELEGRAM_CHANNELS:
+        return out
+
+    TELEGRAM_MESSAGE_PATTERNS = [
+        r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>\s*</div>',
+        r'class="tgme_widget_message_text"[^>]*>(.*?)</div>',
+        r'<div[^>]+js-message-text[^>]*>(.*?)</div>',
+    ]
+
+    def _extract(html: str) -> List[str]:
+        for pattern in TELEGRAM_MESSAGE_PATTERNS:
+            messages = re.findall(pattern, html, re.DOTALL)
+            if messages:
+                return [re.sub(r"<[^>]+>", "", m).strip() for m in messages]
+        og = re.findall(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
+        if og:
+            return [re.sub(r"<[^>]+>", "", d).strip() for d in og if d.strip()]
+        return []
+
+    async def _fetch_one(client: httpx.AsyncClient, channel: str) -> List[Dict[str, Any]]:
+        try:
+            url = f"https://t.me/s/{channel}"
+            resp = await client.get(url, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"}, timeout=10.0)
+            if resp.status_code != 200:
+                return []
+            texts = _extract(resp.text)
+            results = []
+            for text in (texts or [])[:15]:
+                if not text or len(text) < 15:
+                    continue
+                tlower = text.lower()
+                if not any(kw in tlower for kw in IAEA_TELEGRAM_KEYWORDS):
+                    continue
+                results.append({
+                    "source": f"telegram:{channel}",
+                    "text": text[:300],
+                    "platform": "telegram",
+                })
+            return results
+        except Exception:
+            return []
+
+    try:
+        async def _run() -> List[Dict[str, Any]]:
+            async with httpx.AsyncClient() as client:
+                tasks = [_fetch_one(client, ch) for ch in IAEA_TELEGRAM_CHANNELS]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                posts = []
+                for r in results:
+                    if isinstance(r, list):
+                        posts.extend(r)
+                return posts
+
+        all_posts = run_async(_run())
+    except Exception as e:
+        logger.warning("IAEA Telegram fetch failed: %s", e)
+        out["error"] = str(e)
+        out["correlation_hint"] = "Telegram (IAEA): Abfrage fehlgeschlagen."
+        return out
+
+    # Cache: gesehene Post-IDs (source + text_hash) mit TTL
+    seen = set()
+    deduped = []
+    for p in all_posts:
+        if not isinstance(p, dict):
+            continue
+        key = (p.get("source") or "") + "|" + (p.get("text", "")[:200] or "")
+        if key in seen:
+            continue
+        if _is_cached(key, _seen_telegram_ids, _cache_ttl_seconds):
+            seen.add(key)
+            continue
+        _add_to_cache(key, _seen_telegram_ids)
+        seen.add(key)
+        deduped.append(p)
+
+    out["posts"] = deduped
+    out["count"] = len(deduped)
+    if deduped:
+        out["correlation_hint"] = f"{len(deduped)} Telegram-Hinweise (Erbil/Kurdistan/IAEA) – Konvoi/Checkpoint möglich."
+        out["confidence"] = "medium"
+    else:
+        out["correlation_hint"] = "Telegram (IAEA): Keine passenden Meldungen in konfigurierten Kanälen."
+    return out
+
+
+def _build_correlation_notes(
+    adsb: Dict[str, Any],
+    notam: Dict[str, Any],
+    metar: Dict[str, Any],
+    flight_plan: Dict[str, Any],
+    press: Dict[str, Any],
+    telegram: Dict[str, Any],
+) -> Tuple[List[Dict[str, str]], str]:
+    """
+    Aggregiert nur die correlation_hint + confidence aus allen Säulen.
+    Keine eigene Korrelationslogik – jede Fetch-Funktion liefert ihren Hint.
+    """
+    hints_with_conf: List[Dict[str, str]] = []
+    for name, data in [
+        ("ADS-B", adsb),
+        ("NOTAM", notam),
+        ("METAR", metar),
+        ("Flugplan", flight_plan),
+        ("IAEA Press", press),
+        ("Telegram", telegram),
+    ]:
+        if not isinstance(data, dict):
+            continue
+        hint = (data.get("correlation_hint") or "").strip()
+        conf = (data.get("confidence") or "low").lower()
+        if hint:
+            hints_with_conf.append({"hint": hint, "confidence": conf})
+    summary = " | ".join(h["hint"] for h in hints_with_conf) if hints_with_conf else "Keine Korrelationsdaten."
+    return hints_with_conf, summary
 
 
 def correlate_iaea_tracker(
     adsb_result: Optional[Dict[str, Any]] = None,
     notam_result: Optional[Dict[str, Any]] = None,
+    metar_result: Optional[Dict[str, Any]] = None,
+    flight_plan_result: Optional[Dict[str, Any]] = None,
     press_result: Optional[Dict[str, Any]] = None,
+    telegram_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Korreliert Flugdaten (OE-III), NOTAMs und IAEA-Pressemitteilungen (Rafael Grossi).
-    Liefert ein kombiniertes Ergebnis mit Zeit-/Orts-Hinweisen für die Analyse.
+    Korreliert alle Säulen; erwartet dass jede ihr correlation_hint + confidence liefert.
+    _build_correlation_notes aggregiert nur.
     """
-    adsb = adsb_result or fetch_adsb_oeiii()
-    notam = notam_result or fetch_notams(days=3)
-    press = press_result or fetch_iaea_press_releases(days=14)
+    adsb = adsb_result or {}
+    notam = notam_result or {}
+    metar = metar_result or {}
+    flight_plan = flight_plan_result or {}
+    press = press_result or {}
+    telegram = telegram_result or {}
 
-    aircraft = (adsb.get("aircraft") or []) if isinstance(adsb, dict) else []
-    notams = (notam.get("notams") or []) if isinstance(notam, dict) else []
-    press_items = (press.get("items") or []) if isinstance(press, dict) else []
-
-    # Einfache Korrelation: gleicher Zeitraum; bei vorhandener Position OE-III können NOTAMs
-    # in der Region (später nach ICAO/Position erweiterbar) zugeordnet werden
-    correlation_notes: List[str] = []
-    if aircraft:
-        correlation_notes.append(
-            f"OE-III aktuell gemeldet: {len(aircraft)} Position(en) via ADS-B (adsb.fi/adsb.lol)."
-        )
-    else:
-        correlation_notes.append("OE-III derzeit nicht in ADS-B-Daten sichtbar (am Boden oder außer Reichweite).")
-
-    if notams:
-        correlation_notes.append(f"{len(notams)} NOTAM(s) im Zeitraum – ggf. Luftraum-Einschränkungen für Reisen des DG.")
-    if press_items:
-        correlation_notes.append(
-            f"{len(press_items)} IAEA-Pressemitteilungen/News mit Bezug zu Rafael Grossi im letzten Zeitraum."
-        )
+    correlation_notes, summary = _build_correlation_notes(adsb, notam, metar, flight_plan, press, telegram)
 
     return {
         "oeiii_adsb": {
             "registration": OEIII_REGISTRATION,
-            "aircraft": aircraft,
-            "count": len(aircraft),
+            "aircraft": adsb.get("aircraft") or [],
+            "count": adsb.get("count", 0),
+            "correlation_hint": adsb.get("correlation_hint"),
+            "confidence": adsb.get("confidence"),
         },
-        "notams": {"notams": notams, "count": len(notams)},
-        "iaea_press_grossi": {"items": press_items, "count": len(press_items)},
+        "notams": {
+            "notams": notam.get("notams") or [],
+            "count": notam.get("count", 0),
+            "correlation_hint": notam.get("correlation_hint"),
+            "confidence": notam.get("confidence"),
+        },
+        "metar_orer": {
+            "raw": metar.get("raw"),
+            "visibility_m": metar.get("visibility_m"),
+            "rvr_m": metar.get("rvr_m"),
+            "operational_delay_risk": metar.get("operational_delay_risk", False),
+            "summary": metar.get("summary"),
+            "correlation_hint": metar.get("correlation_hint"),
+            "confidence": metar.get("confidence"),
+        },
+        "flight_plan_status": {
+            "status": flight_plan.get("status", "unknown"),
+            "last_updated_iso": flight_plan.get("last_updated_iso"),
+            "correlation_hint": flight_plan.get("correlation_hint"),
+            "confidence": flight_plan.get("confidence"),
+        },
+        "iaea_press_grossi": {
+            "items": press.get("items") or [],
+            "count": press.get("count", 0),
+            "correlation_hint": press.get("correlation_hint"),
+            "confidence": press.get("confidence"),
+        },
+        "iaea_telegram_signals": {
+            "posts": telegram.get("posts") or [],
+            "count": telegram.get("count", 0),
+            "correlation_hint": telegram.get("correlation_hint"),
+            "confidence": telegram.get("confidence"),
+        },
+        "ground_ops_signals": None,  # Optional später: Rundeep/Wallet-Aktivität Cross-Check
         "correlation_notes": correlation_notes,
-        "summary": " | ".join(correlation_notes),
+        "summary": summary,
     }
 
 
 def run_iaea_tracker() -> Dict[str, Any]:
     """
-    Führt das komplette IAEA/OE-III-Tracking aus: ADS-B (OE-III), NOTAMs, IAEA-Press (Grossi)
-    und Korrelation. Regelbasiert, keine LLM-Aufrufe.
+    Führt alle Fetches parallel aus (asyncio.gather mit return_exceptions=True).
+    Bei Fehlern: Fallback-Dict mit correlation_hint/confidence, kein Crash.
+    Caching für Press/Telegram über TTL; Korrelation nur Aggregation der Hints.
     """
-    adsb = fetch_adsb_oeiii()
-    notam = fetch_notams(days=3)
-    press = fetch_iaea_press_releases(days=14)
-    return correlate_iaea_tracker(adsb_result=adsb, notam_result=notam, press_result=press)
+    def _safe_fetch(name: str, fn, *args, **kwargs) -> Dict[str, Any]:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            logger.warning("%s fetch failed: %s", name, e)
+            return {
+                "correlation_hint": f"{name}: Abfrage fehlgeschlagen.",
+                "confidence": "low",
+                "error": str(e),
+            }
+
+    async def _run_all() -> Dict[str, Any]:
+        loop = asyncio.get_event_loop()
+        # Fetches die sync sind im Executor; METAR/Flugplan/Telegram/Press sync, ADS-B/NOTAM haben ggf. schon async
+        def run_adsb():
+            return _safe_fetch("ADS-B", fetch_adsb_oeiii)
+        def run_notams():
+            return _safe_fetch("NOTAM", fetch_notams, 3)
+        def run_metar():
+            return _safe_fetch("METAR", fetch_metar_orer)
+        def run_fp():
+            return _safe_fetch("Flugplan", fetch_iaea_flight_plan_status)
+        def run_press():
+            return _safe_fetch("IAEA Press", fetch_iaea_press_releases, 14)
+        def run_telegram():
+            return _safe_fetch("Telegram", fetch_iaea_telegram_signals)
+
+        tasks = [
+            loop.run_in_executor(None, run_adsb),
+            loop.run_in_executor(None, run_notams),
+            loop.run_in_executor(None, run_metar),
+            loop.run_in_executor(None, run_fp),
+            loop.run_in_executor(None, run_press),
+            loop.run_in_executor(None, run_telegram),
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        def _unwrap(i: int, name: str) -> Dict[str, Any]:
+            r = results[i]
+            if isinstance(r, Exception):
+                return {"correlation_hint": f"{name}: Fehler.", "confidence": "low", "error": str(r)}
+            return r if isinstance(r, dict) else {"correlation_hint": f"{name}: Ungültige Antwort.", "confidence": "low"}
+
+        adsb = _unwrap(0, "ADS-B")
+        notam = _unwrap(1, "NOTAM")
+        metar = _unwrap(2, "METAR")
+        flight_plan = _unwrap(3, "Flugplan")
+        press = _unwrap(4, "IAEA Press")
+        telegram = _unwrap(5, "Telegram")
+
+        return correlate_iaea_tracker(
+            adsb_result=adsb,
+            notam_result=notam,
+            metar_result=metar,
+            flight_plan_result=flight_plan,
+            press_result=press,
+            telegram_result=telegram,
+        )
+
+    try:
+        return run_async(_run_all())
+    except Exception as e:
+        logger.exception("run_iaea_tracker failed")
+        return correlate_iaea_tracker(
+            adsb_result={"correlation_hint": "Tracker fehlgeschlagen.", "confidence": "low", "error": str(e)},
+            notam_result={},
+            metar_result={},
+            flight_plan_result={},
+            press_result={},
+            telegram_result={},
+        )
