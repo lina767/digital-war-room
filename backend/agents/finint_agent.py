@@ -35,6 +35,13 @@ from services.http_client import get_http_client
 logger = logging.getLogger(__name__)
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
+FRED_API_URL = "https://api.stlouisfed.org/fred/series/observations"
+FRED_SERIES = {
+    "BRENT": "DCOILBRENTEU",
+    "WTI": "DCOILWTICO",
+    "GOLD": "NASDAQQGLDI",
+    "VIX": "VIXCLS",
+}
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 DATA_API_BASE = "https://data-api.polymarket.com"
 # Fear & Greed: optional CNN source (e.g. FGI-Tracker https://github.com/leejustin/fgi-tracker); else Alternative.me
@@ -608,25 +615,56 @@ def get_tracked_chain_wallets() -> List[Dict[str, Any]]:
 # ── Async fetches (for parallel run) ────────────────────────────────────────
 
 
+async def _fetch_fred(client: Any, series_key: str) -> Optional[Dict[str, Any]]:
+    """Fetch latest value from FRED. Returns dict with price/change_pct or None on failure."""
+    fred_key = os.getenv("FRED_API_KEY")
+    series_id = FRED_SERIES.get(series_key)
+    if not fred_key or not series_id:
+        return None
+    fetched_at = utc_now_iso()
+    try:
+        resp = await client.request("GET", FRED_API_URL, params={
+            "series_id": series_id, "api_key": fred_key,
+            "file_type": "json", "sort_order": "desc", "limit": 5,
+        }, timeout=12.0)
+        data = resp.json()
+        obs = [o for o in (data.get("observations") or []) if o.get("value") not in (None, "", ".")]
+        if len(obs) < 1:
+            return None
+        price = safe_float(obs[0].get("value"))
+        prev_price = safe_float(obs[1].get("value")) if len(obs) >= 2 else None
+        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+        if price is None:
+            return None
+        return {"price": f"{price:.2f}", "change_pct": _format_pct(change_pct), "as_of": obs[0].get("date", ""), "fetched_at": fetched_at, "source": "FRED"}
+    except Exception as e:
+        logger.debug("FININT: FRED %s failed: %s", series_key, e)
+        return None
+
+
 async def _fetch_oil_price(client: Any, function: str) -> Dict[str, Any]:
-    """Fetch Brent or WTI from Alpha Vantage (function='BRENT' or 'WTI')."""
+    """Fetch Brent or WTI: Alpha Vantage → FRED fallback."""
     fetched_at = utc_now_iso()
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
-    if not api_key:
-        return {"error": "ALPHAVANTAGE_API_KEY not set", "fetched_at": fetched_at}
-    try:
-        resp = await client.request("GET", ALPHAVANTAGE_URL, params={"function": function, "interval": "daily", "apikey": api_key}, timeout=DEFAULT_TIMEOUT)
-        data = resp.json()
-        series = data.get("data", [])
-        if len(series) < 2:
-            return {"error": "Insufficient data", "fetched_at": fetched_at}
-        latest, prev = series[0], series[1]
-        price, prev_price = safe_float(latest.get("value")), safe_float(prev.get("value"))
-        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
-        return {"price": f"{price:.2f}" if price else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", ""), "fetched_at": fetched_at}
-    except Exception as e:
-        logger.debug("FININT: %s fetch failed: %s", function, e)
-        return {"error": str(e), "fetched_at": fetched_at}
+    if api_key:
+        try:
+            resp = await client.request("GET", ALPHAVANTAGE_URL, params={"function": function, "interval": "daily", "apikey": api_key}, timeout=DEFAULT_TIMEOUT)
+            data = resp.json()
+            if isinstance(data, dict) and (data.get("Information") or data.get("Note")):
+                logger.debug("FININT: Alpha Vantage rate limit (%s), trying FRED", function)
+            else:
+                series = data.get("data", [])
+                if len(series) >= 2:
+                    latest, prev = series[0], series[1]
+                    price, prev_price = safe_float(latest.get("value")), safe_float(prev.get("value"))
+                    change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+                    return {"price": f"{price:.2f}" if price else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", ""), "fetched_at": fetched_at}
+        except Exception as e:
+            logger.debug("FININT: Alpha Vantage %s failed: %s, trying FRED", function, e)
+    fred_result = await _fetch_fred(client, function)
+    if fred_result:
+        return fred_result
+    return {"error": f"Both Alpha Vantage and FRED failed for {function}", "fetched_at": fetched_at}
 
 
 async def _fetch_brent(client: Any) -> Dict[str, Any]:
@@ -640,20 +678,42 @@ async def _fetch_wti(client: Any) -> Dict[str, Any]:
 async def _fetch_gold(client: Any) -> Dict[str, Any]:
     fetched_at = utc_now_iso()
     api_key = (os.getenv("METALS_API_KEY") or os.getenv("METALPRICEAPI_KEY") or "").strip()
-    if not api_key:
-        return {"error": "METALS_API_KEY not set (optional; get key at metals-api.com)", "fetched_at": fetched_at}
-    try:
-        resp = await client.request("GET", f"{METALS_API_BASE}/latest", params={"access_key": api_key, "base": "XAU", "currencies": "USD"}, timeout=12.0)
-        data = resp.json()
-        if isinstance(data, dict) and "error" in data:
-            return {**data, "fetched_at": fetched_at}
-        rates = (data.get("rates") or {}) if isinstance(data, dict) else {}
-        usd = safe_float(rates.get("USD"))
-        if usd is None:
-            return {"error": "No USD rate in response", "fetched_at": fetched_at}
-        return {"price": f"{usd:.2f}", "change_pct": "0.0%", "as_of": (data.get("date") or ""), "fetched_at": fetched_at}
-    except Exception as e:
-        return {"error": str(e), "fetched_at": fetched_at}
+    if api_key:
+        try:
+            resp = await client.request("GET", f"{METALS_API_BASE}/latest", params={"access_key": api_key, "base": "XAU", "currencies": "USD"}, timeout=12.0)
+            data = resp.json()
+            if isinstance(data, dict) and data.get("success") is False:
+                logger.debug("FININT: Metals API error: %s", data.get("error"))
+            else:
+                rates = (data.get("rates") or {}) if isinstance(data, dict) else {}
+                usd = safe_float(rates.get("USD"))
+                if usd is not None:
+                    return {"price": f"{usd:.2f}", "change_pct": "0.0%", "as_of": (data.get("date") or ""), "fetched_at": fetched_at}
+        except Exception as e:
+            logger.debug("FININT: Metals API failed: %s, trying Alpha Vantage Gold", e)
+    av_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if av_key:
+        try:
+            resp = await client.request("GET", ALPHAVANTAGE_URL, params={"function": "GOLD", "interval": "daily", "apikey": av_key}, timeout=DEFAULT_TIMEOUT)
+            data = resp.json()
+            if isinstance(data, dict) and (data.get("Information") or data.get("Note")):
+                logger.debug("FININT: Alpha Vantage Gold rate limited, trying FRED")
+            else:
+                series = data.get("data", [])
+                if series and len(series) >= 1:
+                    latest = series[0]
+                    prev = series[1] if len(series) >= 2 else series[0]
+                    price = safe_float(latest.get("value"))
+                    prev_price = safe_float(prev.get("value"))
+                    change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+                    if price is not None:
+                        return {"price": f"{price:.2f}", "change_pct": _format_pct(change_pct), "as_of": latest.get("date", ""), "fetched_at": fetched_at}
+        except Exception as e:
+            logger.debug("FININT: Alpha Vantage Gold failed: %s, trying FRED", e)
+    fred_result = await _fetch_fred(client, "GOLD")
+    if fred_result:
+        return fred_result
+    return {"error": "All Gold sources failed (Metals API / Alpha Vantage / FRED)", "fetched_at": fetched_at}
 
 
 async def _fetch_fear_greed(client: Any) -> Dict[str, Any]:
@@ -707,36 +767,39 @@ async def _fetch_fear_greed(client: Any) -> Dict[str, Any]:
 
 
 async def _fetch_vix(client: Any) -> Dict[str, Any]:
-    """Fetch VIX (CBOE Volatility Index) via Alpha Vantage function=VIX or TIME_SERIES_DAILY symbol=VIX."""
+    """Fetch VIX (CBOE Volatility Index): Alpha Vantage → FRED fallback."""
     fetched_at = utc_now_iso()
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
-    if not api_key:
-        return {"error": "ALPHAVANTAGE_API_KEY not set", "fetched_at": fetched_at}
-    try:
-        resp = await client.request(
-            "GET",
-            ALPHAVANTAGE_URL,
-            params={"function": "VIX", "interval": "daily", "apikey": api_key},
-            timeout=15.0,
-        )
-        data = resp.json()
-        if isinstance(data, dict) and data.get("Note"):
-            return {"error": "Alpha Vantage rate limit", "fetched_at": fetched_at}
-        series = data.get("data", [])
-        if not series or len(series) < 2:
-            return {"error": "Insufficient VIX data", "fetched_at": fetched_at}
-        latest, prev = series[0], series[1]
-        price = safe_float(latest.get("value"))
-        prev_price = safe_float(prev.get("value"))
-        change_pct = ((price - prev_price) / prev_price * 100) if price is not None and prev_price else None
-        return {
-            "price": f"{price:.2f}" if price is not None else None,
-            "change_pct": _format_pct(change_pct),
-            "as_of": latest.get("date", ""),
-            "fetched_at": fetched_at,
-        }
-    except Exception as e:
-        return {"error": str(e), "fetched_at": fetched_at}
+    if api_key:
+        try:
+            resp = await client.request(
+                "GET",
+                ALPHAVANTAGE_URL,
+                params={"function": "VIX", "interval": "daily", "apikey": api_key},
+                timeout=15.0,
+            )
+            data = resp.json()
+            if isinstance(data, dict) and (data.get("Note") or data.get("Information")):
+                logger.debug("FININT: Alpha Vantage VIX rate limited, trying FRED")
+            else:
+                series = data.get("data", [])
+                if series and len(series) >= 2:
+                    latest, prev = series[0], series[1]
+                    price = safe_float(latest.get("value"))
+                    prev_price = safe_float(prev.get("value"))
+                    change_pct = ((price - prev_price) / prev_price * 100) if price is not None and prev_price else None
+                    return {
+                        "price": f"{price:.2f}" if price is not None else None,
+                        "change_pct": _format_pct(change_pct),
+                        "as_of": latest.get("date", ""),
+                        "fetched_at": fetched_at,
+                    }
+        except Exception as e:
+            logger.debug("FININT: Alpha Vantage VIX failed: %s, trying FRED", e)
+    fred_result = await _fetch_fred(client, "VIX")
+    if fred_result:
+        return fred_result
+    return {"error": "Both Alpha Vantage and FRED failed for VIX", "fetched_at": fetched_at}
 
 
 async def _fetch_polymarket(client: Any, conflict: str) -> Dict[str, Any]:
@@ -900,7 +963,7 @@ async def _fetch_ofac_cached(client: Any, conflict: str) -> Dict[str, Any]:
         out["fetched_at"] = fetched_at
     else:
         try:
-            resp = await client.request("GET", OFAC_SDN_CSV_URL, timeout=30.0)
+            resp = await client.request("GET", OFAC_SDN_CSV_URL, timeout=30.0, follow_redirects=True)
             _ofac_raw_csv = resp.text
             _ofac_cache_ts = time.monotonic()
             out = _filter_ofac(_ofac_raw_csv, conflict)

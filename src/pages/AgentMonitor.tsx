@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,7 @@ import {
 } from "@/lib/api";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { toast } from "sonner";
-import { ArrowLeft, AlertTriangle, Activity, Clock, Database, History, Play } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Activity, Clock, Database, History, Play, RefreshCw } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -63,6 +63,7 @@ const AgentMonitor = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runAgainLoading, setRunAgainLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setError(null);
@@ -121,11 +122,68 @@ const AgentMonitor = () => {
     }
   }, [fetchAll]);
 
+  const refreshMonitor = useCallback(async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const statusBefore = await getAnalyzeStatus(DEFAULT_CONFLICT);
+      const atBefore = statusBefore?.at;
+      try {
+        await triggerRefreshAnalysis(DEFAULT_CONFLICT);
+      } catch (triggerErr) {
+        const msg = triggerErr instanceof Error ? triggerErr.message : "Trigger failed";
+        setError(msg);
+        toast.error("Refresh failed", { description: msg });
+        return;
+      }
+      toast.info("Refreshing from backend…", { description: "Running analysis; monitor will update when done." });
+      const deadline = Date.now() + RUN_AGAIN_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        const st = await getAnalyzeStatus(DEFAULT_CONFLICT);
+        if (st?.error) {
+          setError(st.error);
+          toast.error("Analysis failed", { description: st.error });
+          break;
+        }
+        if (st?.cached && st?.at != null && st.at !== atBefore) {
+          toast.success("Monitor updated", { description: "Agent and source data refreshed from backend." });
+          break;
+        }
+      }
+      const [statusRes, healthRes, historyRes] = await Promise.all([
+        fetch(`${getApiBase()}/api/agents/status`).then((r) => (r.ok ? r.json() : null)),
+        getAgentsHealth(),
+        getAgentsHistory(30),
+      ]);
+      if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
+      if (healthRes) setHealth(healthRes);
+      if (historyRes?.runs) setHistory(historyRes.runs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to refresh");
+      toast.error("Refresh failed", { description: e instanceof Error ? e.message : "Unknown error" });
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchAll();
     const interval = setInterval(fetchAll, 60_000);
     return () => clearInterval(interval);
   }, [fetchAll]);
+
+  const lastUpdated = useMemo(() => {
+    if (!status) return null;
+    let latest = 0;
+    for (const e of Object.values(status)) {
+      if (e?.fetched_at) {
+        const t = new Date(e.fetched_at).getTime();
+        if (t > latest) latest = t;
+      }
+    }
+    return latest || null;
+  }, [status]);
 
   const agentKeys = Object.keys(AGENT_NAME_TO_KEY);
   const statusEntries = status
@@ -156,20 +214,34 @@ const AgentMonitor = () => {
             </Link>
             <h1 className="text-xl font-semibold font-mono tracking-tight">Agent & Source Monitor</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={runAnalysisAgain}
-              disabled={runAgainLoading}
-              className="gap-1.5"
-            >
-              <Play className="h-3.5 w-3.5" />
-              {runAgainLoading ? "Running…" : "Run analysis again"}
-            </Button>
-            <Button variant="outline" size="sm" onClick={fetchAll}>
-              Refresh
-            </Button>
+          <div className="flex items-center gap-3 flex-wrap">
+            {lastUpdated != null && (
+              <span className="text-xs text-muted-foreground">
+                Last updated: {formatRelativeTime(new Date(lastUpdated).toISOString())}
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={runAnalysisAgain}
+                disabled={runAgainLoading || refreshing}
+                className="gap-1.5"
+              >
+                <Play className="h-3.5 w-3.5" />
+                {runAgainLoading ? "Running…" : "Run analysis again"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={refreshMonitor}
+                disabled={refreshing || runAgainLoading}
+                className="gap-1.5"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </Button>
+            </div>
           </div>
         </div>
 

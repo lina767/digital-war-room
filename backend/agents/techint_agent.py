@@ -598,20 +598,35 @@ async def _fetch_export_control_gdelt() -> List[Dict[str, Any]]:
     """Fallback: fetch export-control related articles from GDELT DOC 2.0 (no API key)."""
     try:
         query = '("export control" OR "export controls" OR "semiconductor sanctions" OR "BIS entity list" OR "technology sanctions" OR "dual-use")'
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(
-                GDELT_DOC_URL,
-                params={
-                    "query": query,
-                    "mode": "artlist",
-                    "format": "json",
-                    "timespan": "72H",
-                    "maxrecords": 25,
-                },
-            )
-            if resp.status_code != 200:
-                return []
-            data = resp.json()
+        max_retries = 2
+        data = None
+        for attempt in range(max_retries):
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    GDELT_DOC_URL,
+                    params={
+                        "query": query,
+                        "mode": "artlist",
+                        "format": "json",
+                        "timespan": "72H",
+                        "maxrecords": 25,
+                    },
+                )
+                if resp.status_code == 429 and attempt < max_retries - 1:
+                    await asyncio.sleep(6)
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(6)
+                        continue
+                    return []
+                if resp.status_code != 200:
+                    return []
+                data = resp.json()
+                break
+        if data is None:
+            return []
         articles = []
         items = data if isinstance(data, list) else data.get("articles", data.get("articleList", data.get("results", [])))
         if not isinstance(items, list):
@@ -655,20 +670,26 @@ async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[s
             }
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(NEWS_API_URL, params=params)
-                resp.raise_for_status()
-                data = resp.json()
-            for art in data.get("articles", []):
-                title = (art.get("title") or "").strip()
-                if not title:
-                    continue
-                source = (art.get("source") or {}).get("name") or ""
-                articles.append({
-                    "title": title,
-                    "source": source,
-                    "url": art.get("url"),
-                    "published_at": art.get("publishedAt"),
-                    "description": (art.get("description") or "")[:200],
-                })
+                if resp.status_code == 429:
+                    logger.info("TECHINT: NewsAPI rate limited, falling back to GDELT for export controls")
+                else:
+                    resp.raise_for_status()
+                    data = resp.json()
+                    if data.get("status") == "error" and "rateLimited" in (data.get("code") or ""):
+                        logger.info("TECHINT: NewsAPI rate limited, falling back to GDELT for export controls")
+                    else:
+                        for art in data.get("articles", []):
+                            title = (art.get("title") or "").strip()
+                            if not title:
+                                continue
+                            source = (art.get("source") or {}).get("name") or ""
+                            articles.append({
+                                "title": title,
+                                "source": source,
+                                "url": art.get("url"),
+                                "published_at": art.get("publishedAt"),
+                                "description": (art.get("description") or "")[:200],
+                            })
         except Exception:
             pass
     if not articles:

@@ -95,6 +95,11 @@ class HealthRegistry:
                 },
             }
 
+    def clear(self) -> None:
+        """Reset all source history. Call at the start of a new analysis run."""
+        with self._lock:
+            self._data.clear()
+
     def is_circuit_open(self, source_name: str, agent_name: str) -> bool:
         """True if this source/agent has failed CIRCUIT_OPEN_THRESHOLD times in a row."""
         key = self._key(source_name, agent_name)

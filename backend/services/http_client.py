@@ -14,7 +14,7 @@ class HttpClient:
 
     def __init__(self, timeout: float = 20.0, max_connections: int = 50, max_per_host: int = 8):
         limits = httpx.Limits(max_connections=max_connections, max_keepalive_connections=max_per_host)
-        self._client = httpx.AsyncClient(timeout=timeout, limits=limits)
+        self._client = httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True)
         self._semaphores: Dict[str, asyncio.Semaphore] = {}
         self._max_per_host = max_per_host
 

@@ -628,6 +628,10 @@ def _summarize_long_items(agent_results: Dict[str, Any]):
 
 def analyze_conflict(conflict: str) -> Dict[str, Any]:
     """Public entrypoint – runs all 11 agents then supervisor synthesis."""
+    from .health_registry import get_health_registry
+    reg = get_health_registry()
+    if reg:
+        reg.clear()
     with traced("analysis.full", {"conflict": conflict}):
         agent_results = _collect_all_agents(conflict)
         agent_results = _ner_post_processing(agent_results)

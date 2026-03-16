@@ -719,8 +719,8 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
             idb = result.internet_db
             source_results = [
                 SourceResult(name="CISA KEV", status="ok" if (kev.total or kev.sample) and not kev.error else "error", fetched_at=fetched_at, record_count=kev.total or 0),
-                SourceResult(name="Threat RSS", status="ok" if any(r.title and not r.error for r in tr) else "error", fetched_at=fetched_at, record_count=len([r for r in tr if not r.error])),
-                SourceResult(name="OTX", status="ok" if any(p.name and not p.error for p in otx) else "error", fetched_at=fetched_at, record_count=len([p for p in otx if not p.error])),
+                SourceResult(name="Threat RSS", status="ok" if not any(r.error for r in tr) else ("ok" if any(r.title and not r.error for r in tr) else "error"), fetched_at=fetched_at, record_count=len([r for r in tr if not r.error])),
+                SourceResult(name="OTX", status="ok" if not any(p.error for p in otx) else ("ok" if any(p.name and not p.error for p in otx) else "error"), fetched_at=fetched_at, record_count=len([p for p in otx if not p.error])),
                 SourceResult(name="GreyNoise", status="ok" if (gn and gn.available and not gn.error) else "error", fetched_at=fetched_at, record_count=gn.count if gn else 0),
                 SourceResult(name="InternetDB", status="ok" if (idb and idb.hosts) else "error", fetched_at=fetched_at, record_count=len(idb.hosts) if idb else 0),
             ]
