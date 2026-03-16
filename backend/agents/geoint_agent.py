@@ -579,6 +579,7 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
                     if notes and len(notes) > 500:
                         notes = notes[:497] + "..."
                     event_date = (rec.get("event_date") or rec.get("date") or "").strip() or None
+                    sub_event_type = (rec.get("sub_event_type") or "").strip() or None
                     out.append({
                         "lat": round(lat, 5),
                         "lon": round(lon, 5),
@@ -590,6 +591,7 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
                         "actor2": actor2,
                         "notes": notes,
                         "event_date": event_date,
+                        "sub_event_type": sub_event_type,
                     })
             return out
 
@@ -691,7 +693,7 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
             }
             if e.get("fatalities") is not None:
                 evt["fatalities"] = int(e["fatalities"])
-            for key in ("actor1", "actor2", "notes", "event_date"):
+            for key in ("actor1", "actor2", "notes", "event_date", "sub_event_type"):
                 if e.get(key):
                     evt[key] = e[key]
             out.append(evt)

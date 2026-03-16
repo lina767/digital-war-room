@@ -471,6 +471,8 @@ export interface TheaterEvent {
   notes?: string;
   /** Link to imagery (EO Browser) or source. */
   url?: string;
+  /** ACLED sub-event type (e.g. Shelling, Armed clash). */
+  sub_event_type?: string;
 }
 
 /** GET /api/theater-events – unified events for Theater Map layer (Iran etc.). */

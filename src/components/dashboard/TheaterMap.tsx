@@ -878,28 +878,40 @@ export function TheaterMap({
               {selectedEvent.label}
             </p>
           )}
-          {/* Casualties: fatalities (ACLED) or civilian/military (UCDP) */}
-          {(selectedEvent.fatalities != null || selectedEvent.deaths_civilians != null || selectedEvent.deaths_a != null || selectedEvent.deaths_b != null) && (
-            <div className="space-y-0.5">
-              <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Casualties</span>
-              <div className="text-[11px] text-foreground/90">
-                {selectedEvent.fatalities != null && (
-                  <p>Total reported: {selectedEvent.fatalities} fatality/fatalities</p>
-                )}
-                {selectedEvent.deaths_civilians != null && (
-                  <p>Civilian: {selectedEvent.deaths_civilians}</p>
-                )}
-                {(selectedEvent.deaths_a != null || selectedEvent.deaths_b != null) && (
-                  <p>
-                    Military/actors: {[selectedEvent.deaths_a, selectedEvent.deaths_b].filter((n): n is number => n != null).join(" / ")}
-                    {selectedEvent.side_a != null && selectedEvent.side_b != null && (
-                      <span className="text-muted-foreground"> ({selectedEvent.side_a} / {selectedEvent.side_b})</span>
-                    )}
-                  </p>
-                )}
-              </div>
+          {selectedEvent.sub_event_type != null && selectedEvent.sub_event_type !== "" && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-muted-foreground">Detail</span>
+              <span className="text-right text-foreground/90">{selectedEvent.sub_event_type}</span>
             </div>
           )}
+          {/* Casualties: always show – with data or fallback explanation */}
+          <div className="space-y-0.5">
+            <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Casualties</span>
+            <div className="text-[11px] text-foreground/90">
+              {selectedEvent.fatalities != null || selectedEvent.deaths_civilians != null || selectedEvent.deaths_a != null || selectedEvent.deaths_b != null ? (
+                <>
+                  {selectedEvent.fatalities != null && (
+                    <p>Total reported: {selectedEvent.fatalities} fatality/fatalities</p>
+                  )}
+                  {selectedEvent.deaths_civilians != null && (
+                    <p>Civilian: {selectedEvent.deaths_civilians}</p>
+                  )}
+                  {(selectedEvent.deaths_a != null || selectedEvent.deaths_b != null) && (
+                    <p>
+                      Military/actors: {[selectedEvent.deaths_a, selectedEvent.deaths_b].filter((n): n is number => n != null).join(" / ")}
+                      {selectedEvent.side_a != null && selectedEvent.side_b != null && (
+                        <span className="text-muted-foreground"> ({selectedEvent.side_a} / {selectedEvent.side_b})</span>
+                      )}
+                    </p>
+                  )}
+                </>
+              ) : selectedEvent.source === "FIRMS" ? (
+                <p>No casualty data (satellite thermal anomaly only).</p>
+              ) : (
+                <p>No casualty data reported.</p>
+              )}
+            </div>
+          </div>
           {/* Actors / sides */}
           {(selectedEvent.actor1 != null || selectedEvent.actor2 != null || selectedEvent.side_a != null || selectedEvent.side_b != null) && (
             <div className="space-y-0.5">
@@ -920,13 +932,17 @@ export function TheaterMap({
               <span className="text-right text-foreground/90">{selectedEvent.event_date ?? selectedEvent.date_start ?? "—"}</span>
             </div>
           )}
-          {/* Notes / reporting */}
-          {selectedEvent.notes != null && selectedEvent.notes !== "" && (
-            <div className="space-y-0.5">
-              <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Reporting / context</span>
-              <p className="text-[11px] text-foreground/90 leading-snug line-clamp-4">{selectedEvent.notes}</p>
-            </div>
-          )}
+          {/* Reporting / context: always show – notes or fallback */}
+          <div className="space-y-0.5">
+            <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Reporting / context</span>
+            <p className="text-[11px] text-foreground/90 leading-snug line-clamp-4">
+              {selectedEvent.notes != null && selectedEvent.notes !== ""
+                ? selectedEvent.notes
+                : selectedEvent.source === "FIRMS"
+                  ? "Satellite detection (VIIRS). No linked news reporting."
+                  : "No additional reporting."}
+            </p>
+          </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span>Source</span>
             <span className="text-right">{selectedEvent.source ?? "FIRMS/ACLED/UCDP"}</span>
