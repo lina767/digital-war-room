@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Database } from "lucide-react";
+import { Database, ClipboardList } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 
 const HowItWorks = () => {
@@ -27,6 +27,7 @@ const HowItWorks = () => {
             </p>
             <p className="text-sm text-muted-foreground">
               <Link to="/methodology" className="inline-flex items-center gap-1.5 text-primary hover:underline">
+                <ClipboardList className="h-3.5 w-3.5" />
                 <span>Methodology</span>
               </Link>
               {" "}– scoring weights, threat-level thresholds and Signal Framework (state vs. exile media).

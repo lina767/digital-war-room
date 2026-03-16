@@ -212,7 +212,10 @@ const AgentMonitor = () => {
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             </Link>
-            <h1 className="text-xl font-semibold font-mono tracking-tight">Agent & Source Monitor</h1>
+            <div>
+              <h1 className="text-xl font-semibold font-mono tracking-tight">Agent & Source Monitor</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">Status and health of all agents and their data sources (from last analysis run).</p>
+            </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {lastUpdated != null && (

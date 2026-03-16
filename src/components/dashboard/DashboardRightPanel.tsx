@@ -16,6 +16,7 @@ import { WorldMap } from "@/components/dashboard/WorldMap";
 import { AgentsStatusBar } from "@/components/dashboard/AgentsStatusBar";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { Link } from "react-router-dom";
 import { Target, X, Globe } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 
@@ -189,7 +190,7 @@ export function DashboardRightPanel({
         <AgentsStatusBar />
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Data sources: News API · GDELT · RSS · Polymarket · ADSB · NASA FIRMS · ReliefWeb · Shodan · IODA · GreyNoise · FAO · EIA · AIS
+        Data sources: NewsAPI · GDELT · RSS · Polymarket · ACLED · NASA FIRMS · ReliefWeb · HDX HAPI · GDACS · ADS-B · Chokepoint (AIS/GDELT) · Shodan · IODA · GreyNoise · FAO · EIA · and more. See <Link to="/sources" className="text-primary hover:underline">Source Directory</Link> and <Link to="/app/monitoring" className="text-primary hover:underline">Agent Monitor</Link>.
       </p>
     </aside>
   );
