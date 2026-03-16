@@ -32,7 +32,7 @@ An AI-powered multi-agent OSINT platform that monitors geopolitical conflicts in
      │        │ │        │ │        │ │        │ │        │     │          │
      │Brent   │ │ADS-B   │ │NewsAPI │ │NASA    │ │Telegram│     │FIRMS +   │
      │WTI     │ │        │ │GDELT   │ │FIRMS   │ │Reddit  │     │Overpass  │
-     │Gold    │ │VesselF.│ │RSS     │ │UCDP    │ │RSS     │     │OSM       │
+     │Gold    │ │VesselF.│ │RSS     │ │ACLED   │ │RSS     │     │OSM       │
      │Polymar.│ │Marine  │ │        │ │Sentinel│ │ReliefW │     │          │
      │Metacul.│ │Traffic │ │        │ │        │ │        │     │          │
      └────────┘ └────────┘ └────────┘ └────────┘ └────────┘     └──────────┘
@@ -54,7 +54,7 @@ flowchart TB
     FININT["FININT\nBrent, WTI, Gold\nPolymarket, Metaculus\nOFAC, On-Chain"]
     SIGINT["SIGINT\nADS-B, Intel RSS\nHormuz Tankers (AISStream)"]
     NEWS["NEWS\nNewsAPI, GDELT\nRSS Feeds"]
-    GEOINT["GEOINT\nNASA FIRMS\nUCDP, Sentinel Hub"]
+    GEOINT["GEOINT\nNASA FIRMS\nACLED, Sentinel Hub"]
     SOCMINT["SOCMINT\nTelegram, Reddit\nRSS, ReliefWeb"]
     TECHINT["TECHINT\nIODA, OONI\nShodan, Cloudflare"]
     CYBER["CYBER\nCISA KEV, OTX\nGreyNoise"]
@@ -86,7 +86,7 @@ flowchart TB
 | **FININT** | Brent/WTI/Gold, Polymarket, Metaculus, OFAC, Etherscan | Financial stress and market-implied conflict probability |
 | **SIGINT** | ADS-B (adsb.fi, adsb.lol), CriticalThreats RSS, Hormuz Tankers (Chokepoint AISStream) | Military aircraft, intel reports, Hormuz tankers |
 | **NEWS** | NewsAPI, GDELT Doc API, RSS (BBC, DW, Al Jazeera, RFE/RL) | Open-source media sentiment and coverage volume |
-| **GEOINT** | NASA FIRMS (thermal), UCDP (Uppsala), Sentinel Hub EO Browser | Satellite-detected thermal anomalies and conflict events |
+| **GEOINT** | NASA FIRMS (thermal), ACLED, Sentinel Hub EO Browser | Satellite-detected thermal anomalies and conflict events |
 | **SOCMINT** | Telegram, Nitter/X, Reddit, RSS, ReliefWeb | Social signal detection and grassroots sentiment |
 | **TECHINT** | IODA, OONI, Shodan, Cloudflare Radar, Wayback Machine | Internet disruptions, censorship, cyber exposure |
 | **CYBER** | CISA KEV, Mandiant/CrowdStrike RSS, AlienVault OTX, GreyNoise | Active exploits, threat intel, malicious scanning activity |

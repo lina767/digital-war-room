@@ -44,7 +44,6 @@ const SOURCE_META: Record<
   "Hormuz Tankers": { reliability: "curated", keyRequired: true, free: false, url: "https://aisstream.io" }, // from Chokepoint AISStream when AIRSTREAM_API_KEY set
   ADSBexchange: { reliability: "community", keyRequired: true, free: false, url: "https://rapidapi.com/adsbx/api/adsbexchange-com1" },
   NOTAM: { reliability: "curated", keyRequired: true, free: false, url: "https://www.autorouter.aero" },
-  IAEA: { reliability: "official", keyRequired: false, free: true, url: "https://www.iaea.org/newscenter" },
   RSS: { reliability: "community", keyRequired: false, free: true },
   NewsAPI: { reliability: "curated", keyRequired: true, free: true, url: "https://newsapi.org/register" }, // Free: 100 req/day, 24h delay, no extra requests
   NewsData: { reliability: "curated", keyRequired: true, free: true, url: "https://newsdata.io/register" },
@@ -52,7 +51,8 @@ const SOURCE_META: Record<
   GDELT: { reliability: "curated", keyRequired: false, free: true, url: "https://api.gdeltproject.org" },
   "NASA FIRMS": { reliability: "official", keyRequired: true, free: true, url: "https://firms.modaps.eosdis.nasa.gov" },
   ReliefWeb: { reliability: "curated", keyRequired: false, free: true, url: "https://api.reliefweb.int" },
-  UCDP: { reliability: "curated", keyRequired: true, free: true, url: "https://ucdp.uu.se" },
+  "HDX HAPI": { reliability: "official", keyRequired: true, free: true, url: "https://hapi.humdata.org/docs" },
+  GDACS: { reliability: "official", keyRequired: false, free: true, url: "https://www.gdacs.org" },
   ACLED: { reliability: "curated", keyRequired: true, free: true, url: "https://acleddata.com/api-documentation/getting-started" },
   "ACLED Reference": { reliability: "curated", keyRequired: false, free: true, url: "https://acleddata.com" },
   Firecrawl: { reliability: "curated", keyRequired: true, free: true, url: "https://firecrawl.dev" },

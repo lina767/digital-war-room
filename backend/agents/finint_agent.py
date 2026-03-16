@@ -1175,18 +1175,12 @@ async def _fetch_kalshi_tracked(client: Any, conflict: str) -> tuple:
 
 
 async def _fetch_ofac_tracked(client: Any, conflict: str) -> tuple:
-    async with SourceFetch("OFAC SDN", "finint") as sf:
-        try:
-            r = await _fetch_ofac_cached(client, conflict)
-            n = _record_count_from_result(r)
-            if n is not None:
-                sf.set_record_count(n)
-            if isinstance(r, dict) and r.get("error"):
-                sf.set_error(r["error"])
-        except Exception as e:
-            sf.set_error(str(e))
-            r = {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": utc_now_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}}
-    return (r, sf.result())
+    """Fetch OFAC SDN (not reported as a source in Agent Monitor)."""
+    try:
+        r = await _fetch_ofac_cached(client, conflict)
+    except Exception as e:
+        r = {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": utc_now_iso(), "ofac_delta": {"added_since_last_run": 0, "previous_total": 0, "current_total": 0}}
+    return (r, None)
 
 
 async def _fetch_wallet_positions_tracked(client: Any) -> tuple:

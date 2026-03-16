@@ -244,12 +244,6 @@ const Dashboard = () => {
             <span>Methodology</span>
           </Link>
           <Link
-            to="/case-study"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <span>Case Study</span>
-          </Link>
-          <Link
             to="/daily-briefing"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >

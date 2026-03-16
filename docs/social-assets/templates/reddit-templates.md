@@ -25,7 +25,7 @@ The Digital War Room runs 11 specialized AI agents in parallel — each one tapp
 | FININT | Oil prices, prediction markets, sanctions | Brent/WTI, Polymarket, OFAC |
 | SIGINT | Military aircraft, intel reports, Hormuz tankers | ADS-B (adsb.fi), Conflict RSS, Chokepoint AISStream |
 | NEWS | Media sentiment and coverage | NewsAPI, GDELT, RSS |
-| GEOINT | Satellite thermal anomalies | NASA FIRMS, UCDP |
+| GEOINT | Satellite thermal anomalies | NASA FIRMS, ACLED |
 | SOCMINT | Social media signals | Telegram, Reddit, RSS |
 | TECHINT | Internet disruptions, censorship | IODA, OONI, Shodan |
 | CYBER | Threat intel, exploits | CISA KEV, OTX, GreyNoise |

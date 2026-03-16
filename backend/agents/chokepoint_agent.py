@@ -468,8 +468,34 @@ async def _fetch_gdelt_one(query: str, timespan: str) -> int:
         return 0
 
 
-async def _fetch_gdelt_chokepoint_events() -> Dict[str, Dict[str, int]]:
-    """GDELT per chokepoint: 24h, 72h, 6h, and narrow closure query (hits_closure_24h)."""
+async def _fetch_gdelt_tone_chart(query: str, timespan: str = "72H") -> Optional[Dict[str, Any]]:
+    """
+    Fetch GDELT DOC API mode=ToneChart for tonalité/escalation tracking (e.g. Strait of Hormuz).
+    Returns raw API response (timeline of average tone) or None on failure.
+    See docs/GDELT-API-REFERENCE.md.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                GDELT_URL,
+                params={
+                    "query": query,
+                    "mode": "ToneChart",
+                    "format": "json",
+                    "timespan": timespan,
+                },
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            return data if isinstance(data, dict) else {"data": data}
+    except Exception as e:
+        logger.debug("chokepoint: GDELT ToneChart fetch failed: %s", e)
+        return None
+
+
+async def _fetch_gdelt_chokepoint_events() -> Dict[str, Any]:
+    """GDELT per chokepoint: 24h, 72h, 6h, closure query, and optional ToneChart for Hormuz (escalation)."""
     tasks = []
     keys = []
     for cp_name, query in GDELT_QUERIES.items():
@@ -482,14 +508,22 @@ async def _fetch_gdelt_chokepoint_events() -> Dict[str, Dict[str, int]]:
     for cp_name, query in GDELT_QUERIES_CLOSURE.items():
         tasks.append(_fetch_gdelt_one(query, "24H"))
         keys.append((cp_name, "hits_closure_24h"))
+    # Optional: ToneChart for Strait of Hormuz (escalation indicator; see docs/GDELT-API-REFERENCE.md)
+    hormuz_query = GDELT_QUERIES.get("Strait of Hormuz", "Strait of Hormuz")
+    tasks.append(_fetch_gdelt_tone_chart(hormuz_query, "72H"))
+    keys.append(("_tone", "gdelt_tone_hormuz"))
     results = await asyncio.gather(*tasks)
-    out: Dict[str, Dict[str, int]] = {
+    out: Dict[str, Any] = {
         "Strait of Hormuz": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
         "Bab el-Mandeb": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
         "Suez Canal": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
     }
-    for (cp_name, key), count in zip(keys, results):
-        out[cp_name][key] = count
+    for (cp_name, key), result in zip(keys, results):
+        if cp_name == "_tone" and key == "gdelt_tone_hormuz":
+            out["gdelt_tone_hormuz"] = result
+            continue
+        if isinstance(result, int):
+            out[cp_name][key] = result
     return out
 
 

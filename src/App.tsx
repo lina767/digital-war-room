@@ -8,7 +8,6 @@ import AgentMonitor from "./pages/AgentMonitor";
 import NotFound from "./pages/NotFound";
 import HowItWorks from "./pages/HowItWorks";
 import Methodology from "./pages/Methodology";
-import CaseStudy from "./pages/CaseStudy";
 import Impressum from "./pages/Impressum";
 import SourceDirectory from "./pages/SourceDirectory";
 import DailyIntelligenceBriefing from "./pages/DailyIntelligenceBriefing";
@@ -26,7 +25,6 @@ const App = () => (
           <Route path="/app/monitoring" element={<AgentMonitor />} />
           <Route path="/how-it-works" element={<HowItWorks />} />
           <Route path="/methodology" element={<Methodology />} />
-          <Route path="/case-study" element={<CaseStudy />} />
           <Route path="/sources" element={<SourceDirectory />} />
           <Route path="/daily-briefing" element={<DailyIntelligenceBriefing />} />
           <Route path="/impressum" element={<Impressum />} />

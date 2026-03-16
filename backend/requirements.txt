@@ -16,6 +16,7 @@ fastapi==0.133.1
 feedparser==6.0.12
 firecrawl-py>=1.0.0
 fsspec==2026.2.0
+gdacs-api>=2.0.0
 h11==0.16.0
 h2==4.3.0
 hpack==4.1.0

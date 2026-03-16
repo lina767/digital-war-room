@@ -55,7 +55,7 @@ GEOINT: Satellite thermal data:
 
 [Finding — e.g., "NASA FIRMS detected 12 thermal anomalies in [region] over the last 48 hours. FRP values suggest [military activity / industrial / wildfire]."]
 
-[Finding from UCDP or conflict hotspot news if relevant]
+[Finding from ACLED or conflict hotspot news if relevant]
 ```
 
 ---

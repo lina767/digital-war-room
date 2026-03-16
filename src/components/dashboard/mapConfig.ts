@@ -18,6 +18,8 @@ export interface SigintAircraft {
   lat: number;
   lon: number;
   category?: string;
+  /** Country of registration / operator (derived from ICAO hex or registration). */
+  country?: string;
 }
 
 export interface SigintShip {

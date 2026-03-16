@@ -10,7 +10,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 |-------|---------------------|
 | **FININT** | Alpha Vantage (Brent, WTI), Polymarket (Odds + Tracked Wallets via Data API) |
 | **SIGINT** | ADS-B (adsb.fi, adsb.lol), Conflict Reports RSS, Hormuz Tankers (from Chokepoint AISStream) |
-| **GEOINT** | NASA FIRMS, ReliefWeb, UCDP (optional), ACLED (optional), Sentinel Hub EO Browser Links |
+| **GEOINT** | NASA FIRMS, ReliefWeb, ACLED (optional), Sentinel Hub EO Browser Links |
 | **SOCMINT** | Telegram, Nitter (X), Reddit, RSS, ReliefWeb |
 | **TECHINT** | Alpha Vantage (ETFs), NewsAPI (Export Control), IODA, OONI, Cloudflare Radar, Shodan |
 | **CYBER** | CISA KEV, Threat RSS (Mandiant/CrowdStrike), AlienVault OTX, GreyNoise |

@@ -1,7 +1,7 @@
 """
 GEOINT Agent – LangChain Tool-Calling Agent
 Detects thermal anomalies via NASA FIRMS in conflict regions.
-Uses area-specific API (no world download). Supplemented by ReliefWeb/ACLED, UCDP (Uppsala) event data.
+Uses area-specific API (no world download). Supplemented by ReliefWeb/ACLED event data.
 """
 import asyncio
 import csv
@@ -11,7 +11,7 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -44,6 +44,9 @@ REGION_BBOX = {
     "iran": "44,24,64,40",
     "yemen": "42,12,56,20",
 }
+
+# GDACS (Global Disaster Alert and Coordination System) – earthquakes, cyclones, floods, etc. Optional; uses gdacs-api.
+GDACS_EVENT_TYPE_LABEL = {"TC": "Tropical Cyclone", "EQ": "Earthquake", "FL": "Flood", "VO": "Volcano", "WF": "Wildfire", "DR": "Drought"}
 
 # For in-memory bbox filter (lat_min, lat_max, lon_min, lon_max) derived from REGION_BBOX
 def _bbox_to_region(area: str) -> Dict[str, float]:
@@ -284,6 +287,75 @@ def get_conflict_region(conflict: str) -> str:
     return "middle_east"
 
 
+def _get_gdacs_events_for_region(region: str, limit: int = 25) -> List[Dict[str, Any]]:
+    """
+    Fetch latest disaster events from GDACS (gdacs-api) and filter by region bbox.
+    Returns report-like dicts (title, date, body_excerpt, source, country) for merging with hotspot news.
+    """
+    try:
+        from gdacs.api import GDACSAPIReader
+    except ImportError:
+        logger.debug("GDACS: gdacs-api not installed (pip install gdacs-api)")
+        return []
+    bbox_str = REGION_BBOX.get(region, REGION_BBOX["middle_east"])
+    bbox = _bbox_to_region(bbox_str)
+    lat_min, lat_max = bbox["lat_min"], bbox["lat_max"]
+    lon_min, lon_max = bbox["lon_min"], bbox["lon_max"]
+    reports: List[Dict[str, Any]] = []
+    try:
+        client = GDACSAPIReader()
+        result = client.latest_events(limit=limit)
+        features = getattr(result, "features", None)
+        if features is None and isinstance(result, dict):
+            features = result.get("features", [])
+        if not isinstance(features, list):
+            return []
+        for f in features:
+            if not isinstance(f, dict):
+                continue
+            geom = f.get("geometry") or {}
+            coords = geom.get("coordinates") if isinstance(geom, dict) else None
+            if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+                continue
+            lon, lat = float(coords[0]), float(coords[1])
+            if not (lat_min <= lat <= lat_max and lon_min <= lon <= lon_max):
+                continue
+            props = f.get("properties") or {}
+            event_type = (props.get("eventtype") or "").strip().upper()
+            label = GDACS_EVENT_TYPE_LABEL.get(event_type, event_type or "Disaster")
+            name = (props.get("name") or props.get("title") or label).strip()[:200]
+            from_date = props.get("fromdate") or props.get("pubdate") or props.get("date") or ""
+            alert_level = (props.get("alertlevel") or "").strip()
+            title = f"{label}: {name}" if name != label else f"{label} ({alert_level})".strip(" ()") or label
+            reports.append({
+                "title": title[:300],
+                "date": str(from_date)[:30],
+                "body_excerpt": f"Alert: {alert_level}" if alert_level else f"Location: {lat:.2f}, {lon:.2f}",
+                "source": "GDACS",
+                "country": props.get("country") or props.get("location") or region,
+            })
+    except Exception as e:
+        logger.debug("GDACS fetch failed: %s", e)
+    return reports[:15]
+
+
+# HDX HAPI (https://hapi.humdata.org/docs) – humanitarian indicators by country (ISO3). Optional HAPI_APP_IDENTIFIER.
+HAPI_BASE_URL = "https://hapi.humdata.org/api/v1"
+HAPI_APP_IDENTIFIER = (os.getenv("HAPI_APP_IDENTIFIER") or "").strip()
+# Conflict key -> list of ISO3 codes for HAPI location_code filter
+HAPI_ISO3_BY_CONFLICT: Dict[str, List[str]] = {
+    "iran": ["IRN"],
+    "israel": ["ISR"],
+    "gaza": ["PSE", "ISR"],
+    "yemen": ["YEM"],
+    "lebanon": ["LBN"],
+    "syria": ["SYR"],
+    "iraq": ["IRQ"],
+    "ukraine": ["UKR"],
+    "russia": ["RUS"],
+    "default": ["IRN", "SYR", "YEM", "PSE", "ISR"],
+}
+
 # ReliefWeb API v2: filter by country name (e.g. "Iran", "Ukraine"). appname required (see https://reliefweb.int/help/api).
 RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"
 RELIEFWEB_COUNTRY_NAMES = {
@@ -316,6 +388,88 @@ ACLED_COUNTRY_NAMES = {
     "russia": "Russia",
     "default": "Iran",
 }
+
+
+async def _fetch_hapi_reports(iso3_codes: List[str], client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+    """
+    Fetch humanitarian data from HDX HAPI (operational presence + conflict events).
+    Returns report-like dicts (title, date, body_excerpt, source, country) for merging with ReliefWeb.
+    Requires HAPI_APP_IDENTIFIER in env (generate at https://hapi.humdata.org/docs).
+    """
+    if not HAPI_APP_IDENTIFIER or not iso3_codes:
+        return []
+    reports: List[Dict[str, Any]] = []
+    params_base = {"output_format": "json", "limit": 100, "app_identifier": HAPI_APP_IDENTIFIER}
+
+    for theme, normalize in [
+        ("coordination-context/operational-presence", _normalize_hapi_operational_presence),
+        ("coordination-context/conflict-events", _normalize_hapi_conflict_events),
+    ]:
+        for iso3 in iso3_codes[:3]:
+            try:
+                url = f"{HAPI_BASE_URL}/{theme}"
+                params = {**params_base, "location_code": iso3.upper()}
+                resp = await client.get(url, params=params, timeout=12.0)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                rows = data if isinstance(data, list) else data.get("data", data.get("results", []))
+                if not isinstance(rows, list):
+                    continue
+                for row in rows[:15]:
+                    if isinstance(row, dict):
+                        item = normalize(row)
+                        if item:
+                            reports.append(item)
+            except Exception as e:
+                logger.debug("GEOINT HAPI %s for %s failed: %s", theme, iso3, e)
+    return reports[:20]
+
+
+def _normalize_hapi_operational_presence(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Turn HAPI operational-presence row into report-like dict."""
+    org = (row.get("org_name") or row.get("org_acronym") or "").strip()
+    sector = (row.get("sector_name") or "").strip()
+    loc = (row.get("location_name") or "").strip()
+    if not loc:
+        return None
+    title = f"{org} – {sector}" if org and sector else (org or sector or "Operational presence")
+    ref_end = row.get("reference_period_end") or row.get("reference_period_start") or ""
+    admin1 = (row.get("admin1_name") or "").strip()
+    admin2 = (row.get("admin2_name") or "").strip()
+    body = " ".join(filter(None, [admin1, admin2])).strip()
+    return {
+        "title": (title or "Operational presence")[:300],
+        "date": str(ref_end)[:30],
+        "body_excerpt": body[:200] if body else f"Location: {loc}",
+        "source": "HDX HAPI",
+        "country": loc,
+    }
+
+
+def _normalize_hapi_conflict_events(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Turn HAPI conflict-events row into report-like dict."""
+    loc = (row.get("location_name") or "").strip()
+    if not loc:
+        return None
+    event_type = (row.get("event_type") or "Conflict events").strip()
+    events = row.get("events")
+    fatalities = row.get("fatalities")
+    parts = [event_type]
+    if events is not None:
+        parts.append(f"{int(events)} events")
+    if fatalities is not None:
+        parts.append(f"{int(fatalities)} fatalities")
+    title = " – ".join(parts)
+    ref_end = row.get("reference_period_end") or row.get("reference_period_start") or ""
+    admin1 = (row.get("admin1_name") or "").strip()
+    return {
+        "title": title[:300],
+        "date": str(ref_end)[:30],
+        "body_excerpt": (admin1 or loc)[:200],
+        "source": "HDX HAPI (ACLED)",
+        "country": loc,
+    }
 
 
 async def _reliefweb_rss_fallback(countries: list) -> List[Dict[str, Any]]:
@@ -453,6 +607,34 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
         logger.warning("ReliefWeb/ACLED: ReliefWeb fetch failed: %s. Check network and api.reliefweb.int.", e)
         reports = [{"error": str(e)}]
 
+    # GDACS: disaster events (earthquakes, cyclones, floods, etc.) in conflict region
+    if isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+        try:
+            region = get_conflict_region(conflict)
+            gdacs_items = _get_gdacs_events_for_region(region)
+            if gdacs_items:
+                reports.extend(gdacs_items)
+        except Exception as e:
+            logger.debug("GEOINT GDACS fetch failed: %s", e)
+
+    # HDX HAPI: merge humanitarian indicators (operational presence, conflict events) when app identifier is set
+    if HAPI_APP_IDENTIFIER and isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+        try:
+            iso3_list = next(
+                (v for k, v in HAPI_ISO3_BY_CONFLICT.items() if k != "default" and k in cl),
+                HAPI_ISO3_BY_CONFLICT["default"],
+            )
+
+            async def _hapi():
+                async with httpx.AsyncClient(timeout=14.0) as client:
+                    return await _fetch_hapi_reports(iso3_list, client)
+
+            hapi_items = run_async(_hapi())
+            if hapi_items:
+                reports.extend(hapi_items)
+        except Exception as e:
+            logger.debug("GEOINT HDX HAPI fetch failed: %s", e)
+
     acled_ok = has_acled_oauth() or os.getenv("ACLED_API_KEY")
     reports_have_error = isinstance(reports, list) and any(isinstance(r, dict) and r.get("error") for r in reports)
     if acled_ok and isinstance(reports, list) and not reports_have_error:
@@ -462,7 +644,14 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                 if has_acled_oauth() and not token:
                     logger.debug("ReliefWeb/ACLED: ACLED skipped (OAuth token missing). Set ACLED_EMAIL/ACLED_PASSWORD.")
                     return
-                params = {"_format": "json", "limit": 10, "country": acled_country}
+                event_date_val, event_date_where = _acled_event_date_range(90)
+                params = {
+                    "_format": "json",
+                    "limit": 10,
+                    "country": acled_country,
+                    "event_date": event_date_val,
+                    "event_date_where": event_date_where,
+                }
                 if token:
                     url = ACLED_API_URL
                     headers = {"Authorization": f"Bearer {token}"}
@@ -505,11 +694,19 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     return reports if isinstance(reports, list) else [{"error": "unknown"}]
 
 
+def _acled_event_date_range(days: int = 90) -> Tuple[str, str]:
+    """Return (event_date_value, event_date_where) for ACLED API (last N days)."""
+    end_d = datetime.now(timezone.utc)
+    start_d = end_d - timedelta(days=days)
+    return f"{start_d.strftime('%Y-%m-%d')}|{end_d.strftime('%Y-%m-%d')}", "BETWEEN"
+
+
 def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dict[str, Any]]:
     """
     Fetch conflict events with lat/lon for heatmap visualization (ACLED).
     Returns list of { "lat", "lon", "intensity", "source", "event_type", "fatalities" }.
     Intensity is derived from fatalities (capped) and event type (violence = higher).
+    Requests last 90 days via event_date + event_date_where=BETWEEN (ACLED API reference).
     """
     cl = conflict.lower()
     acled_country = next(
@@ -522,12 +719,19 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
         return events
 
     try:
+        event_date_val, event_date_where = _acled_event_date_range(90)
         async def _fetch() -> List[Dict[str, Any]]:
             out: List[Dict[str, Any]] = []
             token = await get_acled_token_async() if use_oauth else None
             if use_oauth and not token:
                 return out
-            params = {"_format": "json", "limit": min(500, max(50, limit)), "country": acled_country}
+            params = {
+                "_format": "json",
+                "limit": min(500, max(50, limit)),
+                "country": acled_country,
+                "event_date": event_date_val,
+                "event_date_where": event_date_where,
+            }
             if token:
                 url = ACLED_API_URL
                 headers = {"Authorization": f"Bearer {token}"}
@@ -629,14 +833,12 @@ def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: s
         if "battle" in t or "armed" in t:
             return "explosion"
         return "other"
-    if source == "UCDP":
-        return "airstrike"  # UCDP events with coords are conflict events
     return "other"
 
 
 def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     """
-    Unified events for Theater Map: FIRMS thermal anomalies + ACLED + UCDP (with lat/lon).
+    Unified events for Theater Map: FIRMS thermal anomalies + ACLED (with lat/lon).
     Returns list of { lat, lon, event_type, source, confidence?, label? }.
     event_type: airstrike | missile | drone | explosion | naval | fire | other.
     Skips FIRMS industrial/gas-flaring points. Use for Iran (or other conflict) map layer.
@@ -700,66 +902,6 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     except Exception:
         pass
 
-    # 3) UCDP events with coordinates
-    try:
-        ucdp = get_ucdp_events(conflict)
-        for e in ucdp if isinstance(ucdp, list) else []:
-            if not isinstance(e, dict):
-                continue
-            lat_val, lon_val = e.get("latitude"), e.get("longitude")
-            if lat_val is None or lon_val is None:
-                continue
-            try:
-                lat = float(lat_val)
-                lon = float(lon_val)
-            except (TypeError, ValueError):
-                continue
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                continue
-            best = e.get("best")
-            deaths_civ = e.get("deaths_civilians")
-            deaths_a = e.get("deaths_a")
-            deaths_b = e.get("deaths_b")
-            label = (e.get("side_a") or "") + " vs " + (e.get("side_b") or "")
-            if best is not None or deaths_civ is not None:
-                parts = []
-                if best is not None:
-                    try:
-                        parts.append(f"total {int(best)}")
-                    except (TypeError, ValueError):
-                        pass
-                if deaths_civ is not None:
-                    try:
-                        parts.append(f"{int(deaths_civ)} civilian")
-                    except (TypeError, ValueError):
-                        pass
-                if parts:
-                    label = f"{label} · " + ", ".join(parts)
-            evt = {
-                "lat": round(lat, 5),
-                "lon": round(lon, 5),
-                "event_type": _normalize_theater_event_type("UCDP", e.get("type_of_violence")),
-                "source": "UCDP",
-                "confidence": "high",
-                "label": label,
-            }
-            if best is not None:
-                try:
-                    evt["fatalities"] = int(best)
-                except (TypeError, ValueError):
-                    pass
-            if deaths_civ is not None:
-                try:
-                    evt["deaths_civilians"] = int(deaths_civ)
-                except (TypeError, ValueError):
-                    pass
-            for key in ("deaths_a", "deaths_b", "side_a", "side_b", "date_start"):
-                if e.get(key) is not None:
-                    evt[key] = e[key]
-            out.append(evt)
-    except Exception:
-        pass
-
     return out[: limit]
 
 
@@ -796,100 +938,6 @@ def _region_from_conflict(conflict: str) -> str:
     if any(k in cl for k in ["sudan", "ethiopia", "drc", "sahel", "mali"]):
         return "africa"
     return "middle_east"
-
-
-# UCDP API: https://ucdpapi.pcr.uu.se/api/<resource>/<version>?pagesize=x&page=x [&Country=country_id][&StartDate=][&EndDate=]
-# Requires UCDP_API_TOKEN (header: x-ucdp-access-token). Gleditsch & Ward country_id.
-# Authenticated access: 5,000 requests/day (resets midnight UTC). One paginated request = one count.
-UCDP_BASE = "https://ucdpapi.pcr.uu.se/api"
-UCDP_GED_VERSION = "25.1"
-UCDP_COUNTRY_IDS = {
-    "iran": [630],  # Iran (GW)
-    "iraq": [645], "syria": [652], "yemen": [679], "israel": [666], "gaza": [667],
-    "ukraine": [369], "russia": [365], "libya": [620], "sudan": [625], "afghanistan": [700],
-    "default": [630],
-}
-
-
-def get_ucdp_events(conflict: str) -> List[Dict[str, Any]]:
-    """
-    Fetch recent conflict events from UCDP GED (Uppsala Conflict Data Program).
-    API: ucdpapi.pcr.uu.se/api/gedevents/25.1. Requires UCDP_API_TOKEN (x-ucdp-access-token).
-    Returns events for the conflict country (e.g. Iran=630); optional StartDate/EndDate for last 90 days.
-    """
-    token = (
-        os.getenv("UCDP_API_TOKEN")
-        or os.getenv("UCDP_ACCESS_TOKEN")
-        or os.getenv("UCDP__API_TOKEN")  # common typo: double underscore
-        or ""
-    ).strip()
-    if not token:
-        logger.info(
-            "UCDP: no token. Set UCDP_API_TOKEN (or UCDP_ACCESS_TOKEN) in backend/.env. See ucdp.uu.se / API docs for access."
-        )
-        return []
-    # One request per analysis; stay under 5,000/day (UCDP limit)
-
-    cl = conflict.lower()
-    country_ids = next((v for k, v in UCDP_COUNTRY_IDS.items() if k != "default" and k in cl), UCDP_COUNTRY_IDS["default"])
-    country_id = country_ids[0] if country_ids else 630
-
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=90)
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
-
-    async def _fetch():
-        events = []
-        try:
-            url = f"{UCDP_BASE}/gedevents/{UCDP_GED_VERSION}"
-            params = {"pagesize": 50, "page": 1, "Country": country_id, "StartDate": start_str, "EndDate": end_str}
-            headers = {"x-ucdp-access-token": token}
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(url, params=params, headers=headers)
-                if resp.status_code != 200:
-                    try:
-                        err_body = resp.text[:300] if resp.text else str(resp.status_code)
-                    except Exception:
-                        err_body = str(resp.status_code)
-                    logger.warning(
-                        "UCDP API returned HTTP %s (country_id=%s). Check UCDP_API_TOKEN and quota (5,000 req/day). %s",
-                        resp.status_code,
-                        country_id,
-                        err_body,
-                    )
-                    return []
-                data = resp.json()
-                result = data.get("Result", [])
-                if not isinstance(result, list):
-                    return []
-                for e in result:
-                    if not isinstance(e, dict):
-                        continue
-                    events.append({
-                        "id": e.get("id"),
-                        "country": e.get("country"),
-                        "date_start": e.get("date_start"),
-                        "date_end": e.get("date_end"),
-                        "side_a": e.get("side_a"),
-                        "side_b": e.get("side_b"),
-                        "deaths_a": e.get("deaths_a"),
-                        "deaths_b": e.get("deaths_b"),
-                        "deaths_civilians": e.get("deaths_civilians"),
-                        "best": e.get("best"),
-                        "type_of_violence": e.get("type_of_violence"),
-                        "latitude": e.get("latitude"),
-                        "longitude": e.get("longitude"),
-                    })
-        except Exception as e:
-            logger.warning("UCDP request failed: %s. Check network and UCDP_API_TOKEN.", e)
-        return events
-
-    try:
-        return run_async(_fetch())
-    except Exception as e:
-        logger.warning("UCDP fetch failed: %s", e)
-        return []
 
 
 def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
@@ -995,16 +1043,15 @@ def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
 
 # ── Agent ──────────────────────────────────────────────────────────────────
 
-GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS, ReliefWeb/ACLED, UCDP (Uppsala), and EO Browser links.
-Your job: get conflict region, fetch thermal anomalies (days=3), conflict hotspot news, UCDP events (if token set), and EO Browser links for the region (Lebanon, Iran, etc.); then compute score.
+GEOINT_SYSTEM = """You are a GEOINT (Geospatial Intelligence) analyst using NASA FIRMS, ReliefWeb/ACLED, and EO Browser links.
+Your job: get conflict region, fetch thermal anomalies (days=3), conflict hotspot news, and EO Browser links for the region (Lebanon, Iran, etc.); then compute score.
 
 Steps:
 1. Call get_conflict_region(conflict)
 2. Call get_thermal_anomalies(region=..., days=3)
 3. Call get_conflict_hotspot_news(conflict)
-4. Call get_ucdp_events(conflict) for Uppsala conflict event data (optional)
-5. Call get_eo_browser_links(conflict) for Sentinel Hub EO Browser URLs
-6. Compute score and return JSON
+4. Call get_eo_browser_links(conflict) for Sentinel Hub EO Browser URLs
+5. Compute score and return JSON
 
 Scoring:
 - Base: 20
@@ -1097,7 +1144,6 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
         "geoint_score": 20.0,
         "hotspots": [],
         "reliefweb_reports": [],
-        "ucdp_events": [],
         "eo_browser_links": {},
         "gdelt_geo_countries": [],
         "summary": "No thermal anomaly data available.",
@@ -1108,7 +1154,7 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
 def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
-    """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → ucdp_events → eo_browser_links. No LLM."""
+    """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → eo_browser_links. No LLM."""
     start = time.perf_counter()
     fetched_at = utc_now_iso()
     try:
@@ -1121,37 +1167,39 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
         has_acled_cfg = has_acled_oauth() or os.getenv("ACLED_API_KEY")
         has_acled_reports = any(r.get("source") == "ACLED" for r in reliefweb_reports)
-        ucdp_raw = get_ucdp_events(conflict=conflict)
-        ucdp_events = [e for e in (ucdp_raw if isinstance(ucdp_raw, list) else []) if isinstance(e, dict) and "error" not in e]
         eo_links = get_eo_browser_links(conflict=conflict)
         if not isinstance(eo_links, dict):
             eo_links = {}
         gdelt_geo_countries = get_gdelt_geo_countries(conflict=conflict)
         score, explosion_count, clusters, _ = _compute_geoint_score(anomalies)
-        if ucdp_events:
-            score = min(100.0, score + min(15, len(ucdp_events) * 2))
         high = sum(1 for a in anomalies if a.get("confidence") == "high")
         hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
-        summary_extra = f" {len(ucdp_events)} UCDP events." if ucdp_events else ""
+        summary_extra = ""
         if gdelt_geo_countries:
             summary_extra += f" GDELT GEO: {len(gdelt_geo_countries)} countries."
         if has_acled_cfg and not has_acled_reports:
-            summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and UCDP/ReliefWeb."
+            summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and ReliefWeb."
         duration_ms = int((time.perf_counter() - start) * 1000)
+        hapi_count = sum(1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "").startswith("HDX HAPI"))
+        gdacs_count = sum(1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "") == "GDACS")
         source_results = [
             SourceResult(name="NASA FIRMS", status="ok" if anomalies else "error", fetched_at=fetched_at, record_count=len(anomalies)),
             SourceResult(name="ReliefWeb/ACLED", status="ok" if reliefweb_reports else "error", fetched_at=fetched_at, record_count=len(reliefweb_reports)),
-            SourceResult(name="UCDP", status="ok" if ucdp_events else "error", fetched_at=fetched_at, record_count=len(ucdp_events)),
+            SourceResult(name="GDACS", status="ok" if gdacs_count else "error", fetched_at=fetched_at, record_count=gdacs_count),
             SourceResult(name="EO Browser", status="ok" if eo_links else "error", fetched_at=fetched_at, record_count=len(eo_links) if isinstance(eo_links, dict) else 0),
             SourceResult(name="GDELT GEO", status="ok" if gdelt_geo_countries else "error", fetched_at=fetched_at, record_count=len(gdelt_geo_countries)),
         ]
+        if HAPI_APP_IDENTIFIER:
+            source_results.append(
+                SourceResult(name="HDX HAPI", status="ok" if hapi_count else "error", fetched_at=fetched_at, record_count=hapi_count),
+            )
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "geoint", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if (anomalies or reliefweb_reports or ucdp_events) else "unavailable"
+        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if (anomalies or reliefweb_reports) else "unavailable"
         sources_missing = [s.name for s in source_results if s.status == "error"]
         error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
         meta = AgentMetadata(
@@ -1174,7 +1222,6 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             "geoint_score": round(score, 1),
             "hotspots": hotspots,
             "reliefweb_reports": reliefweb_reports,
-            "ucdp_events": ucdp_events,
             "eo_browser_links": eo_links,
             "gdelt_geo_countries": gdelt_geo_countries,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included. Score {score:.0f}.",
@@ -1190,14 +1237,12 @@ _GEOINT_TOOL_FNS = {
     "get_conflict_region": get_conflict_region,
     "get_thermal_anomalies": get_thermal_anomalies,
     "get_conflict_hotspot_news": get_conflict_hotspot_news,
-    "get_ucdp_events": get_ucdp_events,
     "get_eo_browser_links": get_eo_browser_links,
 }
 _GEOINT_TOOL_SCHEMAS = [
     {"name": "get_conflict_region", "description": "Map conflict to a geographic region.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     {"name": "get_thermal_anomalies", "description": "Fetch NASA FIRMS thermal anomalies.", "input_schema": {"type": "object", "properties": {"region": {"type": "string"}, "days": {"type": "integer"}}, "required": ["region"]}},
     {"name": "get_conflict_hotspot_news", "description": "Fetch ReliefWeb/ACLED hotspot news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-    {"name": "get_ucdp_events", "description": "Fetch UCDP conflict events.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     {"name": "get_eo_browser_links", "description": "Generate EO Browser links.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
 ]
 

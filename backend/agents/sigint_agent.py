@@ -289,6 +289,46 @@ async def _fetch_adsb_regions_for_target(
     return candidates
 
 
+# Registration prefix (1–3 chars) or ICAO hex prefix → country name (for track detail)
+_REG_TO_COUNTRY: Dict[str, str] = {
+    "N": "United States",
+    "EP": "Iran",
+    "4X": "Israel",
+    "RA": "Russia", "RF": "Russia", "RU": "Russia",
+    "UR": "Ukraine", "UU": "Ukraine",
+    "YK": "Syria",
+    "A6": "UAE", "HZ": "Saudi Arabia", "7P": "Afghanistan",
+    "9K": "Kuwait", "A9C": "Bahrain", "A40": "Oman", "A7": "Qatar",
+    "TC": "Turkey", "JY": "Jordan", "OD": "Lebanon", "4K": "Azerbaijan",
+    "T": "UK (military)", "G": "United Kingdom", "F": "France", "D": "Germany",
+    "I": "Italy", "SP": "Poland", "ST": "Sudan", "7O": "Yemen",
+}
+# ICAO 24-bit hex first 3 chars (e.g. 73C = Iran, A00 = USA)
+_ICAO_PREFIX_TO_COUNTRY: Dict[str, str] = {
+    "73C": "Iran", "73A": "Iran", "73B": "Iran",
+    "738": "Israel", "739": "Israel",
+    "A00": "United States", "A01": "United States", "A1F": "United States",
+    "A80": "United States", "A81": "United States",
+    "14": "Russia", "15": "Russia",
+    "50": "United Kingdom", "4A": "Switzerland", "3E": "Germany",
+}
+
+
+def _aircraft_country(icao_hex: Optional[str], reg: Optional[str]) -> Optional[str]:
+    """Derive country from registration (preferred) or ICAO hex."""
+    r = (reg or "").strip().upper()
+    if r:
+        for prefix, country in sorted(_REG_TO_COUNTRY.items(), key=lambda x: -len(x[0])):
+            if r.startswith(prefix):
+                return country
+    h = (icao_hex or "").strip().upper()[:3]
+    if len(h) >= 2:
+        for prefix, country in sorted(_ICAO_PREFIX_TO_COUNTRY.items(), key=lambda x: -len(x[0])):
+            if h.startswith(prefix) or (len(prefix) == 2 and h.startswith(prefix)):
+                return country
+    return None
+
+
 def _classify_aircraft(callsign: str, ac_type: str, reg: str = "") -> str | None:
     cs = (callsign or "").upper().strip()
     t = (ac_type or "").upper().strip()
@@ -374,6 +414,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                     "lat": lat, "lon": lon,
                     "category": _classify_aircraft(callsign, ac_type) or "military",
                     "source": "mil-global",
+                    "country": _aircraft_country(icao, None),
                 })
 
             # Regional scans (free: adsb.fi, adsb.lol)
@@ -402,6 +443,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                         "type": ac_type, "lat": lat, "lon": lon,
                         "category": cat, "region": label,
                         "reg": reg or None,
+                        "country": _aircraft_country(icao, reg or None),
                     })
 
             # ADSBexchange RapidAPI (paid): extra region scans (2 circles per region for better coverage)
@@ -440,6 +482,7 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                                     "region": label,
                                     "reg": reg or None,
                                     "source": "adsbexchange",
+                                    "country": _aircraft_country(icao, reg or None),
                                 })
                         except Exception as e:
                             logger.debug("SIGINT: ADSBexchange RapidAPI region %s failed: %s", label, e)
@@ -893,12 +936,10 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         duration_ms = int((time.perf_counter() - start) * 1000)
         adsb_has_error = any(isinstance(a, dict) and a.get("error") for a in (raw_aircraft or []))
         notam_has_error = isinstance(notam_result, dict) and notam_result.get("error")
-        hormuz_not_configured = not os.getenv("AISSTREAM_API_KEY", "").strip() and not os.getenv("AIRSTREAM_API_KEY", "").strip()
         source_results = [
             SourceResult(name="ADS-B", status="error" if adsb_has_error else "ok", fetched_at=fetched_at, record_count=len(aircraft)),
             SourceResult(name="Conflict Reports", status="ok" if reports else "error", fetched_at=fetched_at, record_count=len(reports)),
             SourceResult(name="NOTAMs", status="error" if notam_has_error else "ok", fetched_at=fetched_at, record_count=len(notams)),
-            SourceResult(name="Hormuz Tankers", status="ok" if hormuz_not_configured else ("ok" if hormuz_tankers else "error"), fetched_at=fetched_at, record_count=len(hormuz_tankers)),
         ]
         reg = get_health_registry()
         if reg:

@@ -945,7 +945,7 @@ export function TheaterMap({
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span>Source</span>
-            <span className="text-right">{selectedEvent.source ?? "FIRMS/ACLED/UCDP"}</span>
+            <span className="text-right">{selectedEvent.source ?? "FIRMS/ACLED"}</span>
             <span>Confidence</span>
             <span className="text-right">{selectedEvent.confidence ?? "n/a"}</span>
             <span>Location</span>
@@ -1002,6 +1002,12 @@ export function TheaterMap({
                 ? (selectedSigint.data.category ?? "—")
                 : (selectedSigint.data.type ?? "—")}
             </span>
+            {selectedSigint.type === "aircraft" && (selectedSigint.data as SigintAircraft).country && (
+              <>
+                <span>Country</span>
+                <span className="text-right">{(selectedSigint.data as SigintAircraft).country}</span>
+              </>
+            )}
             <span>Location</span>
             <span className="text-right">
               {selectedSigint.data.lon.toFixed(1)}E · {selectedSigint.data.lat.toFixed(1)}N

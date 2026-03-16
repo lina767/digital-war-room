@@ -2,10 +2,11 @@
 PROTEST / Civil Society Agent – ACLED protests & riots, GDELT protest events, protest-related RSS.
 Fetches: ACLED events filtered by event_type (Protests, Riots), GDELT protest themes,
 optional protest/unrest RSS. Rule-based score from event count and severity. No LLM.
-ACLED: OAuth (ACLED_EMAIL + ACLED_PASSWORD) at acleddata.com/api; see acleddata.com/api-documentation/getting-started.
+ACLED: OAuth (ACLED_EMAIL + ACLED_PASSWORD) at acleddata.com/api; see docs/ACLED-API-REFERENCE.md.
 """
 import asyncio
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -74,9 +75,19 @@ async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 100) -
     if not use_oauth and (not api_key or not api_key.strip()):
         return []
     try:
+        end_d = datetime.now(timezone.utc)
+        start_d = end_d - timedelta(days=90)
+        event_date_val = f"{start_d.strftime('%Y-%m-%d')}|{end_d.strftime('%Y-%m-%d')}"
         async with httpx.AsyncClient(timeout=20.0) as client:
             for event_type in PROTEST_EVENT_TYPES[:2]:  # Protests, Riots
-                params = {"_format": "json", "limit": limit, "country": country, "event_type": event_type}
+                params = {
+                    "_format": "json",
+                    "limit": limit,
+                    "country": country,
+                    "event_type": event_type,
+                    "event_date": event_date_val,
+                    "event_date_where": "BETWEEN",
+                }
                 if use_oauth and token:
                     resp = await client.get(
                         ACLED_API_URL,

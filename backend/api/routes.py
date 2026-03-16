@@ -583,7 +583,7 @@ async def get_conflict_events(conflict: str = "Iran", limit: int = 200):
 async def get_theater_events_route(conflict: str = "Iran", limit: int = 400):
     """
     GET /api/theater-events?conflict=Iran&limit=400
-    Returns unified theater map events: FIRMS thermal anomalies + ACLED + UCDP (with lat/lon).
+    Returns unified theater map events: FIRMS thermal anomalies + ACLED (with lat/lon).
     Each event has lat, lon, event_type (airstrike | missile | drone | explosion | naval | fire | other), source, confidence, label.
     Use for Theater Map layer (e.g. Iran) with type-specific icons.
     """

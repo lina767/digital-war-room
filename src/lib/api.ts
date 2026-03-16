@@ -249,71 +249,6 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   return out;
 }
 
-/** GET /api/iaea-tracker – Multisensor-Fusion (ADS-B, NOTAM, Flugplan, Press, Telegram). */
-export interface IaeaTrackerCorrelationNote {
-  hint: string;
-  confidence: "high" | "medium" | "low";
-}
-
-export interface IaeaTrackerResponse {
-  oeiii_adsb?: {
-    registration?: string;
-    aircraft?: Array<{
-      hex?: string;
-      flight?: string;
-      registration?: string;
-      lat?: number;
-      lon?: number;
-      on_ground?: boolean;
-      location_interpretation?: string;
-      region?: string;
-    }>;
-    count?: number;
-    correlation_hint?: string;
-    confidence?: string;
-  };
-  notams?: { notams?: unknown[]; count?: number; correlation_hint?: string; confidence?: string };
-  flight_plan_status?: {
-    status?: string;
-    last_updated_iso?: string | null;
-    correlation_hint?: string;
-    confidence?: string;
-  };
-  iaea_press_grossi?: {
-    items?: Array<{ title?: string; link?: string; published?: string; summary?: string }>;
-    count?: number;
-    correlation_hint?: string;
-    confidence?: string;
-  };
-  iaea_telegram_signals?: {
-    posts?: Array<{ source?: string; text?: string; platform?: string }>;
-    count?: number;
-    correlation_hint?: string;
-    confidence?: string;
-  };
-  ground_ops_signals?: unknown;
-  correlation_notes?: IaeaTrackerCorrelationNote[];
-  summary?: string;
-  error?: string;
-}
-
-const IAEA_TRACKER_TIMEOUT_MS = 35_000;
-
-export async function getIaeaTracker(): Promise<IaeaTrackerResponse | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), IAEA_TRACKER_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${getApiBase()}/api/iaea-tracker`, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!res.ok) return null;
-    const raw = (await res.json()) as IaeaTrackerResponse;
-    return raw ?? null;
-  } catch {
-    clearTimeout(timeoutId);
-    return null;
-  }
-}
-
 /** Conflict event for heatmap (ACLED lat/lon + intensity). */
 export interface ConflictEventForHeatmap {
   lat: number;
@@ -444,7 +379,7 @@ export async function fetchGreynoiseTrend(conflict: string, days = 7): Promise<G
   }
 }
 
-/** Theater map event (unified FIRMS + ACLED + UCDP) for type-specific icons. */
+/** Theater map event (unified FIRMS + ACLED) for type-specific icons. */
 export interface TheaterEvent {
   lat: number;
   lon: number;
@@ -452,14 +387,14 @@ export interface TheaterEvent {
   source?: string;
   confidence?: string;
   label?: string;
-  /** Total fatalities (ACLED) or best estimate (UCDP). */
+  /** Total fatalities (ACLED). */
   fatalities?: number;
-  /** Civilian deaths (UCDP). */
+  /** Civilian deaths. */
   deaths_civilians?: number;
-  /** Military/actor deaths (UCDP). */
+  /** Military/actor deaths. */
   deaths_a?: number;
   deaths_b?: number;
-  /** Actors (ACLED) or sides (UCDP). */
+  /** Actors (ACLED). */
   actor1?: string;
   actor2?: string;
   side_a?: string;

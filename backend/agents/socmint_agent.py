@@ -1,8 +1,13 @@
 """
 SOCMINT Agent – LangChain Tool-Calling Agent
 Monitors Telegram, X/Twitter (Nitter), Reddit, RSS, and ReliefWeb for conflict signals.
+
+Telegram: scrapes public preview pages t.me/s/{channel}. This is fragile – Telegram often
+changes HTML or serves content via JavaScript, so the scraper may return 0 messages.
+See docs/API-KEYS.md "Warum Telegram oft 0 liefert" for details and alternatives.
 """
 import asyncio
+import logging
 import os
 import re
 import time
@@ -22,6 +27,8 @@ from .utils import (
     utc_now_iso,
     compute_confidence_from_sources,
 )
+
+logger = logging.getLogger(__name__)
 
 # Telegram public channels (scraped via t.me/s/)
 TELEGRAM_CHANNELS = {
@@ -219,12 +226,18 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
     async def _fetch_channel(client: httpx.AsyncClient, channel: str) -> List[Dict[str, Any]]:
         try:
             url = f"https://t.me/s/{channel}"
-            resp = await client.get(url, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"})
+            resp = await client.get(url, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
             if resp.status_code != 200:
+                logger.debug("SOCMINT Telegram %s: HTTP %s", channel, resp.status_code)
                 return []
             html = resp.text
             messages = _extract_telegram_messages(html)
             clean = [m for m in messages if m and len(m) >= 10]
+            if not clean:
+                logger.debug(
+                    "SOCMINT Telegram %s: 0 messages extracted (HTML len=%s). Telegram may have changed t.me/s layout or serve content via JS.",
+                    channel, len(html),
+                )
             results = []
             for text in clean[:15]:
                 if not text or len(text) < 20:
@@ -241,7 +254,8 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
                     "platform": "telegram",
                 })
             return results
-        except Exception:
+        except Exception as e:
+            logger.debug("SOCMINT Telegram %s failed: %s", channel, e)
             return []
 
     async def _run():

@@ -64,6 +64,8 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 3. **Keine Credentials:** Wenn weder OAuth noch Legacy-Key gesetzt sind, liefern PROTEST/GEOINT/Heatmap keine ACLED-Daten; die Meldung „ACLED OAuth: no credentials“ erscheint dann in den Logs.
 4. **Legacy API:** Der alte Endpoint `api.acleddata.com` (ACLED_API_KEY) kann eingestellt sein; bevorzugt OAuth mit ACLED_EMAIL + ACLED_PASSWORD nutzen.
 
+Vollständige API-Referenz (Filter, Pagination, Deleted/CAST-Endpoints): [docs/ACLED-API-REFERENCE.md](ACLED-API-REFERENCE.md).
+
 **Wenn OTX (AlienVault / LevelBlue) nicht funktioniert:** (1) **OTX_API_KEY** in `backend/.env` setzen – kostenloser Key unter [otx.alienvault.com](https://otx.alienvault.com/) → Sign Up → Profil (Avatar) → API Key. (2) API-Doku: [otx.alienvault.com/api](https://otx.alienvault.com/api). Der CYBER-Agent nutzt **GET /api/v1/pulses/subscribed** mit Header **X-OTX-API-KEY** – es werden nur **Pulses zurückgegeben, denen du auf OTX abonniert bist**. Ohne Abos ist die Liste leer; im Log erscheint dann „OTX – API OK but 0 subscribed pulses“. Auf otx.alienvault.com unter „Pulses“ oder „Subscriptions“ relevante Kanäle/Pulses abonnieren. (3) Bei HTTP 401/403: Key prüfen (korrekt kopiert, kein Leerzeichen). (4) Im Log: „OTX_API_KEY not set“ = Key fehlt; „OTX pulses failed HTTP …“ = API-Fehler (Key oder Rate-Limit).
 
 **Wenn AGSI+ nicht funktioniert:** (1) **AGSI_API_KEY** in `backend/.env` setzen – kostenlose Registrierung unter [agsi.gie.eu/account](https://agsi.gie.eu/account), Key nach Login. (2) Der Abruf nutzt laut [GIE API v013](https://www.gie.eu/transparency-platform/GIE_API_documentation_v013.pdf) `type=eu` und `size=100`; Key wird als Header `x-key` gesendet. (3) Ohne Key oder bei falschem Key: Log „AGSI+: no API key …“ bzw. „AGSI+ API returned HTTP 401/403“. (4) Rate limit: max. 60 Requests/Minute – bei Überschreitung 60 s Wartezeit.
@@ -72,7 +74,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 
 ## ReliefWeb API (kein Key nötig)
 
-Die [ReliefWeb API](https://reliefweb.int/help/api) von UN OCHA liefert humanitäre Reports, Jobs und Training – **ohne API-Key**. Für Nutzungsstatistik wird der Parameter **appname** mitgesendet (von ReliefWeb ausdrücklich gewünscht).
+Die [ReliefWeb API](https://reliefweb.int/help/api) von UN OCHA liefert humanitäre Reports, Jobs und Training – **ohne API-Key**. Alternativen (HDX HAPI, GDACS, RSS-Fallback): siehe [RELIEFWEB-ALTERNATIVES.md](RELIEFWEB-ALTERNATIVES.md). Für Nutzungsstatistik wird der Parameter **appname** mitgesendet (von ReliefWeb ausdrücklich gewünscht).
 
 | Aspekt | Details |
 |--------|--------|
@@ -94,6 +96,20 @@ GET https://api.reliefweb.int/v2/reports?appname=digital-war-room&limit=10&filte
 
 **Optional – eigener App-Name:** In `backend/.env` kannst du setzen: `RELIEFWEB_APPNAME=dein-app-name`. Ohne Setzung wird `digital-war-room` verwendet.
 
+---
+
+## HDX HAPI (optional)
+
+Die [HDX Humanitarian API](https://hapi.humdata.org/docs) (UN OCHA) liefert standardisierte humanitäre Indikatoren nach Land (operational presence, conflict events). **Optional:** Ohne `HAPI_APP_IDENTIFIER` werden nur ReliefWeb/ACLED genutzt; mit Identifier ergänzt GEOINT die Hotspot-News um HAPI-Daten.
+
+| Aspekt | Details |
+|--------|--------|
+| **Dokumentation** | [hapi.humdata.org/docs](https://hapi.humdata.org/docs) · [Getting Started](https://hdx-hapi.readthedocs.io/en/latest/getting-started/) |
+| **App Identifier** | Unter [Encode Identifier](https://hapi.humdata.org/docs#/Utility/get_encoded_identifier_api_v1_encode_identifier_get) App-Name und E-Mail eingeben → base64-Identifier kopieren. |
+| **Env** | `HAPI_APP_IDENTIFIER=<base64>` in `backend/.env`. |
+
+**Integration:** GEOINT ruft `coordination-context/operational-presence` und `coordination-context/conflict-events` nach ISO3-Land (z. B. IRN, SYR, YEM) ab und mischt die Ergebnisse in die ReliefWeb/ACLED-Reports.
+
 **DIPLO** benötigt **keine** Keys (OFAC, EU-Liste, UN/ICJ-RSS sind öffentlich).
 
 **Wenn UN/ICJ nicht funktioniert:** Die Quelle holt RSS von **UN** (press.un.org bzw. Fallback news.un.org) und **ICJ** (icj-cij.org). (1) **HTTP 404:** Die offiziellen RSS-URLs werden gelegentlich umgestellt; im Backend-Log erscheint z. B. „DIPLO: UN RSS failed HTTP 404“. Es wird automatisch ein Fallback auf den UN-News-Feed versucht. (2) **ICJ 404:** Unter [icj-cij.org/en/press-releases](https://www.icj-cij.org/en/press-releases) prüfen, ob eine neue RSS-URL angegeben ist, und ggf. `ICJ_RSS` in `backend/agents/diplo_agent.py` anpassen. (3) **0 Einträge trotz OK:** Es erscheint „no items after filter (UN: ok but 0 match, ICJ: …)“ – die Feeds werden nach Konflikt-Keywords gefiltert; bei passenden Schlagwörtern können Einträge fehlen. Kein API-Key nötig. **OFAC recent** (RSS für OFAC/Treasury Recent Actions) wurde entfernt, da OFAC das Feed zum 31.01.2025 eingestellt hat.
@@ -114,7 +130,6 @@ GET https://api.reliefweb.int/v2/reports?appname=digital-war-room&limit=10&filte
 | **AIRSTREAM_API_KEY** | `backend/agents/chokepoint_agent.py` – AISStream (aisstream.io), WebSocket-Echtzeit-AIS mit BoundingBox (Hormuz, Bab el-Mandeb, Suez) | [aisstream.io/apikeys](https://aisstream.io/apikeys). Doku: [aisstream.io/documentation](https://aisstream.io/documentation). Optional: **AIRSTREAM_COLLECT_SECONDS** (Default 15). |
 | **MARINETRAFFIC_API_KEY** | `backend/agents/chokepoint_agent.py` – MarineTraffic (Area-Queries, Schiffstypfilter) | [marinetraffic.com](https://www.marinetraffic.com/en/ais-api-services) – Basic-Tier ca. 15 $/Monat. Ohne Key: Fallback auf AISHub oder Baseline. |
 | **ADSBEXCHANGE_RAPIDAPI_KEY** | `backend/agents/sigint_agent.py` – ADSBexchange via RapidAPI | [RapidAPI: ADSBexchange](https://rapidapi.com/adsbx/api/adsbexchange-com1). **Nutzung:** (1) **Militärflugzeug-Liste:** 4 Regionen × 2 Kreise (100 nm) = 8 Requests, merge mit adsb.fi/adsb.lol. (2) **Tracked Targets:** Abfrage per **Callsign** (`/api/aircraft/call/{callsign}`), dann ICAO, dann Region-Scan. Host optional: **ADSBEXCHANGE_RAPIDAPI_HOST**. Ziele: `TARGET_AIRCRAFT` bzw. **TARGET_AIRCRAFT_EXTRA**, pro Ziel optional **TARGET_&lt;NAME&gt;_HEX**. **Kostenanalyse siehe unten.** |
-| **UCDP_API_TOKEN** | `backend/agents/geoint_agent.py` – Uppsala Conflict Data Program (GED events) | Bei UCDP anfragen ([ucdp.uu.se](https://ucdp.uu.se/), [API-Doku](https://ucdp.uu.se/apidocs/)). Header: `x-ucdp-access-token`. **Limit:** 5.000 Requests/Tag (Mitternacht UTC); jeder paginierte Request zählt. |
 | **LIVEUAMAP_API_KEY** | GEOINT (Liveuamap, falls integriert) | Liveuamap – oft kostenpflichtig. |
 | **NOTAM_API_KEY** | `backend/agents/iaea_tracker.py` – NOTAM (Autorouter.aero) | [autorouter.aero](https://www.autorouter.aero/) – falls der Endpunkt Auth verlangt. Standard-URL: `NOTAM_API_URL=https://api.autorouter.aero/v1.0/notam`. |
 | **NEWSDATA_API_KEY** | `backend/agents/news_agent.py` – NewsData.io (zusätzliche News-Quelle) | [newsdata.io/register](https://newsdata.io/register). **Free:** 200 API-Credits/Tag, max. 10 Artikel pro Request. Filter: Location (`country`), Language (`language`), Category (`category`). Pro Request 1 Credit (Latest); sinnvoll: ein Request pro Lauf, Query über Konflikt-Keywords. |
@@ -123,13 +138,13 @@ GET https://api.reliefweb.int/v2/reports?appname=digital-war-room&limit=10&filte
 | **SIGNAL_FRAMEWORK_USE_FIRECRAWL** | `signal_framework_agent.py` – bei `true`: nach fehlgeschlagenem/leerem State-RSS Firecrawl als Fallback nutzen | Optional. Erfordert `FIRECRAWL_API_KEY`. State-Feed-URL wird per Firecrawl geladen; Headlines werden aus Markdown extrahiert. |
 | **SIGNAL_FRAMEWORK_STATE_TIMEOUT** | `signal_framework_agent.py` – Timeout in Sekunden für State-Feed-Requests | Optional, Default 25. Erhöhen, wenn State-Server langsam antworten. |
 
-**Wenn UCDP nicht funktioniert:** (1) In `backend/.env` **UCDP_API_TOKEN** (oder **UCDP_ACCESS_TOKEN**) setzen – Token bei [ucdp.uu.se](https://ucdp.uu.se/) / [API-Dokumentation](https://ucdp.uu.se/apidocs/) anfordern. (2) Ohne Token liefert der GEOINT-Agent keine UCDP-Events; im Log erscheint dann „UCDP: no token …“. (3) Bei HTTP 401/403: Token prüfen; bei 429 oder Fehlermeldung: Tageslimit (5.000 Requests/Tag, Reset Mitternacht UTC) beachten.
-
 **Wenn NOTAMs nicht funktionieren:** (1) **NOTAM_API_URL** ist standardmäßig `https://api.autorouter.aero/v1.0/notam`; nur setzen, wenn du einen anderen Endpunkt nutzt. (2) Viele NOTAM-APIs (z. B. Autorouter.aero) verlangen **NOTAM_API_KEY** – in `backend/.env` setzen, siehe [autorouter.aero](https://www.autorouter.aero/). (3) Im Backend-Log erscheinen bei Fehlern Meldungen wie „NOTAMs API returned HTTP 401“ oder „NOTAMs request failed“; dann URL und Key prüfen.
 
 **Hormuz Tankers (SIGINT):** Die Liste „Hormuz Tankers“ wird aus dem **Chokepoint-Agent** (AISStream) übernommen, wenn **AIRSTREAM_API_KEY** gesetzt ist. Ohne Key bleibt die Liste leer. **VesselFinder ist aus dem Code entfernt** (keine Naval-Vessels- noch Tanker-Quelle mehr).
 
 **Wenn Threat RSS (CYBER) nicht funktioniert:** Die Quelle holt RSS-Feeds von **Mandiant** und **CrowdStrike** (ohne API-Key). (1) **Beide Feeds fehlgeschlagen:** Im Log erscheint „CYBER: Threat RSS – no articles (feeds failed: …)“ – oft liefert Mandiant RSS temporär HTTP 500; CrowdStrike-Feed ist meist erreichbar. (2) **Feeds OK, aber 0 Einträge:** Es erscheint „no article matched conflict 'X' (keywords: …)“ – die Artikel werden nach Konflikt-Keywords gefiltert (z. B. Iran: iran, apt33, apt34, muddywater …). Wenn aktuell keine Blog-Posts zu diesem Konflikt erscheinen, bleibt die Liste leer. Kein API-Key nötig; bei dauerhaften Fehlern URLs in `cyber_agent.py` (THREAT_RSS) prüfen.
+
+**Warum Telegram (SOCMINT) oft 0 liefert:** Der SOCMINT-Agent scraped **öffentliche Vorschau-Seiten** `t.me/s/{channel}` per HTTP – **ohne** Telegram Bot API oder Telethon. Das ist von Haus aus fragil: (1) **Telegram ändert das HTML** – die Seite nutzt oft neues Layout oder lädt Nachrichten per **JavaScript** nach; ein einfacher HTTP-GET erhält dann nur die leere Hülle, und unsere Regex-Patterns (`tgme_widget_message_text`, `js-message-text`) treffen nichts. (2) **Rate limiting / Blocking** – zu viele oder auffällige Requests können mit 403/Captcha oder leeren Antworten beantwortet werden. (3) **Kein API-Key** – es wird kein offizieller Zugang genutzt. **Was du siehst:** Im Backend-Log erscheint bei Debug-Level z. B. `SOCMINT Telegram <channel>: 0 messages extracted (HTML len=…)` oder `SOCMINT Telegram <channel>: HTTP 403`. **Stabilere Alternative:** Für zuverlässiges Monitoring wäre ein **Telethon-** oder **Pyrogram-**Client mit eigenem Telegram-Account (API-ID/API-Hash von [my.telegram.org](https://my.telegram.org)) nötig; das ist im aktuellen Scope nicht integriert. Bis dahin: SOCMINT nutzt weiterhin Nitter, Reddit, RSS und ReliefWeb; Telegram liefert nur, wenn das t.me/s-Layout von unseren Patterns getroffen wird.
 
 ---
 
@@ -168,8 +183,11 @@ GDELT ist kostenlos und ohne API-Key nutzbar. Übersicht aller Daten und Zugangs
 
 DOC 2.0: Rolling Window ca. 3 Monate, 65 Sprachen (englische Suchbegriffe), Updates alle 15 Min; Ausgabe JSON/JSONFeed. Kein Key nötig.
 
+Vollständige Referenz (DOC/GEO, ToneChart, Events, GKG): [docs/GDELT-API-REFERENCE.md](GDELT-API-REFERENCE.md).
+
 **Weitere Optionen laut [GDELT Data](https://www.gdeltproject.org/data.html) (derzeit nicht integriert):**
-- **GDELT GEO 2.0** weitere Modi: ADM1, PointData, SourceCountry, Image-Suchen (im Projekt nur Country-Level integriert).
+- **GDELT DOC 2.0** `mode=ToneChart` – Tonalitäts-Zeitreihe für Eskalationsindikatoren (z. B. Strait of Hormuz); optional in [chokepoint_agent.py](backend/agents/chokepoint_agent.py).
+- **GDELT GEO 2.0** weitere Modi: ADM1, PointData, SourceCountry (im Projekt aktuell DOC-Fallback für Länderverteilung, siehe Referenz).
 - **GDELT Analysis Service** – webbasierte Visualisierung/Export (aktuell GDELT 1.0).
 - **Google BigQuery** – Vollständige GDELT-Daten per SQL, 15-Min-Updates; erfordert GCP.
 - **Raw Data Files** – CSV-Downloads (2.5TB+ pro Jahr), für Offline-Analysen.
@@ -238,8 +256,6 @@ ACLED_PASSWORD=dein_myACLED_passwort
 # Optional – Firecrawl (ACLED-Referenzseiten; ohne Key: Fallback auf httpx)
 # FIRECRAWL_API_KEY=fc-...
 
-# Optional – GEOINT: UCDP (Uppsala Conflict Data Program). Header: x-ucdp-access-token. Limit: 5.000 Requests/Tag.
-# UCDP_API_TOKEN=...
 
 # Optional – SIGINT: ADSBexchange via RapidAPI (Flugzeug-Tracking, z. B. OE-III). https://rapidapi.com/adsbx/api/adsbexchange-com1
 # ADSBEXCHANGE_RAPIDAPI_KEY=...

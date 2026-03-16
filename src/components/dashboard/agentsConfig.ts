@@ -40,7 +40,6 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "Tracked Wallets", description: "e.g. rundeep" },
       { name: "Metaculus", description: "Metaculus API – forecast markets (conflict, military, nuclear)" },
       { name: "Fear & Greed Index", description: "Alternative.me FNG API – market sentiment" },
-      { name: "OFAC SDN", description: "Treasury bulk CSV – sanctions context for FININT (same as DIPLO)" },
       { name: "Metals API", description: "Gold (XAU) and metals prices (optional METALS_API_KEY)" },
       { name: "Etherscan", description: "On-chain wallet positions (optional ETHEREUM_ETHERSCAN_API_KEY)" },
     ],
@@ -50,10 +49,8 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     fullName: "Signals Intelligence",
     sources: [
       { name: "ADSB", description: "opendata.adsb.fi, api.adsb.lol – military aircraft (v2/mil + regions)" },
-      { name: "Hormuz Tankers", description: "From Chokepoint (AISStream) when AIRSTREAM_API_KEY set – Strait of Hormuz tankers; separate from Chokepoint panel" },
       { name: "ADSBexchange", description: "Target aircraft via RapidAPI (optional ADSBEXCHANGE_RAPIDAPI_KEY)" },
       { name: "NOTAM", description: "Autorouter.aero / Eurocontrol – NOTAMs (optional NOTAM_API_KEY)" },
-      { name: "IAEA", description: "IAEA news and press release feeds – Grossi/DG correlation" },
       { name: "RSS", description: "BBC, DW, Al Jazeera, CriticalThreats, LongWarJournal, UnderstandingWar – conflict reports" },
     ],
   },
@@ -74,7 +71,8 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "NASA FIRMS", description: "Thermal anomalies, area API (middle_east, gaza_israel, iran, yemen, etc.)" },
       { name: "ReliefWeb", description: "api.reliefweb.int/v2 – humanitarian/conflict reports by country" },
-      { name: "UCDP", description: "Uppsala Conflict Data Program – GED events (optional UCDP_API_TOKEN)" },
+      { name: "HDX HAPI", description: "hapi.humdata.org – operational presence, conflict events by country (optional HAPI_APP_IDENTIFIER)" },
+      { name: "GDACS", description: "gdacs-api – disaster alerts (earthquakes, cyclones, floods, volcanoes) filtered by region bbox" },
       { name: "ACLED", description: "Conflict events (ACLED OAuth or API). Iran: acleddata.com/iran-crisis-live" },
       { name: "ACLED Reference", description: "Curated ACLED analysis pages (Middle East updates, expert comments); Firecrawl or httpx" },
       { name: "Firecrawl", description: "Robust scraping for ACLED reference pages (optional FIRECRAWL_API_KEY)" },
