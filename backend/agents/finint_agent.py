@@ -193,7 +193,8 @@ class FinintResult(BaseModel):
 
 
 def _filter_ofac(csv_text: str, conflict: str) -> Dict[str, Any]:
-    """Parse OFAC CSV and return conflict-relevant highlights (total_matches, sample, error, match_keys for delta)."""
+    """Parse OFAC CSV and return conflict-relevant highlights (total_matches, sample, error, match_keys for delta).
+    SDN CSV is headerless: columns 0=ent_num, 1=name, 2=type, 3=program, 4=title, ... (same as DIPLO)."""
     cl = (conflict or "").lower().strip()
     keywords = OFAC_CONFLICT_KEYWORDS.get("default", [])
     for k, v in OFAC_CONFLICT_KEYWORDS.items():
@@ -201,19 +202,19 @@ def _filter_ofac(csv_text: str, conflict: str) -> Dict[str, Any]:
             keywords = v
             break
     try:
-        reader = csv.DictReader(io.StringIO(csv_text))
+        reader = csv.reader(io.StringIO(csv_text))
         matches: List[Dict[str, Any]] = []
         match_keys: set = set()
         for row in reader:
-            if not row:
+            if len(row) < 4:
                 continue
-            name = (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip()).lower()
-            program = (row.get("programs") or row.get("program", "") or "").lower()
+            name = (row[1] or "").strip().lower()
+            program = (row[3] or "").strip().lower()
             combined = name + " " + program
             if any(k in combined for k in keywords):
-                nm = (row.get("name") or (row.get("firstName", "") + " " + row.get("lastName", "")).strip() or "")
-                ty = row.get("type") or ""
-                prg = row.get("programs") or row.get("program") or ""
+                nm = (row[1] or "").strip()
+                ty = (row[2] or "").strip() if len(row) > 2 else ""
+                prg = (row[3] or "").strip()
                 matches.append({"name": nm, "type": ty, "program": prg})
                 match_keys.add(f"{nm}|{ty}|{prg}")
         return {"total_matches": len(matches), "sample": matches[:15], "error": None, "match_keys": match_keys}
