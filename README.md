@@ -135,16 +135,6 @@ VITE_API_URL=your_backend_url
 
 ---
 
-## 📚 Research & Methodology
-
-This platform is informed by academic research in comparative politics and technology policy:
-
-- **Hood's NATO Framework** (Nodality, Authority, Treasure, Organisation) applied to intelligence automation
-- **Knill's Implementation Theory** for evaluating policy instrument effectiveness
-- Published research on EU Chips Act analysis and RISC-V diffusion in AI hardware
-
----
-
 ## 🗺️ Roadmap
 
 - [ ] Multi-theater support (beyond Middle East)
