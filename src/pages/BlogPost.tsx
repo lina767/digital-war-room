@@ -3,7 +3,7 @@ import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
 import { getPostBySlug } from "@/lib/blogPosts";
 import { Calendar, ArrowLeft } from "lucide-react";
-import { NotFound } from "@/pages/NotFound";
+import NotFound from "@/pages/NotFound";
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
