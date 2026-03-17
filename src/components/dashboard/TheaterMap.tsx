@@ -884,6 +884,30 @@ export function TheaterMap({
               <span className="text-right text-foreground/90">{selectedEvent.sub_event_type}</span>
             </div>
           )}
+          {/* Location: country / admin1 for aggregated data */}
+          {(selectedEvent.country || selectedEvent.admin1) && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              {selectedEvent.country && (
+                <>
+                  <span className="text-muted-foreground">Country</span>
+                  <span className="text-right text-foreground/90">{selectedEvent.country}</span>
+                </>
+              )}
+              {selectedEvent.admin1 && (
+                <>
+                  <span className="text-muted-foreground">Region</span>
+                  <span className="text-right text-foreground/90">{selectedEvent.admin1}</span>
+                </>
+              )}
+            </div>
+          )}
+          {/* Weekly event count for aggregated data */}
+          {selectedEvent.events_count != null && selectedEvent.events_count > 0 && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-muted-foreground">Events (week)</span>
+              <span className="text-right text-foreground/90 font-semibold">{selectedEvent.events_count}</span>
+            </div>
+          )}
           {/* Casualties: always show – with data or fallback explanation */}
           <div className="space-y-0.5">
             <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Casualties</span>
@@ -891,7 +915,7 @@ export function TheaterMap({
               {selectedEvent.fatalities != null || selectedEvent.deaths_civilians != null || selectedEvent.deaths_a != null || selectedEvent.deaths_b != null ? (
                 <>
                   {selectedEvent.fatalities != null && (
-                    <p>Total reported: {selectedEvent.fatalities} fatality/fatalities</p>
+                    <p>Total reported: {selectedEvent.fatalities} {selectedEvent.events_count ? `(week ${selectedEvent.event_date ?? "?"})` : "fatality/fatalities"}</p>
                   )}
                   {selectedEvent.deaths_civilians != null && (
                     <p>Civilian: {selectedEvent.deaths_civilians}</p>
@@ -1142,10 +1166,12 @@ export function TheaterMap({
       </div>
 
       {/* Live feed indicator */}
-      {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && (
+      {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0 || theaterEvents.length > 0) && (
         <div className="absolute top-2 left-2 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
           <span className="text-[11px] font-mono text-muted-foreground">
+            {theaterEvents.length > 0 && `${theaterEvents.length} STRIKES`}
+            {theaterEvents.length > 0 && (geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
             {geointAnomalies.length > 0 && `${geointAnomalies.length} THERMAL`}
             {geointAnomalies.length > 0 && (sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
             {sigintAircraft.length > 0 && `${sigintAircraft.length} AC`}

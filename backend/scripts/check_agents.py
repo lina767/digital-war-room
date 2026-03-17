@@ -198,5 +198,102 @@ def main():
     return 0 if ok_count == len(results) else 1
 
 
+def test_acled():
+    """Direct ACLED OAuth + API test."""
+    import httpx, json
+    email = os.getenv("ACLED_EMAIL", "")
+    pw = os.getenv("ACLED_PASSWORD", "")
+    print(f"Email: {email}")
+    print(f"Password set: {bool(pw)}")
+    if not email or not pw:
+        print("FAIL: Set ACLED_EMAIL + ACLED_PASSWORD in backend/.env")
+        return
+    print("\n--- OAuth token request ---")
+    r = httpx.post("https://acleddata.com/oauth/token",
+        data={"username": email, "password": pw, "grant_type": "password", "client_id": "acled"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0)
+    print(f"Status: {r.status_code}")
+    if r.status_code != 200:
+        print(f"Error: {r.text[:500]}")
+        return
+    token = r.json().get("access_token", "")
+    print(f"Token received: {bool(token)} (len={len(token)})")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    for label, days_back in [("Recent (90d)", 90), ("6-12 months", 270), ("12-18 months", 450)]:
+        from datetime import timedelta
+        end_d = datetime.now()
+        start_d = end_d - timedelta(days=days_back)
+        start_d2 = end_d - timedelta(days=days_back + 180)
+        date_val = f"{start_d2.strftime('%Y-%m-%d')}|{start_d.strftime('%Y-%m-%d')}"
+        r2 = httpx.get("https://acleddata.com/api/acled/read", params={
+            "_format": "json", "country": "Iran", "event_type": "Protests",
+            "event_date": date_val, "event_date_where": "BETWEEN", "limit": 5,
+        }, headers=headers, timeout=15.0)
+        b = r2.json()
+        print(f"\n{label}: count={b.get('count')}, records={len(b.get('data',[]))}")
+        if b.get("data"):
+            print(f"  First date: {b['data'][0].get('event_date')}")
+
+
+def test_agsi():
+    """Direct AGSI API test."""
+    import httpx, json
+    key = os.getenv("AGSI_API_KEY", "")
+    print(f"AGSI key set: {bool(key)} (len={len(key)})")
+    if not key:
+        print("FAIL: Set AGSI_API_KEY in backend/.env")
+        return
+    r = httpx.get("https://agsi.gie.eu/api", params={"type": "eu", "size": 5},
+                   headers={"x-key": key.strip()}, timeout=20.0)
+    print(f"Status: {r.status_code}")
+    print(f"Content-Type: {r.headers.get('content-type')}")
+    if r.status_code == 200:
+        data = r.json()
+        records = data.get("data") if isinstance(data, dict) else data
+        if isinstance(records, list):
+            print(f"Records: {len(records)}")
+            if records:
+                rec = records[0]
+                print(f"First: name={rec.get('name')}, full={rec.get('full')}")
+    else:
+        print(f"Error: {r.text[:500]}")
+
+
+def test_gdelt():
+    """Direct GDELT DOC 2.0 API test."""
+    import httpx, json, time
+    print("Waiting 8s for rate limit clearance...")
+    time.sleep(8)
+    r = httpx.get("https://api.gdeltproject.org/api/v2/doc/doc",
+        params={"query": "Iran protest", "mode": "artlist", "format": "json",
+                "maxrecords": 5, "timespan": "72H"}, timeout=20.0)
+    print(f"Status: {r.status_code}")
+    print(f"Content-Type: {r.headers.get('content-type', '')}")
+    if r.status_code == 200:
+        ct = r.headers.get("content-type", "").lower()
+        if "json" in ct or "javascript" in ct:
+            data = r.json()
+            for key in ("articles", "articleList", "results"):
+                v = data.get(key) if isinstance(data, dict) else None
+                if isinstance(v, list):
+                    print(f'Key "{key}": {len(v)} articles')
+                    if v:
+                        print(f"First title: {v[0].get('title', '?')[:100]}")
+                    break
+            else:
+                print(f"Keys: {list(data.keys()) if isinstance(data, dict) else 'not dict'}")
+        else:
+            print(f"Body: {r.text[:300]}")
+    else:
+        print(f"Body: {r.text[:300]}")
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    if "--test-acled" in sys.argv:
+        test_acled()
+    elif "--test-agsi" in sys.argv:
+        test_agsi()
+    elif "--test-gdelt" in sys.argv:
+        test_gdelt()
+    else:
+        sys.exit(main())

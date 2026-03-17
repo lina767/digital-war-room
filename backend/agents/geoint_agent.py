@@ -813,6 +813,7 @@ def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: s
     if not raw_type:
         return "other"
     t = (raw_type or "").lower()
+    st = (sub_type or "").lower()
     if source == "FIRMS":
         if "explosion" in t or t == "explosion":
             return "airstrike"
@@ -820,6 +821,10 @@ def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: s
             return "fire"
         return "explosion"
     if source == "ACLED":
+        if "air" in st or "drone" in st:
+            return "airstrike"
+        if "shelling" in st or "missile" in st or "artillery" in st:
+            return "missile"
         if "air" in t and ("strike" in t or "attack" in t):
             return "airstrike"
         if "explosion" in t or "remote violence" in t or "shelling" in t:
@@ -836,9 +841,103 @@ def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: s
     return "other"
 
 
+MILITARY_EVENT_TYPES = {
+    "Battles", "Explosions/Remote violence", "Violence against civilians",
+}
+MILITARY_SUB_EVENTS_THEATER = {
+    "Air/drone strike": "airstrike",
+    "Shelling/artillery/missile attack": "missile",
+    "Armed clash": "explosion",
+    "Remote explosive/landmine/IED": "explosion",
+    "Suicide bomb": "explosion",
+    "Grenade": "explosion",
+    "Attack": "explosion",
+    "Abduction/forced disappearance": "other",
+    "Sexual violence": "other",
+}
+ACLED_AGGREGATED_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "acled")
+
+
+def _load_aggregated_theater_events(conflict: str, weeks: int = 4) -> List[Dict[str, Any]]:
+    """Load recent military events from aggregated CSVs for theater map display.
+    Returns list of dicts with lat, lon, event_type, etc."""
+    cl = conflict.lower()
+    country_files = []
+    if "iran" in cl:
+        country_files.extend([
+            ("Iran", "acled_iran_aggregated_current.csv"),
+            ("Israel", "acled_israel_aggregated_current.csv"),
+            ("Iraq", "acled_iraq_aggregated_current.csv"),
+            ("Syria", "acled_syria_aggregated_current.csv"),
+            ("Lebanon", "acled_lebanon_aggregated_current.csv"),
+            ("Yemen", "acled_yemen_aggregated_current.csv"),
+        ])
+    elif "israel" in cl or "gaza" in cl:
+        country_files.extend([
+            ("Israel", "acled_israel_aggregated_current.csv"),
+            ("Palestine", "acled_palestine_aggregated_current.csv"),
+            ("Lebanon", "acled_lebanon_aggregated_current.csv"),
+            ("Iran", "acled_iran_aggregated_current.csv"),
+        ])
+    elif "ukraine" in cl:
+        return []
+    else:
+        country_files.append(("Iran", "acled_iran_aggregated_current.csv"))
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(weeks=weeks)).strftime("%Y-%m-%d")
+    events: List[Dict[str, Any]] = []
+
+    for country, fname in country_files:
+        fpath = os.path.join(ACLED_AGGREGATED_DIR, fname)
+        if not os.path.exists(fpath):
+            continue
+        try:
+            with open(fpath, newline="") as f:
+                for row in csv.DictReader(f):
+                    if row.get("week", "") < cutoff:
+                        continue
+                    if row.get("event_type") not in MILITARY_EVENT_TYPES:
+                        continue
+                    sub = row.get("sub_event_type", "")
+                    if sub in ("Peaceful protest", "Protest with intervention",
+                               "Excessive force against protesters"):
+                        continue
+                    lat = _safe_float(row.get("centroid_lat"), 0)
+                    lon = _safe_float(row.get("centroid_lon"), 0)
+                    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+                        continue
+                    ev_count = int(row.get("events") or 0)
+                    fatalities = int(row.get("fatalities") or 0)
+                    if ev_count == 0:
+                        continue
+                    theater_type = MILITARY_SUB_EVENTS_THEATER.get(sub, "other")
+                    label = f"{sub} · {ev_count} events"
+                    if fatalities > 0:
+                        label += f", {fatalities} fatalities"
+                    label += f" ({row.get('admin1', '?')}, {country})"
+                    events.append({
+                        "lat": round(lat, 5),
+                        "lon": round(lon, 5),
+                        "event_type": theater_type,
+                        "source": "ACLED-Aggregated",
+                        "confidence": "high" if fatalities > 0 else "nominal",
+                        "label": label,
+                        "event_date": row.get("week"),
+                        "sub_event_type": sub,
+                        "fatalities": fatalities,
+                        "events_count": ev_count,
+                        "country": country,
+                        "admin1": row.get("admin1", ""),
+                    })
+        except Exception as e:
+            logger.warning("Failed to load aggregated theater data from %s: %s", fname, e)
+
+    return events
+
+
 def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     """
-    Unified events for Theater Map: FIRMS thermal anomalies + ACLED (with lat/lon).
+    Unified events for Theater Map: aggregated ACLED (real-time) + FIRMS + ACLED API.
     Returns list of { lat, lon, event_type, source, confidence?, label? }.
     event_type: airstrike | missile | drone | explosion | naval | fire | other.
     Skips FIRMS industrial/gas-flaring points. Use for Iran (or other conflict) map layer.
@@ -846,7 +945,21 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     region = get_conflict_region(conflict)
     out: List[Dict[str, Any]] = []
 
-    # 1) FIRMS thermal anomalies (excluding gas flaring)
+    # 1) Aggregated ACLED data (real-time weekly, military events across the region)
+    try:
+        from services.acled_aggregated import refresh_acled_aggregated
+        refresh_acled_aggregated()
+    except Exception:
+        pass
+    try:
+        agg_events = _load_aggregated_theater_events(conflict, weeks=4)
+        out.extend(agg_events)
+        if agg_events:
+            logger.info("Theater: %d aggregated military events loaded for %s", len(agg_events), conflict)
+    except Exception as e:
+        logger.warning("Theater: aggregated load failed: %s", e)
+
+    # 2) FIRMS thermal anomalies (excluding gas flaring)
     try:
         raw_firms = get_thermal_anomalies(region=region, days=3)
         for a in raw_firms if isinstance(raw_firms, list) else []:
@@ -871,7 +984,7 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     except Exception:
         pass
 
-    # 2) ACLED events
+    # 3) ACLED API events (historical, ~12-month lag on Research level)
     try:
         acled = get_conflict_events_for_heatmap(conflict, limit=max(100, min(500, limit)))
         for e in acled:

@@ -136,6 +136,16 @@ def log_run_stats():
     )
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _strip_json_block(raw: str) -> str:
+    """Strip ```json ... ``` fencing that LLMs sometimes wrap around JSON output."""
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    return cleaned
+
+
 # ── Core API call ────────────────────────────────────────────────────────────
 
 def _get_client():
@@ -243,7 +253,7 @@ async def sentiment(text: str, lang: str = "auto") -> Optional[Dict[str, Any]]:
     if not raw:
         return None
     try:
-        parsed = json.loads(raw.strip())
+        parsed = json.loads(_strip_json_block(raw))
         _run_sentiment_count += 1
         return {
             "label": parsed.get("label", "neutral"),
@@ -288,10 +298,7 @@ async def ner(text: str) -> Optional[List[Dict[str, str]]]:
     if not raw:
         return None
     try:
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        parsed = json.loads(cleaned)
+        parsed = json.loads(_strip_json_block(raw))
         if isinstance(parsed, list):
             _run_ner_count += 1
             return [
@@ -382,7 +389,7 @@ async def classify(text: str) -> Optional[Dict[str, Any]]:
     if not raw:
         return None
     try:
-        parsed = json.loads(raw.strip())
+        parsed = json.loads(_strip_json_block(raw))
         _run_classify_count += 1
         category = parsed.get("category", "other")
         if category not in _GEOPOLITICAL_CATEGORIES:
@@ -452,7 +459,7 @@ async def classify_diplo(text: str) -> Optional[Dict[str, Any]]:
     if not raw:
         return None
     try:
-        parsed = json.loads(raw.strip())
+        parsed = json.loads(_strip_json_block(raw))
         _run_classify_count += 1
         category = parsed.get("category", "irrelevant")
         if category not in _DIPLO_CATEGORIES:
@@ -591,10 +598,7 @@ async def document_qa(
     if not raw:
         return None
     try:
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        parsed = json.loads(cleaned)
+        parsed = json.loads(_strip_json_block(raw))
         _run_docqa_count += 1
         return {
             "answer": parsed.get("answer", ""),

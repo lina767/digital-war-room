@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
     app.state.job_queue = JobQueue()
     app.state.ws_manager = ConnectionManager()
 
+    try:
+        from services.acled_aggregated import refresh_acled_aggregated
+        refresh_acled_aggregated()
+        logger.info("ACLED aggregated data checked/refreshed at startup")
+    except Exception as e:
+        logger.warning("ACLED aggregated startup refresh failed: %s", e)
+
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
         first_delay = 5

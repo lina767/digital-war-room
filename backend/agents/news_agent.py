@@ -440,25 +440,35 @@ def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
             "format": "json",
             "timespan": "48H",
         }
-        max_retries = 2
+        max_retries = 3
         for attempt in range(max_retries):
             async with httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.get(GDELT_URL, params=params)
-                if resp.status_code == 429 and attempt < max_retries - 1:
-                    await asyncio.sleep(6)
-                    continue
+                if resp.status_code == 429:
+                    if attempt < max_retries - 1:
+                        wait = 8 * (attempt + 1)
+                        logger.info("GDELT news: 429 rate-limited, waiting %ds (attempt %d)", wait, attempt + 1)
+                        await asyncio.sleep(wait)
+                        continue
+                    logger.warning("GDELT news: rate-limited after %d attempts", max_retries)
+                    return {"_error": "GDELT rate-limited (429)"}
+                if resp.status_code != 200:
+                    logger.warning("GDELT news: HTTP %s: %.200s", resp.status_code, resp.text)
+                    return {"_error": f"GDELT HTTP {resp.status_code}"}
                 ct = (resp.headers.get("content-type") or "").lower()
                 if "json" not in ct and "javascript" not in ct:
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(6)
+                        await asyncio.sleep(8)
                         continue
-                    return []
-                resp.raise_for_status()
+                    logger.warning("GDELT news: non-JSON response (CT: %s)", ct)
+                    return {"_error": f"GDELT non-JSON (CT: {ct})"}
                 return resp.json()
-        return []
+        return {"_error": "GDELT: retries exhausted"}
 
     try:
         data = run_async(_fetch())
+        if isinstance(data, dict) and data.get("_error"):
+            return [{"error": data["_error"]}]
         raw_list = _gdelt_article_list(data)
         articles = []
         for art in raw_list:

@@ -379,7 +379,7 @@ export async function fetchGreynoiseTrend(conflict: string, days = 7): Promise<G
   }
 }
 
-/** Theater map event (unified FIRMS + ACLED) for type-specific icons. */
+/** Theater map event (unified FIRMS + ACLED + ACLED-Aggregated) for type-specific icons. */
 export interface TheaterEvent {
   lat: number;
   lon: number;
@@ -408,6 +408,12 @@ export interface TheaterEvent {
   url?: string;
   /** ACLED sub-event type (e.g. Shelling, Armed clash). */
   sub_event_type?: string;
+  /** Aggregated: number of events in the weekly period. */
+  events_count?: number;
+  /** Country (aggregated data). */
+  country?: string;
+  /** Admin1 region/province (aggregated data). */
+  admin1?: string;
 }
 
 /** GET /api/theater-events – unified events for Theater Map layer (Iran etc.). */

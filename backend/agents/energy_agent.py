@@ -110,9 +110,13 @@ async def _fetch_agsi_storage(api_key: str) -> Dict[str, Any]:
                 "gas_in_storage": r.get("gasInStorage"),
                 "trend": r.get("trend"),
             }
-        return {"full": list(by_country.values())[:15], "error": None}
+        result = list(by_country.values())[:15]
+        logger.info("AGSI+: fetched %d country records (e.g. %s)",
+                     len(result), ", ".join(r["country"] for r in result[:3]))
+        return {"full": result, "error": None}
     except Exception as e:
-        logger.warning("AGSI+ request failed: %s. Check AGSI_API_KEY and network (agsi.gie.eu).", e)
+        logger.warning("AGSI+ request failed (%s): %s. Check AGSI_API_KEY and network (agsi.gie.eu).",
+                        type(e).__name__, e)
         return {"full": [], "error": str(e)}
 
 

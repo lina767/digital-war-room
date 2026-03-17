@@ -85,9 +85,38 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
 
 ---
 
-## 6. Optional
+## 6. Eigene Domain (z. B. www.digital-war-room.com)
 
-- **Eigene Domain:** In Vercel Domain hinzufügen; in Supabase die neue Domain als Redirect/Site URL eintragen.
+Um auf deine eigene Domain umzuschalten:
+
+1. **Vercel – Domain hinzufügen**
+   - Vercel Dashboard → dein Projekt → **Settings** → **Domains**
+   - **Add** → `www.digital-war-room.com` (und optional `digital-war-room.com` für Weiterleitung)
+   - Angezeigte DNS-Einträge bei deinem Domain-Anbieter eintragen (meist CNAME für `www` auf `cname.vercel-dns.com`, A-Record für Apex je nach Anbieter)
+
+2. **Supabase – Redirect & Site URL**
+   - **Authentication** → **URL Configuration**
+   - **Site URL:** `https://www.digital-war-room.com`
+   - **Redirect URLs:** hinzufügen:
+     - `https://www.digital-war-room.com`
+     - `https://www.digital-war-room.com/**`
+     - optional: `https://digital-war-room.com` und `https://digital-war-room.com/**` falls du Apex nutzt
+
+3. **Backend (Railway) – CORS**
+   - Unter **Variables** setzen:  
+     `CORS_ORIGINS` = `https://www.digital-war-room.com,https://digital-war-room.com`  
+     (kommagetrennt, keine Leerzeichen um die URLs; mit `*` erlaubt das Backend alle Origins.)
+   - Nach Änderung: Service neu starten bzw. Redeploy.
+
+4. **Frontend-Env (Vercel)**  
+   `VITE_API_URL` bleibt die Railway-Backend-URL; die App läuft unter der neuen Domain, die API-Calls gehen weiterhin an Railway.
+
+---
+
+## 7. Optional (weitere Hinweise)
+
+- **Eigene Domain (Details):** Siehe Abschnitt 6 oben.
+- **CORS:** Bei eigener Domain in Railway `CORS_ORIGINS` setzen (Abschnitt 6).
 - **Backend-Health:** `GET https://deine-railway-url/health` sollte `{"status":"ok"}` liefern.
 - **Analyse sofort auslösen (z. B. nach Neustart):**  
   `POST https://deine-railway-url/api/analyze/trigger?conflict=US-Iran`  
