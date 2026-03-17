@@ -201,6 +201,14 @@ function DashboardContent() {
               <Rss className="h-4 w-4 mr-2" aria-hidden /> Intel Feed
             </Button>
           </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            <Link to="/how-it-works" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>How it works</Link>
+            <Link to="/blog" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Blog</Link>
+            <Link to="/methodology" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Methodology</Link>
+            <Link to="/daily-briefing" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Daily Briefing</Link>
+            <Link to="/sources" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Source Directory</Link>
+            <Link to="/support" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Support</Link>
+          </div>
         </div>
       )}
 

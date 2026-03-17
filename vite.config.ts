@@ -14,8 +14,8 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    // Prerender uses Puppeteer/Chrome; not available on Vercel/CI. Only run when explicitly enabled (e.g. local ENABLE_PRERENDER=1).
-    ...(process.env.ENABLE_PRERENDER === "1"
+    // Prerender uses Puppeteer/Chrome; not available on Vercel (missing libs). Only run when explicitly enabled and not on Vercel.
+    ...(process.env.ENABLE_PRERENDER === "1" && process.env.VERCEL !== "1"
       ? [
           seoPrerender({
             routes: [
@@ -30,7 +30,6 @@ export default defineConfig(({ mode }) => ({
               "/blog",
               "/blog/welcome-to-the-blog",
             ],
-            // Required in CI (e.g. GitHub Actions) where Chrome runs in a sandboxed environment.
             puppeteer:
               process.env.CI === "true"
                 ? { args: ["--no-sandbox", "--disable-setuid-sandbox"] }

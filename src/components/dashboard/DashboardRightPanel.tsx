@@ -422,6 +422,8 @@ export function DashboardRightPanel({
       <p className="mt-2 text-[11px] text-muted-foreground">
         <Link to="/how-it-works#dashboard-guide" className="text-primary hover:underline">How to read the dashboard</Link>
         {" · "}
+        <Link to="/blog" className="text-primary hover:underline">Blog</Link>
+        {" · "}
         <Link to="/sources" className="text-primary hover:underline">Source Directory</Link>
         {" · "}
         <Link to="/app/monitoring" className="text-primary hover:underline">Agent Monitor</Link>
