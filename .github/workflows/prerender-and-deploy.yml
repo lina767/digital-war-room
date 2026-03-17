@@ -1,5 +1,6 @@
-# Build with prerender (Puppeteer/Chrome) and optionally deploy prebuilt output to Vercel.
-# Prerender is not available on Vercel's build environment; this workflow runs it in CI.
+# Build and optionally deploy prebuilt output to Vercel.
+# Prerender (Puppeteer) is disabled in CI to avoid Chrome/sandbox issues; run locally with
+# ENABLE_PRERENDER=1 npm run build if you need prerendered HTML and deploy manually.
 #
 # Required secrets for deploy job: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
 # See: https://vercel.com/guides/how-can-i-use-github-actions-with-vercel
@@ -27,20 +28,10 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install dependencies for Puppeteer (headless Chrome)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
-            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-            libgbm1 libasound2 libpango-1.0-0 libcairo2
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Build with prerender
-        env:
-          ENABLE_PRERENDER: "1"
+      - name: Build
         run: npm run build
 
       - name: Upload dist

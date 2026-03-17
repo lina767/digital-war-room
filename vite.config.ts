@@ -28,6 +28,11 @@ export default defineConfig(({ mode }) => ({
               "/privacy",
               "/support",
             ],
+            // Required in CI (e.g. GitHub Actions) where Chrome runs in a sandboxed environment.
+            puppeteer:
+              process.env.CI === "true"
+                ? { args: ["--no-sandbox", "--disable-setuid-sandbox"] }
+                : undefined,
           }),
         ]
       : []),
