@@ -17,6 +17,9 @@
     },
     "huggingface-skills": {
       "enabled": true
+    },
+    "slack": {
+      "enabled": true
     }
   }
 }
