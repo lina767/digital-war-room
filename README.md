@@ -1,30 +1,77 @@
 # Digital War Room
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Live Demo](https://img.shields.io/badge/demo-digital--war--room.com-0ea5e9)](https://digital-war-room.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Live Demo](https://img.shields.io/badge/demo-digital--war--room.com-0ea5e9)](https://digital-war-room.com) [![GitHub](https://img.shields.io/badge/GitHub-lina767%2Fdigital--war--room-181717?logo=github)](https://github.com/lina767/digital-war-room)
 
-AI-powered OSINT intelligence platform — multi-agent system monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT & TECHINT. **Live Demo:** [digital-war-room.com](https://digital-war-room.com)
+**AI-powered OSINT intelligence platform** — a multi-agent system that monitors global conflicts in near–real time across 11 intelligence disciplines (GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, ENERGY, NEWS, PROTEST, DIPLO, PROXIMITY). One LLM supervisor synthesizes all streams into a single threat assessment with escalation scores, BLUF-style key findings, scenarios, and built-in sanctions compliance checks.
 
-![Dashboard](public/og-image.png)
+**Live demo:** [digital-war-room.com](https://digital-war-room.com) · **Code:** [github.com/lina767/digital-war-room](https://github.com/lina767/digital-war-room)
 
-## Features
+---
 
-- **11 intelligence agents** run in parallel (FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY) with a single LLM supervisor synthesizing outputs
-- **Near–real-time escalation scores** and BLUF-style key findings, scenarios, and compliance checks
-- **Built-in compliance layer**: geofencing, AIS anomaly detection, supply-chain screening, OFAC/EU cross-referencing
-- **Graceful degradation**: missing API keys yield empty results (no crashes); LLM failures fall back to rule-based scoring; per-agent timeouts keep the pipeline responsive
+## What It Is & Why It Matters
 
-## Who it's for
+Digital War Room aggregates open-source signals from 20+ public and semi-public APIs, runs 11 specialized agents in parallel, and fuses their outputs with a single supervisor LLM (Claude or GPT-4o). You get near–real-time escalation scores, key findings, predictive outlooks, and a compliance layer (geofencing, AIS anomaly detection, OFAC/EU cross-referencing) — all from one dashboard. No classified data; the platform shows what’s achievable with OSINT and AI orchestration.
 
-- OSINT analysts and researchers
-- Geopolitical risk consultants
-- Intelligence professionals exploring AI-augmented workflows
-- AI/ML engineers interested in multi-agent architectures
+**Current focus:** Iran / Middle East.
+
+## Who It's For
+
+- **OSINT analysts and researchers** — Multi-source fusion and BLUF-style briefings
+- **Geopolitical risk consultants** — Escalation scores and scenario framing
+- **Intelligence professionals** — AI-augmented workflows and compliance screening
+- **AI/ML engineers** — Multi-agent architecture, LangChain/LangGraph, graceful degradation
+
+---
 
 ## Architecture
 
-The backend runs 11 agents via `ThreadPoolExecutor`, each returning a structured payload; a supervisor LLM (Claude or GPT-4o) fuses them into one assessment. Frontend is a React dashboard with threat level, key findings, agent cards, and map overlays.
+The backend runs **11 agents** via `ThreadPoolExecutor` (75s timeout per agent). Each returns a structured payload; the supervisor LLM fuses them into one assessment. The frontend is a React dashboard with threat level, key findings, agent cards, and map overlays.
 
-For a detailed diagram and agent/source table, see **[Architecture & agents](docs/social-assets/one-pager.md)**.
+### The 11 Intelligence Agents
+
+| Agent | Sources | What It Measures |
+|-------|---------|------------------|
+| **FININT** | Brent/WTI/Gold, Polymarket, Metaculus, OFAC, Etherscan | Financial stress and market-implied conflict probability |
+| **SIGINT** | ADS-B (adsb.fi, adsb.lol), CriticalThreats RSS, Hormuz Tankers (AISStream) | Military aircraft, intel reports, Hormuz tanker traffic |
+| **NEWS** | NewsAPI, GDELT Doc API, RSS (BBC, DW, Al Jazeera, RFE/RL) | Open-source media sentiment and coverage volume |
+| **GEOINT** | NASA FIRMS (thermal), ACLED, Sentinel Hub EO Browser | Satellite-detected thermal anomalies and conflict events |
+| **SOCMINT** | Telegram, Nitter/X, Reddit, RSS, ReliefWeb | Social signal detection and grassroots sentiment |
+| **TECHINT** | IODA, OONI, Shodan, Cloudflare Radar, Wayback Machine | Internet disruptions, censorship, cyber exposure |
+| **CYBER** | CISA KEV, Mandiant/CrowdStrike RSS, AlienVault OTX, GreyNoise | Active exploits, threat intel, malicious scanning |
+| **ENERGY** | AGSI+ (EU gas storage), Alpha Vantage (Brent/WTI) | Energy supply stress and commodity price shocks |
+| **PROTEST** | ACLED (protests/riots), GDELT (protest coverage) | Civil society unrest and protest intensity |
+| **DIPLO** | OFAC SDN, EU Consolidated List, UN Press, ICJ RSS | Diplomatic/legal signals, sanctions activity |
+| **PROXIMITY** | NASA FIRMS + OSM (Overpass API) | Strike-to-civilian-infrastructure correlation, human-shield flags |
+
+For a full diagram and design decisions, see **[Architecture & one-pager](docs/social-assets/one-pager.md)** and **[Architecture](docs/ARCHITECTURE.md)**.
+
+### Data Sources (Summary)
+
+| Category | Sources |
+|----------|---------|
+| **Conflict & events** | ACLED, GDELT |
+| **Internet & censorship** | OONI, IODA, Shodan, Cloudflare Radar |
+| **Markets & prediction** | Polymarket, Metaculus, Alpha Vantage, FRED, EIA |
+| **Aircraft & vessels** | ADS-B Exchange (adsb.fi, adsb.lol), AISStream (Hormuz chokepoint) |
+| **Threat intel** | GreyNoise, CISA KEV, AlienVault OTX |
+| **Satellite & geography** | NASA FIRMS, Sentinel Hub, OpenStreetMap (Overpass) |
+| **News & social** | NewsAPI, RSS, ReliefWeb, Telegram, Reddit |
+| **Sanctions & legal** | OFAC SDN, EU Consolidated List, UN, ICJ |
+
+Full API keys and setup: **[API keys & env](docs/API-KEYS.md)**.
+
+---
+
+## Screenshots
+
+| Theater Map | Daily Briefing | Predictive Outlook |
+|-------------|----------------|---------------------|
+| Dashboard with conflict map, agent cards, and escalation score | BLUF-style key findings and scenario summaries | 24h forecast and risk indicators |
+| *Screenshot: [docs/social-assets/](docs/social-assets/) or run the app and open `/`* | *Screenshot: `/daily-briefing`* | *Screenshot: predictive block on dashboard* |
+
+*(Add actual screenshots or GIFs to `docs/social-assets/` and link them here for best discovery.)*
+
+---
 
 ## Getting Started
 
@@ -36,17 +83,19 @@ npm install
 npm run dev
 ```
 
-The frontend runs on `http://localhost:8080` by default. The backend is in `backend/` (Python, FastAPI); see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for running it locally or deploying.
+The frontend runs on `http://localhost:8080` by default. The backend is in `backend/` (Python, FastAPI). See **[Deployment](docs/DEPLOYMENT.md)** for running the backend locally or deploying frontend and backend.
 
 ### Environment Variables
 
-Set the following in a `.env` file in the project root:
+In the project root `.env`:
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_API_URL` | Backend API URL (e.g. Railway); **required** for deploy |
+| `VITE_API_URL` | Backend API URL (e.g. Railway); **required** for production |
 
-## Scripts
+All backend env vars and optional API keys per agent: **[API keys & env](docs/API-KEYS.md)**.
+
+### Scripts
 
 | Command | Description |
 |---------|-------------|
@@ -56,21 +105,26 @@ Set the following in a `.env` file in the project root:
 | `npm run lint` | Run ESLint |
 | `npm run test` | Run tests |
 
+---
+
 ## Documentation
 
 - **[Deployment](docs/DEPLOYMENT.md)** — Frontend (Vercel), backend (Railway), env vars, custom domain
 - **[API keys & env](docs/API-KEYS.md)** — All backend env vars and optional API keys per agent
-- **[Architecture & one-pager](docs/social-assets/one-pager.md)** — Agent table, design decisions, tech stack
+- **[Architecture](docs/ARCHITECTURE.md)** — Pipeline, supervisor, agent pool, caching
+- **[Agents](docs/AGENTS.md)** — Per-agent description, inputs, outputs
+- **[Architecture & one-pager](docs/social-assets/one-pager.md)** — Diagram, design decisions, tech stack
+- **[API reference](docs/API-REFERENCE.md)** — Backend REST endpoints
 
 ## Deployment
 
-1. Set environment variables in your hosting platform (Vercel, Cloudflare Pages, etc.)
-2. Build command: `npm run build` (runs `prebuild` → generates `public/sitemap.xml` with `lastmod`)
-3. Output directory: `dist`
+1. Set environment variables in your hosting platform (Vercel, Cloudflare Pages, etc.).
+2. Build command: `npm run build` (runs `prebuild` → generates `public/sitemap.xml` with `lastmod`).
+3. Output directory: `dist`.
 
-**SEO (pre-rendered routes):** The build produces one HTML file per route (e.g. `dist/how-it-works/index.html`). Configure your server so that requests to `/how-it-works` are served from `how-it-works/index.html` (or equivalent rewrite). Fallback for unknown paths should be `index.html` for the SPA.
+**SEO (pre-rendered routes):** With prerender enabled (e.g. in CI), the build produces one HTML file per route. Fallback for unknown paths should be `index.html` for the SPA.
 
-**OG image:** `public/og-image.png` is used for social/snippet previews. Recommended size 1200×630 px. In your hosting config, set cache headers for `/og-image.png` if needed (e.g. `Cache-Control: public, max-age=86400`).
+**OG image:** `public/og-image.png` is used for social/snippet previews (recommended 1200×630 px).
 
 ## Tech Stack
 

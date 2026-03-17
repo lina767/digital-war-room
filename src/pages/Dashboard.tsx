@@ -6,7 +6,7 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList, Github } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -289,6 +289,17 @@ function DashboardContent() {
           </Link>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-1.5 sm:mt-1">
+          <a
+            href="https://github.com/lina767/digital-war-room"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+            aria-label="Digital War Room on GitHub"
+          >
+            <Github className="h-3.5 w-3.5" aria-hidden />
+            <span>GitHub</span>
+          </a>
+          <span className="text-border">·</span>
           <Link
             to="/impressum"
             className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
