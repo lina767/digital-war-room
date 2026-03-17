@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { HelmetProvider } from "react-helmet-async";
 import "./index.css";
 
 const API_URL = import.meta.env.VITE_API_URL as string | undefined;
@@ -29,9 +30,17 @@ function DeploySetupMessage() {
 
 const root = document.getElementById("root")!;
 if (!API_URL?.trim()) {
-  createRoot(root).render(<DeploySetupMessage />);
+  createRoot(root).render(
+    <HelmetProvider>
+      <DeploySetupMessage />
+    </HelmetProvider>,
+  );
 } else {
   import("./App.tsx").then(({ default: App }) => {
-    createRoot(root).render(<App />);
+    createRoot(root).render(
+      <HelmetProvider>
+        <App />
+      </HelmetProvider>,
+    );
   });
 }

@@ -1,4 +1,5 @@
 import { ContentPageLayout } from "@/components/ContentPageLayout";
+import { SEO } from "@/components/SEO";
 import {
   BarChart,
   Bar,
@@ -48,14 +49,27 @@ const CHART_COLORS = [
   "hsl(var(--muted-foreground) / 0.35)",
 ];
 
+const METHODOLOGY_DESCRIPTION =
+  "How the composite escalation score and threat level are computed from 12 intelligence streams, and how the Signal Framework compares state vs. exile media.";
+
 const Methodology = () => {
   return (
-    <ContentPageLayout
-      label="METHODOLOGY"
-      title="Scoring methodology"
-      description="How the composite escalation score and threat level are computed from 12 intelligence streams, and how the Signal Framework compares state vs. exile media."
-      maxWidth="5xl"
-    >
+    <>
+      <SEO
+        title="Methodology — Digital War Room"
+        description={METHODOLOGY_DESCRIPTION}
+        path="/methodology"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Methodology", url: "https://digital-war-room.com/methodology" },
+        ]}
+      />
+      <ContentPageLayout
+        label="METHODOLOGY"
+        title="Scoring methodology"
+        description={METHODOLOGY_DESCRIPTION}
+        maxWidth="5xl"
+      >
       <div className="space-y-10 sm:space-y-12">
         {/* Composite scoring */}
         <section className="space-y-4">
@@ -228,6 +242,7 @@ const Methodology = () => {
         </section>
       </div>
     </ContentPageLayout>
+    </>
   );
 };
 

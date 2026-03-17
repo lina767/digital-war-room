@@ -1,13 +1,59 @@
 import { Link } from "react-router-dom";
 import { Database, ClipboardList } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
+import { SEO } from "@/components/SEO";
+
+const HOW_IT_WORKS_DESCRIPTION =
+  "The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals from multiple intelligence streams, computes an escalation score, and surfaces a concise BLUF-style briefing.";
+
+const HOW_IT_WORKS_FAQ = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: [
+    {
+      "@type": "Question",
+      name: "What is the Digital War Room?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals from multiple intelligence streams (GEOINT, SIGINT, SOCMINT, FININT, TECHINT, and others), computes a composite escalation score, and surfaces a concise BLUF-style briefing.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "What intelligence streams does the platform use?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "The platform uses 12 intelligence streams: SIGINT, Chokepoint, FININT, NEWS, SOCMINT, Proximity, GEOINT, TECHINT, CYBER, ENERGY, PROTEST, and DIPLO. Each stream is handled by a dedicated agent that calls external APIs and computes a stream-specific score.",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "Where can I see the data sources?",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "All data sources are listed in the Source Directory with reliability ratings. The Methodology page explains how the composite escalation score and threat levels are computed.",
+      },
+    },
+  ],
+};
 
 const HowItWorks = () => {
   return (
-    <ContentPageLayout
+    <>
+      <SEO
+        title="How It Works — Digital War Room"
+        description={HOW_IT_WORKS_DESCRIPTION}
+        path="/how-it-works"
+        structuredData={HOW_IT_WORKS_FAQ}
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "How It Works", url: "https://digital-war-room.com/how-it-works" },
+        ]}
+      />
+      <ContentPageLayout
       label="DOCUMENTATION"
       title="How the Digital War Room works"
-      description="The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals from multiple intelligence streams, computes an escalation score, and surfaces a concise BLUF-style briefing."
+      description={HOW_IT_WORKS_DESCRIPTION}
       maxWidth="5xl"
     >
       <div className="space-y-10 sm:space-y-12">
@@ -244,6 +290,7 @@ const HowItWorks = () => {
           </section>
       </div>
     </ContentPageLayout>
+    </>
   );
 };
 

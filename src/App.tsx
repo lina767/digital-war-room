@@ -1,23 +1,34 @@
+import { lazy, Suspense } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
-import Dashboard from "./pages/Dashboard";
-import AgentMonitor from "./pages/AgentMonitor";
-import NotFound from "./pages/NotFound";
-import HowItWorks from "./pages/HowItWorks";
-import Methodology from "./pages/Methodology";
-import Impressum from "./pages/Impressum";
-import SourceDirectory from "./pages/SourceDirectory";
-import DailyIntelligenceBriefing from "./pages/DailyIntelligenceBriefing";
-import Privacy from "./pages/Privacy";
-import Support from "./pages/Support";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const AgentMonitor = lazy(() => import("./pages/AgentMonitor"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const HowItWorks = lazy(() => import("./pages/HowItWorks"));
+const Methodology = lazy(() => import("./pages/Methodology"));
+const Impressum = lazy(() => import("./pages/Impressum"));
+const SourceDirectory = lazy(() => import("./pages/SourceDirectory"));
+const DailyIntelligenceBriefing = lazy(() => import("./pages/DailyIntelligenceBriefing"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Support = lazy(() => import("./pages/Support"));
+
+function PageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background" aria-busy="true" aria-label="Loading">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
 
 const App = () => (
   <TooltipProvider>
     <Sonner />
     <BrowserRouter>
-      <Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
           <Route path="/app/monitoring" element={<AgentMonitor />} />
@@ -29,7 +40,8 @@ const App = () => (
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/support" element={<Support />} />
           <Route path="*" element={<NotFound />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </BrowserRouter>
     <Analytics />
   </TooltipProvider>

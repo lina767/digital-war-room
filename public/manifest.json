@@ -1,0 +1,23 @@
+{
+  "name": "Digital War Room",
+  "short_name": "Digital War Room",
+  "description": "AI-Powered OSINT Intelligence — multi-agent system monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT and TECHINT.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/favicon.png?v=2",
+      "sizes": "48x48",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png?v=2",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

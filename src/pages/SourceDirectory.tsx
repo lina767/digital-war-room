@@ -10,6 +10,7 @@ import {
   type ReliabilityTier,
 } from "@/lib/sourceDirectory";
 import { AGENTS_WITH_SOURCES } from "@/components/dashboard/agentsConfig";
+import { SEO } from "@/components/SEO";
 
 const RELIABILITY_ORDER: ReliabilityTier[] = ["official", "curated", "community", "supplementary"];
 
@@ -32,14 +33,27 @@ const SourceDirectory = () => {
     });
   }, [search, agentFilter, reliabilityFilter]);
 
+  const sourceDirDescription =
+    "A transparent, searchable directory of all data sources used by the platform, with reliability ratings. Each source is linked to the intelligence agents that use it.";
+
   return (
-    <ContentPageLayout
-      label="TRANSPARENCY"
-      title="Source Directory"
-      description="A transparent, searchable directory of all data sources used by the platform, with reliability ratings. Each source is linked to the intelligence agents that use it. Derived outputs (e.g. the Global Impact panel for Iran — oil moves, Strait of Hormuz / chokepoint risk from ENERGY and key findings; Sanctions Compliance — risk score from OFAC/EU via DIPLO, geofencing and AIS anomalies from SIGINT) are shown on the dashboard but do not appear as separate sources here."
-      icon={<Database className="h-5 w-5 text-muted-foreground" />}
-      maxWidth="5xl"
-    >
+    <>
+      <SEO
+        title="Source Directory — Digital War Room"
+        description={sourceDirDescription}
+        path="/sources"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Source Directory", url: "https://digital-war-room.com/sources" },
+        ]}
+      />
+      <ContentPageLayout
+        label="TRANSPARENCY"
+        title="Source Directory"
+        description="A transparent, searchable directory of all data sources used by the platform, with reliability ratings. Each source is linked to the intelligence agents that use it. Derived outputs (e.g. the Global Impact panel for Iran — oil moves, Strait of Hormuz / chokepoint risk from ENERGY and key findings; Sanctions Compliance — risk score from OFAC/EU via DIPLO, geofencing and AIS anomalies from SIGINT) are shown on the dashboard but do not appear as separate sources here."
+        icon={<Database className="h-5 w-5 text-muted-foreground" />}
+        maxWidth="5xl"
+      >
       {/* Search and filters */}
         <div className="mb-8 space-y-4">
           <div className="relative">
@@ -111,6 +125,7 @@ const SourceDirectory = () => {
           </p>
         )}
     </ContentPageLayout>
+    </>
   );
 };
 

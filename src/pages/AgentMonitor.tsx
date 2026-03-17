@@ -25,6 +25,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import { SEO } from "@/components/SEO";
 
 type AgentStatusEntry = {
   status: string;
@@ -57,6 +58,20 @@ const POLL_INTERVAL_MS = 6000;
 const RUN_AGAIN_TIMEOUT_MS = 150_000;
 
 const AgentMonitor = () => {
+  return (
+    <>
+      <SEO
+        title="Agent Monitoring — Digital War Room"
+        description="Monitor health and status of all intelligence agents (GEOINT, SIGINT, NEWS, FININT, and more). View analysis runs and trigger refreshes."
+        path="/app/monitoring"
+        noindex
+      />
+      <AgentMonitorContent />
+    </>
+  );
+};
+
+function AgentMonitorContent() {
   const [status, setStatus] = useState<Record<string, AgentStatusEntry> | null>(null);
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [history, setHistory] = useState<AnalysisRunSummary[]>([]);

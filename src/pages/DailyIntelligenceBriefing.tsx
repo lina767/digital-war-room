@@ -13,6 +13,7 @@ import {
 import { COMPLIANCE_DISCLAIMER, COMPLIANCE_INTRO_SHORT } from "@/lib/complianceCopy";
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
+import { SEO } from "@/components/SEO";
 
 /** Reference start date for "Day X of operations" – counting from 28 February 2026. */
 const OPERATIONS_START_DATE = new Date(2026, 1, 28); // 2026-02-28
@@ -88,7 +89,17 @@ export default function DailyIntelligenceBriefing() {
   const escalationForecasts = [escalation24h, escalation7d].filter(Boolean) as typeof escalationList;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <>
+      <SEO
+        title="Daily Intelligence Briefing — Digital War Room"
+        description="BLUF-style daily intelligence report with escalation score, key findings, and predictive outlook. Export as PDF or share."
+        path="/daily-briefing"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Daily Briefing", url: "https://digital-war-room.com/daily-briefing" },
+        ]}
+      />
+      <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
         {/* Top bar: back link + actions (hidden when printing) */}
         <div className="no-print mb-6 sm:mb-8 flex flex-wrap items-center justify-between gap-3">
@@ -542,5 +553,6 @@ export default function DailyIntelligenceBriefing() {
         }
       `}</style>
     </div>
+    </>
   );
 }

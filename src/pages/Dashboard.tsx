@@ -10,6 +10,7 @@ import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, 
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
+import { SEO } from "@/components/SEO";
 
 const THREAT_BADGE_STYLES: Record<string, string> = {
   LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -23,6 +24,20 @@ function getThreatBadgeClass(level: string | null | undefined): string {
 }
 
 const Dashboard = () => {
+  return (
+    <>
+      <SEO
+        title="Digital War Room — AI-Powered OSINT Intelligence"
+        description="Multi-agent AI system monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT and TECHINT. Real-time escalation scores and BLUF-style briefings."
+        path="/"
+        imageAlt="Digital War Room dashboard showing conflict escalation and intelligence streams"
+      />
+      <DashboardContent />
+    </>
+  );
+};
+
+function DashboardContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [conflictDropdownOpen, setConflictDropdownOpen] = useState(false);
   const conflictDropdownRef = useRef<HTMLDivElement>(null);

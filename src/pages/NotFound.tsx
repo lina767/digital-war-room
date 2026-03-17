@@ -1,6 +1,7 @@
 import { useLocation, Link } from "react-router-dom";
 import { useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
+import { SEO } from "@/components/SEO";
 
 const NotFound = () => {
   const location = useLocation();
@@ -10,7 +11,9 @@ const NotFound = () => {
   }, [location.pathname]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
+    <>
+      <SEO title="404 — Digital War Room" path={location.pathname} noindex />
+      <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="text-center space-y-4">
         <p className="font-mono text-xs tracking-[0.28em] text-muted-foreground uppercase">
           SIGNAL NOT FOUND
@@ -28,6 +31,7 @@ const NotFound = () => {
         </Link>
       </div>
     </div>
+    </>
   );
 };
 

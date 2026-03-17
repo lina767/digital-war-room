@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Shield } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
+import { SEO } from "@/components/SEO";
 
 const CONTACT = {
   name: "Lina Braun",
@@ -13,7 +14,13 @@ const Privacy = () => {
   const [lang, setLang] = useState<"de" | "en">("de");
 
   return (
-    <ContentPageLayout
+    <>
+      <SEO
+        title="Privacy Policy — Digital War Room"
+        description="Privacy policy and data protection information for Digital War Room. Available in German and English."
+        path="/privacy"
+      />
+      <ContentPageLayout
       label={lang === "de" ? "RECHTLICHES" : "LEGAL"}
       title={lang === "de" ? "Datenschutzerklärung" : "Privacy Policy"}
       icon={<Shield className="h-5 w-5 text-muted-foreground" />}
@@ -203,6 +210,7 @@ const Privacy = () => {
           )}
       </div>
     </ContentPageLayout>
+    </>
   );
 };
 

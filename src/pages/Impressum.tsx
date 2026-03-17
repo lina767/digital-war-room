@@ -1,8 +1,16 @@
 import { ContentPageLayout } from "@/components/ContentPageLayout";
+import { SEO } from "@/components/SEO";
 
 const Impressum = () => {
   return (
-    <ContentPageLayout label="LEGAL NOTICE" title="Impressum" maxWidth="3xl">
+    <>
+      <SEO
+        title="Impressum — Digital War Room"
+        description="Legal notice and contact information for Digital War Room (Angaben gemäß § 5 TMG)."
+        path="/impressum"
+        lang="de"
+      />
+      <ContentPageLayout label="LEGAL NOTICE" title="Impressum" maxWidth="3xl">
       <div className="space-y-6 text-sm sm:text-[15px] text-muted-foreground">
         <section>
           <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
@@ -42,6 +50,7 @@ const Impressum = () => {
         </section>
       </div>
     </ContentPageLayout>
+    </>
   );
 };
 
