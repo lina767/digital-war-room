@@ -1,0 +1,67 @@
+import { Link } from "react-router-dom";
+import { ContentPageLayout } from "@/components/ContentPageLayout";
+import { SEO } from "@/components/SEO";
+import { BLOG_POSTS } from "@/lib/blogPosts";
+import { TITLE_BLOG, DESCRIPTION_BLOG } from "@/lib/seoCopy";
+import { Calendar, ArrowRight } from "lucide-react";
+
+const Blog = () => {
+  return (
+    <>
+      <SEO
+        title={TITLE_BLOG}
+        description={DESCRIPTION_BLOG}
+        path="/blog"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Blog", url: "https://digital-war-room.com/blog" },
+        ]}
+      />
+      <ContentPageLayout
+        label="BLOG"
+        title="Blog"
+        description={DESCRIPTION_BLOG}
+        maxWidth="3xl"
+      >
+        <ul className="space-y-6 sm:space-y-8">
+          {BLOG_POSTS.map((post) => (
+            <li key={post.slug}>
+              <Link
+                to={`/blog/${post.slug}`}
+                className="group block rounded-lg border border-border bg-card/40 p-4 sm:p-5 hover:border-primary/40 hover:bg-card/60 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+              >
+                <div className="flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground font-mono tracking-wide mb-2">
+                  <Calendar className="h-3.5 w-3.5" aria-hidden />
+                  <time dateTime={post.date}>
+                    {new Date(post.date + "T12:00:00").toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </time>
+                </div>
+                <h2 className="text-lg sm:text-xl font-semibold tracking-tight mb-2 group-hover:text-primary transition-colors">
+                  {post.title}
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-2xl mb-3">
+                  {post.excerpt}
+                </p>
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary group-hover:underline">
+                  Read post
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {BLOG_POSTS.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No posts yet. Check back later.
+          </p>
+        )}
+      </ContentPageLayout>
+    </>
+  );
+};
+
+export default Blog;

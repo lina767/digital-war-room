@@ -19,6 +19,7 @@ const routes = [
   { path: "/impressum", changefreq: "yearly", priority: "0.3" },
   { path: "/privacy", changefreq: "yearly", priority: "0.3" },
   { path: "/support", changefreq: "monthly", priority: "0.5" },
+  { path: "/blog", changefreq: "weekly", priority: "0.6" },
 ];
 
 const urlEntries = routes

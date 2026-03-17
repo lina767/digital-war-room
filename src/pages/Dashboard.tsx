@@ -6,7 +6,7 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList, Github } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList, Github, Newspaper } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -279,6 +279,13 @@ function DashboardContent() {
           >
             <Activity className="h-3.5 w-3.5" aria-hidden />
             <span>Agent Monitor</span>
+          </Link>
+          <Link
+            to="/blog"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          >
+            <Newspaper className="h-3.5 w-3.5" aria-hidden />
+            <span>Blog</span>
           </Link>
           <Link
             to="/support"

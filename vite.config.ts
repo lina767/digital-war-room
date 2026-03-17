@@ -27,6 +27,8 @@ export default defineConfig(({ mode }) => ({
               "/impressum",
               "/privacy",
               "/support",
+              "/blog",
+              "/blog/welcome-to-the-blog",
             ],
             // Required in CI (e.g. GitHub Actions) where Chrome runs in a sandboxed environment.
             puppeteer:

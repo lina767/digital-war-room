@@ -45,5 +45,10 @@ export const DESCRIPTION_IMPRESSUM = "Legal notice and imprint for Digital War R
 export const TITLE_PRIVACY = "Privacy Policy — Digital War Room";
 export const DESCRIPTION_PRIVACY = "Privacy policy for Digital War Room: data handling, analytics, and cookies.";
 
+// Blog
+export const TITLE_BLOG = "Blog — Digital War Room";
+export const DESCRIPTION_BLOG =
+  "Updates, methodology notes, and context on how the Digital War Room platform is built and run.";
+
 // 404
 export const TITLE_404 = "Page Not Found — Digital War Room";
