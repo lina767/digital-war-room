@@ -20,12 +20,6 @@ import {
   SHARE_TITLE_DAILY_BRIEFING,
   STRUCTURED_DESC_DAILY_BRIEFING,
 } from "@/lib/seoCopy";
-import {
-  TITLE_DAILY_BRIEFING,
-  DESCRIPTION_DAILY_BRIEFING,
-  SHARE_TITLE_DAILY_BRIEFING,
-  STRUCTURED_DESC_DAILY_BRIEFING,
-} from "@/lib/seoCopy";
 
 /** Reference start date for "Day X of operations" – counting from 28 February 2026. */
 const OPERATIONS_START_DATE = new Date(2026, 1, 28); // 2026-02-28
