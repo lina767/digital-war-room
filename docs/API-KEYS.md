@@ -228,7 +228,7 @@ Vollständige Referenz (DOC/GEO, ToneChart, Events, GKG): [docs/GDELT-API-REFERE
 ## Wo die Keys eintragen
 
 - **Lokal:** `backend/.env` (nicht committen). Vorlage: `backend/.env.example` (Keys leer/auskommentiert).  
-- **Produktion:** Railway (Backend) → Variables; Vercel (Frontend) nur für `VITE_*` (z. B. `VITE_API_URL`, `VITE_SUPABASE_*`).
+- **Produktion:** Railway (Backend) → Variables; Vercel (Frontend) nur für `VITE_*` (z. B. `VITE_API_URL`).
 
 **Kurzfassung – Chokepoint & Food-Commodities:**  
 - **Keine neuen Pflicht-Keys.** ALPHAVANTAGE_API_KEY (bereits Pflicht) deckt Öl + Wheat/Corn/Soy. FAO und World-Bank-Fertilizer laufen ohne Key.  

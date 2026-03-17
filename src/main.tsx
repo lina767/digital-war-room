@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import "./index.css";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const API_URL = import.meta.env.VITE_API_URL as string | undefined;
 
 function DeploySetupMessage() {
   return (
@@ -20,9 +20,7 @@ function DeploySetupMessage() {
         In Vercel unter <strong>Project → Settings → Environment Variables</strong> bitte setzen:
       </p>
       <ul style={{ marginBottom: 16, paddingLeft: 20 }}>
-        <li><code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_SUPABASE_URL</code></li>
-        <li><code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_SUPABASE_ANON_KEY</code> (oder <code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_SUPABASE_PUBLISHABLE_KEY</code>)</li>
-        <li><code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_API_URL</code> (Railway-Backend-URL)</li>
+        <li><code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_API_URL</code> (Backend-URL, z. B. Railway)</li>
       </ul>
       <p style={{ lineHeight: 1.5 }}>Danach <strong>Redeploy</strong> auslösen.</p>
     </div>
@@ -30,7 +28,7 @@ function DeploySetupMessage() {
 }
 
 const root = document.getElementById("root")!;
-if (!SUPABASE_URL?.trim()) {
+if (!API_URL?.trim()) {
   createRoot(root).render(<DeploySetupMessage />);
 } else {
   import("./App.tsx").then(({ default: App }) => {

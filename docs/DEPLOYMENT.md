@@ -1,24 +1,10 @@
 # Digital War Room – Checkliste Veröffentlichung
 
-Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Railway, Auth/Datenbank Supabase).
+Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Railway).
 
 ---
 
-## 1. Supabase (bereits eingerichtet)
-
-- [ ] **Migrationen ausgeführt**  
-  Im Supabase SQL Editor einmalig z. B. `supabase/migrations/004_full_setup_if_missing.sql` ausführen (Tabellen `profiles`, `user_settings`, `saved_analyses`, RLS, Trigger).
-- [ ] **Auth Redirect URLs (wichtig für Login auf Vercel)**  
-  Supabase erlaubt Redirects nur auf eingetragene URLs. Unter **Authentication → URL Configuration → Redirect URLs** die Produktions-URL eintragen, z. B.:
-  - `https://digital-war-room.vercel.app`
-  - `https://digital-war-room.vercel.app/**`
-  Ohne diese Einträge funktioniert Login/Signup auf der Live-Seite nicht (nur localhost).
-- [ ] **Site URL**  
-  **Site URL** in derselben Sektion auf die finale Frontend-URL setzen, z. B. `https://digital-war-room.vercel.app`.
-
----
-
-## 2. Backend (Railway)
+## 1. Backend (Railway)
 
 - [ ] **Projekt auf Railway deployen**  
   Repo verbinden oder `backend/` als Root setzen; Start-Command z. B.:  
@@ -52,40 +38,24 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
 
 ---
 
-## 3. Frontend (Vercel)
+## 2. Frontend (Vercel)
 
 - [ ] **Projekt mit Vercel verbinden**  
   Repo verbinden; **Root Directory** auf Projektroot lassen (nicht `backend/`). Build: `npm run build`, Output: `dist`.
 - [ ] **Umgebungsvariablen in Vercel setzen** (Settings → Environment Variables, für Production):
-  - `VITE_API_URL` = **Backend-URL von Railway** (z. B. `https://dein-service.up.railway.app`)
-  - `VITE_SUPABASE_URL` = `https://nzhmnprqjldtoddabulu.supabase.co` (exakt, zu deinem Supabase-Projekt)
-  - `VITE_SUPABASE_ANON_KEY` = **Anon Key (public)** aus Supabase: Project Settings → API → `anon` `public`
-  - `VITE_SUPABASE_PUBLISHABLE_KEY` = **denselben Wert** wie `VITE_SUPABASE_ANON_KEY`
-  - **Wichtig:** Werte 1:1 aus der lokalen `.env` übernehmen, **keine Anführungszeichen** um den Key, **keine Leerzeichen** am Anfang/Ende.
-- [ ] **Nach dem ersten Deploy:** Neudeploy auslösen (Redeploy), damit die neuen Env-Vars im Build genutzt werden (Vite baut sie zur Build-Zeit ein).
+  - **Pflicht:** `VITE_API_URL` = **Backend-URL von Railway** (z. B. `https://dein-service.up.railway.app`)
+  - **Wichtig:** Werte 1:1 übernehmen, **keine Anführungszeichen** um den Key, **keine Leerzeichen** am Anfang/Ende.
+- [ ] **Nach dem ersten Deploy:** Neudeploy auslösen (Redeploy), damit die Env-Vars im Build genutzt werden (Vite baut sie zur Build-Zeit ein).
 
 ---
 
-## 4. Nach dem Go-Live prüfen
+## 3. Nach dem Go-Live prüfen
 
-- [ ] **Login/Signup** auf der Live-URL testen (Supabase Redirect URLs).
 - [ ] **„Run Analysis“** im Dashboard: Request geht an `VITE_API_URL` (Railway); bei Fehlern siehe Browser-Netzwerk (z. B. CORS oder 502).
-- [ ] **Profil & Einstellungen** (Namen, Konflikt, Favoriten): Speichern und Reload prüfen; bei Fehlern RLS/Migrationen in Supabase prüfen.
-- [ ] **SPA-Routing:** Direktaufruf von `/login`, `/app/dashboard` zeigt die richtige Seite (dafür liegt `vercel.json` mit Rewrites im Repo).
-
+- [ ] **SPA-Routing:** Direktaufruf von `/app/dashboard`, `/app/monitoring` zeigt die richtige Seite (`vercel.json` Rewrites).
 ---
 
-## 5. Fehlerbehebung
-
-- **„Invalid API key“ (Supabase)**  
-  Der Anon Key in Vercel stimmt nicht mit dem Supabase-Projekt überein oder ist falsch eingetragen.
-  1. Supabase Dashboard → **Project Settings** (Zahnrad) → **API** → unter **Project API keys** den **anon** **public** Key kopieren.
-  2. In Vercel → **Settings** → **Environment Variables**: `VITE_SUPABASE_ANON_KEY` und `VITE_SUPABASE_PUBLISHABLE_KEY` auf genau diesen Wert setzen (nur den Key, keine Anführungszeichen).
-  3. **Redeploy** auslösen (Deployments → … → Redeploy). Nach Änderung von Env-Vars ist ein neuer Build nötig.
-
----
-
-## 6. Eigene Domain (z. B. www.digital-war-room.com)
+## 4. Eigene Domain (z. B. www.digital-war-room.com)
 
 Um auf deine eigene Domain umzuschalten:
 
@@ -94,34 +64,26 @@ Um auf deine eigene Domain umzuschalten:
    - **Add** → `www.digital-war-room.com` (und optional `digital-war-room.com` für Weiterleitung)
    - Angezeigte DNS-Einträge bei deinem Domain-Anbieter eintragen (meist CNAME für `www` auf `cname.vercel-dns.com`, A-Record für Apex je nach Anbieter)
 
-2. **Supabase – Redirect & Site URL**
-   - **Authentication** → **URL Configuration**
-   - **Site URL:** `https://www.digital-war-room.com`
-   - **Redirect URLs:** hinzufügen:
-     - `https://www.digital-war-room.com`
-     - `https://www.digital-war-room.com/**`
-     - optional: `https://digital-war-room.com` und `https://digital-war-room.com/**` falls du Apex nutzt
-
-3. **Backend (Railway) – CORS**
+2. **Backend (Railway) – CORS**
    - Unter **Variables** setzen:  
      `CORS_ORIGINS` = `https://www.digital-war-room.com,https://digital-war-room.com`  
      (kommagetrennt, keine Leerzeichen um die URLs; mit `*` erlaubt das Backend alle Origins.)
    - Nach Änderung: Service neu starten bzw. Redeploy.
 
-4. **Frontend-Env (Vercel)**  
+3. **Frontend-Env (Vercel)**  
    `VITE_API_URL` bleibt die Railway-Backend-URL; die App läuft unter der neuen Domain, die API-Calls gehen weiterhin an Railway.
 
 ---
 
-## 7. Optional (weitere Hinweise)
+## 5. Optional (weitere Hinweise)
 
-- **Eigene Domain (Details):** Siehe Abschnitt 6 oben.
-- **CORS:** Bei eigener Domain in Railway `CORS_ORIGINS` setzen (Abschnitt 6).
+- **Eigene Domain (Details):** Siehe Abschnitt 4 oben.
+- **CORS:** Bei eigener Domain in Railway `CORS_ORIGINS` setzen (Abschnitt 4).
 - **Backend-Health:** `GET https://deine-railway-url/health` sollte `{"status":"ok"}` liefern.
 - **Analyse sofort auslösen (z. B. nach Neustart):**  
   `POST https://deine-railway-url/api/analyze/trigger?conflict=US-Iran`  
   Optional in Railway Variable `ANALYZE_TRIGGER_SECRET` setzen; dann Header `X-Trigger-Secret: <Wert>` mitschicken. Dauert 1–2 Min, danach Cache gefüllt.
-- **Sensible Keys:** `.env` und `backend/.env` nicht committen; nur in Vercel/Railway/Supabase setzen.
+- **Sensible Keys:** `.env` und `backend/.env` nicht committen; nur in Vercel/Railway setzen.
 - **IAEA/OE-III Tracker:** `GET /api/iaea-tracker` – trackt das IAEO-Flugzeug (OE-III) via ADS-B, NOTAMs (Autorouter.aero), IAEA-Press (Grossi). **NOTAM:** Standard `NOTAM_API_URL=https://api.autorouter.aero/v1.0/notam` (GET mit `itemas=["EDDS","LOWW","OIIE"]`, `offset`, `limit`). Optional `NOTAM_API_KEY` falls Endpunkt Auth verlangt. Direktabfrage: `GET /api/notam?locations=EDDS,LOWW&limit=10&offset=0`.
 
 ---
@@ -130,7 +92,6 @@ Um auf deine eigene Domain umzuschalten:
 
 | Komponente   | Wo              | Wichtig |
 |-------------|-----------------|--------|
-| Frontend    | Vercel          | `VITE_API_URL` = Railway-URL, Supabase-Keys |
+| Frontend    | Vercel          | **Pflicht:** `VITE_API_URL` = Railway-URL |
 | Backend     | Railway         | `ANTHROPIC_API_KEY` oder `OPENAI_API_KEY` (bei `LLM_PROVIDER=openai`), optional Agent-Keys |
-| Auth/DB     | Supabase        | Migrationen, Redirect/Site URL             |
 | SPA-Routing | Repo (`vercel.json`) | Bereits eingerichtet                 |

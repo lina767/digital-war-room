@@ -1,8 +1,8 @@
 """
-ENERGY / Commodities Agent – Gas storage (AGSI+), commodity indices, food & fertilizer.
-Fetches: EU gas storage (AGSI+), oil (EIA then FRED then Alpha Vantage), food (FRED then Alpha Vantage),
+ENERGY / Commodities Agent – commodity indices, food & fertilizer.
+Fetches: oil (EIA then FRED then Alpha Vantage), food (FRED then Alpha Vantage),
 FAO Food Price Index, World Bank fertilizer prices, and computes food_security_risk.
-Rule-based score from storage levels and price volatility. No LLM.
+Rule-based score from price volatility. No LLM. (AGSI+ removed – was unreliable.)
 """
 import asyncio
 import csv
@@ -25,8 +25,6 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-# AGSI+ API (free with registration) – EU gas storage. GIE API v013: type=eu for EU/country data, size max 300, auth via x-key header.
-AGSI_BASE = "https://agsi.gie.eu/api"
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 EIA_BASE = "https://api.eia.gov/v2/seriesid"
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
@@ -70,54 +68,6 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
-
-
-async def _fetch_agsi_storage(api_key: str) -> Dict[str, Any]:
-    """Fetch EU gas storage data from AGSI+ (optional AGSI_API_KEY). Key from agsi.gie.eu/account, sent as header x-key."""
-    if not api_key or not api_key.strip():
-        logger.info(
-            "AGSI+: no API key. Set AGSI_API_KEY in backend/.env (free registration at agsi.gie.eu/account)."
-        )
-        return {"full": [], "error": "AGSI_API_KEY not set"}
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            # GIE API v013: type=eu for EU/country facility reports, size=max 300 per page (default 30)
-            resp = await client.get(
-                AGSI_BASE,
-                params={"type": "eu", "size": 100},
-                headers={"x-key": api_key.strip()},
-            )
-            if resp.status_code != 200:
-                err_body = (resp.text or "")[:200]
-                logger.warning(
-                    "AGSI+ API returned HTTP %s. Check AGSI_API_KEY (agsi.gie.eu/account). %s",
-                    resp.status_code,
-                    err_body,
-                )
-                return {"full": [], "error": f"AGSI+ HTTP {resp.status_code}"}
-            data = resp.json()
-        # AGSI returns { "data": [...], "gas_day": "..." }
-        records = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
-        by_country: Dict[str, Dict] = {}
-        for r in records if isinstance(records, list) else []:
-            if not isinstance(r, dict):
-                continue
-            country = r.get("country") or r.get("name") or "EU"
-            full_pct = _safe_float(r.get("full") or r.get("fullPercentage"), 0)
-            by_country[country] = {
-                "country": country,
-                "full_pct": full_pct,
-                "gas_in_storage": r.get("gasInStorage"),
-                "trend": r.get("trend"),
-            }
-        result = list(by_country.values())[:15]
-        logger.info("AGSI+: fetched %d country records (e.g. %s)",
-                     len(result), ", ".join(r["country"] for r in result[:3]))
-        return {"full": result, "error": None}
-    except Exception as e:
-        logger.warning("AGSI+ request failed (%s): %s. Check AGSI_API_KEY and network (agsi.gie.eu).",
-                        type(e).__name__, e)
-        return {"full": [], "error": str(e)}
 
 
 async def _fetch_fao_fpi() -> Dict[str, Any]:
@@ -216,17 +166,9 @@ def _compute_food_security_risk(
     return min(100.0, max(0.0, base))
 
 
-def _compute_energy_score(agsi: Dict[str, Any], commodities: List[Dict[str, Any]]) -> float:
-    """Score 0–100: low storage or high volatility = escalation risk."""
+def _compute_energy_score(commodities: List[Dict[str, Any]]) -> float:
+    """Score 0–100: high commodity volatility = escalation risk."""
     base = 30.0
-    # AGSI: low EU storage = higher risk
-    full_list = agsi.get("full") or []
-    if full_list:
-        avg_full = sum(_safe_float(x.get("full_pct")) for x in full_list) / max(len(full_list), 1)
-        if avg_full < 50:
-            base += 25
-        elif avg_full < 70:
-            base += 12
     # Commodity volatility: large moves = stress
     for c in commodities:
         raw = c.get("change_pct_raw")
@@ -242,7 +184,6 @@ GLOBAL_IMPACT_OIL_THRESHOLD_PCT = 2.0
 
 
 def _build_summary(
-    agsi: Dict[str, Any],
     commodities: List[Dict[str, Any]],
     food_commodities: List[Dict[str, Any]],
     fao_fpi: Dict[str, Any],
@@ -251,10 +192,6 @@ def _build_summary(
     conflict: str = "",
 ) -> str:
     parts = []
-    if agsi.get("full"):
-        parts.append(f"AGSI+: {len(agsi['full'])} storage record(s).")
-    elif agsi.get("error"):
-        parts.append("AGSI+: not available (set AGSI_API_KEY for EU gas storage).")
     valid_c = [c for c in commodities if c.get("price") and "error" not in c]
     if valid_c:
         parts.append("Oil: " + ", ".join(f"{c.get('symbol', '')} {c.get('change_pct', '')}" for c in valid_c[:2]))
@@ -269,7 +206,7 @@ def _build_summary(
     if food_risk >= 60:
         parts.append(f"Food security risk: {food_risk:.0f}/100 (exposed: {', '.join(EXPOSED_COUNTRIES[:3])})")
     if not parts:
-        return "ENERGY: No AGSI or commodity data (set AGSI_API_KEY, EIA_API_KEY/FRED_API_KEY for oil/food, or ALPHAVANTAGE_API_KEY)."
+        return "ENERGY: No commodity data (set EIA_API_KEY/FRED_API_KEY for oil/food, or ALPHAVANTAGE_API_KEY)."
     out = "ENERGY: " + " ".join(parts)
     if conflict and "iran" in conflict.lower():
         max_up = max(
@@ -283,7 +220,6 @@ def _build_summary(
 
 async def _generate_haiku_summary_energy(
     conflict: str,
-    agsi: Dict[str, Any],
     commodities: List[Dict[str, Any]],
     food_commodities: List[Dict[str, Any]],
     fao_fpi: Dict[str, Any],
@@ -300,7 +236,6 @@ async def _generate_haiku_summary_energy(
             "conflict": conflict,
             "energy_score": energy_score,
             "food_security_risk": food_risk,
-            "agsi_records": len(agsi.get("full") or []),
             "oil": [{"symbol": c.get("symbol"), "change_pct": c.get("change_pct")} for c in valid_c[:3]],
             "food": [{"symbol": c.get("symbol"), "change_pct": c.get("change_pct")} for c in valid_food[:3]],
             "fao_fpi_index": fao_fpi.get("index"),
@@ -309,7 +244,7 @@ async def _generate_haiku_summary_energy(
         data = json.dumps(compact, indent=2)
         system = (
             "You are an energy and commodities analyst for conflict monitoring. Summarize the following "
-            "data in 2-3 sentences: EU gas storage, oil (Brent/WTI), food commodities, FAO Food Price Index, "
+            "data in 2-3 sentences: oil (Brent/WTI), food commodities, FAO Food Price Index, "
             "food security risk. Focus on escalation or chokepoint implications. Write in English."
         )
         out = await analyst_summary(system=system, data=data, max_tokens=256)
@@ -504,14 +439,12 @@ async def _fetch_commodity_prices_for(
 
 
 def run_energy_agent(conflict: str) -> Dict[str, Any]:
-    """Run ENERGY/Commodities agent: AGSI+, oil/food prices (EIA/FRED/Alpha Vantage), FAO FPI, fertilizer."""
-    agsi_key = os.getenv("AGSI_API_KEY")
+    """Run ENERGY/Commodities agent: oil/food prices (EIA/FRED/Alpha Vantage), FAO FPI, fertilizer."""
     eia_key = (os.getenv("EIA_API_KEY") or "").strip()
     fred_key = (os.getenv("FRED_API_KEY") or "").strip()
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
 
     async def _run() -> Dict[str, Any]:
-        agsi_task = _fetch_agsi_storage(agsi_key or "")
         fao_task = _fetch_fao_fpi()
         fert_task = _fetch_fertilizer_prices()
 
@@ -534,19 +467,19 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning("ENERGY: food commodities fetch failed, continuing without: %s", e)
 
-        agsi, fao_fpi, fertilizer = await asyncio.gather(agsi_task, fao_task, fert_task)
+        fao_fpi, fertilizer = await asyncio.gather(fao_task, fert_task)
 
         # Legacy: keep combined commodities for backward compat
         all_commodities = oil_commodities + food_commodities
-        energy_score = _compute_energy_score(agsi, oil_commodities)
+        energy_score = _compute_energy_score(oil_commodities)
         food_risk = _compute_food_security_risk(food_commodities, fao_fpi, fertilizer)
         rule_summary = _build_summary(
-            agsi, oil_commodities, food_commodities, fao_fpi,
+            oil_commodities, food_commodities, fao_fpi,
             energy_score, food_risk, conflict=conflict,
         )
         try:
             llm_summary = await _generate_haiku_summary_energy(
-                conflict, agsi, oil_commodities, food_commodities, fao_fpi, energy_score, food_risk,
+                conflict, oil_commodities, food_commodities, fao_fpi, energy_score, food_risk,
             )
             summary = llm_summary if llm_summary else rule_summary
         except Exception as e:
@@ -568,7 +501,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
 
         return {
             "energy_score": round(energy_score, 1),
-            "agsi_storage": agsi,
+            "agsi_storage": {"full": []},
             "commodities": oil_commodities,
             "food_commodities": food_commodities,
             "fao_fpi": fao_fpi,
@@ -583,10 +516,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
     try:
         out = run_async(_run())
         duration_ms = int((time.perf_counter() - start) * 1000)
-        agsi_full = (out.get("agsi_storage") or {}).get("full") or []
-        agsi_ok = not (out.get("agsi_storage") or {}).get("error")
         source_results = [
-            SourceResult(name="AGSI+", status="ok" if agsi_ok and agsi_full else "error", fetched_at=fetched_at, record_count=len(agsi_full)),
             SourceResult(name="Oil (EIA/FRED/AV)", status="ok" if (out.get("commodities") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("commodities") or [])),
             SourceResult(name="Food commodities", status="ok" if (out.get("food_commodities") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("food_commodities") or [])),
             SourceResult(name="FAO FPI", status="ok" if (out.get("fao_fpi") and not out.get("fao_fpi", {}).get("error")) else "error", fetched_at=fetched_at),
@@ -598,7 +528,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "energy", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
         meta = AgentMetadata(agent="energy", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
         out["_meta"] = meta.model_dump(mode="json")
         return out
@@ -607,7 +537,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         meta = AgentMetadata(agent="energy", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
         return {
             "energy_score": 30.0,
-            "agsi_storage": {"full": [], "error": str(e)},
+            "agsi_storage": {"full": []},
             "commodities": [],
             "food_commodities": [],
             "fao_fpi": {},

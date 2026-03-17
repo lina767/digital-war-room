@@ -18,7 +18,6 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@stripe/react-stripe-js": "^3.7.0",
     "@stripe/stripe-js": "^7.3.0",
-    "@supabase/supabase-js": "^2.98.0",
     "@turf/distance": "^7.3.4",
     "@turf/helpers": "^7.3.4",
     "@types/react-simple-maps": "^3.0.6",

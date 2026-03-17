@@ -110,7 +110,6 @@ flowchart TB
 | Backend | Python 3, FastAPI, httpx (async HTTP), ThreadPoolExecutor |
 | LLM | Anthropic (Claude Sonnet/Haiku) or OpenAI (GPT-4o/4o-mini) |
 | Frontend | React, TypeScript, Vite, Tailwind CSS, shadcn/ui |
-| Auth | Supabase |
 | Observability | OpenTelemetry (OTLP → Jaeger) |
 | Data | 20+ public/semi-public APIs, no proprietary databases |
 

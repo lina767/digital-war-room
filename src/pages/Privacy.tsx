@@ -108,7 +108,7 @@ const Privacy = () => {
                   6. Cookies, KI und externe Dienste
                 </h2>
                 <p>
-                  Die Plattform kann technisch notwendige Cookies bzw. Speicherzugriffe (z. B. für Einstellungen) verwenden. Für die KI-gestützte Auswertung und Synthese der Konfliktanalysen kommen Dienste Dritter (z. B. Anbieter von Sprachmodellen) zum Einsatz; die dort verarbeiteten Inhalte beziehen sich auf die Analyse-Daten der Plattform, nicht auf Ihre personenbezogenen Daten. Darüber hinaus können Hosting- und Analysedienste (z. B. Vercel, Supabase) genutzt werden. Für die bei Dritten verarbeiteten Daten gelten jeweils deren Datenschutzbestimmungen.
+                  Die Plattform kann technisch notwendige Cookies bzw. Speicherzugriffe (z. B. für Einstellungen) verwenden. Für die KI-gestützte Auswertung und Synthese der Konfliktanalysen kommen Dienste Dritter (z. B. Anbieter von Sprachmodellen) zum Einsatz; die dort verarbeiteten Inhalte beziehen sich auf die Analyse-Daten der Plattform, nicht auf Ihre personenbezogenen Daten. Darüber hinaus können Hosting- und Analysedienste (z. B. Vercel) genutzt werden. Für die bei Dritten verarbeiteten Daten gelten jeweils deren Datenschutzbestimmungen.
                 </p>
               </section>
 
@@ -184,7 +184,7 @@ const Privacy = () => {
                   6. Cookies, AI and third-party services
                 </h2>
                 <p>
-                  The platform may use technically necessary cookies or local storage (e.g. for preferences). For AI-assisted evaluation and synthesis of conflict analyses, third-party services (e.g. providers of language models) are used; the data processed there relates to the platform’s analysis data, not to your personal data. Hosting and analytics services (e.g. Vercel, Supabase) may also be used. The respective privacy policies of those providers apply to data processed by them.
+                  The platform may use technically necessary cookies or local storage (e.g. for preferences). For AI-assisted evaluation and synthesis of conflict analyses, third-party services (e.g. providers of language models) are used; the data processed there relates to the platform’s analysis data, not to your personal data. Hosting and analytics services (e.g. Vercel) may also be used. The respective privacy policies of those providers apply to data processed by them.
                 </p>
               </section>
 

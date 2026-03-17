@@ -65,7 +65,6 @@ The Digital War Room runs 11 specialized AI agents in parallel — each one tapp
 - **Backend:** Python 3, FastAPI, httpx (async HTTP)
 - **LLM:** Anthropic Claude (Sonnet for supervisor, Haiku for agents) or OpenAI
 - **Frontend:** React, TypeScript, Vite, Tailwind, shadcn/ui
-- **Auth:** Supabase
 - **Observability:** OpenTelemetry → Jaeger
 
 ## What's next

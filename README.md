@@ -6,7 +6,6 @@ AI-powered OSINT intelligence platform — multi-agent system monitoring global 
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend:** Python 3, FastAPI, LangChain/LangGraph
-- **Auth:** Supabase
 - **Payments:** Stripe
 - **Analytics:** Vercel Analytics
 
@@ -28,9 +27,7 @@ Set the following in a `.env` file in the project root:
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_SUPABASE_URL` | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous/public key |
-| `VITE_API_URL` | Backend API URL (e.g. Railway deployment) |
+| `VITE_API_URL` | Backend API URL (e.g. Railway); **Pflicht** für Deploy |
 
 ## Scripts
 

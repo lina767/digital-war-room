@@ -428,72 +428,8 @@ def _gdelt_article_list(data: Any) -> List[Dict[str, Any]]:
 
 
 def search_gdelt_news(conflict: str) -> List[Dict[str, Any]]:
-    """Search GDELT for conflict news - covers 100+ languages, 65k+ sources worldwide."""
-    # Preserve boolean structure from _build_query for GDELT's query syntax
-    query = _build_query(conflict).strip() or conflict
-
-    async def _fetch():
-        params = {
-            "query": query,
-            "mode": "artlist",
-            "maxrecords": 25,
-            "format": "json",
-            "timespan": "48H",
-        }
-        max_retries = 3
-        for attempt in range(max_retries):
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(GDELT_URL, params=params)
-                if resp.status_code == 429:
-                    if attempt < max_retries - 1:
-                        wait = 8 * (attempt + 1)
-                        logger.info("GDELT news: 429 rate-limited, waiting %ds (attempt %d)", wait, attempt + 1)
-                        await asyncio.sleep(wait)
-                        continue
-                    logger.warning("GDELT news: rate-limited after %d attempts", max_retries)
-                    return {"_error": "GDELT rate-limited (429)"}
-                if resp.status_code != 200:
-                    logger.warning("GDELT news: HTTP %s: %.200s", resp.status_code, resp.text)
-                    return {"_error": f"GDELT HTTP {resp.status_code}"}
-                ct = (resp.headers.get("content-type") or "").lower()
-                if "json" not in ct and "javascript" not in ct:
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(8)
-                        continue
-                    logger.warning("GDELT news: non-JSON response (CT: %s)", ct)
-                    return {"_error": f"GDELT non-JSON (CT: {ct})"}
-                return resp.json()
-        return {"_error": "GDELT: retries exhausted"}
-
-    try:
-        data = run_async(_fetch())
-        if isinstance(data, dict) and data.get("_error"):
-            return [{"error": data["_error"]}]
-        raw_list = _gdelt_article_list(data)
-        articles = []
-        for art in raw_list:
-            if not isinstance(art, dict):
-                continue
-            url = art.get("url") or art.get("url_mobile") or art.get("socialimage")
-            title = (art.get("title") or art.get("snippet") or "").strip()
-            lang = (art.get("language") or art.get("sourcecountry") or "").lower()
-            # Do not over-filter by language; keep non-English (incl. Farsi) as long as query matched
-            if not url:  # need url for dedupe and linking
-                continue
-            score = _sentiment_keyword(title)
-            articles.append({
-                "title": (title[:500] if title else "(No title)"),
-                "source": art.get("domain") or art.get("sourcecountry") or "GDELT",
-                "url": url or "",
-                "published_at": art.get("seendate"),
-                "sentiment_score": score,
-                "sentiment_label": _label(score),
-                "language": lang or "",
-                "source_type": "gdelt",
-            })
-        return articles[:25]
-    except Exception as e:
-        return [{"error": str(e)}]
+    """GDELT news disabled (API unreliable). Returns empty list for backward compatibility."""
+    return []
 
 
 def search_newsdata_news(conflict: str) -> List[Dict[str, Any]]:
