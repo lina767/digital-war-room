@@ -6,6 +6,7 @@ import * as React from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { WhyThisMattersBlock } from "@/components/dashboard/WhyThisMattersBlock";
 import type { ProximityEvidence, RiskLabel } from "@/lib/proximityAnalyzerService";
 
 export interface EvidenceCardProps {
@@ -56,7 +57,7 @@ function CoordLink({ lat, lon, label }: { lat: number; lon: number; label: strin
 }
 
 export function EvidenceCard({ evidence, className }: EvidenceCardProps) {
-  const { facilityName, facilityType, distanceMeters, riskLabel, summary, strikeLat, strikeLon, facilityLat, facilityLon, strikeAcquired } = evidence;
+  const { facilityName, facilityType, distanceMeters, riskLabel, summary, why_it_matters, strikeLat, strikeLon, facilityLat, facilityLon, strikeAcquired } = evidence;
   const badgeConfig = getRiskBadgeVariant(riskLabel);
   const distanceRounded = Math.round(distanceMeters);
   const hasCoords = typeof strikeLat === "number" && typeof strikeLon === "number";
@@ -98,10 +99,13 @@ export function EvidenceCard({ evidence, className }: EvidenceCardProps) {
           </div>
         )}
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 space-y-2">
         <p className="text-sm text-muted-foreground leading-relaxed">
           {summary}
         </p>
+        {why_it_matters && (
+          <WhyThisMattersBlock text={why_it_matters} compact />
+        )}
       </CardContent>
     </Card>
   );

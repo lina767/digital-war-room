@@ -59,6 +59,15 @@ export interface ConflictData {
   escalation_score: number | null;
   threat_level: string | null;
   key_findings: string[];
+  /** Optional 2–3 sentence "why this matters" per finding (same order as key_findings). */
+  key_findings_context?: string[];
+  /** Optional cross-agent corroborated patterns: multiple agents detected the same event. */
+  corroborated_patterns?: Array<{
+    pattern_id?: string;
+    summary?: string;
+    agent_ids?: string[];
+    evidence?: Array<{ agent: string; snippet_or_ref?: string }>;
+  }>;
   scenarios: { description: string; probability: number }[];
   summary: string | null;
   news?: {
@@ -71,6 +80,8 @@ export interface ConflictData {
   finint?: {
     brent?: { price: string; change_pct: string; as_of: string } | null;
     polymarket?: Array<{ question?: string; probability?: number; volume?: number; url?: string; end_date_iso?: string }>;
+    /** Optional history per market (same order as polymarket); each array = e.g. last 30 days of probability. */
+    polymarket_history?: number[][];
     polymarket_fetched_at?: string;
     timeout_or_error?: boolean;
     error?: string;

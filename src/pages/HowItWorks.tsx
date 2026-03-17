@@ -264,6 +264,32 @@ const HowItWorks = () => {
             </div>
           </section>
 
+          {/* How to read the dashboard */}
+          <section id="dashboard-guide" className="space-y-4 scroll-mt-6">
+            <h2 className="text-lg sm:text-xl font-semibold tracking-tight">How to read the dashboard</h2>
+            <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+              The Intelligence Feed (right panel) is grouped into four domains so you can expand or collapse what you care about:
+            </p>
+            <ul className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl space-y-1 list-disc list-inside">
+              <li><strong className="text-foreground">Information</strong> – Updated Briefing, Signal Framework, Predictive Outlook, Latest Headlines, Events Timeline</li>
+              <li><strong className="text-foreground">Political</strong> – Sanctions Compliance</li>
+              <li><strong className="text-foreground">Security</strong> – Chokepoint Monitor, Proximity Analyzer, Activity &amp; Connectivity (GreyNoise, SIGINT tracker, prediction markets)</li>
+              <li><strong className="text-foreground">Economic</strong> – Global Impact (oil/commodities, Hormuz risk)</li>
+            </ul>
+            <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+              Each section can be collapsed or expanded; your choices are saved. Use the view toggle (list / grid / focus) to switch between <strong className="text-foreground">Full</strong> (all sections by domain), <strong className="text-foreground">Summary</strong> (briefing plus one line per panel and top findings), or <strong className="text-foreground">Focus</strong> (escalation score, threat level, and top findings only).
+            </p>
+            <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+              <strong className="text-foreground">Scores and risk</strong> – Escalation score (0–100) and threat level (MINIMAL to CRITICAL) come from the supervisor synthesis. Compliance risk (LOW to CRITICAL) reflects sanctions lists, geofencing, and AIS signals. Chokepoint status (OPEN, RESTRICTED, CONTESTED, DISRUPTED) reflects maritime and supply risk. All are indicative; not legal or operational advice.
+            </p>
+            <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+              When the supervisor provides context, you may see a <strong className="text-foreground">“Why this matters”</strong> block under a finding or alert: what changed, baseline context, and what it could indicate. When multiple agents detect the same event, a <strong className="text-foreground">“Corroborated by N agents”</strong> badge appears with an expandable chain of evidence. For prediction markets and (when available) other metrics, a small <strong className="text-foreground">sparkline</strong> shows the recent trend (e.g. last 30 days) next to the current value so you can compare to history.
+            </p>
+            <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
+              Data sources (NewsAPI, GDELT, Polymarket, ACLED, NASA FIRMS, ADS-B, and others) are listed in the <Link to="/sources" className="text-primary hover:underline">Source Directory</Link>. The dashboard is for intelligence awareness only; it does not replace legal review or operational decisions.
+            </p>
+          </section>
+
           {/* LLM modes & cost model */}
           <section className="space-y-4">
             <h2 className="text-lg sm:text-xl font-semibold tracking-tight">LLM modes &amp; cost model</h2>

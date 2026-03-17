@@ -49,6 +49,13 @@ export interface AnalyzeResponse {
   escalation_score?: number;
   threat_level?: string;
   key_findings?: string[];
+  key_findings_context?: string[];
+  corroborated_patterns?: Array<{
+    pattern_id?: string;
+    summary?: string;
+    agent_ids?: string[];
+    evidence?: Array<{ agent: string; snippet_or_ref?: string }>;
+  }>;
   scenarios?: { description: string; probability: number }[];
   summary?: string;
   finint?: Record<string, unknown>;
@@ -235,6 +242,9 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
     out.key_findings = raw.key_findings.map((f: unknown) =>
       typeof f === "string" ? f : (f && typeof f === "object" && "text" in f ? String((f as { text: unknown }).text) : String(f))
     );
+  }
+  if (Array.isArray(raw.key_findings_context)) {
+    out.key_findings_context = raw.key_findings_context.map((c: unknown) => (typeof c === "string" ? c : String(c ?? "")));
   }
   if (Array.isArray(raw.scenarios)) {
     out.scenarios = raw.scenarios.map((s: unknown) => {

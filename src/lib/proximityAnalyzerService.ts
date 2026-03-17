@@ -45,6 +45,8 @@ export interface ProximityEvidence {
   facilityLon: number;
   strikeAcquired?: string;
   summary: string;
+  /** Optional 2–3 sentence "why this matters" from supervisor/agent. */
+  why_it_matters?: string;
 }
 
 export interface MilitarySiteFeature {

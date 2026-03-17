@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import { Anchor, Droplets, Wheat, AlertTriangle, Shield, Settings2 } from "lucide-react";
 import { getApiBase } from "@/lib/api";
 import { toast } from "sonner";
@@ -153,7 +154,13 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
     <IntelPanel
       title="CHOKEPOINT MONITOR"
       icon={<Anchor className="h-3.5 w-3.5 text-muted-foreground" />}
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["CHOKEPOINT MONITOR"]}
     >
+        {cpData?.summary && (
+          <p className="text-xs text-muted-foreground leading-relaxed mb-2 pb-2 border-b border-border/60">
+            {cpData.summary}
+          </p>
+        )}
         {/* Status badges row + override dropdown */}
         {chokepoints.length > 0 && (
           <div className="space-y-2">

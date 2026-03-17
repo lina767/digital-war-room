@@ -42,3 +42,47 @@ GREYNOISE_SCHEDULER_CONFLICTS = [
         "Iran,Israel,USA,UAE,Saudi Arabia,Lebanon,Jordan,Gaza/Israel,Yemen,Middle East",
     ).split(",") if c.strip()
 ]
+
+# ── Multi-Agent Hierarchy Configuration ───────────────────────────────────
+
+HIERARCHY_WEIGHTS = {
+    "divisions": {
+        "military":    {"ceo_weight": 0.30, "agents": {"sigint": 0.30, "geoint": 0.25, "chokepoint": 0.25, "proximity": 0.20}},
+        "financial":   {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
+        "information": {"ceo_weight": 0.22, "agents": {"news": 0.40, "socmint": 0.35, "narrative": 0.25}},
+        "political":   {"ceo_weight": 0.14, "agents": {"diplo": 0.55, "protest": 0.45}},
+        "technical":   {"ceo_weight": 0.16, "agents": {"techint": 0.50, "cyber": 0.50}},
+    },
+    "circuit_breaker": {
+        "max_consecutive_failures": int(os.getenv("CB_MAX_FAILURES", "3")),
+        "reopen_after_cycles": int(os.getenv("CB_REOPEN_CYCLES", "3")),
+    },
+    "anomaly": {
+        "contradiction_score_spread": float(os.getenv("ANOMALY_CONTRADICTION_SPREAD", "50")),
+        "threshold_breach_score": float(os.getenv("ANOMALY_THRESHOLD_SCORE", "75")),
+        "haiku_trigger_severity": os.getenv("ANOMALY_HAIKU_SEVERITY", "medium"),
+    },
+    "dag_node_timeouts": {
+        "agent": 75.0,
+        "enrichment": 15.0,
+        "division_summary": 10.0,
+        "synthesis": 30.0,
+    },
+    "haiku_periodic_cycles": int(os.getenv("HAIKU_PERIODIC_CYCLES", "0")),
+}
+
+AGENT_TTLS = {
+    "energy": int(os.getenv("AGENT_TTL_ENERGY", "900")),
+    "diplo": int(os.getenv("AGENT_TTL_DIPLO", "3600")),
+    "techint": int(os.getenv("AGENT_TTL_TECHINT", "1800")),
+    "narrative": int(os.getenv("AGENT_TTL_NARRATIVE", "1800")),
+    "news": 0, "socmint": 0, "sigint": 0, "chokepoint": 0,
+    "finint": 0, "geoint": 0, "cyber": 0, "protest": 0, "proximity": 0,
+}
+
+STORE_RETENTION_CYCLES = int(os.getenv("STORE_RETENTION_CYCLES", "5"))
+STORE_RETENTION_MINUTES = float(os.getenv("STORE_RETENTION_MINUTES", "60"))
+
+DISABLED_AGENTS = [
+    a.strip() for a in os.getenv("DISABLED_AGENTS", "").split(",") if a.strip()
+]

@@ -253,6 +253,13 @@ function DashboardContent() {
             <span>How it works</span>
           </Link>
           <Link
+            to="/blog"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          >
+            <Newspaper className="h-3.5 w-3.5" aria-hidden />
+            <span>Blog</span>
+          </Link>
+          <Link
             to="/methodology"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
@@ -279,13 +286,6 @@ function DashboardContent() {
           >
             <Activity className="h-3.5 w-3.5" aria-hidden />
             <span>Agent Monitor</span>
-          </Link>
-          <Link
-            to="/blog"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <Newspaper className="h-3.5 w-3.5" aria-hidden />
-            <span>Blog</span>
           </Link>
           <Link
             to="/support"

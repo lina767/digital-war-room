@@ -1,8 +1,13 @@
 import { useState } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
+import { WhyThisMattersBlock } from "@/components/dashboard/WhyThisMattersBlock";
 
 type TimelineFilter = "all" | "conflict" | "diplomacy" | "economy" | "tech";
+
+const DEFAULT_VISIBLE = 8;
+const MAX_VISIBLE = 20;
 
 const FILTER_LABELS: Record<TimelineFilter, string> = {
   all: "All",
@@ -27,15 +32,20 @@ interface EventsTimelineProps {
 
 export function EventsTimeline({ data }: EventsTimelineProps) {
   const [filter, setFilter] = useState<TimelineFilter>("all");
+  const [showAll, setShowAll] = useState(false);
   const findings = data?.key_findings ?? [];
   const filtered =
     filter === "all"
       ? findings
       : findings.filter((f) => categorizeFinding(f) === filter);
+  const visibleCount = showAll ? Math.min(filtered.length, MAX_VISIBLE) : Math.min(filtered.length, DEFAULT_VISIBLE);
+  const display = filtered.slice(0, visibleCount);
+  const hasMore = filtered.length > visibleCount;
 
   return (
     <IntelPanel
       title="EVENTS TIMELINE"
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["EVENTS TIMELINE"]}
       headerRight={
         <div className="flex flex-wrap gap-1">
           {(Object.keys(FILTER_LABELS) as TimelineFilter[]).map((key) => (
@@ -61,13 +71,33 @@ export function EventsTimeline({ data }: EventsTimelineProps) {
             {findings.length === 0 ? "Run analysis for events." : `No events in category "${FILTER_LABELS[filter]}".`}
           </li>
         )}
-        {filtered.slice(0, 20).map((f, i) => (
-          <li key={`${filter}-${i}-${f.slice(0, 40)}`} className="py-2 text-xs leading-relaxed flex gap-2">
-            <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
-            <span>{f}</span>
+        {display.map((f, i) => (
+          <li key={`${filter}-${i}-${f.slice(0, 40)}`} className="py-2 text-xs leading-relaxed">
+            <div className="flex gap-2">
+              <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
+              <span>{f}</span>
+            </div>
+            {data?.key_findings_context && (() => {
+              const idx = data.key_findings?.indexOf(f) ?? -1;
+              const ctx = idx >= 0 ? data.key_findings_context[idx] : undefined;
+              return ctx ? (
+                <div className="mt-1.5 ml-3.5">
+                  <WhyThisMattersBlock text={ctx} />
+                </div>
+              ) : null;
+            })()}
           </li>
         ))}
       </ul>
+      {hasMore && filtered.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full px-3 py-2 text-[11px] font-mono text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors flex items-center justify-center gap-1"
+        >
+          Show more ({filtered.length - visibleCount} more)
+        </button>
+      )}
     </IntelPanel>
   );
 }

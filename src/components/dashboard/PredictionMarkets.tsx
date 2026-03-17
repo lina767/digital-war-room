@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { Sparkline } from "@/components/dashboard/Sparkline";
 import { formatTimeAgo } from "@/lib/utils";
 
 const FALLBACK_MARKETS = [
@@ -21,6 +22,8 @@ interface PolymarketItem {
 interface PredictionMarketsProps {
   polymarket?: PolymarketItem[] | null;
   fetchedAt?: string | null;
+  /** Optional history per market (same order as polymarket); each array = e.g. last 30 probability values. */
+  polymarketHistory?: number[][];
 }
 
 type SortMode = "volume" | "probability";
@@ -68,7 +71,7 @@ function ProbabilityBar({ pct }: { pct: number }) {
   );
 }
 
-export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsProps) {
+export function PredictionMarkets({ polymarket, fetchedAt, polymarketHistory }: PredictionMarketsProps) {
   const [sortMode, setSortMode] = useState<SortMode>("volume");
 
   const raw =
@@ -76,21 +79,22 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
       ? polymarket
       : FALLBACK_MARKETS.map((m) => ({ ...m, url: undefined as string | undefined, end_date_iso: undefined as string | undefined }));
 
-  const list = raw
+  const withIndex = raw.map((m, i) => ({ ...m, _origIndex: i }));
+  const sorted = withIndex
     .slice()
     .sort((a, b) =>
       sortMode === "volume"
         ? (b.volume ?? 0) - (a.volume ?? 0) || normalizePct(b.probability) - normalizePct(a.probability)
         : normalizePct(b.probability) - normalizePct(a.probability) || (b.volume ?? 0) - (a.volume ?? 0),
-    )
-    .slice(0, TOP_N)
-    .map((m) => ({
-      question: m.question || "Market",
-      pct: normalizePct(m.probability),
-      volume: m.volume ?? 0,
-      url: m.url,
-      endLabel: formatEndDate(m.end_date_iso),
-    }));
+    );
+  const list = sorted.slice(0, TOP_N).map((m) => ({
+    question: m.question || "Market",
+    pct: normalizePct(m.probability),
+    volume: m.volume ?? 0,
+    url: m.url,
+    endLabel: formatEndDate(m.end_date_iso),
+    history: polymarketHistory?.[(m as { _origIndex?: number })._origIndex ?? -1],
+  }));
 
   const timeAgo = fetchedAt ? formatTimeAgo(fetchedAt) : null;
 
@@ -140,11 +144,16 @@ export function PredictionMarkets({ polymarket, fetchedAt }: PredictionMarketsPr
             </div>
             <p className="text-xs font-semibold leading-tight line-clamp-2 mb-2">{m.question}</p>
             <div className="mt-auto space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
+              <div className="flex items-baseline justify-between gap-2 flex-wrap">
                 <span className="font-mono text-xl font-bold text-primary">{m.pct}%</span>
-                <span className="text-[11px] text-muted-foreground text-right">
-                  {formatVolume(m.volume)} Vol.
-                </span>
+                <div className="flex items-center gap-2">
+                  {m.history && m.history.length >= 2 && (
+                    <Sparkline values={m.history} width={56} height={20} label="30d" />
+                  )}
+                  <span className="text-[11px] text-muted-foreground text-right">
+                    {formatVolume(m.volume)} Vol.
+                  </span>
+                </div>
               </div>
               <ProbabilityBar pct={m.pct} />
               <p className="text-[11px] text-muted-foreground">Implied YES probability</p>

@@ -1,6 +1,7 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { Scale, Building2, Radio } from "lucide-react";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 
 interface SignalFrameworkPanelProps {
   data: ConflictData | null;
@@ -22,6 +23,7 @@ export function SignalFrameworkPanel({ data, activeConflict }: SignalFrameworkPa
     <IntelPanel
       title="SIGNAL FRAMEWORK"
       icon={<Scale className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["SIGNAL FRAMEWORK"]}
     >
       {!hasData && (
         <p className="text-xs text-muted-foreground italic">

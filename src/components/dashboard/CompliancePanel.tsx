@@ -4,6 +4,7 @@ import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getApiBase } from "@/lib/api";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import {
   COMPLIANCE_DISCLAIMER,
   COMPLIANCE_INTRO_FULL,
@@ -1066,6 +1067,7 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
     <IntelPanel
       title="SANCTIONS COMPLIANCE"
       icon={<Shield className="h-3.5 w-3.5 text-muted-foreground" />}
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["SANCTIONS COMPLIANCE"]}
     >
       <TooltipProvider>
         <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">

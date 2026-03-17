@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { UpdatedBriefing } from "@/components/dashboard/UpdatedBriefing";
 import { SignalFrameworkPanel } from "@/components/dashboard/SignalFrameworkPanel";
 import { GlobalImpactPanel } from "@/components/dashboard/GlobalImpactPanel";
@@ -14,11 +15,21 @@ import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
 import { CompliancePanel } from "@/components/dashboard/CompliancePanel";
 import { WorldMap } from "@/components/dashboard/WorldMap";
 import { AgentsStatusBar } from "@/components/dashboard/AgentsStatusBar";
+import { CollapsiblePanel } from "@/components/dashboard/CollapsiblePanel";
+import { CollapsibleDomainGroup } from "@/components/dashboard/CollapsibleDomainGroup";
+import { CorroboratedPatternsBlock } from "@/components/dashboard/CorroboratedPatternsBlock";
+import {
+  FEED_VIEW_STORAGE_KEY,
+  type FeedSectionId,
+  type FeedDomainId,
+  FEED_DOMAINS,
+} from "@/components/dashboard/feedSectionConfig";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Link } from "react-router-dom";
-import { Target, X, Globe } from "lucide-react";
+import { Target, X, Globe, LayoutGrid, List, Focus } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
+import { formatTimeAgo } from "@/lib/utils";
 
 interface ProximityAnalyzerBlockProps {
   analysisLoading?: boolean;
@@ -87,17 +98,34 @@ function ProximityAnalyzerBlock({
   );
 }
 
+export type FeedViewMode = "full" | "summary" | "focus";
+
+function loadFeedView(): FeedViewMode {
+  try {
+    const raw = localStorage.getItem(FEED_VIEW_STORAGE_KEY);
+    if (raw === "summary" || raw === "focus" || raw === "full") return raw;
+  } catch {
+    // ignore
+  }
+  return "full";
+}
+
+function saveFeedView(mode: FeedViewMode) {
+  try {
+    localStorage.setItem(FEED_VIEW_STORAGE_KEY, String(mode));
+  } catch {
+    // ignore
+  }
+}
+
 interface DashboardRightPanelProps {
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
   conflictData: ConflictData | null;
   lastUpdated: Date | null;
   displayConflictLabel: string;
-  /** Current conflict for world map highlight */
   activeConflict?: string | null;
-  /** True while initial load of cached analysis is in progress */
   analysisLoading?: boolean;
-  /** Proximity evidence from main analysis (runs automatically with other agents) */
   proximityEvidence: ProximityEvidence[];
 }
 
@@ -111,6 +139,199 @@ export function DashboardRightPanel({
   analysisLoading,
   proximityEvidence,
 }: DashboardRightPanelProps) {
+  const [feedView, setFeedView] = useState<FeedViewMode>(loadFeedView);
+
+  useEffect(() => {
+    saveFeedView(feedView);
+  }, [feedView]);
+
+  const domainOrder: FeedDomainId[] = ["information", "political", "security", "economic"];
+
+  const renderFullFeed = () => (
+    <>
+      {domainOrder.map((domainId) => (
+        <CollapsibleDomainGroup key={domainId} domainId={domainId}>
+          {FEED_DOMAINS[domainId].sectionIds.map((sectionId) =>
+            renderSection(sectionId as FeedSectionId)
+          )}
+        </CollapsibleDomainGroup>
+      ))}
+      {conflictData?.corroborated_patterns && conflictData.corroborated_patterns.length > 0 && (
+        <div className="pt-2">
+          <CorroboratedPatternsBlock patterns={conflictData.corroborated_patterns} />
+        </div>
+      )}
+    </>
+  );
+
+  const renderSection = (sectionId: FeedSectionId) => {
+    switch (sectionId) {
+      case "briefing":
+        return (
+          <CollapsiblePanel
+            key={sectionId}
+            sectionId={sectionId}
+            title="UPDATED BRIEFING"
+            headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
+          >
+            <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+          </CollapsiblePanel>
+        );
+      case "signal-framework":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="SIGNAL FRAMEWORK">
+            <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} />
+          </CollapsiblePanel>
+        );
+      case "predictive":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="PREDICTIVE OUTLOOK">
+            <PredictivePanel data={conflictData} />
+          </CollapsiblePanel>
+        );
+      case "compliance":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="SANCTIONS COMPLIANCE">
+            <CompliancePanel data={conflictData} />
+          </CollapsiblePanel>
+        );
+      case "chokepoint":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="CHOKEPOINT MONITOR">
+            <ChokePointPanel data={conflictData} />
+          </CollapsiblePanel>
+        );
+      case "global-impact":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="GLOBAL IMPACT">
+            <GlobalImpactPanel data={conflictData} />
+          </CollapsiblePanel>
+        );
+      case "headlines":
+        return (
+          <CollapsiblePanel
+            key={sectionId}
+            sectionId={sectionId}
+            title="LATEST HEADLINES"
+            headerRight={conflictData?.news?.articles?.length ? (
+              <span className="text-[11px] text-muted-foreground">{conflictData.news.articles.length} stories</span>
+            ) : undefined}
+          >
+            <LatestHeadlines data={conflictData} maxItems={5} />
+          </CollapsiblePanel>
+        );
+      case "events-timeline":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="EVENTS TIMELINE">
+            <EventsTimeline data={conflictData} />
+          </CollapsiblePanel>
+        );
+      case "proximity":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="PROXIMITY ANALYZER">
+            <ProximityAnalyzerBlock
+              analysisLoading={analysisLoading}
+              proximityEvidence={proximityEvidence}
+              proximitySummary={conflictData?.proximity?.summary}
+              reasonEmpty={conflictData?.proximity?.reason_empty}
+              errorMessage={conflictData?.proximity?.error_message}
+            />
+          </CollapsiblePanel>
+        );
+      case "activity-connectivity":
+        return (
+          <CollapsiblePanel key={sectionId} sectionId={sectionId} title="ACTIVITY & CONNECTIVITY">
+            <div className="p-3 space-y-3">
+              <GreyNoisePanel conflict={activeConflict || "Iran"} />
+              <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
+              <InternetConnectivity />
+              <FlightRadar sigint={conflictData?.sigint} />
+              <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} polymarketHistory={conflictData?.finint?.polymarket_history} />
+            </div>
+          </CollapsiblePanel>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const summaryLine = (label: string, value: string) => (
+    <div key={label} className="flex items-center justify-between text-xs py-1 border-b border-border/60 last:border-0">
+      <span className="text-muted-foreground font-mono">{label}</span>
+      <span className="font-mono text-foreground">{value}</span>
+    </div>
+  );
+
+  const renderSummaryView = () => {
+    const keyFindings = conflictData?.key_findings ?? [];
+    const riskLevel = conflictData?.compliance?.risk_score?.level ?? "—";
+    const cpData = conflictData?.chokepoint;
+    const chokepoints = cpData?.chokepoints ?? [];
+    const restricted = chokepoints.filter((c) => (c.status ?? "").toUpperCase() !== "OPEN").length;
+    const articles = conflictData?.news?.articles ?? [];
+    const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "—";
+    return (
+      <div className="space-y-4">
+        <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+        <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
+          <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">AT A GLANCE</p>
+          {summaryLine("Compliance", riskLevel)}
+          {summaryLine("ChokePoints", restricted > 0 ? `${restricted} restricted` : "All open")}
+          {summaryLine("Headlines", `${articles.length} new`)}
+          {summaryLine("Predictive", String(predictive))}
+        </div>
+        {keyFindings.length > 0 && (
+          <div className="rounded-lg border border-border bg-card/40 p-3">
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">TOP FINDINGS</p>
+            <ul className="space-y-1.5">
+              {keyFindings.slice(0, 3).map((f, i) => (
+                <li key={i} className="text-xs leading-relaxed flex gap-2">
+                  <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderFocusView = () => {
+    const summary = conflictData?.summary ?? null;
+    const keyFindings = conflictData?.key_findings ?? [];
+    const score = conflictData?.escalation_score ?? null;
+    const threat = conflictData?.threat_level ?? "—";
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[11px] text-muted-foreground">ESCALATION</span>
+            <span className="font-mono text-lg font-bold text-primary">{score ?? "—"}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[11px] text-muted-foreground">THREAT</span>
+            <span className="font-mono text-sm font-medium">{threat}</span>
+          </div>
+        </div>
+        {summary && <p className="text-sm leading-relaxed">{summary}</p>}
+        {keyFindings.length > 0 && (
+          <div>
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">WHAT'S NEW</p>
+            <ul className="space-y-1.5">
+              {keyFindings.slice(0, 3).map((f, i) => (
+                <li key={i} className="text-xs leading-relaxed flex gap-2">
+                  <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <aside
       className={`
@@ -123,6 +344,41 @@ export function DashboardRightPanel({
     >
       <div className="flex items-center justify-between mb-3 gap-2">
         <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">INTELLIGENCE FEED</h2>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            aria-label="Full view"
+            title="Full view"
+            onClick={() => setFeedView("full")}
+            className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
+              feedView === "full" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
+            }`}
+          >
+            <List className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Summary view"
+            title="Summary view"
+            onClick={() => setFeedView("summary")}
+            className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
+              feedView === "summary" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
+            }`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Focus view"
+            title="Focus view"
+            onClick={() => setFeedView("focus")}
+            className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
+              feedView === "focus" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
+            }`}
+          >
+            <Focus className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <button
           type="button"
           aria-label="Close panel"
@@ -133,7 +389,6 @@ export function DashboardRightPanel({
         </button>
       </div>
 
-      {/* World map overview – integrated in right panel */}
       <div className="mb-4 rounded-lg border border-border overflow-hidden bg-card/30">
         <div className="px-2 py-1.5 border-b border-border flex items-center gap-1.5">
           <Globe className="h-3.5 w-3.5 text-muted-foreground" />
@@ -152,47 +407,25 @@ export function DashboardRightPanel({
             <IntelPanelSkeleton lines={3} />
             <IntelPanelSkeleton lines={2} />
           </>
+        ) : feedView === "summary" ? (
+          renderSummaryView()
+        ) : feedView === "focus" ? (
+          renderFocusView()
         ) : (
-          <>
-            <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
-            <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} />
-            <PredictivePanel data={conflictData} />
-            <CompliancePanel data={conflictData} />
-            <ChokePointPanel data={conflictData} />
-            <GlobalImpactPanel data={conflictData} />
-            <LatestHeadlines data={conflictData} maxItems={15} />
-            <EventsTimeline data={conflictData} />
-          </>
+          renderFullFeed()
         )}
-      </div>
-
-      <ProximityAnalyzerBlock
-        analysisLoading={analysisLoading}
-        proximityEvidence={proximityEvidence}
-        proximitySummary={conflictData?.proximity?.summary}
-        reasonEmpty={conflictData?.proximity?.reason_empty}
-        errorMessage={conflictData?.proximity?.error_message}
-      />
-
-      {/* Activity & Connectivity (Iran Monitor style) */}
-      <div className="mt-4 pt-4 border-t border-border">
-        <h3 className="font-mono text-[11px] text-muted-foreground tracking-wider mb-3">ACTIVITY & CONNECTIVITY</h3>
-        <div className="space-y-3">
-          <GreyNoisePanel conflict={activeConflict || "Iran"} />
-          <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
-          <InternetConnectivity />
-          <FlightRadar sigint={conflictData?.sigint} />
-          <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} />
-        </div>
       </div>
 
       <div className="mt-4 pt-3 border-t border-border">
         <AgentsStatusBar />
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        Data sources: NewsAPI · GDELT · RSS · Polymarket · ACLED · NASA FIRMS · ReliefWeb · HDX HAPI · GDACS · ADS-B · Chokepoint (AIS/GDELT) · Shodan · IODA · GreyNoise · FAO · EIA · and more. See <Link to="/sources" className="text-primary hover:underline">Source Directory</Link> and <Link to="/app/monitoring" className="text-primary hover:underline">Agent Monitor</Link>.
+        <Link to="/how-it-works#dashboard-guide" className="text-primary hover:underline">How to read the dashboard</Link>
+        {" · "}
+        <Link to="/sources" className="text-primary hover:underline">Source Directory</Link>
+        {" · "}
+        <Link to="/app/monitoring" className="text-primary hover:underline">Agent Monitor</Link>
       </p>
     </aside>
   );
 }
-

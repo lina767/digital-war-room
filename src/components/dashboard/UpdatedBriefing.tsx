@@ -1,6 +1,7 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { formatTimeAgo } from "@/lib/utils";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 
 interface UpdatedBriefingProps {
   data: ConflictData | null;
@@ -20,6 +21,7 @@ export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }:
     <IntelPanel
       title="UPDATED BRIEFING"
       headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["UPDATED BRIEFING"]}
     >
       {isLoading && !hasContent && (
           <p className="text-xs text-muted-foreground italic animate-pulse">Loading analysis…</p>

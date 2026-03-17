@@ -2,6 +2,7 @@ import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Globe } from "lucide-react";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 
 const GLOBAL_IMPACT_PREFIX = "global impact";
 
@@ -28,6 +29,7 @@ export function GlobalImpactPanel({ data }: GlobalImpactPanelProps) {
     <IntelPanel
       title="GLOBAL IMPACT"
       icon={<Globe className="h-3.5 w-3.5 text-muted-foreground" />}
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["GLOBAL IMPACT"]}
     >
       {hasNote && (
         <p className="text-xs leading-relaxed text-foreground">{note}</p>

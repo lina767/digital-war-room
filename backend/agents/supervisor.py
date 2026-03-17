@@ -142,6 +142,8 @@ def run_analysis_streaming(conflict: str) -> Generator[Tuple[str, Any], None, No
         "escalation_score": synthesis.get("escalation_score", 0.0),
         "threat_level": synthesis.get("threat_level", "MINIMAL"),
         "key_findings": synthesis.get("key_findings", []),
+        "key_findings_context": synthesis.get("key_findings_context", []),
+        "corroborated_patterns": synthesis.get("corroborated_patterns", []),
         "scenarios": synthesis.get("scenarios", []),
         "summary": synthesis.get("summary", ""),
         "actors": synthesis.get("actors", []),
@@ -184,6 +186,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
   "escalation_score": <number 0-100>,
   "threat_level": <"MINIMAL"|"LOW"|"ELEVATED"|"HIGH"|"CRITICAL">,
   "key_findings": [<array of concise finding strings>],
+  "key_findings_context": [<optional: array of 2-3 sentence "why this matters" per finding, same order as key_findings; what changed, baseline, what it could indicate>],
   "scenarios": [{"description": <string>, "probability": <0-1>}],
   "summary": "<2-3 sentence BLUF summary>"
 }"""
@@ -423,10 +426,14 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
 
     threat_level = str(parsed.get("threat_level", "MINIMAL"))
     key_findings = list(parsed.get("key_findings") or [])
+    key_findings_context = list(parsed.get("key_findings_context") or [])
     scenarios    = list(parsed.get("scenarios") or [])
     summary      = str(parsed.get("summary", ""))
 
     key_findings = append_agent_findings(key_findings, agent_results, conflict, chokepoint_score)
+    # Trim key_findings_context to match key_findings length if LLM returned mismatched lengths
+    if len(key_findings_context) > len(key_findings):
+        key_findings_context = key_findings_context[: len(key_findings)]
     actors = build_actors_for_conflict(conflict, key_findings)
 
     # ── Predictive block (baseline + simple 24h forecast) ─────────────────────────
@@ -456,10 +463,15 @@ def _synthesize(conflict: str, agent_results: Dict[str, Any]) -> Dict[str, Any]:
         _previous_sigint[conflict] = upd_prev_sigint
         _previous_sigint_ts[conflict] = upd_prev_ts
 
+    # Corroborated patterns: when multiple agents detect the same event (placeholder for future LLM/heuristic).
+    corroborated_patterns: List[Dict[str, Any]] = []
+
     return {
         "escalation_score": combined_score,
         "threat_level": threat_level,
         "key_findings": key_findings,
+        "key_findings_context": key_findings_context,
+        "corroborated_patterns": corroborated_patterns,
         "scenarios": scenarios,
         "summary": summary,
         "actors": actors,
@@ -656,6 +668,8 @@ def analyze_conflict(conflict: str) -> Dict[str, Any]:
         "escalation_score": synthesis.get("escalation_score", 0.0),
         "threat_level":     synthesis.get("threat_level", "MINIMAL"),
         "key_findings":     synthesis.get("key_findings", []),
+        "key_findings_context": synthesis.get("key_findings_context", []),
+        "corroborated_patterns": synthesis.get("corroborated_patterns", []),
         "scenarios":        synthesis.get("scenarios", []),
         "summary":          synthesis.get("summary", ""),
         "actors":           synthesis.get("actors", []),

@@ -5,6 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import {
   PREDICTIVE_OUTLOOK_DISCLAIMER,
   PREDICTIVE_OUTLOOK_INTRO,
@@ -84,6 +85,7 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
       <IntelPanel
         title="PREDICTIVE OUTLOOK"
         headerRight={headerRight}
+        tooltipContent={DASHBOARD_PANEL_TOOLTIPS["PREDICTIVE OUTLOOK"]}
       >
         <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
           <span>{PREDICTIVE_OUTLOOK_INTRO_SHORT}</span>
@@ -171,7 +173,7 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
             )}
             {forecast.drivers && forecast.drivers.length > 0 && (
               <ul className="mt-1 space-y-0.5">
-                {forecast.drivers.slice(0, 3).map((d, i) => (
+                {forecast.drivers.map((d, i) => (
                   <li key={i} className="text-[11px] text-muted-foreground flex gap-1.5" title="Contributing agent score">
                     <span className="mt-[3px] h-1 w-1 rounded-full bg-primary/80 flex-shrink-0" />
                     <span>{d}</span>
