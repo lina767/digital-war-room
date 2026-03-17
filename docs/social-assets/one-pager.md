@@ -116,3 +116,7 @@ flowchart TB
 ## OPSEC Note
 
 All data sources are **public or semi-public APIs**. No classified data, no proprietary intelligence feeds. The platform demonstrates what's achievable with open-source intelligence and AI orchestration.
+
+## SEO & copy
+
+For public-facing text (meta, social, blog): lead with the niche phrases (**AI-powered OSINT conflict monitoring platform**, **multi-agent geopolitical intelligence dashboard**, **real-time Iran conflict OSINT tracker**); use „Digital War Room“ after or alongside. See [copy-guidelines.md](copy-guidelines.md).

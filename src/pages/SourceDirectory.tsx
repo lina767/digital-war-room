@@ -11,6 +11,7 @@ import {
 } from "@/lib/sourceDirectory";
 import { AGENTS_WITH_SOURCES } from "@/components/dashboard/agentsConfig";
 import { SEO } from "@/components/SEO";
+import { TITLE_SOURCE_DIRECTORY, DESCRIPTION_SOURCE_DIRECTORY } from "@/lib/seoCopy";
 
 const RELIABILITY_ORDER: ReliabilityTier[] = ["official", "curated", "community", "supplementary"];
 
@@ -33,14 +34,11 @@ const SourceDirectory = () => {
     });
   }, [search, agentFilter, reliabilityFilter]);
 
-  const sourceDirDescription =
-    "Digital War Room source directory: transparent, searchable list of all OSINT data sources with reliability ratings. Each source is linked to the intelligence agents (GEOINT, SIGINT, NEWS, FININT, etc.) that use it.";
-
   return (
     <>
       <SEO
-        title="Source Directory — Digital War Room"
-        description={sourceDirDescription}
+        title={TITLE_SOURCE_DIRECTORY}
+        description={DESCRIPTION_SOURCE_DIRECTORY}
         path="/sources"
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },

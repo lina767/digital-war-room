@@ -2,4 +2,16 @@ User-agent: *
 Allow: /
 Disallow: /app/
 
+User-agent: GPTBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
 Sitemap: https://digital-war-room.com/sitemap.xml

@@ -2,9 +2,11 @@ import { Link } from "react-router-dom";
 import { Database, ClipboardList } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
-
-const HOW_IT_WORKS_DESCRIPTION =
-  "The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals from multiple intelligence streams, computes an escalation score, and surfaces a concise BLUF-style briefing.";
+import {
+  TITLE_HOW_IT_WORKS,
+  DESCRIPTION_HOW_IT_WORKS,
+  FAQ_ANSWER_WHAT_IS,
+} from "@/lib/seoCopy";
 
 const HOW_IT_WORKS_FAQ = {
   "@context": "https://schema.org",
@@ -12,10 +14,10 @@ const HOW_IT_WORKS_FAQ = {
   mainEntity: [
     {
       "@type": "Question",
-      name: "What is the Digital War Room?",
+      name: "What is this platform?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "The Digital War Room is an OSINT-based situational awareness platform. It aggregates open-source signals from multiple intelligence streams (GEOINT, SIGINT, SOCMINT, FININT, TECHINT, and others), computes a composite escalation score, and surfaces a concise BLUF-style briefing.",
+        text: FAQ_ANSWER_WHAT_IS,
       },
     },
     {
@@ -41,8 +43,8 @@ const HowItWorks = () => {
   return (
     <>
       <SEO
-        title="How It Works — Digital War Room"
-        description={HOW_IT_WORKS_DESCRIPTION}
+        title={TITLE_HOW_IT_WORKS}
+        description={DESCRIPTION_HOW_IT_WORKS}
         path="/how-it-works"
         structuredData={HOW_IT_WORKS_FAQ}
         breadcrumbs={[
@@ -52,8 +54,8 @@ const HowItWorks = () => {
       />
       <ContentPageLayout
       label="DOCUMENTATION"
-      title="How the Digital War Room works"
-      description={HOW_IT_WORKS_DESCRIPTION}
+      title="How the platform works"
+      description={DESCRIPTION_HOW_IT_WORKS}
       maxWidth="5xl"
     >
       <div className="space-y-10 sm:space-y-12">

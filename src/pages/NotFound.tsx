@@ -2,6 +2,7 @@ import { useLocation, Link } from "react-router-dom";
 import { useEffect } from "react";
 import { ArrowLeft } from "lucide-react";
 import { SEO } from "@/components/SEO";
+import { TITLE_404 } from "@/lib/seoCopy";
 
 const NotFound = () => {
   const location = useLocation();
@@ -12,7 +13,7 @@ const NotFound = () => {
 
   return (
     <>
-      <SEO title="404 — Digital War Room" path={location.pathname} noindex />
+      <SEO title={TITLE_404} path={location.pathname} noindex />
       <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="text-center space-y-4">
         <p className="font-mono text-xs tracking-[0.28em] text-muted-foreground uppercase">

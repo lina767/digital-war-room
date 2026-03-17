@@ -14,6 +14,18 @@ import { COMPLIANCE_DISCLAIMER, COMPLIANCE_INTRO_SHORT } from "@/lib/complianceC
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 import { SEO } from "@/components/SEO";
+import {
+  TITLE_DAILY_BRIEFING,
+  DESCRIPTION_DAILY_BRIEFING,
+  SHARE_TITLE_DAILY_BRIEFING,
+  STRUCTURED_DESC_DAILY_BRIEFING,
+} from "@/lib/seoCopy";
+import {
+  TITLE_DAILY_BRIEFING,
+  DESCRIPTION_DAILY_BRIEFING,
+  SHARE_TITLE_DAILY_BRIEFING,
+  STRUCTURED_DESC_DAILY_BRIEFING,
+} from "@/lib/seoCopy";
 
 /** Reference start date for "Day X of operations" – counting from 28 February 2026. */
 const OPERATIONS_START_DATE = new Date(2026, 1, 28); // 2026-02-28
@@ -51,7 +63,7 @@ export default function DailyIntelligenceBriefing() {
 
   const handleShare = async () => {
     const url = window.location.href;
-    const title = "Daily Intelligence Briefing – Digital War Room";
+    const title = SHARE_TITLE_DAILY_BRIEFING;
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({
@@ -91,19 +103,18 @@ export default function DailyIntelligenceBriefing() {
   const dailyBriefingStructuredData = {
     "@context": "https://schema.org",
     "@type": "WebPage",
-    name: "Daily Intelligence Briefing — Digital War Room",
+    name: SHARE_TITLE_DAILY_BRIEFING,
     url: "https://digital-war-room.com/daily-briefing",
     datePublished: formatDateOnly(now),
     dateModified: formatDateOnly(now),
-    description:
-      "BLUF-style OSINT report with real-time escalation score, key findings, and predictive outlook.",
+    description: STRUCTURED_DESC_DAILY_BRIEFING,
   };
 
   return (
     <>
       <SEO
-        title="Daily Intelligence Briefing — Digital War Room"
-        description="Daily Intelligence Briefing — Digital War Room: BLUF-style OSINT report with real-time escalation score, key findings, and predictive outlook. Export as PDF or share."
+        title={TITLE_DAILY_BRIEFING}
+        description={DESCRIPTION_DAILY_BRIEFING}
         path="/daily-briefing"
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },

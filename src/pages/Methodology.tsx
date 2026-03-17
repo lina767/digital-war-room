@@ -1,5 +1,6 @@
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
+import { TITLE_METHODOLOGY, DESCRIPTION_METHODOLOGY } from "@/lib/seoCopy";
 import {
   BarChart,
   Bar,
@@ -49,15 +50,12 @@ const CHART_COLORS = [
   "hsl(var(--muted-foreground) / 0.35)",
 ];
 
-const METHODOLOGY_DESCRIPTION =
-  "How the Digital War Room computes the composite escalation score and threat level from 12 OSINT intelligence streams, and how the Signal Framework compares state vs. exile media.";
-
 const Methodology = () => {
   return (
     <>
       <SEO
-        title="Methodology — Digital War Room"
-        description={METHODOLOGY_DESCRIPTION}
+        title={TITLE_METHODOLOGY}
+        description={DESCRIPTION_METHODOLOGY}
         path="/methodology"
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },
@@ -67,7 +65,7 @@ const Methodology = () => {
       <ContentPageLayout
         label="METHODOLOGY"
         title="Scoring methodology"
-        description={METHODOLOGY_DESCRIPTION}
+        description={DESCRIPTION_METHODOLOGY}
         maxWidth="5xl"
       >
       <div className="space-y-10 sm:space-y-12">

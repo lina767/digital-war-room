@@ -73,7 +73,7 @@ And somehow I ended up building a multi-agent AI system that monitors Iran using
 
 Here's the thing: when you study geopolitics deeply enough, you realize the analysis tools don't match the complexity of what you're analyzing. You're reading IAEA reports, checking ADS-B flight data, scanning ACLED conflict events, watching oil futures — but you're doing it all manually, in separate tabs, hoping your brain catches the pattern.
 
-So I built the Digital War Room. 11 specialized agents — FININT (financial markets), SIGINT (military aircraft and ships), NEWS, GEOINT (NASA satellite thermal data), SOCMINT (social media), TECHINT (internet disruptions), CYBER, ENERGY, PROTEST, DIPLO (sanctions), and PROXIMITY (strike-civilian correlation). They run in parallel, each hitting 2-5 APIs with 75-second timeouts and automatic fallbacks. An LLM supervisor synthesizes everything into a single threat assessment.
+So I built an AI-powered OSINT conflict monitoring platform — the Digital War Room. 11 specialized agents — FININT (financial markets), SIGINT (military aircraft and ships), NEWS, GEOINT (NASA satellite thermal data), SOCMINT (social media), TECHINT (internet disruptions), CYBER, ENERGY, PROTEST, DIPLO (sanctions), and PROXIMITY (strike-civilian correlation). They run in parallel, each hitting 2-5 APIs with 75-second timeouts and automatic fallbacks. An LLM supervisor synthesizes everything into a single threat assessment.
 
 Everyone told me to use LangGraph or CrewAI. I didn't. When your SIGINT agent has 75 seconds to query ADS-B endpoints (and any of them might timeout) — you need explicit control, not a framework deciding your execution order.
 

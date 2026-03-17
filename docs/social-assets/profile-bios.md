@@ -19,7 +19,7 @@ Your unique positioning: **Political scientist who builds the intelligence tools
 > Political Science @ LMU | VP @ IFLRY | Building an AI-powered OSINT platform with 11 intelligence agents | Semiconductors & Digital Policy
 
 **Option C — Thought leader angle:**
-> How AI is changing intelligence gathering | Building Digital War Room (OSINT) | Tech Policy, Semiconductors, Iran | DLD & IFLRY
+> How AI is changing intelligence gathering | Building an AI-powered OSINT conflict monitoring platform (Digital War Room) | Tech Policy, Semiconductors, Iran | DLD & IFLRY
 
 ### About (max 2,600 chars)
 
@@ -29,7 +29,7 @@ Your unique positioning: **Political scientist who builds the intelligence tools
 >
 > But I don't just analyze. I build.
 >
-> My current project — Digital War Room — is an AI-powered OSINT platform that orchestrates 11 specialized intelligence agents to monitor geopolitical conflicts in near-real-time. SIGINT tracks military aircraft via ADS-B data. GEOINT watches NASA thermal anomalies. FININT reads oil futures and prediction markets. DIPLO scans OFAC and EU sanctions lists. A supervisor LLM synthesizes all 11 streams into a unified threat assessment with escalation scores, scenarios, and compliance checks.
+> My current project is an AI-powered OSINT conflict monitoring platform — the Digital War Room — that orchestrates 11 specialized intelligence agents to monitor geopolitical conflicts in near-real-time. SIGINT tracks military aircraft via ADS-B data. GEOINT watches NASA thermal anomalies. FININT reads oil futures and prediction markets. DIPLO scans OFAC and EU sanctions lists. A supervisor LLM synthesizes all 11 streams into a unified threat assessment with escalation scores, scenarios, and compliance checks.
 >
 > Why build this as a political scientist? Because the best policy analysis today requires understanding not just what's happening, but what data is available, how it can be fused, and where AI helps vs. misleads. The gap between policy expertise and technical capability is where the most interesting work happens.
 >
@@ -59,7 +59,7 @@ Your unique positioning: **Political scientist who builds the intelligence tools
 > Political scientist building AI-powered OSINT tools. 11 agents, 20+ APIs. Iran, semiconductors, tech policy. Building in public.
 
 **Option B:**
-> Policy meets code. Building a Digital War Room: 11 AI agents for geopolitical OSINT. LMU, IFLRY VP. Threads on Iran & agent architecture.
+> Policy meets code. Building a multi-agent geopolitical intelligence dashboard (Digital War Room): 11 AI agents for OSINT. LMU, IFLRY VP. Threads on Iran & agent architecture.
 
 **Option C (shorter):**
 > Tech policy + OSINT builder. AI-powered conflict analysis. Iran, semiconductors, building in public. LMU / IFLRY.

@@ -14,7 +14,7 @@ I study political science at LMU Munich and I'm writing my thesis on semiconduct
 
 While researching Iran, I kept running into the same problem: the data exists (flight tracking, satellite imagery, sanctions databases, social media, oil futures) but nobody is fusing it. So I built a platform that does.
 
-The Digital War Room runs 11 specialized AI agents in parallel — each one tapping into different public data sources — and an LLM supervisor synthesizes everything into a single threat assessment.
+An AI-powered OSINT conflict monitoring platform: 11 specialized AI agents run in parallel (Digital War Room), each tapping into different public data sources — an LLM supervisor synthesizes everything into a single threat assessment.
 
 **Current focus:** Iran and the Middle East.
 

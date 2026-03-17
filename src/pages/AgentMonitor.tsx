@@ -26,6 +26,7 @@ import {
   Legend,
 } from "recharts";
 import { SEO } from "@/components/SEO";
+import { TITLE_AGENT_MONITOR, DESCRIPTION_AGENT_MONITOR } from "@/lib/seoCopy";
 
 type AgentStatusEntry = {
   status: string;
@@ -61,8 +62,8 @@ const AgentMonitor = () => {
   return (
     <>
       <SEO
-        title="Agent Monitoring — Digital War Room"
-        description="Monitor health and status of all intelligence agents (GEOINT, SIGINT, NEWS, FININT, and more). View analysis runs and trigger refreshes."
+        title={TITLE_AGENT_MONITOR}
+        description={DESCRIPTION_AGENT_MONITOR}
         path="/app/monitoring"
         noindex
       />

@@ -1,6 +1,7 @@
 import { Shield } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
+import { TITLE_PRIVACY, DESCRIPTION_PRIVACY } from "@/lib/seoCopy";
 
 const CONTACT = {
   name: "Lina Braun",
@@ -13,8 +14,8 @@ const Privacy = () => {
   return (
     <>
       <SEO
-        title="Privacy Policy — Digital War Room"
-        description="Privacy policy and data protection information for Digital War Room."
+        title={TITLE_PRIVACY}
+        description={DESCRIPTION_PRIVACY}
         path="/privacy"
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },

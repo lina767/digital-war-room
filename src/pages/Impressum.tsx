@@ -1,12 +1,13 @@
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
+import { TITLE_IMPRESSUM, DESCRIPTION_IMPRESSUM } from "@/lib/seoCopy";
 
 const Impressum = () => {
   return (
     <>
       <SEO
-        title="Legal Notice — Digital War Room"
-        description="Legal notice and contact information for Digital War Room."
+        title={TITLE_IMPRESSUM}
+        description={DESCRIPTION_IMPRESSUM}
         path="/impressum"
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },

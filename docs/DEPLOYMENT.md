@@ -77,6 +77,7 @@ Um auf deine eigene Domain umzuschalten:
 
 ## 5. Optional (weitere Hinweise)
 
+- **Discoverability & SEO:** Nach Go-Live: GitHub Topics setzen, Repo-Website-URL auf `https://digital-war-room.com` stellen, Google Search Console und Bing Webmaster einrichten, Sitemap einreichen. Siehe **[docs/DISCOVERABILITY.md](DISCOVERABILITY.md)**.
 - **Eigene Domain (Details):** Siehe Abschnitt 4 oben.
 - **CORS:** Bei eigener Domain in Railway `CORS_ORIGINS` setzen (Abschnitt 4).
 - **Backend-Health:** `GET https://deine-railway-url/health` sollte `{"status":"ok"}` liefern.

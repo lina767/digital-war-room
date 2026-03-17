@@ -1,6 +1,6 @@
 # X (Twitter) — OSINT Thread Template (8-Tweet Structure)
 
-Use this template when a live geopolitical event happens and you want to analyze it with the Digital War Room in real time. The goal: show the tool in action, provide genuine analysis, and demonstrate multi-source intelligence fusion.
+Use this template when a live geopolitical event happens and you want to analyze it with the real-time Iran conflict OSINT tracker (Digital War Room) in real time. The goal: show the tool in action, provide genuine analysis, and demonstrate multi-source intelligence fusion.
 
 ---
 
