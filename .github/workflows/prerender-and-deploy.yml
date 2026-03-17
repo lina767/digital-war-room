@@ -33,6 +33,11 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          NODE_ENV: production
+
+      - name: Verify build output
+        run: test -f dist/index.html && ls -la dist/
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
@@ -43,7 +48,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ secrets.VERCEL_TOKEN != '' }}
+    if: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,7 +66,7 @@ jobs:
       - name: Create Vercel output (Build Output API v3)
         run: |
           mkdir -p .vercel/output/static
-          cp -r dist/* .vercel/output/static/
+          cp -r dist/. .vercel/output/static/
           echo '{"version":3}' > .vercel/output/config.json
 
       - name: Install Vercel CLI
