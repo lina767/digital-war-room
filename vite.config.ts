@@ -14,18 +14,23 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react(),
-    seoPrerender({
-      routes: [
-        "/",
-        "/how-it-works",
-        "/methodology",
-        "/sources",
-        "/daily-briefing",
-        "/impressum",
-        "/privacy",
-        "/support",
-      ],
-    }),
+    // Prerender uses Puppeteer/Chrome; not available on Vercel/CI. Only run when explicitly enabled (e.g. local ENABLE_PRERENDER=1).
+    ...(process.env.ENABLE_PRERENDER === "1"
+      ? [
+          seoPrerender({
+            routes: [
+              "/",
+              "/how-it-works",
+              "/methodology",
+              "/sources",
+              "/daily-briefing",
+              "/impressum",
+              "/privacy",
+              "/support",
+            ],
+          }),
+        ]
+      : []),
   ],
   resolve: {
     alias: {
