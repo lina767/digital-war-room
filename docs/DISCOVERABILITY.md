@@ -32,7 +32,6 @@ In the repo **About** section (click the gear next to "About"), add **Topics**:
 - `geopolitical-risk`
 - `intelligence`
 - `multi-agent`
-- `langchain`
 - `fastapi`
 - `react`
 - `conflict-monitoring`

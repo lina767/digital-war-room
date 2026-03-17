@@ -1,5 +1,5 @@
 """
-NEWS Agent – LangChain Tool-Calling Agent
+NEWS Agent.
 Fetches and analyzes conflict-related news articles from NewsAPI, GDELT, RSS,
 and optionally NewsData.io and GNews when NEWSDATA_API_KEY / GNEWS_API_KEY are set.
 

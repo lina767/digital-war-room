@@ -1,5 +1,5 @@
 """
-Lightweight OpenTelemetry tracing (no LangChain dependency).
+Lightweight OpenTelemetry tracing.
 When OTEL_EXPORTER_OTLP_ENDPOINT is set, creates spans around key operations.
 
 Usage:

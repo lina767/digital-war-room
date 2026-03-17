@@ -19,7 +19,7 @@ Digital War Room aggregates open-source signals from 20+ public and semi-public 
 - **OSINT analysts and researchers** — Multi-source fusion and BLUF-style briefings
 - **Geopolitical risk consultants** — Escalation scores and scenario framing
 - **Intelligence professionals** — AI-augmented workflows and compliance screening
-- **AI/ML engineers** — Multi-agent architecture, LangChain/LangGraph, graceful degradation
+- **AI/ML engineers** — Multi-agent architecture, direct LLM SDKs, graceful degradation
 
 ---
 
@@ -129,7 +129,7 @@ All backend env vars and optional API keys per agent: **[API keys & env](docs/AP
 ## Tech Stack
 
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui
-- **Backend:** Python 3, FastAPI, LangChain/LangGraph
+- **Backend:** Python 3, FastAPI
 - **Payments:** Stripe
 - **Analytics:** Vercel Analytics
 

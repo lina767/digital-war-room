@@ -153,7 +153,7 @@ Diese waren bereits in der Doku genannt; passen gut zur PDF:
 ## 6. Referenzen
 
 - **Projekt:** `docs/AGENT-EXTENSIONS.md`, `docs/AGENT-TOOL-CHAIN.md`, `docs/API-KEYS.md`
-- **PDF:** „Digital War Room“ – OSINT-Tools (GEOINT, SIGINT, SOCMINT, TECHINT, FININT), Workflow (Lovable, Cursor, LangSmith)
+- **PDF:** „Digital War Room“ – OSINT-Tools (GEOINT, SIGINT, SOCMINT, TECHINT, FININT), Workflow (Lovable, Cursor)
 - **APIs:** Metaculus (metaculus.com/api), Etherscan (etherscan.io/apis), Archive.org CDX (archive.org/developers/wayback-cdx-server.html), Zapper (build.zapper.xyz/docs/api/)
 
 Wenn du möchtest, kann als Nächstes eine konkrete Implementierung für **Metaculus** oder **Wayback (CDX)** in den jeweiligen Agenten skizziert werden (inkl. Tool-Signatur, Env-Variablen und Fallback-Kette).

@@ -2,7 +2,7 @@
 
 Überblick für das regelbasierte System: Wo werden Agents/Tools in welcher Reihenfolge aufgerufen? (Stand: aktueller Code.)
 
-**Tracing:** Wenn `OTEL_EXPORTER_OTLP_ENDPOINT` gesetzt ist, werden alle LangChain-/LangGraph-Aufrufe (Graph, Supervisor-LLM, Agent-LLMs, Tools) als OpenTelemetry-Spans exportiert (z. B. an Jaeger oder einen anderen OTLP-kompatiblen Collector).
+**Tracing:** Wenn `OTEL_EXPORTER_OTLP_ENDPOINT` gesetzt ist, werden Supervisor-LLM, Agent-Tools und Sammlung als OpenTelemetry-Spans exportiert (z. B. an Jaeger oder einen anderen OTLP-kompatiblen Collector).
 
 ---
 
@@ -104,7 +104,7 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ### TECHINT (bereits vollständig regelbasiert, kein LLM)
 
-- **Keine LangChain-Tools;** interne async Funktionen in fester Reihenfolge:
+- Interne async Funktionen in fester Reihenfolge (kein externes Tool-Framework):
   1. `_fetch_tech_indicators(av_key)` (wenn ALPHAVANTAGE_API_KEY)
   2. `_fetch_export_control_news(news_key, conflict)` (wenn NEWS_API_KEY)
   3. `_fetch_ioda_all(conflict)` – IODA v2 API: outages/events, signals/raw (BGP/Ping/Telescope), alerts, entities/query (ASNs)

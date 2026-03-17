@@ -1,5 +1,5 @@
 """
-SOCMINT Agent – LangChain Tool-Calling Agent
+SOCMINT Agent.
 Monitors Telegram, X/Twitter (Nitter), Reddit, RSS, and ReliefWeb for conflict signals.
 
 Telegram: scrapes public preview pages t.me/s/{channel}. This is fragile – Telegram often

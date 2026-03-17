@@ -1,5 +1,5 @@
 """
-GEOINT Agent – LangChain Tool-Calling Agent
+GEOINT Agent.
 Detects thermal anomalies via NASA FIRMS in conflict regions.
 Uses area-specific API (no world download). Supplemented by ReliefWeb/ACLED event data.
 """

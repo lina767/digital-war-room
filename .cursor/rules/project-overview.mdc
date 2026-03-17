@@ -6,7 +6,7 @@ alwaysApply: true
 # Digital War Room – Projekt-Überblick
 
 ## Stack
-- **Backend:** Python 3, FastAPI, LangChain/LangGraph, Agents (FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT)
+- **Backend:** Python 3, FastAPI, Agents (FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT)
 - **Frontend:** React, TypeScript, Vite, Tailwind, Supabase (Auth)
 - **API:** REST unter `/api/*`, optional WebSocket
 

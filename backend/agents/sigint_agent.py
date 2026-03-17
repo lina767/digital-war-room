@@ -1,5 +1,5 @@
 """
-SIGINT Agent – LangChain Tool-Calling Agent
+SIGINT Agent.
 Monitors military aircraft and naval vessels across multiple conflict regions.
 
 ADS-B sources (no API key needed):
