@@ -12,6 +12,9 @@ export interface ConflictLink {
   label: string;
 }
 
+/** Default conflict for API params and document QA when none selected. */
+export const DEFAULT_CONFLICT = "Iran";
+
 /** For dropdown: id (storage), label (display), apiValue (backend analyze). */
 export const CONFLICT_OPTIONS = [
   { id: "iran", label: "Iran", apiValue: "Iran" },

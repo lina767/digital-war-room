@@ -5,10 +5,12 @@ Each agent, enrichment step, division summary, and the CEO synthesis is a DAGNod
 Nodes start as soon as their hard dependencies are satisfied. Optional (soft)
 dependencies deliver None when unavailable; the node decides how to handle that.
 """
+
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from graphlib import TopologicalSorter
 from typing import Any, Callable, Dict, Generator, List, Optional
 
@@ -21,8 +23,10 @@ logger = logging.getLogger(__name__)
 # DAGNode
 # ---------------------------------------------------------------------------
 
+
 class DAGNode(BaseModel):
     """Single node in the execution DAG."""
+
     id: str
     dependencies: List[str] = Field(default_factory=list)
     optional_deps: List[str] = Field(default_factory=list)
@@ -36,6 +40,7 @@ class DAGNode(BaseModel):
 # ---------------------------------------------------------------------------
 # ResultStore
 # ---------------------------------------------------------------------------
+
 
 class ResultStore:
     """Thread-safe store for DAG node results within a single analysis run."""
@@ -96,7 +101,7 @@ class ResultStoreManager:
         cutoff = now - (self._retention_minutes * 60)
         with self._lock:
             if len(self._stores) > self._retention_cycles:
-                keep = self._stores[-self._retention_cycles:]
+                keep = self._stores[-self._retention_cycles :]
             else:
                 keep = list(self._stores)
             self._stores = [s for s in keep if s.created_at >= cutoff]
@@ -105,6 +110,7 @@ class ResultStoreManager:
 # ---------------------------------------------------------------------------
 # DAGScheduler
 # ---------------------------------------------------------------------------
+
 
 class DAGScheduler:
     """Dependency-driven scheduler using graphlib.TopologicalSorter.
@@ -160,8 +166,7 @@ class DAGScheduler:
                         result = future.result(timeout=self._nodes[nid].timeout_s)
                         store.set(nid, result)
                     except FuturesTimeoutError:
-                        logger.warning("Node '%s' timed out (%.0fs)", nid,
-                                       self._nodes[nid].timeout_s)
+                        logger.warning("Node '%s' timed out (%.0fs)", nid, self._nodes[nid].timeout_s)
                         store.set(nid, self._nodes[nid].fallback)
                     except Exception as exc:
                         logger.warning("Node '%s' failed: %s", nid, exc)
@@ -170,8 +175,7 @@ class DAGScheduler:
 
         return store
 
-    def run_streaming(self, executors: Dict[str, Callable],
-                      store: ResultStore) -> Generator:
+    def run_streaming(self, executors: Dict[str, Callable], store: ResultStore) -> Generator:
         """Like run(), but yields (node_id, result) only for streamable nodes.
 
         Frontend receives only Tier-1 (Agent-Results) and Tier-4 (Division-Summaries),

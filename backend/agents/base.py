@@ -4,17 +4,19 @@ BaseAgent – Abstract base class for all intelligence agents.
 Provides: typed result wrapping, circuit breaker, content hashing,
 structured metrics, and integration with AgentStateStore.
 """
+
 import hashlib
 import json
 import logging
 import time
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel, Field
 
-from .utils import AgentMetadata, ScoreConfidence, SourceResult, utc_now_iso
+from .utils import AgentMetadata, SourceResult, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +29,10 @@ _AGENT_EXEC_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-s
 # Typed result models
 # ---------------------------------------------------------------------------
 
+
 class BaseAgentResult(BaseModel):
     """Common base fields shared by every agent result contract."""
+
     schema_version: int = 1
     conflict: str = ""
     score: float = 0.0
@@ -39,6 +43,7 @@ class BaseAgentResult(BaseModel):
 
 class AgentMetrics(BaseModel):
     """Structured execution metrics collected by run_safe."""
+
     latency_ms: int = 0
     source_count: int = 0
     api_calls_made: int = 0
@@ -47,6 +52,7 @@ class AgentMetrics(BaseModel):
 
 class CircuitBreakerState(BaseModel):
     """Per-agent circuit breaker persisted across cycles."""
+
     consecutive_failures: int = 0
     is_open: bool = False
     last_failure_at: Optional[str] = None
@@ -56,6 +62,7 @@ class CircuitBreakerState(BaseModel):
 
 class AgentResult(BaseModel, Generic[T]):
     """Wrapper around a typed agent result with metadata and metrics."""
+
     data: Any  # typed T – kept as Any for Pydantic v2 Generic compat
     meta: Optional[AgentMetadata] = None
     content_hash: str = ""
@@ -67,6 +74,7 @@ class AgentResult(BaseModel, Generic[T]):
 # ---------------------------------------------------------------------------
 # BaseAgent
 # ---------------------------------------------------------------------------
+
 
 class BaseAgent(ABC, Generic[T]):
     """Abstract base for all intelligence agents.
@@ -113,11 +121,14 @@ class BaseAgent(ABC, Generic[T]):
         if cb.is_open:
             if cb.cycles_skipped < cb.reopen_after_cycles:
                 cb.cycles_skipped += 1
-                logger.info("[%s] circuit breaker OPEN – skipping (cycle %d/%d)",
-                            self.name, cb.cycles_skipped, cb.reopen_after_cycles)
+                logger.info(
+                    "[%s] circuit breaker OPEN – skipping (cycle %d/%d)",
+                    self.name,
+                    cb.cycles_skipped,
+                    cb.reopen_after_cycles,
+                )
                 fallback = self.get_fallback(conflict)
-                return self._wrap_result(fallback, start, is_fallback=True,
-                                         error="circuit breaker open")
+                return self._wrap_result(fallback, start, is_fallback=True, error="circuit breaker open")
             # Half-open: attempt one run
             logger.info("[%s] circuit breaker HALF-OPEN – attempting", self.name)
 
@@ -129,14 +140,12 @@ class BaseAgent(ABC, Generic[T]):
             logger.warning("[%s] timed out after %.0fs", self.name, self.timeout)
             self._record_failure(cb)
             fallback = self.get_fallback(conflict)
-            return self._wrap_result(fallback, start, is_fallback=True,
-                                     error=f"timeout after {self.timeout}s")
+            return self._wrap_result(fallback, start, is_fallback=True, error=f"timeout after {self.timeout}s")
         except Exception as exc:
             logger.warning("[%s] failed: %s", self.name, exc)
             self._record_failure(cb)
             fallback = self.get_fallback(conflict)
-            return self._wrap_result(fallback, start, is_fallback=True,
-                                     error=str(exc))
+            return self._wrap_result(fallback, start, is_fallback=True, error=str(exc))
 
         # 3. Success → reset circuit breaker
         self._record_success(cb)
@@ -172,8 +181,7 @@ class BaseAgent(ABC, Generic[T]):
 
     # -- Internal helpers ----------------------------------------------------
 
-    def _wrap_result(self, data: Any, start: float, *,
-                     is_fallback: bool, error: Optional[str] = None) -> AgentResult:
+    def _wrap_result(self, data: Any, start: float, *, is_fallback: bool, error: Optional[str] = None) -> AgentResult:
         latency_ms = int((time.perf_counter() - start) * 1000)
         content_hash = self._compute_hash(data)
 
@@ -229,8 +237,7 @@ class BaseAgent(ABC, Generic[T]):
         if cb.consecutive_failures >= 3 and not cb.is_open:
             cb.is_open = True
             cb.cycles_skipped = 0
-            logger.warning("Circuit breaker OPENED after %d consecutive failures",
-                           cb.consecutive_failures)
+            logger.warning("Circuit breaker OPENED after %d consecutive failures", cb.consecutive_failures)
 
     @staticmethod
     def _record_success(cb: CircuitBreakerState) -> None:

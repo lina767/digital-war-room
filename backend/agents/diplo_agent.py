@@ -3,6 +3,7 @@ DIPLO / Legal Agent – Sanctions (OFAC, EU), UN/ICJ feeds, diplomatic signals.
 Fetches: OFAC SDN list (bulk CSV/XML), EU consolidated sanctions (open data),
 UN Security Council / ICJ RSS or press releases. Rule-based score from new listings and resolutions. No LLM.
 """
+
 import asyncio
 import csv
 import io
@@ -13,14 +14,9 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    run_async,
-    utc_now_iso,
-    compute_confidence_from_sources,
-)
+from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +28,9 @@ _HTTP_HEADERS = {
 # OFAC SDN list (bulk CSV – free, no key, headerless)
 OFAC_SDN_CSV_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 # EU consolidated list – CSV version (much smaller than the XML)
-EU_SANCTIONS_CSV_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw"
+EU_SANCTIONS_CSV_URL = (
+    "https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw"
+)
 EU_SANCTIONS_XML_URL = "https://webgate.ec.europa.eu/fsd/fsf/public/files/xml/fullSanctionsList_1_1.xml"
 # UN press releases (RSS) – primary and fallback (press.un.org often 404; news.un.org more stable)
 UN_PRESS_RSS = "https://press.un.org/en/rss/press.xml"
@@ -47,8 +45,36 @@ CONFLICT_SANCTION_KEYWORDS: Dict[str, List[str]] = {
     "ukraine": ["ukraine", "russia", "donbas", "crimea"],
     "syria": ["syria", "syrian", "assad"],
     "north korea": ["dprk", "north korea", "kim jong"],
-    "middle east": ["iran", "irgc", "syria", "syrian", "hezbollah", "lebanon", "yemen", "houthi", "iraq", "israel", "gaza", "ofac", "sanctions"],
-    "naher osten": ["iran", "irgc", "syria", "syrian", "hezbollah", "lebanon", "yemen", "houthi", "iraq", "israel", "gaza", "ofac", "sanctions"],
+    "middle east": [
+        "iran",
+        "irgc",
+        "syria",
+        "syrian",
+        "hezbollah",
+        "lebanon",
+        "yemen",
+        "houthi",
+        "iraq",
+        "israel",
+        "gaza",
+        "ofac",
+        "sanctions",
+    ],
+    "naher osten": [
+        "iran",
+        "irgc",
+        "syria",
+        "syrian",
+        "hezbollah",
+        "lebanon",
+        "yemen",
+        "houthi",
+        "iraq",
+        "israel",
+        "gaza",
+        "ofac",
+        "sanctions",
+    ],
     "hezbollah": ["hezbollah", "lebanon", "nasrallah", "ofac", "sanctions", "iran", "irgc", "qods"],
     "houthis": ["houthi", "houthis", "yemen", "ansar allah", "ofac", "sanctions", "iran", "red sea"],
     "default": ["iran", "russia", "syria"],
@@ -65,11 +91,14 @@ def _conflict_to_keywords(conflict: str) -> List[str]:
 
 # ── Streaming HTTP helper ────────────────────────────────────────────────────
 
+
 async def _stream_download(url: str, connect_s: float = 15, read_s: float = 90) -> str:
     """Stream-download a large file with separate connect/read timeouts."""
     timeout = httpx.Timeout(connect=connect_s, read=read_s, write=30.0, pool=15.0)
     async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=True, headers=_HTTP_HEADERS,
+        timeout=timeout,
+        follow_redirects=True,
+        headers=_HTTP_HEADERS,
     ) as client:
         async with client.stream("GET", url) as resp:
             resp.raise_for_status()
@@ -113,11 +142,13 @@ async def _fetch_ofac_sdn(conflict: str) -> Dict[str, Any]:
             combined = name + " " + program
             if any(k in combined for k in keywords):
                 prog_raw = (row[3] or "").strip()
-                matches.append({
-                    "name": row[1].strip(),
-                    "type": row[2].strip() if len(row) > 2 else "",
-                    "program": prog_raw,
-                })
+                matches.append(
+                    {
+                        "name": row[1].strip(),
+                        "type": row[2].strip() if len(row) > 2 else "",
+                        "program": prog_raw,
+                    }
+                )
                 for p in prog_raw.replace(";", " ").replace(",", " ").split():
                     p = p.strip(" '\"[]")
                     if p and len(p) > 1:
@@ -171,6 +202,7 @@ async def _fetch_eu_sanctions(conflict: str) -> Dict[str, Any]:
 async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str, Any]]:
     """Fetch UN or ICJ RSS and filter by conflict keywords."""
     import feedparser
+
     keywords = _conflict_to_keywords(conflict)
     try:
         async with httpx.AsyncClient(timeout=15.0, headers=_HTTP_HEADERS) as client:
@@ -182,13 +214,15 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
             title = (e.get("title") or "").strip()
             summary = (e.get("summary") or e.get("description") or "")[:400]
             if not keywords or any(k in (title + summary).lower() for k in keywords):
-                entries.append({
-                    "title": title,
-                    "url": e.get("link"),
-                    "published": e.get("published"),
-                    "source": label,
-                    "summary": summary,
-                })
+                entries.append(
+                    {
+                        "title": title,
+                        "url": e.get("link"),
+                        "published": e.get("published"),
+                        "source": label,
+                        "summary": summary,
+                    }
+                )
         return entries
     except httpx.HTTPStatusError as e:
         logger.warning("DIPLO: %s RSS failed HTTP %s – %s", label, e.response.status_code, url[:60])
@@ -212,7 +246,9 @@ async def _fetch_un_icj_news(conflict: str) -> List[Dict[str, Any]]:
         err_icj = (icj_entries or [{}])[0].get("error") if icj_entries else None
         logger.info(
             "DIPLO: UN/ICJ – no items after filter (UN: %s, ICJ: %s). Keywords for conflict '%s' may not match feed content.",
-            err_un or "ok but 0 match", err_icj or "ok but 0 match", conflict,
+            err_un or "ok but 0 match",
+            err_icj or "ok but 0 match",
+            conflict,
         )
     items = _classify_un_icj_news(items)
     return items
@@ -224,16 +260,15 @@ def _classify_un_icj_news(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return items
     try:
         from services.haiku_service import batch_classify_diplo
+
         from .utils import run_async
-        texts = [
-            ((e.get("title") or "") + " " + (e.get("summary") or "")).strip()[:1500]
-            for e in items
-        ]
+
+        texts = [((e.get("title") or "") + " " + (e.get("summary") or "")).strip()[:1500] for e in items]
         results = run_async(batch_classify_diplo(texts))
         if not results or all(r is None for r in results):
             return items
         out = []
-        for e, res in zip(items, results):
+        for e, res in zip(items, results, strict=True):
             if res and isinstance(res, dict):
                 e["diplo_category"] = res.get("category", "irrelevant")
                 e["diplo_confidence"] = float(res.get("confidence", 0))
@@ -271,8 +306,7 @@ def _compute_diplo_score(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Di
     elif len(valid_news) >= 1:
         base += 5
     if any(
-        n.get("diplo_category") == "new_sanction" and float(n.get("diplo_confidence") or 0) >= 0.6
-        for n in valid_news
+        n.get("diplo_category") == "new_sanction" and float(n.get("diplo_confidence") or 0) >= 0.6 for n in valid_news
     ):
         base += 5
     return min(100.0, max(0.0, base))
@@ -288,6 +322,7 @@ async def _generate_haiku_summary_diplo(
     """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
     try:
         from services.haiku_service import analyst_summary
+
         compact = {
             "conflict": conflict,
             "diplo_score": score,
@@ -297,6 +332,7 @@ async def _generate_haiku_summary_diplo(
             "news_categories": [n.get("diplo_category") for n in news if n.get("diplo_category")],
         }
         import json
+
         data = json.dumps(compact, indent=2)
         system = (
             "You are a sanctions and diplomatic analyst. Summarize the following DIPLO data "
@@ -327,6 +363,7 @@ def _build_summary(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Dict[str
 
 def run_diplo_agent(conflict: str) -> Dict[str, Any]:
     """Run DIPLO/Legal agent: OFAC SDN, EU sanctions, UN/ICJ RSS."""
+
     async def _run() -> Dict[str, Any]:
         ofac, eu, news = await asyncio.gather(
             _fetch_ofac_sdn(conflict),
@@ -353,30 +390,39 @@ def run_diplo_agent(conflict: str) -> Dict[str, Any]:
         ofac_ok = isinstance(out.get("ofac_sdn"), dict) and not out.get("ofac_sdn", {}).get("error")
         eu_ok = isinstance(out.get("eu_sanctions"), dict) and not out.get("eu_sanctions", {}).get("error")
         news_list = out.get("un_icj_news") or []
-        news_ok = bool(news_list) and not (isinstance(news_list, list) and news_list and isinstance(news_list[0], dict) and news_list[0].get("error"))
+        news_ok = bool(news_list) and not (
+            isinstance(news_list, list) and news_list and isinstance(news_list[0], dict) and news_list[0].get("error")
+        )
         source_results = [
-            SourceResult(name="OFAC SDN", status="ok" if ofac_ok else "error", fetched_at=fetched_at, record_count=out.get("ofac_sdn", {}).get("total_matches", 0) if ofac_ok else 0),
+            SourceResult(
+                name="OFAC SDN",
+                status="ok" if ofac_ok else "error",
+                fetched_at=fetched_at,
+                record_count=out.get("ofac_sdn", {}).get("total_matches", 0) if ofac_ok else 0,
+            ),
             SourceResult(name="EU sanctions", status="ok" if eu_ok else "error", fetched_at=fetched_at),
-            SourceResult(name="UN/ICJ", status="ok" if news_ok else "error", fetched_at=fetched_at, record_count=len(news_list) if isinstance(news_list, list) else 0),
+            SourceResult(
+                name="UN/ICJ",
+                status="ok" if news_ok else "error",
+                fetched_at=fetched_at,
+                record_count=len(news_list) if isinstance(news_list, list) else 0,
+            ),
         ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "diplo", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 2 else "recent" if ok_count >= 1 else "stale" if out.get("diplo_score", 0) > 0 else "unavailable"
-        meta = AgentMetadata(agent="diplo", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
-        out["_meta"] = meta.model_dump(mode="json")
+        has_data = bool(
+            out.get("diplo_score", 0) or out.get("ofac_sdn") or out.get("eu_sanctions") or out.get("un_icj_news")
+        )
+        out["_meta"] = build_agent_meta("diplo", fetched_at, duration_ms, source_results, has_any_data=has_data)
         return out
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="diplo", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
-        return {
-            "diplo_score": 28.0,
-            "ofac_sdn": {"total_matches": 0, "sample": [], "error": str(e)},
-            "eu_sanctions": {"keyword_mentions": 0, "error": str(e)},
-            "un_icj_news": [],
-            "summary": f"DIPLO error: {e}",
-            "_meta": meta.model_dump(mode="json"),
-        }
+        fallback = get_agent_fallback("diplo")
+        fallback["conflict"] = conflict
+        fallback["summary"] = f"DIPLO error: {e}"
+        fallback["_meta"] = build_agent_meta(
+            "diplo", fetched_at, duration_ms, [], fallback_used=True, error_summary=str(e), has_any_data=False
+        )
+        return fallback

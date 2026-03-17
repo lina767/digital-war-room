@@ -75,10 +75,12 @@ export interface AnalyzeResponse {
 }
 
 /** Analysis can take 1–2 min (6 agents + LLM). Use long timeout. */
-const ANALYSIS_TIMEOUT_MS = 180_000;
+export const ANALYSIS_TIMEOUT_MS = 180_000;
 
 /** Timeout for fetching cached analysis (e.g. cold start on Railway). */
-const LATEST_ANALYSIS_TIMEOUT_MS = 22_000;
+export const LATEST_ANALYSIS_TIMEOUT_MS = 22_000;
+
+const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 
 /** GET /api/analyze/status – cached, at, and optional error from last failed run. */
 export async function getAnalyzeStatus(conflict: string): Promise<{ cached: boolean; at?: number; error?: string } | null> {
@@ -425,6 +427,163 @@ export interface TheaterEvent {
   /** Admin1 region/province (aggregated data). */
   admin1?: string;
 }
+
+// ── Agents status ───────────────────────────────────────────────────────────
+
+/** GET /api/agents/status – per-agent status from last analysis. */
+export async function getAgentsStatus(): Promise<Record<string, unknown> | null> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/agents/status`, {
+      signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data === "object" && data !== null ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Compliance ──────────────────────────────────────────────────────────────
+
+export interface ZonesResponse {
+  sanctions_zones: Array<{ name?: string; zone_type?: string; source?: string }>;
+  all_zones: Array<{ name?: string; zone_type?: string; source?: string }>;
+}
+
+/** GET /api/compliance/zones. */
+export async function getComplianceZones(): Promise<ZonesResponse | null> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/compliance/zones`, {
+      signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as ZonesResponse;
+  } catch {
+    return null;
+  }
+}
+
+export interface RouteScreeningBody {
+  route_label: string;
+  waypoints: Array<{ label: string; lat: number; lon: number; country_code?: string; port_type?: string }>;
+}
+
+export interface RouteScreeningResult {
+  route_label: string;
+  waypoints: Array<{ label: string; lat: number; lon: number }>;
+  zone_hits: Array<{ waypoint: string; zone_name: string; zone_type: string; zone_source?: string }>;
+  suspicious_hops?: Array<{ waypoint: string; country_code: string; hub_label: string; condition: string; rationale?: string }>;
+  touches_sanctions_zone?: boolean;
+  disclaimer?: string;
+  summary?: string;
+}
+
+/** POST /api/compliance/route-screening. */
+export async function postComplianceRouteScreening(
+  body: RouteScreeningBody
+): Promise<RouteScreeningResult> {
+  const res = await fetch(`${getApiBase()}/api/compliance/route-screening`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as RouteScreeningResult;
+}
+
+// ── Documents ───────────────────────────────────────────────────────────────
+
+export interface DocumentItem {
+  id?: string;
+  url?: string;
+  source?: string;
+  conflict?: string;
+  ingested_at?: string;
+  [key: string]: unknown;
+}
+
+/** GET /api/documents. */
+export async function getDocuments(): Promise<DocumentItem[]> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/documents`, {
+      signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return [];
+    const raw = await res.json();
+    if (Array.isArray(raw)) return raw as DocumentItem[];
+    if (raw && Array.isArray((raw as { documents?: unknown }).documents)) {
+      return (raw as { documents: DocumentItem[] }).documents;
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** POST /api/documents/ingest. */
+export async function postDocumentsIngest(body: {
+  url: string;
+  source?: string;
+  conflict?: string;
+}): Promise<void> {
+  const res = await fetch(`${getApiBase()}/api/documents/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+/** POST /api/documents/qa. */
+export async function postDocumentsQa(body: {
+  question: string;
+  conflict?: string;
+}): Promise<Record<string, unknown>> {
+  const res = await fetch(`${getApiBase()}/api/documents/qa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as Record<string, unknown>;
+}
+
+// ── Chokepoints ─────────────────────────────────────────────────────────────
+
+/** GET /api/chokepoints/overrides. */
+export async function getChokepointOverrides(): Promise<Record<string, string>> {
+  try {
+    const res = await fetch(`${getApiBase()}/api/chokepoints/overrides`, {
+      signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return {};
+    const next = (await res.json()) as Record<string, string> | null;
+    return next ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** POST /api/chokepoints/overrides. */
+export async function postChokepointOverrides(
+  overrides: Record<string, string>
+): Promise<Record<string, string>> {
+  const res = await fetch(`${getApiBase()}/api/chokepoints/overrides`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(overrides),
+    signal: AbortSignal.timeout(DEFAULT_FETCH_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const updated = (await res.json()) as Record<string, string>;
+  return updated ?? {};
+}
+
+// ── Theater events ──────────────────────────────────────────────────────────
 
 /** GET /api/theater-events – unified events for Theater Map layer (Iran etc.). */
 export async function getTheaterEvents(

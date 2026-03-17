@@ -7,10 +7,10 @@ classification, summarization) route through this service. Provides:
 - Per-run limits (configurable via env)
 - Graceful degradation (errors → None, never crashes the caller)
 """
+
 import json
 import logging
 import os
-import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -78,8 +78,7 @@ def _increment_usage(input_tokens: int, output_tokens: int):
     _ensure_month()
     _monthly_input_tokens += input_tokens
     _monthly_output_tokens += output_tokens
-    cost = (input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + \
-           (output_tokens / 1_000_000) * _OUTPUT_COST_PER_MTOK
+    cost = (input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + (output_tokens / 1_000_000) * _OUTPUT_COST_PER_MTOK
     _monthly_cost_usd += cost
     _run_call_count += 1
     _run_input_tokens += input_tokens
@@ -126,17 +125,22 @@ def is_haiku_failed() -> bool:
 def log_run_stats():
     """Log summary at the end of each run."""
     _ensure_month()
-    run_cost = (_run_input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + \
-               (_run_output_tokens / 1_000_000) * _OUTPUT_COST_PER_MTOK
+    run_cost = (_run_input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + (
+        _run_output_tokens / 1_000_000
+    ) * _OUTPUT_COST_PER_MTOK
     logger.info(
-        "[haiku] Run stats: %d calls, %d input tokens, %d output tokens, ~$%.4f. "
-        "Month total: ~$%.2f / $%.2f",
-        _run_call_count, _run_input_tokens, _run_output_tokens, run_cost,
-        _monthly_cost_usd, HAIKU_MONTHLY_BUDGET,
+        "[haiku] Run stats: %d calls, %d input tokens, %d output tokens, ~$%.4f. Month total: ~$%.2f / $%.2f",
+        _run_call_count,
+        _run_input_tokens,
+        _run_output_tokens,
+        run_cost,
+        _monthly_cost_usd,
+        HAIKU_MONTHLY_BUDGET,
     )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _strip_json_block(raw: str) -> str:
     """Strip ```json ... ``` fencing that LLMs sometimes wrap around JSON output."""
@@ -148,9 +152,11 @@ def _strip_json_block(raw: str) -> str:
 
 # ── Core API call ────────────────────────────────────────────────────────────
 
+
 def _get_client():
     """Lazy-import and create Anthropic client."""
     from anthropic import Anthropic
+
     return Anthropic()
 
 
@@ -171,15 +177,19 @@ async def _call_haiku(system: str, user_content: str, max_tokens: int = 1024) ->
 
     try:
         import asyncio
+
         loop = asyncio.get_running_loop()
         client = _get_client()
-        resp = await loop.run_in_executor(None, lambda: client.messages.create(
-            model=HAIKU_MODEL,
-            system=system,
-            messages=[{"role": "user", "content": user_content}],
-            temperature=0,
-            max_tokens=max_tokens,
-        ))
+        resp = await loop.run_in_executor(
+            None,
+            lambda: client.messages.create(
+                model=HAIKU_MODEL,
+                system=system,
+                messages=[{"role": "user", "content": user_content}],
+                temperature=0,
+                max_tokens=max_tokens,
+            ),
+        )
         _increment_usage(
             resp.usage.input_tokens,
             resp.usage.output_tokens,
@@ -317,6 +327,7 @@ async def ner(text: str) -> Optional[List[Dict[str, str]]]:
 
 # ── Batch functions (Phase 2) ───────────────────────────────────────────────
 
+
 async def batch_sentiment(texts: List[str]) -> List[Optional[Dict[str, Any]]]:
     """
     Run sentiment on multiple texts. If Haiku fails on the first call,
@@ -364,8 +375,7 @@ _GEOPOLITICAL_CATEGORIES = [
 
 _CLASSIFY_SYSTEM = (
     "You are a geopolitical intelligence classifier. Classify the following text "
-    "into exactly ONE of these categories:\n"
-    + ", ".join(_GEOPOLITICAL_CATEGORIES) + "\n\n"
+    "into exactly ONE of these categories:\n" + ", ".join(_GEOPOLITICAL_CATEGORIES) + "\n\n"
     "Return ONLY valid JSON:\n"
     '{"category": "<category>", "confidence": <float 0 to 1>}'
 )
@@ -427,9 +437,7 @@ _DIPLO_CATEGORIES = [
 
 _CLASSIFY_DIPLO_SYSTEM = (
     "You are a diplomatic/legal news classifier. Classify the following UN or ICJ press text "
-    "into exactly ONE of these categories:\n"
-    + ", ".join(_DIPLO_CATEGORIES)
-    + "\n\n"
+    "into exactly ONE of these categories:\n" + ", ".join(_DIPLO_CATEGORIES) + "\n\n"
     "new_sanction = new sanctions, designations, or enforcement actions. "
     "sanction_lifted = removal or easing of sanctions. "
     "icj_ruling = ICJ judgment, order, or substantive ruling. "
@@ -530,6 +538,7 @@ async def batch_summarize(texts: List[str]) -> List[Optional[str]]:
 
 # ── Analyst summary (custom system prompt) ───────────────────────────────────
 
+
 async def analyst_summary(
     system: str,
     data: str,
@@ -587,12 +596,8 @@ async def document_qa(
         return None
 
     selected = chunks[:max_chunks]
-    context_parts = [f"[Chunk {i+1}]\n{c}" for i, c in enumerate(selected)]
-    user_content = (
-        "DOCUMENT CHUNKS:\n\n"
-        + "\n\n".join(context_parts)
-        + f"\n\nQUESTION: {question}"
-    )
+    context_parts = [f"[Chunk {i + 1}]\n{c}" for i, c in enumerate(selected)]
+    user_content = "DOCUMENT CHUNKS:\n\n" + "\n\n".join(context_parts) + f"\n\nQUESTION: {question}"
 
     raw = await _call_haiku(_DOCQA_SYSTEM, user_content[:8000], max_tokens=512)
     if not raw:

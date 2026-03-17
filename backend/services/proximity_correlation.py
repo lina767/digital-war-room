@@ -2,11 +2,12 @@
 Proximity correlation: Overpass (schools/hospitals) + optional tunnel/sites GeoJSON.
 Shared by api routes and PROXIMITY agent. Used for IRGC tunnel vs. civilian infrastructure (human shield).
 """
+
 import asyncio
 import logging
 import math
-from urllib.parse import quote
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -68,7 +69,9 @@ async def fetch_overpass_context(lat: float, lon: float, _retries: int = 2) -> L
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < _retries:
                     wait = OVERPASS_DELAY_S * (attempt + 2)
-                    logger.info("Overpass 429 on %s – retrying in %.1fs (%d/%d)", endpoint_url[:40], wait, attempt + 1, _retries)
+                    logger.info(
+                        "Overpass 429 on %s – retrying in %.1fs (%d/%d)", endpoint_url[:40], wait, attempt + 1, _retries
+                    )
                     await asyncio.sleep(wait)
                     attempt += 1
                     continue
@@ -102,21 +105,23 @@ async def fetch_overpass_context(lat: float, lon: float, _retries: int = 2) -> L
         if key in seen:
             continue
         seen.add(key)
-        facilities.append({
-            "id": str(el.get("id", key)),
-            "name": name,
-            "lat": flat,
-            "lon": flon,
-            "amenity": tags.get("amenity"),
-            "office": tags.get("office"),
-        })
+        facilities.append(
+            {
+                "id": str(el.get("id", key)),
+                "name": name,
+                "lat": flat,
+                "lon": flon,
+                "amenity": tags.get("amenity"),
+                "office": tags.get("office"),
+            }
+        )
     return facilities
 
 
 def _tunnel_sites_from_geojson(fc: Dict[str, Any]) -> List[tuple[float, float]]:
     """Extract (lat, lon) from a GeoJSON FeatureCollection (points)."""
     out = []
-    for f in (fc.get("features") or []):
+    for f in fc.get("features") or []:
         geom = f.get("geometry")
         if not geom or geom.get("type") != "Point":
             continue
@@ -204,18 +209,20 @@ async def run_correlation_for_events(
         if key in seen:
             continue
         seen.add(key)
-        evidence.append({
-            "facilityName": fac["name"],
-            "facilityType": fac.get("amenity") or fac.get("office") or "civilian infrastructure",
-            "distanceMeters": res["distance_meters"],
-            "riskLabel": res["risk_label"],
-            "strikeLat": float(lat),
-            "strikeLon": float(lon),
-            "facilityLat": fac["lat"],
-            "facilityLon": fac["lon"],
-            "summary": _summary(fac["name"], res["distance_meters"], res["risk_label"]),
-            "source": ev.get("source"),
-            "description": ev.get("description"),
-            "strikeAcquired": ev.get("acquired"),
-        })
+        evidence.append(
+            {
+                "facilityName": fac["name"],
+                "facilityType": fac.get("amenity") or fac.get("office") or "civilian infrastructure",
+                "distanceMeters": res["distance_meters"],
+                "riskLabel": res["risk_label"],
+                "strikeLat": float(lat),
+                "strikeLon": float(lon),
+                "facilityLat": fac["lat"],
+                "facilityLon": fac["lon"],
+                "summary": _summary(fac["name"], res["distance_meters"], res["risk_label"]),
+                "source": ev.get("source"),
+                "description": ev.get("description"),
+                "strikeAcquired": ev.get("acquired"),
+            }
+        )
     return sorted(evidence, key=lambda x: x["distanceMeters"])

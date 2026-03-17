@@ -2,6 +2,7 @@
 HealthRegistry – in-memory per-source health tracking across runs.
 Stores last N results per source, computes availability and latency, detects circuit-open state.
 """
+
 import logging
 import threading
 from collections import deque
@@ -73,16 +74,18 @@ class HealthRegistry:
                 )
                 last_error = recent[-1].get("error") if recent and recent[-1].get("status") == "error" else None
                 current_status = "down" if circuit_open else ("ok" if availability_pct >= 80 else "degraded")
-                sources.append({
-                    "source": source_name,
-                    "agent": agent_name,
-                    "availability_pct": availability_pct,
-                    "avg_latency_ms": avg_latency_ms,
-                    "status": current_status,
-                    "circuit_open": circuit_open,
-                    "last_error": last_error,
-                    "last_results_count": len(recent),
-                })
+                sources.append(
+                    {
+                        "source": source_name,
+                        "agent": agent_name,
+                        "availability_pct": availability_pct,
+                        "avg_latency_ms": avg_latency_ms,
+                        "status": current_status,
+                        "circuit_open": circuit_open,
+                        "last_error": last_error,
+                        "last_results_count": len(recent),
+                    }
+                )
             degraded = sum(1 for s in sources if s["status"] == "degraded")
             down = sum(1 for s in sources if s["status"] == "down")
             return {

@@ -2,27 +2,45 @@
 Integration test: verify the full DAG produces a response format identical
 to the legacy supervisor.analyze_conflict() API shape.
 """
+
 import os
-import pytest
 
-from agents.dag_scheduler import DAGNode, DAGScheduler, ResultStore
 from agents.ceo import (
-    _all_divisions, _build_full_dag, _build_ceo_prompt,
-    _ceo_synthesize, CEO_WEIGHTS,
+    CEO_WEIGHTS,
+    _all_divisions,
+    _build_full_dag,
+    _ceo_synthesize,
 )
+from agents.dag_scheduler import DAGScheduler, ResultStore
 from agents.division import DivisionResult
-from agents.registry import AgentRegistry, AgentDescriptor
-
 
 EXPECTED_RESPONSE_KEYS = {
-    "conflict", "escalation_score", "threat_level",
-    "key_findings", "key_findings_context",
-    "corroborated_patterns", "scenarios", "summary",
-    "actors", "predictive", "compliance", "alerts",
+    "conflict",
+    "escalation_score",
+    "threat_level",
+    "key_findings",
+    "key_findings_context",
+    "corroborated_patterns",
+    "scenarios",
+    "summary",
+    "actors",
+    "predictive",
+    "compliance",
+    "alerts",
     "divisions",
-    "finint", "sigint", "news", "geoint", "socmint",
-    "techint", "cyber", "energy", "protest", "diplo",
-    "proximity", "narrative", "chokepoint",
+    "finint",
+    "sigint",
+    "news",
+    "geoint",
+    "socmint",
+    "techint",
+    "cyber",
+    "energy",
+    "protest",
+    "diplo",
+    "proximity",
+    "narrative",
+    "chokepoint",
 }
 
 
@@ -34,9 +52,21 @@ def _mock_agent_result(agent_name, score=40):
 def _mock_store():
     """Build a fully populated mock store as if all agents + enrichment ran."""
     store = ResultStore(cycle_id="test-int", conflict="Iran")
-    for name in ["sigint", "geoint", "proximity", "chokepoint",
-                 "finint", "energy", "news", "socmint", "narrative",
-                 "diplo", "protest", "techint", "cyber"]:
+    for name in [
+        "sigint",
+        "geoint",
+        "proximity",
+        "chokepoint",
+        "finint",
+        "energy",
+        "news",
+        "socmint",
+        "narrative",
+        "diplo",
+        "protest",
+        "techint",
+        "cyber",
+    ]:
         store.set(name, _mock_agent_result(name))
 
     store.set("acled_refs", [])
@@ -50,18 +80,20 @@ def _mock_store():
     store.set("finint_ner_enrich", {})
 
     for div_name in ["military", "financial", "information", "political", "technical"]:
-        store.set(f"{div_name}_summary", DivisionResult(
-            division=div_name,
-            score=40.0,
-            agent_scores={},
-            summary=f"{div_name} summary",
-        ))
+        store.set(
+            f"{div_name}_summary",
+            DivisionResult(
+                division=div_name,
+                score=40.0,
+                agent_scores={},
+                summary=f"{div_name} summary",
+            ),
+        )
 
     return store
 
 
 class TestResponseFormat:
-
     def test_response_has_all_expected_keys(self):
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
         store = _mock_store()
@@ -99,7 +131,6 @@ class TestResponseFormat:
 
 
 class TestFullDAGStructure:
-
     def test_dag_builds_without_error(self):
         divisions = _all_divisions()
         nodes, executors = _build_full_dag(divisions)
@@ -141,7 +172,6 @@ class TestFullDAGStructure:
 
 
 class TestDivisionWeights:
-
     def test_weights_sum_to_one(self):
         total = sum(CEO_WEIGHTS.values())
         assert abs(total - 1.0) < 0.01

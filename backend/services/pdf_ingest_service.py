@@ -8,6 +8,7 @@ and kept in an in-memory index for fast Document QA lookups.
 Uses reportlab is already in requirements (for PDF export); text extraction
 uses PyPDF2/pypdf or pdfplumber. Falls back to raw text if neither available.
 """
+
 import hashlib
 import io
 import logging
@@ -64,6 +65,7 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
 def _extract_with_pypdf(pdf_bytes: bytes) -> str:
     try:
         from pypdf import PdfReader
+
         reader = PdfReader(io.BytesIO(pdf_bytes))
         pages = []
         for i, page in enumerate(reader.pages):
@@ -83,6 +85,7 @@ def _extract_with_pypdf(pdf_bytes: bytes) -> str:
 def _extract_with_pdfplumber(pdf_bytes: bytes) -> str:
     try:
         import pdfplumber
+
         pages = []
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for i, page in enumerate(pdf.pages):
@@ -171,6 +174,7 @@ async def ingest_pdf(
     embeddings = None
     try:
         from services.hf_service import embed
+
         embeddings = await embed(chunks)
     except Exception as e:
         logger.debug("[pdf] Embedding failed: %s", e)
@@ -178,10 +182,12 @@ async def ingest_pdf(
     if embeddings:
         try:
             from services.storage_service import is_available, store_embeddings_batch
+
             if is_available():
                 items = [{"text": c} for c in chunks]
                 await store_embeddings_batch(
-                    items, embeddings,
+                    items,
+                    embeddings,
                     source=f"pdf:{source}",
                     conflict=conflict,
                 )
@@ -237,7 +243,7 @@ async def find_relevant_chunks(
     find nearest chunks via in-memory cosine sim (or pgvector if available).
     """
     try:
-        from services.hf_service import embed, _cosine_similarity
+        from services.hf_service import _cosine_similarity, embed
     except ImportError:
         return []
 
@@ -247,10 +253,12 @@ async def find_relevant_chunks(
     q_vec = q_emb[0]
 
     try:
-        from services.storage_service import is_available, find_similar
+        from services.storage_service import find_similar, is_available
+
         if is_available():
             results = await find_similar(
-                q_vec, top_k=top_k,
+                q_vec,
+                top_k=top_k,
                 source=f"pdf:{source}" if source else None,
                 conflict=conflict,
                 threshold=0.5,
@@ -270,7 +278,7 @@ async def find_relevant_chunks(
         doc_embeddings = doc.get("embeddings")
         if not doc_embeddings:
             continue
-        for i, (chunk, emb) in enumerate(zip(doc.get("chunks", []), doc_embeddings)):
+        for _i, (chunk, emb) in enumerate(zip(doc.get("chunks", []), doc_embeddings, strict=True)):
             sim = _cosine_similarity(q_vec, emb)
             if sim >= 0.5:
                 scored.append((sim, doc_id, chunk))

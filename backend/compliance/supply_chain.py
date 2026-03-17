@@ -11,8 +11,9 @@ policy configuration so that changes are auditable and politically defensible.
 
 IMPORTANT: Intelligence signals only – not legal advice.
 """
+
 import logging
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Optional
 
 from .zones import SANCTIONS_ZONES, Zone, all_matching_zones
 
@@ -65,6 +66,7 @@ INTERMEDIARY_POLICY: List[Dict[str, str]] = [
 
 class Waypoint:
     """A point on a trade route (port, airport, or coordinate)."""
+
     __slots__ = ("label", "country_code", "lat", "lon", "port_type")
 
     def __init__(
@@ -93,6 +95,7 @@ class Waypoint:
 
 class RouteScreeningResult:
     """Result of screening a single trade route."""
+
     def __init__(
         self,
         route_label: str,
@@ -165,23 +168,27 @@ def screen_route(
         matched_zones = all_matching_zones(wp.lat, wp.lon, zone_list)
         for z in matched_zones:
             touches = True
-            zone_hits.append({
-                "waypoint": wp.label,
-                "zone_name": z.name,
-                "zone_type": z.zone_type,
-                "zone_source": z.source,
-            })
+            zone_hits.append(
+                {
+                    "waypoint": wp.label,
+                    "zone_name": z.name,
+                    "zone_type": z.zone_type,
+                    "zone_source": z.source,
+                }
+            )
 
         for rule in intermediary_rules:
             if wp.country_code == rule["hub"]:
-                suspicious_hops.append({
-                    "waypoint": wp.label,
-                    "country_code": wp.country_code,
-                    "hub_label": rule["hub_label"],
-                    "condition": rule["condition"],
-                    "rationale": rule["rationale"],
-                    "policy_source": rule["source"],
-                })
+                suspicious_hops.append(
+                    {
+                        "waypoint": wp.label,
+                        "country_code": wp.country_code,
+                        "hub_label": rule["hub_label"],
+                        "condition": rule["condition"],
+                        "rationale": rule["rationale"],
+                        "policy_source": rule["source"],
+                    }
+                )
 
     result = RouteScreeningResult(
         route_label=route_label,

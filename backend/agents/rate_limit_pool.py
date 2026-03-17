@@ -5,6 +5,7 @@ Prevents multiple agents from hitting the same external API's rate limit
 simultaneously. Each API endpoint gets its own TokenBucket. Agents call
 ``pool.acquire("gdelt")`` before making an API request.
 """
+
 import threading
 import time
 from typing import Dict, Optional
@@ -14,22 +15,23 @@ from pydantic import BaseModel
 
 class RateLimitConfig(BaseModel):
     """Per-API rate limit configuration."""
+
     tokens_per_second: float = 1.0
     max_burst: int = 5
     timeout_s: float = 30.0
 
 
 RATE_LIMITS: Dict[str, RateLimitConfig] = {
-    "gdelt":          RateLimitConfig(tokens_per_second=2.0,  max_burst=5),
-    "newsapi":        RateLimitConfig(tokens_per_second=1.0,  max_burst=3),
-    "greynoise":      RateLimitConfig(tokens_per_second=0.5,  max_burst=2),
-    "aisstream":      RateLimitConfig(tokens_per_second=1.0,  max_burst=3),
-    "alpha_vantage":  RateLimitConfig(tokens_per_second=0.2,  max_burst=5),
-    "etherscan":      RateLimitConfig(tokens_per_second=0.2,  max_burst=5),
-    "overpass":       RateLimitConfig(tokens_per_second=0.5,  max_burst=2),
-    "reddit":         RateLimitConfig(tokens_per_second=1.0,  max_burst=5),
-    "fred":           RateLimitConfig(tokens_per_second=1.0,  max_burst=5),
-    "eia":            RateLimitConfig(tokens_per_second=1.0,  max_burst=5),
+    "gdelt": RateLimitConfig(tokens_per_second=2.0, max_burst=5),
+    "newsapi": RateLimitConfig(tokens_per_second=1.0, max_burst=3),
+    "greynoise": RateLimitConfig(tokens_per_second=0.5, max_burst=2),
+    "aisstream": RateLimitConfig(tokens_per_second=1.0, max_burst=3),
+    "alpha_vantage": RateLimitConfig(tokens_per_second=0.2, max_burst=5),
+    "etherscan": RateLimitConfig(tokens_per_second=0.2, max_burst=5),
+    "overpass": RateLimitConfig(tokens_per_second=0.5, max_burst=2),
+    "reddit": RateLimitConfig(tokens_per_second=1.0, max_burst=5),
+    "fred": RateLimitConfig(tokens_per_second=1.0, max_burst=5),
+    "eia": RateLimitConfig(tokens_per_second=1.0, max_burst=5),
 }
 
 

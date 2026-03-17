@@ -2,6 +2,7 @@
 Shared utilities for all backend agents.
 Eliminates duplication of common helpers across sigint, finint, geoint, news agents.
 """
+
 import asyncio
 import concurrent.futures
 import json
@@ -14,9 +15,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 # Shared pool for run_async fallback (when asyncio.run() can't be used).
-_ASYNC_POOL = concurrent.futures.ThreadPoolExecutor(
-    max_workers=6, thread_name_prefix="async-runner"
-)
+_ASYNC_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=6, thread_name_prefix="async-runner")
 
 
 def run_async(coro):
@@ -36,6 +35,7 @@ def run_async(coro):
 
 # ── Type-safe conversions ─────────────────────────────────────────────────
 
+
 def safe_float(v: Any, default: Optional[float] = None) -> Optional[float]:
     """Convert to float, returning *default* on failure (None if not given)."""
     try:
@@ -51,12 +51,13 @@ def utc_now_iso() -> str:
 
 # ── LLM response cleaning ────────────────────────────────────────────────
 
+
 def strip_llm_json(text: str) -> str:
     """Remove ```json / ``` wrappers that LLMs add around JSON."""
     text = text.strip()
     for prefix in ("```json", "```"):
         if text.startswith(prefix):
-            text = text[len(prefix):].strip()
+            text = text[len(prefix) :].strip()
     if text.endswith("```"):
         text = text[:-3].strip()
     return text
@@ -73,6 +74,7 @@ def parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
 
 # ── ADS-B response normalisation ─────────────────────────────────────────
 
+
 def parse_adsb_response(data: Any) -> List[Dict[str, Any]]:
     """Normalise the various ADS-B JSON shapes into a flat aircraft list."""
     if isinstance(data, list):
@@ -84,8 +86,10 @@ def parse_adsb_response(data: Any) -> List[Dict[str, Any]]:
 
 # ── Shared Pydantic models ───────────────────────────────────────────────
 
+
 class ScoreConfidence(BaseModel):
     """Confidence metadata attached to every agent score."""
+
     level: str = "low"
     sources_ok: List[str] = Field(default_factory=list)
     sources_missing: List[str] = Field(default_factory=list)
@@ -93,6 +97,7 @@ class ScoreConfidence(BaseModel):
 
 class SourceResult(BaseModel):
     """Per-source fetch result for telemetry and health tracking."""
+
     name: str
     status: Literal["ok", "degraded", "error"]
     fetched_at: Optional[str] = None  # ISO-8601
@@ -104,6 +109,7 @@ class SourceResult(BaseModel):
 
 class AgentMetadata(BaseModel):
     """Standard metadata attached to every agent result (returned as _meta)."""
+
     agent: str
     fetched_at: str  # ISO-8601, when agent run started
     duration_ms: int
@@ -135,3 +141,44 @@ def compute_confidence_from_sources(source_results: List[SourceResult]) -> Score
         sources_ok=[s.name for s in ok] + [f"{s.name}(degraded)" for s in degraded],
         sources_missing=[s.name for s in failed],
     )
+
+
+def data_freshness_from_sources(
+    source_results: List[SourceResult],
+    has_any_data: bool = True,
+) -> Literal["live", "recent", "stale", "unavailable"]:
+    """Derive data_freshness from source results and whether any data was returned."""
+    ok_count = sum(1 for s in source_results if s.status == "ok")
+    if ok_count >= 2:
+        return "live"
+    if ok_count >= 1:
+        return "recent"
+    if has_any_data:
+        return "stale"
+    return "unavailable"
+
+
+def build_agent_meta(
+    agent: str,
+    fetched_at: str,
+    duration_ms: int,
+    source_results: List[SourceResult],
+    *,
+    fallback_used: bool = False,
+    error_summary: Optional[str] = None,
+    has_any_data: bool = True,
+) -> Dict[str, Any]:
+    """Build the _meta dict for an agent result (confidence + data_freshness from source_results)."""
+    confidence = compute_confidence_from_sources(source_results)
+    data_freshness = data_freshness_from_sources(source_results, has_any_data=has_any_data)
+    meta = AgentMetadata(
+        agent=agent,
+        fetched_at=fetched_at,
+        duration_ms=duration_ms,
+        sources=source_results,
+        confidence=confidence,
+        data_freshness=data_freshness,
+        fallback_used=fallback_used,
+        error_summary=error_summary,
+    )
+    return meta.model_dump(mode="json")

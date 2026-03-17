@@ -1,15 +1,18 @@
 """
 Tests for CEO orchestrator: synthesis, delta-aware prompt, division-failure handling.
 """
-import pytest
+
+from agents.ceo import _build_ceo_prompt, _ceo_synthesize
 from agents.dag_scheduler import ResultStore
-from agents.division import DivisionResult, DivisionAnomaly
-from agents.entity_registry import EntityRegistry, NEREntity
-from agents.ceo import _ceo_synthesize, _build_ceo_prompt, CEO_WEIGHTS
+from agents.division import DivisionAnomaly, DivisionResult
 from agents.divisions import (
-    MilitaryDivision, FinancialDivision, InformationDivision,
-    PoliticalDivision, TechnicalDivision,
+    FinancialDivision,
+    InformationDivision,
+    MilitaryDivision,
+    PoliticalDivision,
+    TechnicalDivision,
 )
+from agents.entity_registry import EntityRegistry, NEREntity
 
 
 def _mock_division_result(name, score=50.0, anomalies=None):
@@ -37,13 +40,18 @@ def _populated_store():
 
 
 class TestCEOSynthesis:
-
     def test_produces_valid_response(self):
         import os
+
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
         store = _populated_store()
-        divisions = [MilitaryDivision(), FinancialDivision(), InformationDivision(),
-                     PoliticalDivision(), TechnicalDivision()]
+        divisions = [
+            MilitaryDivision(),
+            FinancialDivision(),
+            InformationDivision(),
+            PoliticalDivision(),
+            TechnicalDivision(),
+        ]
         result = _ceo_synthesize("Iran", divisions, store)
 
         assert "escalation_score" in result
@@ -57,34 +65,47 @@ class TestCEOSynthesis:
 
     def test_composite_score_is_weighted(self):
         import os
+
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
         store = _populated_store()
-        divisions = [MilitaryDivision(), FinancialDivision(), InformationDivision(),
-                     PoliticalDivision(), TechnicalDivision()]
+        divisions = [
+            MilitaryDivision(),
+            FinancialDivision(),
+            InformationDivision(),
+            PoliticalDivision(),
+            TechnicalDivision(),
+        ]
         result = _ceo_synthesize("Iran", divisions, store)
 
-        expected = (72 * 0.30 + 45 * 0.18 + 58 * 0.22 + 28 * 0.14 + 32 * 0.16)
+        expected = 72 * 0.30 + 45 * 0.18 + 58 * 0.22 + 28 * 0.14 + 32 * 0.16
         assert abs(result["escalation_score"] - expected) < 1.0
 
     def test_threat_level_mapping(self):
         import os
+
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
 
-        for score, expected_level in [(85, "CRITICAL"), (65, "HIGH"),
-                                       (45, "ELEVATED"), (25, "LOW"), (10, "MINIMAL")]:
+        for score, expected_level in [(85, "CRITICAL"), (65, "HIGH"), (45, "ELEVATED"), (25, "LOW"), (10, "MINIMAL")]:
             store = ResultStore(conflict="test")
             for name in ["military", "financial", "information", "political", "technical"]:
                 store.set(f"{name}_summary", _mock_division_result(name, score))
             store.set("compliance_build", {"compliance": {}, "alerts": []})
             store.set("acled_refs", [])
-            divisions = [MilitaryDivision(), FinancialDivision(), InformationDivision(),
-                         PoliticalDivision(), TechnicalDivision()]
+            divisions = [
+                MilitaryDivision(),
+                FinancialDivision(),
+                InformationDivision(),
+                PoliticalDivision(),
+                TechnicalDivision(),
+            ]
             result = _ceo_synthesize("test", divisions, store)
-            assert result["threat_level"] == expected_level, \
+            assert result["threat_level"] == expected_level, (
                 f"score {score}: expected {expected_level}, got {result['threat_level']}"
+            )
 
     def test_handles_missing_division(self):
         import os
+
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
         store = ResultStore(conflict="Iran")
         store.set("military_summary", _mock_division_result("military", 60))
@@ -92,14 +113,20 @@ class TestCEOSynthesis:
         store.set("compliance_build", {"compliance": {}, "alerts": []})
         store.set("acled_refs", [])
 
-        divisions = [MilitaryDivision(), FinancialDivision(), InformationDivision(),
-                     PoliticalDivision(), TechnicalDivision()]
+        divisions = [
+            MilitaryDivision(),
+            FinancialDivision(),
+            InformationDivision(),
+            PoliticalDivision(),
+            TechnicalDivision(),
+        ]
         result = _ceo_synthesize("Iran", divisions, store)
         assert result["escalation_score"] > 0
         assert result["threat_level"] in ("MINIMAL", "LOW", "ELEVATED", "HIGH", "CRITICAL")
 
     def test_anomaly_findings_included(self):
         import os
+
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
         store = ResultStore(conflict="Iran")
         anomaly = DivisionAnomaly(
@@ -115,24 +142,34 @@ class TestCEOSynthesis:
         store.set("compliance_build", {"compliance": {}, "alerts": []})
         store.set("acled_refs", [])
 
-        divisions = [MilitaryDivision(), FinancialDivision(), InformationDivision(),
-                     PoliticalDivision(), TechnicalDivision()]
+        divisions = [
+            MilitaryDivision(),
+            FinancialDivision(),
+            InformationDivision(),
+            PoliticalDivision(),
+            TechnicalDivision(),
+        ]
         result = _ceo_synthesize("Iran", divisions, store)
         assert any("SIGINT" in f for f in result["key_findings"])
 
     def test_includes_divisions_metadata(self):
         import os
+
         os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
         store = _populated_store()
-        divisions = [MilitaryDivision(), FinancialDivision(), InformationDivision(),
-                     PoliticalDivision(), TechnicalDivision()]
+        divisions = [
+            MilitaryDivision(),
+            FinancialDivision(),
+            InformationDivision(),
+            PoliticalDivision(),
+            TechnicalDivision(),
+        ]
         result = _ceo_synthesize("Iran", divisions, store)
         assert "divisions" in result
         assert "military" in result["divisions"]
 
 
 class TestCEOPrompt:
-
     def test_prompt_contains_divisions(self):
         store = _populated_store()
         dr = {
@@ -159,8 +196,10 @@ class TestCEOPrompt:
     def test_prompt_shows_anomalies(self):
         store = _populated_store()
         anomaly = DivisionAnomaly(
-            type="contradiction", description="Score divergence",
-            severity="high", agents_involved=["sigint", "geoint"],
+            type="contradiction",
+            description="Score divergence",
+            severity="high",
+            agents_involved=["sigint", "geoint"],
         )
         dr = {"military": _mock_division_result("military", 72, anomalies=[anomaly])}
         prompt = _build_ceo_prompt("Iran", dr, 72, store)

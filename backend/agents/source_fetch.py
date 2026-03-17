@@ -2,7 +2,7 @@
 SourceFetch – context manager for per-source HTTP fetches with timing, error capture,
 and health reporting. Use around each external API call in agents.
 """
-import asyncio
+
 import logging
 import time
 from typing import Optional
@@ -63,6 +63,7 @@ class SourceFetch:
         )
         try:
             from .health_registry import get_health_registry
+
             reg = get_health_registry()
             if reg is not None:
                 reg.record_result(self.source_name, self.agent_name, self._result)

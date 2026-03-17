@@ -1,6 +1,7 @@
 """
 Shared agent configuration: env flags, timeouts, and common constants.
 """
+
 import os
 
 
@@ -37,21 +38,26 @@ GREYNOISE_BASE_URL = os.getenv("GREYNOISE_BASE_URL", "https://api.greynoise.io")
 GREYNOISE_TIMEOUT = float(os.getenv("GREYNOISE_TIMEOUT", "20"))
 GREYNOISE_SCHEDULER_INTERVAL_SEC = int(os.getenv("GREYNOISE_SCHEDULER_INTERVAL_SEC", "21600"))  # 6h
 GREYNOISE_SCHEDULER_CONFLICTS = [
-    c.strip() for c in os.getenv(
+    c.strip()
+    for c in os.getenv(
         "GREYNOISE_CONFLICTS",
         "Iran,Israel,USA,UAE,Saudi Arabia,Lebanon,Jordan,Gaza/Israel,Yemen,Middle East",
-    ).split(",") if c.strip()
+    ).split(",")
+    if c.strip()
 ]
 
 # ── Multi-Agent Hierarchy Configuration ───────────────────────────────────
 
 HIERARCHY_WEIGHTS = {
     "divisions": {
-        "military":    {"ceo_weight": 0.30, "agents": {"sigint": 0.30, "geoint": 0.25, "chokepoint": 0.25, "proximity": 0.20}},
-        "financial":   {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
+        "military": {
+            "ceo_weight": 0.30,
+            "agents": {"sigint": 0.30, "geoint": 0.25, "chokepoint": 0.25, "proximity": 0.20},
+        },
+        "financial": {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
         "information": {"ceo_weight": 0.22, "agents": {"news": 0.40, "socmint": 0.35, "narrative": 0.25}},
-        "political":   {"ceo_weight": 0.14, "agents": {"diplo": 0.55, "protest": 0.45}},
-        "technical":   {"ceo_weight": 0.16, "agents": {"techint": 0.50, "cyber": 0.50}},
+        "political": {"ceo_weight": 0.14, "agents": {"diplo": 0.55, "protest": 0.45}},
+        "technical": {"ceo_weight": 0.16, "agents": {"techint": 0.50, "cyber": 0.50}},
     },
     "circuit_breaker": {
         "max_consecutive_failures": int(os.getenv("CB_MAX_FAILURES", "3")),
@@ -76,13 +82,31 @@ AGENT_TTLS = {
     "diplo": int(os.getenv("AGENT_TTL_DIPLO", "3600")),
     "techint": int(os.getenv("AGENT_TTL_TECHINT", "1800")),
     "narrative": int(os.getenv("AGENT_TTL_NARRATIVE", "1800")),
-    "news": 0, "socmint": 0, "sigint": 0, "chokepoint": 0,
-    "finint": 0, "geoint": 0, "cyber": 0, "protest": 0, "proximity": 0,
+    "news": 0,
+    "socmint": 0,
+    "sigint": 0,
+    "chokepoint": 0,
+    "finint": 0,
+    "geoint": 0,
+    "cyber": 0,
+    "protest": 0,
+    "proximity": 0,
 }
 
 STORE_RETENTION_CYCLES = int(os.getenv("STORE_RETENTION_CYCLES", "5"))
 STORE_RETENTION_MINUTES = float(os.getenv("STORE_RETENTION_MINUTES", "60"))
 
-DISABLED_AGENTS = [
-    a.strip() for a in os.getenv("DISABLED_AGENTS", "").split(",") if a.strip()
-]
+DISABLED_AGENTS = [a.strip() for a in os.getenv("DISABLED_AGENTS", "").split(",") if a.strip()]
+
+# Default conflict for analyze/status/latest and route defaults (e.g. "Iran").
+DEFAULT_CONFLICT = (os.getenv("DEFAULT_CONFLICT", "Iran") or "Iran").strip()
+
+# When True, run agents in two waves: wave 1 (foundation) then build AgentContext and run wave 2
+# (context-aware) so agents can focus on each other's findings (e.g. GEOINT on SIGINT regions).
+USE_AGENT_HANDOFF = _env_true("USE_AGENT_HANDOFF", default=False)
+
+# ── News / shared API limits ───────────────────────────────────────────────
+
+NEWS_MAX_PER_SOURCE = int(os.getenv("NEWS_MAX_PER_SOURCE", "5"))
+NEWS_TOP_K = int(os.getenv("NEWS_TOP_K", "20"))
+RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"

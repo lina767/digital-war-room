@@ -2,11 +2,11 @@
 GreyNoise Emerging Threats API – serves pre-computed snapshots from SQLite.
 No live GreyNoise API calls in the request path; data is refreshed by the 6h scheduler.
 """
+
 import asyncio
-from typing import Optional
 
 from fastapi import APIRouter, Query
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 
 from agents.greynoise_agent import get_latest_ips, get_latest_snapshot, get_trend_data, run_greynoise_agent
 

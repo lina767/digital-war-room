@@ -8,6 +8,7 @@ Usage:
     with traced("analysis.agent.finint", {"conflict": conflict}):
         result = run_finint_agent(conflict)
 """
+
 import os
 import time
 from contextlib import contextmanager
@@ -31,16 +32,16 @@ def init_otel() -> None:
         return
     try:
         from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
         endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
         if endpoint.startswith("https://"):
-            endpoint = endpoint[len("https://"):]
+            endpoint = endpoint[len("https://") :]
         elif endpoint.startswith("http://"):
-            endpoint = endpoint[len("http://"):]
+            endpoint = endpoint[len("http://") :]
         if not endpoint:
             return
         service_name = os.getenv("OTEL_SERVICE_NAME", "digital-war-room")

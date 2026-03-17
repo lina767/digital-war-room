@@ -5,10 +5,10 @@ Replaces the ad-hoc ``exported_ner_entities`` with a dedicated, type-aware
 entity structure supporting deduplication via alias matching and optional
 embedding-based fuzzy matching.
 """
+
 import logging
 import threading
-from collections import defaultdict
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -46,8 +46,9 @@ for canonical, aliases in ENTITY_ALIASES.items():
 
 class NEREntity(BaseModel):
     """A single named entity extracted from agent data."""
+
     entity: str
-    type: str       # PERSON | ORG | LOCATION | VESSEL | WEAPON_SYSTEM
+    type: str  # PERSON | ORG | LOCATION | VESSEL | WEAPON_SYSTEM
     source_agent: str
     confidence: float = 1.0
     context: Optional[str] = None

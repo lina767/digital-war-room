@@ -4,17 +4,21 @@ Typed per-agent Pydantic result contracts.
 Each agent has a dedicated result model inheriting from BaseAgentResult.
 Central definition ensures type safety across DAG nodes, division heads,
 and the CEO synthesis layer.
+
+Agent run_*_agent() functions return Dict[str, Any] shaped like the corresponding
+*Result model (plus _meta). Use get_agent_fallback(name) for a valid default dict.
 """
+
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from .base import BaseAgentResult
-
 
 # ---------------------------------------------------------------------------
 # ENERGY
 # ---------------------------------------------------------------------------
+
 
 class EnergyResult(BaseAgentResult):
     schema_version: int = 1
@@ -32,6 +36,7 @@ class EnergyResult(BaseAgentResult):
 # SIGINT
 # ---------------------------------------------------------------------------
 
+
 class SigintResult(BaseAgentResult):
     schema_version: int = 1
     sigint_score: float = 0.0
@@ -47,6 +52,7 @@ class SigintResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # NEWS
 # ---------------------------------------------------------------------------
+
 
 class NewsResult(BaseAgentResult):
     schema_version: int = 1
@@ -64,6 +70,7 @@ class NewsResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # FININT
 # ---------------------------------------------------------------------------
+
 
 class FinintResult(BaseAgentResult):
     schema_version: int = 1
@@ -87,6 +94,7 @@ class FinintResult(BaseAgentResult):
 # GEOINT
 # ---------------------------------------------------------------------------
 
+
 class GeointResult(BaseAgentResult):
     schema_version: int = 1
     geoint_score: float = 0.0
@@ -104,6 +112,7 @@ class GeointResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # SOCMINT
 # ---------------------------------------------------------------------------
+
 
 class SocmintResult(BaseAgentResult):
     schema_version: int = 1
@@ -124,6 +133,7 @@ class SocmintResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # TECHINT
 # ---------------------------------------------------------------------------
+
 
 class TechintResult(BaseAgentResult):
     schema_version: int = 1
@@ -147,6 +157,7 @@ class TechintResult(BaseAgentResult):
 # CYBER
 # ---------------------------------------------------------------------------
 
+
 class CyberResult(BaseAgentResult):
     schema_version: int = 1
     cyber_score: float = 0.0
@@ -162,6 +173,7 @@ class CyberResult(BaseAgentResult):
 # PROTEST
 # ---------------------------------------------------------------------------
 
+
 class ProtestResult(BaseAgentResult):
     schema_version: int = 1
     protest_score: float = 0.0
@@ -173,6 +185,7 @@ class ProtestResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # DIPLO
 # ---------------------------------------------------------------------------
+
 
 class DiploResult(BaseAgentResult):
     schema_version: int = 1
@@ -186,6 +199,7 @@ class DiploResult(BaseAgentResult):
 # PROXIMITY
 # ---------------------------------------------------------------------------
 
+
 class ProximityResult(BaseAgentResult):
     schema_version: int = 1
     proximity_score: float = 0.0
@@ -197,6 +211,7 @@ class ProximityResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # NARRATIVE / Signal Framework
 # ---------------------------------------------------------------------------
+
 
 class NarrativeResult(BaseAgentResult):
     schema_version: int = 1
@@ -217,6 +232,7 @@ class NarrativeResult(BaseAgentResult):
 # ---------------------------------------------------------------------------
 # CHOKEPOINT
 # ---------------------------------------------------------------------------
+
 
 class ChokepointResult(BaseAgentResult):
     schema_version: int = 1
@@ -245,3 +261,14 @@ AGENT_RESULT_TYPES: Dict[str, type] = {
     "narrative": NarrativeResult,
     "chokepoint": ChokepointResult,
 }
+
+
+def get_agent_fallback(agent_name: str) -> Dict[str, Any]:
+    """Return a minimal fallback dict for an agent (from its Pydantic model defaults).
+    Shape matches the corresponding *Result model; use for error paths and defaults.
+    """
+    model_cls = AGENT_RESULT_TYPES.get(agent_name)
+    if model_cls is None:
+        return {}
+    instance = model_cls()
+    return instance.model_dump()

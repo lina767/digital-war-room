@@ -5,6 +5,7 @@ Run from backend/ with venv activated:
   cd backend && source venv/bin/activate && python scripts/check_agents.py
 Optional: python scripts/check_agents.py -v   # show data hints (e.g. article count, outages)
 """
+
 import os
 import sys
 from datetime import datetime
@@ -16,6 +17,7 @@ os.chdir(BACKEND_ROOT)
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
@@ -28,10 +30,10 @@ AGENT_ENV = {
     "geoint": ["NASA_FIRMS_KEY"],
     "socmint": [],
     "techint": [],  # Alpha Vantage, News, Cloudflare, Shodan are optional; agent runs without
-    "cyber": [],    # CISA KEV no key; OTX optional
-    "energy": [],   # AGSI, Alpha Vantage optional
+    "cyber": [],  # CISA KEV no key; OTX optional
+    "energy": [],  # AGSI, Alpha Vantage optional
     "protest": [],  # ACLED optional; GDELT free
-    "diplo": [],    # OFAC/EU/UN/ICJ no key
+    "diplo": [],  # OFAC/EU/UN/ICJ no key
 }
 
 CONFLICT = "Iran"
@@ -70,9 +72,16 @@ def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:
         if name == "diplo" and "diplo_score" not in result:
             return False, "Missing diplo_score", result
         score_key = {
-            "finint": "escalation_score", "sigint": "sigint_score", "news": "news_score",
-            "geoint": "geoint_score", "socmint": "socmint_score", "techint": "techint_score",
-            "cyber": "cyber_score", "energy": "energy_score", "protest": "protest_score", "diplo": "diplo_score",
+            "finint": "escalation_score",
+            "sigint": "sigint_score",
+            "news": "news_score",
+            "geoint": "geoint_score",
+            "socmint": "socmint_score",
+            "techint": "techint_score",
+            "cyber": "cyber_score",
+            "energy": "energy_score",
+            "protest": "protest_score",
+            "diplo": "diplo_score",
         }.get(name)
         score = result.get(score_key, "?")
         return True, f"OK (score={score}, {elapsed:.1f}s)", result
@@ -200,7 +209,8 @@ def main():
 
 def test_acled():
     """Direct ACLED OAuth + API test."""
-    import httpx, json
+    import httpx
+
     email = os.getenv("ACLED_EMAIL", "")
     pw = os.getenv("ACLED_PASSWORD", "")
     print(f"Email: {email}")
@@ -209,9 +219,12 @@ def test_acled():
         print("FAIL: Set ACLED_EMAIL + ACLED_PASSWORD in backend/.env")
         return
     print("\n--- OAuth token request ---")
-    r = httpx.post("https://acleddata.com/oauth/token",
+    r = httpx.post(
+        "https://acleddata.com/oauth/token",
         data={"username": email, "password": pw, "grant_type": "password", "client_id": "acled"},
-        headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0)
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=15.0,
+    )
     print(f"Status: {r.status_code}")
     if r.status_code != 200:
         print(f"Error: {r.text[:500]}")
@@ -221,28 +234,43 @@ def test_acled():
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     for label, days_back in [("Recent (90d)", 90), ("6-12 months", 270), ("12-18 months", 450)]:
         from datetime import timedelta
+
         end_d = datetime.now()
         start_d = end_d - timedelta(days=days_back)
         start_d2 = end_d - timedelta(days=days_back + 180)
         date_val = f"{start_d2.strftime('%Y-%m-%d')}|{start_d.strftime('%Y-%m-%d')}"
-        r2 = httpx.get("https://acleddata.com/api/acled/read", params={
-            "_format": "json", "country": "Iran", "event_type": "Protests",
-            "event_date": date_val, "event_date_where": "BETWEEN", "limit": 5,
-        }, headers=headers, timeout=15.0)
+        r2 = httpx.get(
+            "https://acleddata.com/api/acled/read",
+            params={
+                "_format": "json",
+                "country": "Iran",
+                "event_type": "Protests",
+                "event_date": date_val,
+                "event_date_where": "BETWEEN",
+                "limit": 5,
+            },
+            headers=headers,
+            timeout=15.0,
+        )
         b = r2.json()
-        print(f"\n{label}: count={b.get('count')}, records={len(b.get('data',[]))}")
+        print(f"\n{label}: count={b.get('count')}, records={len(b.get('data', []))}")
         if b.get("data"):
             print(f"  First date: {b['data'][0].get('event_date')}")
 
 
 def test_gdelt():
     """Direct GDELT DOC 2.0 API test."""
-    import httpx, json, time
+    import time
+
+    import httpx
+
     print("Waiting 8s for rate limit clearance...")
     time.sleep(8)
-    r = httpx.get("https://api.gdeltproject.org/api/v2/doc/doc",
-        params={"query": "Iran protest", "mode": "artlist", "format": "json",
-                "maxrecords": 5, "timespan": "72H"}, timeout=20.0)
+    r = httpx.get(
+        "https://api.gdeltproject.org/api/v2/doc/doc",
+        params={"query": "Iran protest", "mode": "artlist", "format": "json", "maxrecords": 5, "timespan": "72H"},
+        timeout=20.0,
+    )
     print(f"Status: {r.status_code}")
     print(f"Content-Type: {r.headers.get('content-type', '')}")
     if r.status_code == 200:

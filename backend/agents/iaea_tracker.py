@@ -10,6 +10,7 @@ Säulen:
   für ernsthaftes Monitoring wäre Telethon/Pyrogram mit eigenem Account stabiler (technische Schuld).
 Jede Fetch-Funktion liefert correlation_hint + confidence; _build_correlation_notes aggregiert nur.
 """
+
 import asyncio
 import json
 import logging
@@ -26,10 +27,10 @@ from .health_registry import get_health_registry
 from .utils import (
     AgentMetadata,
     SourceResult,
+    compute_confidence_from_sources,
     parse_adsb_response,
     run_async,
     utc_now_iso,
-    compute_confidence_from_sources,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,8 +88,18 @@ IAEA_FLIGHTPLAN_LAST_UPDATED_ISO = os.getenv("IAEA_FLIGHTPLAN_LAST_UPDATED_ISO",
 IAEA_TELEGRAM_CHANNELS_RAW = os.getenv("IAEA_TELEGRAM_CHANNELS", "").strip()
 IAEA_TELEGRAM_CHANNELS = [c.strip() for c in IAEA_TELEGRAM_CHANNELS_RAW.split(",") if c.strip()]
 IAEA_TELEGRAM_KEYWORDS = (
-    "erbil", "kurdistan", "bashmakh", "haji omeran", "iaea", "grossi", "orer",
-    "convoy", "konvoi", "checkpoint", "oe-iii", "oeiii",
+    "erbil",
+    "kurdistan",
+    "bashmakh",
+    "haji omeran",
+    "iaea",
+    "grossi",
+    "orer",
+    "convoy",
+    "konvoi",
+    "checkpoint",
+    "oe-iii",
+    "oeiii",
 )
 
 # Cache: Deduplication für Press/Telegram (TTL Minuten)
@@ -118,7 +129,13 @@ def _is_oeiii(ac: Dict[str, Any]) -> bool:
     return False
 
 
-def _is_near_airport(lat: Optional[float], lon: Optional[float], ref_lat: float = ORER_LAT, ref_lon: float = ORER_LON, max_nm: float = ORER_MAX_NM) -> bool:
+def _is_near_airport(
+    lat: Optional[float],
+    lon: Optional[float],
+    ref_lat: float = ORER_LAT,
+    ref_lon: float = ORER_LON,
+    max_nm: float = ORER_MAX_NM,
+) -> bool:
     """Grobe Prüfung: Position innerhalb max_nm (nautische Meilen) des Referenzpunkts."""
     if lat is None or lon is None:
         return False
@@ -167,9 +184,7 @@ async def _fetch_adsb_by_hex(client: httpx.AsyncClient, hex_code: str) -> List[D
     return []
 
 
-async def _fetch_adsb_region(
-    client: httpx.AsyncClient, lat: float, lon: float, dist: int
-) -> List[Dict[str, Any]]:
+async def _fetch_adsb_region(client: httpx.AsyncClient, lat: float, lon: float, dist: int) -> List[Dict[str, Any]]:
     url = ADSB_LATLON_TEMPLATE.format(lat=lat, lon=lon, dist=min(500, dist))
     try:
         resp = await client.get(url, timeout=12.0)
@@ -275,6 +290,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
     ADS-B für OE-III: Registration, Hex-Lookup, Region-Scans.
     Liefert correlation_hint + confidence (high bei Hex+Boden+ORER).
     """
+
     async def _run() -> Dict[str, Any]:
         results: List[Dict[str, Any]] = []
         seen_hex: set = set()
@@ -328,9 +344,7 @@ def fetch_adsb_oeiii() -> Dict[str, Any]:
                         await asyncio.sleep(0.2)
                 if not results:
                     for label, lat, lon, dist in ADSB_REGIONS_OEIII:
-                        regional = await _fetch_adsbexchange_rapidapi(
-                            client, lat=lat, lon=lon, dist_nm=min(100, dist)
-                        )
+                        regional = await _fetch_adsbexchange_rapidapi(client, lat=lat, lon=lon, dist_nm=min(100, dist))
                         for ac in regional:
                             if not _is_oeiii(ac):
                                 continue
@@ -473,13 +487,15 @@ def fetch_notams(
                     return data.get("items") or data.get("notamList") or (data if isinstance(data, list) else [])
             except Exception:
                 pass
-        return [{
-            "id": "FALLBACK",
-            "text": f"NOTAM data unavailable – set NOTAM_API_KEY (autorouter.aero) in backend/.env for live data. Locations: {', '.join(locs)}",
-            "effective": None,
-            "expiry": None,
-            "location": ",".join(locs),
-        }]
+        return [
+            {
+                "id": "FALLBACK",
+                "text": f"NOTAM data unavailable – set NOTAM_API_KEY (autorouter.aero) in backend/.env for live data. Locations: {', '.join(locs)}",
+                "effective": None,
+                "expiry": None,
+                "location": ",".join(locs),
+            }
+        ]
 
     try:
         out = run_async(_get())
@@ -495,21 +511,25 @@ def fetch_notams(
         if is_autorouter:
             itema = n.get("itema") or []
             location = ",".join(itema) if isinstance(itema, list) else str(itema)
-            notams.append({
-                "id": str(n.get("id") or n.get("nof") or ""),
-                "text": (n.get("iteme") or n.get("itemd") or "").strip() or str(n.get("traffic") or ""),
-                "effective": n.get("startvalidity"),
-                "expiry": n.get("endvalidity"),
-                "location": location,
-            })
+            notams.append(
+                {
+                    "id": str(n.get("id") or n.get("nof") or ""),
+                    "text": (n.get("iteme") or n.get("itemd") or "").strip() or str(n.get("traffic") or ""),
+                    "effective": n.get("startvalidity"),
+                    "expiry": n.get("endvalidity"),
+                    "location": location,
+                }
+            )
         else:
-            notams.append({
-                "id": str(n.get("id") or n.get("notam_id") or ""),
-                "text": (n.get("text") or n.get("raw") or n.get("summary") or "").strip(),
-                "effective": n.get("effective") or n.get("start") or n.get("startDate"),
-                "expiry": n.get("expiry") or n.get("end") or n.get("endDate"),
-                "location": n.get("location") or n.get("traffic") or "",
-            })
+            notams.append(
+                {
+                    "id": str(n.get("id") or n.get("notam_id") or ""),
+                    "text": (n.get("text") or n.get("raw") or n.get("summary") or "").strip(),
+                    "effective": n.get("effective") or n.get("start") or n.get("startDate"),
+                    "expiry": n.get("expiry") or n.get("end") or n.get("endDate"),
+                    "location": n.get("location") or n.get("traffic") or "",
+                }
+            )
 
     hint = (
         f"{len(notams)} NOTAM(s) in selected period; potential airspace constraints for DG travel."
@@ -631,6 +651,7 @@ def fetch_iaea_press_releases(days: int = 14) -> Dict[str, Any]:
                 try:
                     if getattr(entry, "published_parsed", None):
                         from time import mktime
+
                         pub_dt = datetime.fromtimestamp(mktime(entry.published_parsed), tz=timezone.utc)
                     else:
                         pub_dt = cutoff
@@ -687,7 +708,7 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
     TELEGRAM_MESSAGE_PATTERNS = [
         r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>\s*</div>',
         r'class="tgme_widget_message_text"[^>]*>(.*?)</div>',
-        r'<div[^>]+js-message-text[^>]*>(.*?)</div>',
+        r"<div[^>]+js-message-text[^>]*>(.*?)</div>",
     ]
 
     def _extract(html: str) -> List[str]:
@@ -703,7 +724,12 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
     async def _fetch_one(client: httpx.AsyncClient, channel: str) -> List[Dict[str, Any]]:
         try:
             url = f"https://t.me/s/{channel}"
-            resp = await client.get(url, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"}, timeout=10.0)
+            resp = await client.get(
+                url,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; IAEA-Tracker/1.0)"},
+                timeout=10.0,
+            )
             if resp.status_code != 200:
                 return []
             texts = _extract(resp.text)
@@ -714,16 +740,19 @@ def fetch_iaea_telegram_signals() -> Dict[str, Any]:
                 tlower = text.lower()
                 if not any(kw in tlower for kw in IAEA_TELEGRAM_KEYWORDS):
                     continue
-                results.append({
-                    "source": f"telegram:{channel}",
-                    "text": text[:300],
-                    "platform": "telegram",
-                })
+                results.append(
+                    {
+                        "source": f"telegram:{channel}",
+                        "text": text[:300],
+                        "platform": "telegram",
+                    }
+                )
             return results
         except Exception:
             return []
 
     try:
+
         async def _run() -> List[Dict[str, Any]]:
             async with httpx.AsyncClient() as client:
                 tasks = [_fetch_one(client, ch) for ch in IAEA_TELEGRAM_CHANNELS]
@@ -781,7 +810,7 @@ def _build_correlation_notes(
     Keine eigene Korrelationslogik – jede Fetch-Funktion liefert ihren Hint.
     """
     hints_with_conf: List[Dict[str, str]] = []
-    for name, data in [
+    for _name, data in [
         ("ADS-B", adsb),
         ("NOTAM", notam),
         ("Flugplan", flight_plan),
@@ -801,8 +830,10 @@ def _build_correlation_notes(
 async def _generate_haiku_summary_iaea(result: Dict[str, Any]) -> Optional[str]:
     """Optional 3-4 sentence sensor-fusion narrative via haiku_service.analyst_summary."""
     try:
-        from services.haiku_service import analyst_summary
         import json
+
+        from services.haiku_service import analyst_summary
+
         oe = result.get("oeiii_adsb") or {}
         press = result.get("iaea_press_grossi") or {}
         compact = {
@@ -889,6 +920,7 @@ def run_iaea_tracker() -> Dict[str, Any]:
     Bei Fehlern: Fallback-Dict mit correlation_hint/confidence, kein Crash.
     Caching für Press/Telegram über TTL; Korrelation nur Aggregation der Hints.
     """
+
     def _safe_fetch(name: str, fn, *args, **kwargs) -> Dict[str, Any]:
         try:
             return fn(*args, **kwargs)
@@ -902,15 +934,20 @@ def run_iaea_tracker() -> Dict[str, Any]:
 
     async def _run_all() -> Dict[str, Any]:
         loop = asyncio.get_event_loop()
+
         # Fetches die sync sind im Executor; Flugplan/Telegram/Press sync, ADS-B/NOTAM haben ggf. schon async
         def run_adsb():
             return _safe_fetch("ADS-B", fetch_adsb_oeiii)
+
         def run_notams():
             return _safe_fetch("NOTAM", fetch_notams, 3)
+
         def run_fp():
             return _safe_fetch("Flight plan", fetch_iaea_flight_plan_status)
+
         def run_press():
             return _safe_fetch("IAEA Press", fetch_iaea_press_releases, 14)
+
         def run_telegram():
             return _safe_fetch("Telegram", fetch_iaea_telegram_signals)
 
@@ -958,11 +995,35 @@ def run_iaea_tracker() -> Dict[str, Any]:
         pr = result.get("iaea_press_grossi") or {}
         tg = result.get("iaea_telegram_signals") or {}
         source_results = [
-            SourceResult(name="ADS-B", status="ok" if not oa.get("error") and (oa.get("count") or oa.get("aircraft")) else "error", fetched_at=fetched_at, record_count=oa.get("count", 0) or len(oa.get("aircraft") or [])),
-            SourceResult(name="NOTAMs", status="ok" if not no.get("error") and (no.get("count") or no.get("notams")) else "error", fetched_at=fetched_at, record_count=no.get("count", 0) or len(no.get("notams") or [])),
-            SourceResult(name="Flight plan", status="ok" if not fp.get("error") and fp.get("status") != "unknown" else "error", fetched_at=fetched_at),
-            SourceResult(name="IAEA Press", status="ok" if not pr.get("error") and (pr.get("count") or pr.get("items")) else "error", fetched_at=fetched_at, record_count=pr.get("count", 0) or len(pr.get("items") or [])),
-            SourceResult(name="Telegram", status="ok" if not tg.get("error") and (tg.get("count") or tg.get("posts")) else "error", fetched_at=fetched_at, record_count=tg.get("count", 0) or len(tg.get("posts") or [])),
+            SourceResult(
+                name="ADS-B",
+                status="ok" if not oa.get("error") and (oa.get("count") or oa.get("aircraft")) else "error",
+                fetched_at=fetched_at,
+                record_count=oa.get("count", 0) or len(oa.get("aircraft") or []),
+            ),
+            SourceResult(
+                name="NOTAMs",
+                status="ok" if not no.get("error") and (no.get("count") or no.get("notams")) else "error",
+                fetched_at=fetched_at,
+                record_count=no.get("count", 0) or len(no.get("notams") or []),
+            ),
+            SourceResult(
+                name="Flight plan",
+                status="ok" if not fp.get("error") and fp.get("status") != "unknown" else "error",
+                fetched_at=fetched_at,
+            ),
+            SourceResult(
+                name="IAEA Press",
+                status="ok" if not pr.get("error") and (pr.get("count") or pr.get("items")) else "error",
+                fetched_at=fetched_at,
+                record_count=pr.get("count", 0) or len(pr.get("items") or []),
+            ),
+            SourceResult(
+                name="Telegram",
+                status="ok" if not tg.get("error") and (tg.get("count") or tg.get("posts")) else "error",
+                fetched_at=fetched_at,
+                record_count=tg.get("count", 0) or len(tg.get("posts") or []),
+            ),
         ]
         reg = get_health_registry()
         if reg:
@@ -970,8 +1031,19 @@ def run_iaea_tracker() -> Dict[str, Any]:
                 reg.record_result(sr.name, "iaea_tracker", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
-        meta = AgentMetadata(agent="iaea_tracker", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        data_freshness = (
+            "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        )
+        meta = AgentMetadata(
+            agent="iaea_tracker",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=None,
+        )
         result["_meta"] = meta.model_dump(mode="json")
         return result
     except Exception as e:
@@ -984,6 +1056,15 @@ def run_iaea_tracker() -> Dict[str, Any]:
             press_result={},
             telegram_result={},
         )
-        meta = AgentMetadata(agent="iaea_tracker", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
+        meta = AgentMetadata(
+            agent="iaea_tracker",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=[],
+            confidence=compute_confidence_from_sources([]),
+            data_freshness="unavailable",
+            fallback_used=True,
+            error_summary=str(e),
+        )
         result["_meta"] = meta.model_dump(mode="json")
         return result

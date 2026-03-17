@@ -9,6 +9,7 @@ Features:
 
 IMPORTANT: This tool provides intelligence signals, not legal advice.
 """
+
 import csv
 import io
 import logging
@@ -41,10 +42,10 @@ MatchLevel = Literal["EXACT", "STRONG_FUZZY", "WEAK_FUZZY", "REVIEW", "NOT_LISTE
 # ── Threshold policy (configurable, documented) ──────────────────────────────
 # rapidfuzz ratio thresholds; these are deliberately conservative to limit false positives.
 # OFAC entities often have 15+ aliases with transliteration variants.
-EXACT_THRESHOLD = 100      # case-insensitive exact match
+EXACT_THRESHOLD = 100  # case-insensitive exact match
 STRONG_FUZZY_THRESHOLD = 90  # very high similarity (e.g. minor spelling/transliteration)
-WEAK_FUZZY_THRESHOLD = 80    # moderate similarity – flagged for manual review
-REVIEW_THRESHOLD = 70        # low similarity – only surfaced as "REVIEW"
+WEAK_FUZZY_THRESHOLD = 80  # moderate similarity – flagged for manual review
+REVIEW_THRESHOLD = 70  # low similarity – only surfaced as "REVIEW"
 
 
 def _normalize(name: str) -> str:
@@ -57,8 +58,8 @@ def _normalize(name: str) -> str:
 
 class SanctionsEntity:
     """An entity from a sanctions list (OFAC/EU/UN)."""
-    __slots__ = ("name", "aliases", "entity_type", "program", "source", "source_id",
-                 "parent_name", "ownership_pct")
+
+    __slots__ = ("name", "aliases", "entity_type", "program", "source", "source_id", "parent_name", "ownership_pct")
 
     def __init__(
         self,
@@ -86,6 +87,7 @@ class SanctionsEntity:
 
 class SanctionsMatch:
     """A match result from screening."""
+
     def __init__(
         self,
         query: str,
@@ -142,13 +144,15 @@ async def _load_ofac_sdn() -> List[SanctionsEntity]:
             program = row[3].strip() if len(row) > 3 else ""
             if not name:
                 continue
-            entities.append(SanctionsEntity(
-                name=name,
-                entity_type=etype,
-                program=program,
-                source="OFAC",
-                source_id=ent_id,
-            ))
+            entities.append(
+                SanctionsEntity(
+                    name=name,
+                    entity_type=etype,
+                    program=program,
+                    source="OFAC",
+                    source_id=ent_id,
+                )
+            )
     except Exception as e:
         logger.warning("Failed to load OFAC SDN: %s", e)
     return entities
@@ -201,14 +205,16 @@ async def _load_eu_sanctions() -> List[SanctionsEntity]:
                 if val:
                     entity_type = val
                     break
-            entities.append(SanctionsEntity(
-                name=primary,
-                aliases=aliases,
-                entity_type=entity_type,
-                program=program,
-                source="EU",
-                source_id=source_id,
-            ))
+            entities.append(
+                SanctionsEntity(
+                    name=primary,
+                    aliases=aliases,
+                    entity_type=entity_type,
+                    program=program,
+                    source="EU",
+                    source_id=source_id,
+                )
+            )
     except ET.ParseError as e:
         logger.warning("Failed to parse EU sanctions XML: %s", e)
     except Exception as e:
@@ -258,14 +264,16 @@ async def _load_eu_sanctions_from_csv(url: str) -> List[SanctionsEntity]:
                 a = part.strip()
                 if a and a != name:
                     aliases.append(a)
-        entities.append(SanctionsEntity(
-            name=name,
-            aliases=aliases[:10],
-            entity_type=entity_type,
-            program=program,
-            source="EU",
-            source_id=source_id,
-        ))
+        entities.append(
+            SanctionsEntity(
+                name=name,
+                aliases=aliases[:10],
+                entity_type=entity_type,
+                program=program,
+                source="EU",
+                source_id=source_id,
+            )
+        )
     logger.info("EU sanctions loaded from CSV fallback: %d entities", len(entities))
     return entities
 
@@ -313,17 +321,29 @@ async def _search_yente(query: str, max_results: int) -> Optional[List[Dict[str,
     # Map yente results to our SanctionsMatch-like dicts (score 0-100, match_level, source)
     results: List[Dict[str, Any]] = []
     for m in (data.get("results") or data.get("matches") or [])[:max_results]:
-        score = float(m.get("score", m.get("match", 0)) * 100) if isinstance(m.get("score"), (int, float)) else (float(m.get("match", 0)) * 100)
+        score = (
+            float(m.get("score", m.get("match", 0)) * 100)
+            if isinstance(m.get("score"), (int, float))
+            else (float(m.get("match", 0)) * 100)
+        )
         entity = m.get("entity") or m
-        results.append({
-            "query": query,
-            "matched_name": entity.get("name") or entity.get("caption") or "",
-            "entity_type": entity.get("type") or entity.get("schema") or "",
-            "program": ", ".join(entity.get("programs") or []) or entity.get("program") or "",
-            "source": "yente",
-            "match_level": "EXACT" if score >= 99 else "STRONG_FUZZY" if score >= 90 else "WEAK_FUZZY" if score >= 80 else "REVIEW",
-            "score": min(100, score),
-        })
+        results.append(
+            {
+                "query": query,
+                "matched_name": entity.get("name") or entity.get("caption") or "",
+                "entity_type": entity.get("type") or entity.get("schema") or "",
+                "program": ", ".join(entity.get("programs") or []) or entity.get("program") or "",
+                "source": "yente",
+                "match_level": "EXACT"
+                if score >= 99
+                else "STRONG_FUZZY"
+                if score >= 90
+                else "WEAK_FUZZY"
+                if score >= 80
+                else "REVIEW",
+                "score": min(100, score),
+            }
+        )
     return results if results else None
 
 
@@ -351,6 +371,7 @@ async def search_sanctions(
 
     try:
         from rapidfuzz import fuzz
+
         has_fuzzy = True
     except ImportError:
         has_fuzzy = False
@@ -378,20 +399,24 @@ async def search_sanctions(
 
         ownership_chain = None
         if include_ownership_chains and entity.parent_name:
-            ownership_chain = [{
-                "entity": entity.name,
-                "parent": entity.parent_name,
-                "ownership_pct": entity.ownership_pct,
-            }]
+            ownership_chain = [
+                {
+                    "entity": entity.name,
+                    "parent": entity.parent_name,
+                    "ownership_pct": entity.ownership_pct,
+                }
+            ]
 
-        matches.append(SanctionsMatch(
-            query=query,
-            entity=entity,
-            match_level=level,
-            score=best_score,
-            matched_name=best_name,
-            ownership_chain=ownership_chain,
-        ))
+        matches.append(
+            SanctionsMatch(
+                query=query,
+                entity=entity,
+                match_level=level,
+                score=best_score,
+                matched_name=best_name,
+                ownership_chain=ownership_chain,
+            )
+        )
 
     matches.sort(key=lambda m: m.score, reverse=True)
     return [m.to_dict() for m in matches[:max_results]]
@@ -405,7 +430,7 @@ def get_threshold_policy() -> Dict[str, Any]:
         "WEAK_FUZZY": WEAK_FUZZY_THRESHOLD,
         "REVIEW": REVIEW_THRESHOLD,
         "note": "Scores use rapidfuzz ratio + token_sort_ratio. "
-                "OFAC entities may have 15+ aliases with transliteration variants. "
-                "REVIEW matches require manual due diligence. "
-                "This tool provides intelligence signals, not legal advice.",
+        "OFAC entities may have 15+ aliases with transliteration variants. "
+        "REVIEW matches require manual due diligence. "
+        "This tool provides intelligence signals, not legal advice.",
     }

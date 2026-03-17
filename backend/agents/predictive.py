@@ -4,8 +4,8 @@ Lightweight predictive layer for escalation and markets.
 Deliberately coarse: works with ordinal levels (LOW…CRITICAL) and optional
 probability ranges instead of pretending to have precise probabilities.
 """
-from typing import Any, Dict, List, Literal, Optional, TypedDict
 
+from typing import Dict, List, Literal, Optional, TypedDict
 
 PredictiveLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 PredictiveBasis = Literal["baseline", "data", "markets", "mixed"]
@@ -18,7 +18,7 @@ class ProbabilityRange(TypedDict, total=False):
 
 
 class EscalationForecast(TypedDict, total=False):
-    horizon: str                   # e.g. "24h", "7d"
+    horizon: str  # e.g. "24h", "7d"
     level: PredictiveLevel
     range: ProbabilityRange
     basis: PredictiveBasis
@@ -87,14 +87,14 @@ def _compare_levels(current: PredictiveLevel, baseline: PredictiveLevel) -> Lite
 # Active conflicts and regions under sustained tensions get a higher baseline
 # than a peacetime default. This prevents absurd "LOW baseline" for warzones.
 CONFLICT_BASELINES: Dict[str, PredictiveLevel] = {
-    "iran":     "HIGH",
-    "us-iran":  "HIGH",
-    "ukraine":  "HIGH",
-    "russia":   "HIGH",
-    "israel":   "HIGH",
-    "gaza":     "CRITICAL",
-    "syria":    "MEDIUM",
-    "taiwan":   "MEDIUM",
+    "iran": "HIGH",
+    "us-iran": "HIGH",
+    "ukraine": "HIGH",
+    "russia": "HIGH",
+    "israel": "HIGH",
+    "gaza": "CRITICAL",
+    "syria": "MEDIUM",
+    "taiwan": "MEDIUM",
     "north korea": "MEDIUM",
 }
 DEFAULT_BASELINE: PredictiveLevel = "LOW"
@@ -199,4 +199,3 @@ def build_predictive_block(conflict: str, combined_score: float, agent_scores: D
         "market_benchmark": [],
     }
     return predictive
-

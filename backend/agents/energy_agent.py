@@ -4,6 +4,7 @@ Fetches: oil (EIA then FRED then Alpha Vantage), food (FRED then Alpha Vantage),
 FAO Food Price Index, World Bank fertilizer prices, and computes food_security_risk.
 Rule-based score from price volatility. No LLM. (AGSI+ removed – was unreliable.)
 """
+
 import asyncio
 import csv
 import io
@@ -14,14 +15,9 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    run_async,
-    utc_now_iso,
-    compute_confidence_from_sources,
-)
+from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +29,11 @@ EIA_BRENT_SERIES = "PET.RBRTE.D"
 EIA_WTI_SERIES = "PET.RWTC.D"
 # FRED: oil daily, food monthly
 FRED_OIL_SERIES = [("DCOILBRENTEU", "BRENT", "Brent crude"), ("DCOILWTICO", "WTI", "WTI crude")]
-FRED_FOOD_SERIES = [("PWHEAMTUSDM", "WHEAT", "Wheat"), ("PMAIZMTUSDM", "CORN", "Corn"), ("PSOYBUSDM", "SOYBEAN", "Soybean")]
+FRED_FOOD_SERIES = [
+    ("PWHEAMTUSDM", "WHEAT", "Wheat"),
+    ("PMAIZMTUSDM", "CORN", "Corn"),
+    ("PSOYBUSDM", "SOYBEAN", "Soybean"),
+]
 
 OIL_SYMBOLS = [
     ("BRENT", "Brent crude"),
@@ -228,8 +228,10 @@ async def _generate_haiku_summary_energy(
 ) -> Optional[str]:
     """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
     try:
-        from services.haiku_service import analyst_summary
         import json
+
+        from services.haiku_service import analyst_summary
+
         valid_c = [c for c in (commodities or []) if c.get("price") and "error" not in c]
         valid_food = [c for c in (food_commodities or []) if c.get("price") and "error" not in c]
         compact = {
@@ -253,9 +255,7 @@ async def _generate_haiku_summary_energy(
         return None
 
 
-def _commodity_entry(
-    symbol: str, label: str, price: float, prev_price: float, as_of: str
-) -> Dict[str, Any]:
+def _commodity_entry(symbol: str, label: str, price: float, prev_price: float, as_of: str) -> Dict[str, Any]:
     """Build one commodity dict in the standard format."""
     change_pct = ((price - prev_price) / prev_price * 100) if prev_price and prev_price != 0 else None
     return {
@@ -401,9 +401,7 @@ async def _fetch_food_prices(api_key: str) -> List[Dict[str, Any]]:
     return await _fetch_commodity_prices_for(api_key, FOOD_SYMBOLS)
 
 
-async def _fetch_commodity_prices_for(
-    api_key: str, symbols: List[tuple]
-) -> List[Dict[str, Any]]:
+async def _fetch_commodity_prices_for(api_key: str, symbols: List[tuple]) -> List[Dict[str, Any]]:
     if not api_key:
         return []
     results = []
@@ -423,14 +421,16 @@ async def _fetch_commodity_prices_for(
                     price = _safe_float(latest.get("value"))
                     prev_p = _safe_float(prev.get("value"))
                     change_pct = ((price - prev_p) / prev_p * 100) if prev_p and prev_p != 0 else None
-                    results.append({
-                        "symbol": sym,
-                        "label": label,
-                        "price": f"{price:.2f}" if price else None,
-                        "change_pct": f"{change_pct:+.1f}%" if change_pct is not None else "0%",
-                        "change_pct_raw": change_pct,
-                        "as_of": latest.get("date", ""),
-                    })
+                    results.append(
+                        {
+                            "symbol": sym,
+                            "label": label,
+                            "price": f"{price:.2f}" if price else None,
+                            "change_pct": f"{change_pct:+.1f}%" if change_pct is not None else "0%",
+                            "change_pct_raw": change_pct,
+                            "as_of": latest.get("date", ""),
+                        }
+                    )
                 else:
                     results.append({"symbol": sym, "label": label, "error": "Insufficient data"})
             except Exception as e:
@@ -469,17 +469,24 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
 
         fao_fpi, fertilizer = await asyncio.gather(fao_task, fert_task)
 
-        # Legacy: keep combined commodities for backward compat
-        all_commodities = oil_commodities + food_commodities
         energy_score = _compute_energy_score(oil_commodities)
         food_risk = _compute_food_security_risk(food_commodities, fao_fpi, fertilizer)
         rule_summary = _build_summary(
-            oil_commodities, food_commodities, fao_fpi,
-            energy_score, food_risk, conflict=conflict,
+            oil_commodities,
+            food_commodities,
+            fao_fpi,
+            energy_score,
+            food_risk,
+            conflict=conflict,
         )
         try:
             llm_summary = await _generate_haiku_summary_energy(
-                conflict, oil_commodities, food_commodities, fao_fpi, energy_score, food_risk,
+                conflict,
+                oil_commodities,
+                food_commodities,
+                fao_fpi,
+                energy_score,
+                food_risk,
             )
             summary = llm_summary if llm_summary else rule_summary
         except Exception as e:
@@ -488,7 +495,11 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
 
         global_impact_note = None
         if conflict and "iran" in conflict.lower():
-            valid_c = [c for c in oil_commodities if c.get("price") and "error" not in c and c.get("change_pct_raw") is not None]
+            valid_c = [
+                c
+                for c in oil_commodities
+                if c.get("price") and "error" not in c and c.get("change_pct_raw") is not None
+            ]
             max_up = max((c.get("change_pct_raw") for c in valid_c), default=None)
             if max_up is not None and max_up >= GLOBAL_IMPACT_OIL_THRESHOLD_PCT:
                 pct_str = f"{max_up:+.1f}%"
@@ -517,33 +528,44 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         out = run_async(_run())
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
-            SourceResult(name="Oil (EIA/FRED/AV)", status="ok" if (out.get("commodities") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("commodities") or [])),
-            SourceResult(name="Food commodities", status="ok" if (out.get("food_commodities") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("food_commodities") or [])),
-            SourceResult(name="FAO FPI", status="ok" if (out.get("fao_fpi") and not out.get("fao_fpi", {}).get("error")) else "error", fetched_at=fetched_at),
-            SourceResult(name="Fertilizer", status="ok" if (out.get("fertilizer") and not out.get("fertilizer", {}).get("error")) else "error", fetched_at=fetched_at),
+            SourceResult(
+                name="Oil (EIA/FRED/AV)",
+                status="ok" if (out.get("commodities") or []) else "error",
+                fetched_at=fetched_at,
+                record_count=len(out.get("commodities") or []),
+            ),
+            SourceResult(
+                name="Food commodities",
+                status="ok" if (out.get("food_commodities") or []) else "error",
+                fetched_at=fetched_at,
+                record_count=len(out.get("food_commodities") or []),
+            ),
+            SourceResult(
+                name="FAO FPI",
+                status="ok" if (out.get("fao_fpi") and not out.get("fao_fpi", {}).get("error")) else "error",
+                fetched_at=fetched_at,
+            ),
+            SourceResult(
+                name="Fertilizer",
+                status="ok" if (out.get("fertilizer") and not out.get("fertilizer", {}).get("error")) else "error",
+                fetched_at=fetched_at,
+            ),
         ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "energy", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
-        meta = AgentMetadata(agent="energy", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
-        out["_meta"] = meta.model_dump(mode="json")
+        has_data = bool(
+            (out.get("commodities") or out.get("food_commodities") or out.get("fao_fpi") or out.get("fertilizer"))
+        )
+        out["_meta"] = build_agent_meta("energy", fetched_at, duration_ms, source_results, has_any_data=has_data)
         return out
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="energy", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
-        return {
-            "energy_score": 30.0,
-            "agsi_storage": {"full": []},
-            "commodities": [],
-            "food_commodities": [],
-            "fao_fpi": {},
-            "fertilizer": {},
-            "food_security_risk": 20.0,
-            "summary": f"ENERGY error: {e}",
-            "global_impact_note": None,
-            "_meta": meta.model_dump(mode="json"),
-        }
+        fallback = get_agent_fallback("energy")
+        fallback["conflict"] = conflict
+        fallback["summary"] = f"ENERGY error: {e}"
+        fallback["_meta"] = build_agent_meta(
+            "energy", fetched_at, duration_ms, [], fallback_used=True, error_summary=str(e), has_any_data=False
+        )
+        return fallback

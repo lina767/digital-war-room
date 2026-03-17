@@ -55,12 +55,21 @@ class HttpClient:
                     if status < 500 or attempt > retries:
                         logger.warning("HTTP error %s %s: %s", method.upper(), url, e)
                         raise
-                    logger.warning("HTTP %s %s -> %s, retrying (attempt %s/%s)", method.upper(), url, status, attempt, retries)
+                    logger.warning(
+                        "HTTP %s %s -> %s, retrying (attempt %s/%s)", method.upper(), url, status, attempt, retries
+                    )
                 except httpx.RequestError as e:
                     if attempt > retries:
                         logger.error("HTTP request failed %s %s: %s", method.upper(), url, e)
                         raise
-                    logger.warning("HTTP request error %s %s (%s), retrying (attempt %s/%s)", method.upper(), url, e, attempt, retries)
+                    logger.warning(
+                        "HTTP request error %s %s (%s), retrying (attempt %s/%s)",
+                        method.upper(),
+                        url,
+                        e,
+                        attempt,
+                        retries,
+                    )
             await asyncio.sleep(backoff)
             backoff *= 2
 
@@ -92,4 +101,3 @@ async def close_http_client() -> None:
     if _client is not None:
         await _client.aclose()
         _client = None
-

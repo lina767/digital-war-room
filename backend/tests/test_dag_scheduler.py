@@ -2,20 +2,24 @@
 Tests for DAGScheduler: topological ordering, parallel execution,
 optional_deps, timeout_s, streamable, ResultStore, ResultStoreManager.
 """
+
 import time
+
 import pytest
 
 from agents.dag_scheduler import (
-    DAGNode, DAGScheduler, ResultStore, ResultStoreManager,
+    DAGNode,
+    DAGScheduler,
+    ResultStore,
+    ResultStoreManager,
 )
-
 
 # ---------------------------------------------------------------------------
 # ResultStore tests
 # ---------------------------------------------------------------------------
 
-class TestResultStore:
 
+class TestResultStore:
     def test_set_and_get(self):
         store = ResultStore(cycle_id="c1", conflict="Iran")
         store.set("sigint", {"score": 65})
@@ -61,8 +65,8 @@ class TestResultStore:
 # ResultStoreManager tests
 # ---------------------------------------------------------------------------
 
-class TestResultStoreManager:
 
+class TestResultStoreManager:
     def test_create_store(self):
         mgr = ResultStoreManager()
         store = mgr.create_store("Iran", "cycle-001")
@@ -88,8 +92,8 @@ class TestResultStoreManager:
 # DAGScheduler – basic execution
 # ---------------------------------------------------------------------------
 
-class TestDAGSchedulerBasic:
 
+class TestDAGSchedulerBasic:
     def test_single_node(self):
         nodes = [DAGNode(id="a", node_type="agent")]
         scheduler = DAGScheduler(nodes)
@@ -107,9 +111,14 @@ class TestDAGSchedulerBasic:
         scheduler = DAGScheduler(nodes)
         store = ResultStore()
 
-        def exec_a(s): return 10
-        def exec_b(s): return s.get("a") * 2
-        def exec_c(s): return s.get("b") + 1
+        def exec_a(s):
+            return 10
+
+        def exec_b(s):
+            return s.get("a") * 2
+
+        def exec_c(s):
+            return s.get("b") + 1
 
         executors = {"a": exec_a, "b": exec_b, "c": exec_c}
         scheduler.run(executors, store)
@@ -158,8 +167,8 @@ class TestDAGSchedulerBasic:
 # Optional dependencies
 # ---------------------------------------------------------------------------
 
-class TestOptionalDeps:
 
+class TestOptionalDeps:
     def test_runs_when_optional_dep_missing(self):
         nodes = [
             DAGNode(id="a", node_type="agent"),
@@ -194,8 +203,8 @@ class TestOptionalDeps:
 # Timeout
 # ---------------------------------------------------------------------------
 
-class TestDAGTimeout:
 
+class TestDAGTimeout:
     def test_node_timeout_uses_fallback(self):
         nodes = [
             DAGNode(id="slow", node_type="agent", timeout_s=0.3, fallback={"score": 0}),
@@ -216,19 +225,19 @@ class TestDAGTimeout:
 # Streamable
 # ---------------------------------------------------------------------------
 
-class TestStreamable:
 
+class TestStreamable:
     def test_only_streamable_nodes_yielded(self):
         nodes = [
             DAGNode(id="agent_a", node_type="agent", streamable=True),
-            DAGNode(id="enrich",  dependencies=["agent_a"], node_type="enrichment", streamable=False),
+            DAGNode(id="enrich", dependencies=["agent_a"], node_type="enrichment", streamable=False),
             DAGNode(id="summary", dependencies=["enrich"], node_type="division_summary", streamable=True),
         ]
         scheduler = DAGScheduler(nodes)
         store = ResultStore()
         executors = {
             "agent_a": lambda s: "A",
-            "enrich":  lambda s: "E",
+            "enrich": lambda s: "E",
             "summary": lambda s: "S",
         }
         events = list(scheduler.run_streaming(executors, store))
@@ -257,8 +266,8 @@ class TestStreamable:
 # Error handling
 # ---------------------------------------------------------------------------
 
-class TestDAGErrorHandling:
 
+class TestDAGErrorHandling:
     def test_node_failure_uses_fallback(self):
         nodes = [
             DAGNode(id="bad", node_type="agent", fallback={"error": True}),
@@ -301,8 +310,8 @@ class TestDAGErrorHandling:
 # Validation
 # ---------------------------------------------------------------------------
 
-class TestDAGValidation:
 
+class TestDAGValidation:
     def test_unknown_hard_dep_raises(self):
         nodes = [DAGNode(id="a", dependencies=["nonexistent"], node_type="agent")]
         with pytest.raises(ValueError, match="unknown hard dep"):

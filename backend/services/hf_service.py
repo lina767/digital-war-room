@@ -10,6 +10,7 @@ Features:
 - Warmup function for cold-start mitigation
 - Graceful degradation (errors → None / empty list)
 """
+
 import hashlib
 import logging
 import math
@@ -75,6 +76,7 @@ def _cache_set(key: str, val: Any):
 
 # ── HTTP client ──────────────────────────────────────────────────────────────
 
+
 def _headers() -> Dict[str, str]:
     h = {"Content-Type": "application/json"}
     if HUGGINGFACE_API_KEY:
@@ -98,6 +100,7 @@ async def _hf_post(model: str, payload: Dict[str, Any], timeout: int = 0) -> Any
                     pass
                 logger.info("[hf] Model %s loading, waiting %ds...", model, wait)
                 import asyncio
+
                 await asyncio.sleep(wait)
                 resp = await client.post(url, json=payload, headers=_headers())
             if resp.status_code != 200:
@@ -111,8 +114,9 @@ async def _hf_post(model: str, payload: Dict[str, Any], timeout: int = 0) -> Any
 
 # ── Pure-Python cosine similarity ────────────────────────────────────────────
 
+
 def _cosine_similarity(a: List[float], b: List[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(x * x for x in b))
     if norm_a == 0 or norm_b == 0:
@@ -121,6 +125,7 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
+
 
 async def embed(texts: List[str]) -> Optional[List[List[float]]]:
     """
@@ -150,7 +155,7 @@ async def embed(texts: List[str]) -> Optional[List[List[float]]]:
     if uncached_texts:
         batch_size = 16
         for start in range(0, len(uncached_texts), batch_size):
-            batch = uncached_texts[start:start + batch_size]
+            batch = uncached_texts[start : start + batch_size]
             result = await _hf_post(EMBED_MODEL, {"inputs": batch, "options": {"wait_for_model": True}})
             if result and isinstance(result, list) and len(result) == len(batch):
                 for j, vec in enumerate(result):
@@ -167,6 +172,7 @@ async def embed(texts: List[str]) -> Optional[List[List[float]]]:
 
 
 # ── Semantic deduplication ───────────────────────────────────────────────────
+
 
 async def deduplicate_items(
     items: List[Dict[str, Any]],
@@ -214,8 +220,8 @@ async def deduplicate_items(
                 else:
                     is_duplicate[j] = True
 
-    result = [item for item, dup in zip(items, is_duplicate) if not dup]
-    result_embeddings = [emb for emb, dup in zip(embeddings, is_duplicate) if not dup]
+    result = [item for item, dup in zip(items, is_duplicate, strict=True) if not dup]
+    result_embeddings = [emb for emb, dup in zip(embeddings, is_duplicate, strict=True) if not dup]
 
     if len(result) < len(items):
         logger.info("[hf] Dedup: %d → %d items (threshold %.2f)", len(items), len(result), threshold)
@@ -235,12 +241,10 @@ async def _persist_embeddings(
     """Store embeddings in pgvector if available. Graceful no-op otherwise."""
     try:
         from services.storage_service import is_available, store_embeddings_batch
+
         if not is_available():
             return
-        text_items = [
-            {"text": (it.get("title") or it.get("text") or it.get("summary") or "")[:300]}
-            for it in items
-        ]
+        text_items = [{"text": (it.get("title") or it.get("text") or it.get("summary") or "")[:300]} for it in items]
         await store_embeddings_batch(text_items, embeddings, source=source, conflict=conflict)
     except Exception as e:
         logger.debug("[hf] Embedding persistence skipped: %s", e)
@@ -314,6 +318,7 @@ async def rank_by_relevance(
 
 # ── NER Bulk Fallback (Phase 2) ──────────────────────────────────────────────
 
+
 async def ner_bulk(texts: List[str]) -> Optional[List[List[Dict[str, Any]]]]:
     """
     Multilingual NER via Davlan/bert-base-multilingual-cased-ner-hrl.
@@ -339,7 +344,7 @@ async def ner_bulk(texts: List[str]) -> Optional[List[List[Dict[str, Any]]]]:
             uncached_indices.append(i)
             uncached_texts.append(t)
 
-    for idx, text in zip(uncached_indices, uncached_texts):
+    for idx, text in zip(uncached_indices, uncached_texts, strict=True):
         result = await _hf_post(
             NER_BULK_MODEL,
             {"inputs": text[:512], "options": {"wait_for_model": True}},
@@ -348,14 +353,16 @@ async def ner_bulk(texts: List[str]) -> Optional[List[List[Dict[str, Any]]]]:
             entities = []
             for ent in result:
                 if isinstance(ent, dict) and ent.get("word"):
-                    entities.append({
-                        "entity": ent.get("word", "").replace("##", ""),
-                        "type": _normalize_ner_type(ent.get("entity_group", ent.get("entity", "MISC"))),
-                        "score": float(ent.get("score", 0)),
-                        "start": ent.get("start", 0),
-                        "end": ent.get("end", 0),
-                        "context": "",
-                    })
+                    entities.append(
+                        {
+                            "entity": ent.get("word", "").replace("##", ""),
+                            "type": _normalize_ner_type(ent.get("entity_group", ent.get("entity", "MISC"))),
+                            "score": float(ent.get("score", 0)),
+                            "start": ent.get("start", 0),
+                            "end": ent.get("end", 0),
+                            "context": "",
+                        }
+                    )
             all_results[idx] = entities
             _cache_set(_cache_key("ner_bulk", text), entities)
         else:
@@ -371,15 +378,20 @@ def _normalize_ner_type(raw_type: str) -> str:
         "LOC": "LOCATION",
         "ORG": "ORG",
         "MISC": "MISC",
-        "B-PER": "PERSON", "I-PER": "PERSON",
-        "B-LOC": "LOCATION", "I-LOC": "LOCATION",
-        "B-ORG": "ORG", "I-ORG": "ORG",
-        "B-MISC": "MISC", "I-MISC": "MISC",
+        "B-PER": "PERSON",
+        "I-PER": "PERSON",
+        "B-LOC": "LOCATION",
+        "I-LOC": "LOCATION",
+        "B-ORG": "ORG",
+        "I-ORG": "ORG",
+        "B-MISC": "MISC",
+        "I-MISC": "MISC",
     }
     return mapping.get(raw_type.strip(), raw_type.strip().upper())
 
 
 # ── Document QA (Phase 4) ────────────────────────────────────────────────────
+
 
 async def document_qa(
     question: str,
@@ -441,6 +453,7 @@ async def document_qa_multi(
 
 
 # ── Warmup ───────────────────────────────────────────────────────────────────
+
 
 async def warmup():
     """

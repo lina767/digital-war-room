@@ -15,17 +15,15 @@ increment; the highest single factor sets the floor.
 
 IMPORTANT: Intelligence signals only – not legal advice.
 """
+
 import logging
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
 ComplianceLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
-DISCLAIMER = (
-    "Intelligence signals only – not legal advice. "
-    "Supports due diligence but does not replace legal review."
-)
+DISCLAIMER = "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review."
 
 # ── Documented scoring rules ─────────────────────────────────────────────────
 # Each rule: (condition_description, check_fn, floor_level, score_increment)
@@ -40,9 +38,9 @@ LEVEL_ORDER: Dict[ComplianceLevel, int] = {
 }
 
 BAND_MAP: Dict[ComplianceLevel, Dict[str, float]] = {
-    "LOW":      {"min": 0.0,  "max": 0.15},
-    "MEDIUM":   {"min": 0.15, "max": 0.40},
-    "HIGH":     {"min": 0.40, "max": 0.70},
+    "LOW": {"min": 0.0, "max": 0.15},
+    "MEDIUM": {"min": 0.15, "max": 0.40},
+    "HIGH": {"min": 0.40, "max": 0.70},
     "CRITICAL": {"min": 0.70, "max": 0.95},
 }
 
@@ -131,14 +129,16 @@ def compute_compliance_risk(
             regime_level: ComplianceLevel = regime["level"]
             floor = _max_level(floor, regime_level)
             numeric += regime["score"]
-            drivers.append({
-                "factor": "CONFLICT_SANCTIONS_REGIME",
-                "detail": regime["detail"],
-                "impact": f"{regime_level} floor + {regime['score']}",
-                "rule": f"Active sanctions regime → at least {regime_level}",
-                "programs": regime["programs"],
-                "note": regime["note"],
-            })
+            drivers.append(
+                {
+                    "factor": "CONFLICT_SANCTIONS_REGIME",
+                    "detail": regime["detail"],
+                    "impact": f"{regime_level} floor + {regime['score']}",
+                    "rule": f"Active sanctions regime → at least {regime_level}",
+                    "programs": regime["programs"],
+                    "note": regime["note"],
+                }
+            )
             break
 
     # ── Rule 0b: OFAC SDN list hits from DIPLO agent ─────────────────────
@@ -147,49 +147,59 @@ def compute_compliance_risk(
         if ofac_total > 200:
             floor = _max_level(floor, "HIGH")
             numeric += 20
-            drivers.append({
-                "factor": "OFAC_SDN_EXTENSIVE",
-                "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
-                "impact": "HIGH floor + 20",
-                "rule": "Extensive OFAC SDN coverage (>200 entries) → at least HIGH",
-            })
+            drivers.append(
+                {
+                    "factor": "OFAC_SDN_EXTENSIVE",
+                    "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
+                    "impact": "HIGH floor + 20",
+                    "rule": "Extensive OFAC SDN coverage (>200 entries) → at least HIGH",
+                }
+            )
         elif ofac_total > 50:
             floor = _max_level(floor, "MEDIUM")
             numeric += 15
-            drivers.append({
-                "factor": "OFAC_SDN_SIGNIFICANT",
-                "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
-                "impact": "MEDIUM floor + 15",
-                "rule": "Significant OFAC SDN coverage (>50 entries) → at least MEDIUM",
-            })
+            drivers.append(
+                {
+                    "factor": "OFAC_SDN_SIGNIFICANT",
+                    "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
+                    "impact": "MEDIUM floor + 15",
+                    "rule": "Significant OFAC SDN coverage (>50 entries) → at least MEDIUM",
+                }
+            )
         else:
             numeric += 10
-            drivers.append({
-                "factor": "OFAC_SDN_PRESENT",
-                "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
-                "impact": "+10",
-                "rule": "OFAC SDN matches present → score increment",
-            })
+            drivers.append(
+                {
+                    "factor": "OFAC_SDN_PRESENT",
+                    "detail": f"{ofac_total} OFAC SDN entries match conflict entities",
+                    "impact": "+10",
+                    "rule": "OFAC SDN matches present → score increment",
+                }
+            )
 
     # ── Rule 0c: EU sanctions list hits from DIPLO agent ──────────────────
     eu_mentions = int((eu_sanctions or {}).get("keyword_mentions") or 0)
     if eu_mentions > 0:
         if eu_mentions > 500:
             numeric += 10
-            drivers.append({
-                "factor": "EU_SANCTIONS_EXTENSIVE",
-                "detail": f"{eu_mentions} keyword mentions in EU consolidated sanctions list",
-                "impact": "+10",
-                "rule": "Extensive EU sanctions coverage → score increment",
-            })
+            drivers.append(
+                {
+                    "factor": "EU_SANCTIONS_EXTENSIVE",
+                    "detail": f"{eu_mentions} keyword mentions in EU consolidated sanctions list",
+                    "impact": "+10",
+                    "rule": "Extensive EU sanctions coverage → score increment",
+                }
+            )
         elif eu_mentions > 50:
             numeric += 5
-            drivers.append({
-                "factor": "EU_SANCTIONS_PRESENT",
-                "detail": f"{eu_mentions} keyword mentions in EU consolidated sanctions list",
-                "impact": "+5",
-                "rule": "EU sanctions mentions present → score increment",
-            })
+            drivers.append(
+                {
+                    "factor": "EU_SANCTIONS_PRESENT",
+                    "detail": f"{eu_mentions} keyword mentions in EU consolidated sanctions list",
+                    "impact": "+5",
+                    "rule": "EU sanctions mentions present → score increment",
+                }
+            )
 
     # ── Rule 1: Direct sanctions match → at least HIGH ────────────────────
     if sanctions_matches:
@@ -200,29 +210,35 @@ def compute_compliance_risk(
         if exact_count > 0:
             floor = _max_level(floor, "CRITICAL")
             numeric += 40
-            drivers.append({
-                "factor": "SANCTIONS_EXACT_MATCH",
-                "detail": f"{exact_count} exact match(es) on sanctions lists",
-                "impact": "CRITICAL floor",
-                "rule": "Direct OFAC/EU/UN list hit → CRITICAL",
-            })
+            drivers.append(
+                {
+                    "factor": "SANCTIONS_EXACT_MATCH",
+                    "detail": f"{exact_count} exact match(es) on sanctions lists",
+                    "impact": "CRITICAL floor",
+                    "rule": "Direct OFAC/EU/UN list hit → CRITICAL",
+                }
+            )
         if strong_count > 0:
             floor = _max_level(floor, "HIGH")
             numeric += 20
-            drivers.append({
-                "factor": "SANCTIONS_STRONG_FUZZY",
-                "detail": f"{strong_count} strong fuzzy match(es)",
-                "impact": "HIGH floor",
-                "rule": "Strong fuzzy match (>90% similarity) → at least HIGH",
-            })
+            drivers.append(
+                {
+                    "factor": "SANCTIONS_STRONG_FUZZY",
+                    "detail": f"{strong_count} strong fuzzy match(es)",
+                    "impact": "HIGH floor",
+                    "rule": "Strong fuzzy match (>90% similarity) → at least HIGH",
+                }
+            )
         if weak_count > 0:
             numeric += 10
-            drivers.append({
-                "factor": "SANCTIONS_WEAK_FUZZY",
-                "detail": f"{weak_count} weak/review match(es)",
-                "impact": "+10 score",
-                "rule": "Weak fuzzy / review matches → score increment, manual review recommended",
-            })
+            drivers.append(
+                {
+                    "factor": "SANCTIONS_WEAK_FUZZY",
+                    "detail": f"{weak_count} weak/review match(es)",
+                    "impact": "+10 score",
+                    "rule": "Weak fuzzy / review matches → score increment, manual review recommended",
+                }
+            )
 
     # ── Rule 2: Geofencing alerts ─────────────────────────────────────────
     if geofencing_alerts:
@@ -232,21 +248,25 @@ def compute_compliance_risk(
         if embargo_alerts:
             floor = _max_level(floor, "HIGH")
             numeric += 25
-            drivers.append({
-                "factor": "GEOFENCING_EMBARGO_ZONE",
-                "detail": f"{len(embargo_alerts)} asset(s) in embargo zone(s)",
-                "impact": "HIGH floor + 25",
-                "rule": "Asset in embargo zone → at least HIGH",
-            })
+            drivers.append(
+                {
+                    "factor": "GEOFENCING_EMBARGO_ZONE",
+                    "detail": f"{len(embargo_alerts)} asset(s) in embargo zone(s)",
+                    "impact": "HIGH floor + 25",
+                    "rule": "Asset in embargo zone → at least HIGH",
+                }
+            )
         if sanctions_zone_alerts:
             floor = _max_level(floor, "MEDIUM")
             numeric += min(20, len(sanctions_zone_alerts) * 5)
-            drivers.append({
-                "factor": "GEOFENCING_SANCTIONS_ZONE",
-                "detail": f"{len(sanctions_zone_alerts)} asset(s) in sanctions zone(s)",
-                "impact": f"MEDIUM floor + {min(20, len(sanctions_zone_alerts) * 5)}",
-                "rule": "Asset in sanctions zone → at least MEDIUM, +5 per alert (max +20)",
-            })
+            drivers.append(
+                {
+                    "factor": "GEOFENCING_SANCTIONS_ZONE",
+                    "detail": f"{len(sanctions_zone_alerts)} asset(s) in sanctions zone(s)",
+                    "impact": f"MEDIUM floor + {min(20, len(sanctions_zone_alerts) * 5)}",
+                    "rule": "Asset in sanctions zone → at least MEDIUM, +5 per alert (max +20)",
+                }
+            )
 
     # ── Rule 3: Supply chain ──────────────────────────────────────────────
     if supply_chain_result:
@@ -256,20 +276,24 @@ def compute_compliance_risk(
         if zone_hits:
             floor = _max_level(floor, "MEDIUM")
             numeric += min(15, len(zone_hits) * 5)
-            drivers.append({
-                "factor": "SUPPLY_CHAIN_ZONE_HIT",
-                "detail": f"Route touches {len(zone_hits)} sanctions zone(s)",
-                "impact": f"MEDIUM floor + {min(15, len(zone_hits) * 5)}",
-                "rule": "Trade route through sanctions zone → at least MEDIUM",
-            })
+            drivers.append(
+                {
+                    "factor": "SUPPLY_CHAIN_ZONE_HIT",
+                    "detail": f"Route touches {len(zone_hits)} sanctions zone(s)",
+                    "impact": f"MEDIUM floor + {min(15, len(zone_hits) * 5)}",
+                    "rule": "Trade route through sanctions zone → at least MEDIUM",
+                }
+            )
         if suspicious_hops:
             numeric += min(15, len(suspicious_hops) * 5)
-            drivers.append({
-                "factor": "SUPPLY_CHAIN_SUSPICIOUS_HOP",
-                "detail": f"{len(suspicious_hops)} transit hub(s) flagged by intermediary policy",
-                "impact": f"+{min(15, len(suspicious_hops) * 5)}",
-                "rule": "Transit through documented evasion hub → score increment + review",
-            })
+            drivers.append(
+                {
+                    "factor": "SUPPLY_CHAIN_SUSPICIOUS_HOP",
+                    "detail": f"{len(suspicious_hops)} transit hub(s) flagged by intermediary policy",
+                    "impact": f"+{min(15, len(suspicious_hops) * 5)}",
+                    "rule": "Transit through documented evasion hub → score increment + review",
+                }
+            )
 
     # ── Rule 4: AIS anomalies ─────────────────────────────────────────────
     if ais_anomalies:
@@ -279,30 +303,36 @@ def compute_compliance_risk(
         if spoofing:
             floor = _max_level(floor, "HIGH")
             numeric += 20
-            drivers.append({
-                "factor": "AIS_SPOOFING",
-                "detail": f"{len(spoofing)} vessel(s) with suspected AIS spoofing",
-                "impact": "HIGH floor + 20",
-                "rule": "AIS spoofing indicators → at least HIGH (evasion signal)",
-            })
+            drivers.append(
+                {
+                    "factor": "AIS_SPOOFING",
+                    "detail": f"{len(spoofing)} vessel(s) with suspected AIS spoofing",
+                    "impact": "HIGH floor + 20",
+                    "rule": "AIS spoofing indicators → at least HIGH (evasion signal)",
+                }
+            )
         if dark:
             numeric += min(15, len(dark) * 8)
-            drivers.append({
-                "factor": "AIS_DARK_ACTIVITY",
-                "detail": f"{len(dark)} vessel(s) with dark AIS periods in sensitive zones",
-                "impact": f"+{min(15, len(dark) * 8)}",
-                "rule": "AIS dark periods in sanctions/high-risk zones → score increment",
-            })
+            drivers.append(
+                {
+                    "factor": "AIS_DARK_ACTIVITY",
+                    "detail": f"{len(dark)} vessel(s) with dark AIS periods in sensitive zones",
+                    "impact": f"+{min(15, len(dark) * 8)}",
+                    "rule": "AIS dark periods in sanctions/high-risk zones → score increment",
+                }
+            )
 
     # ── Rule 5: Escalation context ────────────────────────────────────────
     if escalation_level and escalation_level in ("HIGH", "CRITICAL"):
         numeric += 10
-        drivers.append({
-            "factor": "ESCALATION_CONTEXT",
-            "detail": f"Current escalation level: {escalation_level}",
-            "impact": "+10",
-            "rule": "HIGH/CRITICAL escalation context → increased compliance sensitivity",
-        })
+        drivers.append(
+            {
+                "factor": "ESCALATION_CONTEXT",
+                "detail": f"Current escalation level: {escalation_level}",
+                "impact": "+10",
+                "rule": "HIGH/CRITICAL escalation context → increased compliance sensitivity",
+            }
+        )
 
     # ── Final score computation ───────────────────────────────────────────
     numeric = max(0.0, min(100.0, numeric))
@@ -311,12 +341,14 @@ def compute_compliance_risk(
     band = BAND_MAP[final_level]
 
     if not drivers:
-        drivers.append({
-            "factor": "NO_SIGNALS",
-            "detail": "No compliance risk signals detected",
-            "impact": "LOW",
-            "rule": "No triggers → LOW baseline",
-        })
+        drivers.append(
+            {
+                "factor": "NO_SIGNALS",
+                "detail": "No compliance risk signals detected",
+                "impact": "LOW",
+                "rule": "No triggers → LOW baseline",
+            }
+        )
 
     return {
         "level": final_level,

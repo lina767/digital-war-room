@@ -6,11 +6,12 @@ Owns:
 - Tier 3: geoint_ner_enrich, chokepoint_residual_enrich (cross-division)
 - Tier 4: military_summary
 """
+
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from ..dag_scheduler import DAGNode, ResultStore
-from ..division import DivisionHead, DivisionAnomaly
+from ..division import DivisionAnomaly, DivisionHead
 
 logger = logging.getLogger(__name__)
 
@@ -80,15 +81,20 @@ class MilitaryDivision(DivisionHead):
         sigint = store.get("sigint") or {}
         chokepoint = store.get("chokepoint") or {}
 
-        sigint_data = sigint if isinstance(sigint, dict) else (
-            sigint.data if hasattr(sigint, "data") and isinstance(sigint.data, dict) else {}
+        sigint_data = (
+            sigint
+            if isinstance(sigint, dict)
+            else (sigint.data if hasattr(sigint, "data") and isinstance(sigint.data, dict) else {})
         )
-        cp_data = chokepoint if isinstance(chokepoint, dict) else (
-            chokepoint.data if hasattr(chokepoint, "data") and isinstance(chokepoint.data, dict) else {}
+        cp_data = (
+            chokepoint
+            if isinstance(chokepoint, dict)
+            else (chokepoint.data if hasattr(chokepoint, "data") and isinstance(chokepoint.data, dict) else {})
         )
 
         try:
             from ..chokepoint_agent import enrich_chokepoints
+
             enriched = enrich_chokepoints(cp_data, sigint_data)
             return {"sigint": sigint_data, "chokepoint_enriched": enriched}
         except Exception as e:
@@ -101,8 +107,10 @@ class MilitaryDivision(DivisionHead):
         geoint = store.get("geoint") or {}
         ner_registry = store.get("ner_extract")
 
-        geoint_data = geoint if isinstance(geoint, dict) else (
-            geoint.data if hasattr(geoint, "data") and isinstance(geoint.data, dict) else {}
+        geoint_data = (
+            geoint
+            if isinstance(geoint, dict)
+            else (geoint.data if hasattr(geoint, "data") and isinstance(geoint.data, dict) else {})
         )
 
         if ner_registry is None or not hasattr(ner_registry, "get_by_type"):
@@ -110,6 +118,7 @@ class MilitaryDivision(DivisionHead):
 
         try:
             from ..geoint_agent import enrich_with_ner_entities
+
             locations = [e.entity for e in ner_registry.get_by_type("LOCATION")]
             entities = [{"entity": loc, "type": "LOCATION"} for loc in locations]
             return enrich_with_ner_entities(geoint_data, entities)
@@ -127,20 +136,26 @@ class MilitaryDivision(DivisionHead):
 
         cp_enriched = mil_enrich.get("chokepoint_enriched", {}) if isinstance(mil_enrich, dict) else {}
 
-        energy_data = energy if isinstance(energy, dict) else (
-            energy.data if hasattr(energy, "data") and isinstance(energy.data, dict) else {}
+        energy_data = (
+            energy
+            if isinstance(energy, dict)
+            else (energy.data if hasattr(energy, "data") and isinstance(energy.data, dict) else {})
         )
-        news_data = news if isinstance(news, dict) else (
-            news.data if hasattr(news, "data") and isinstance(news.data, dict) else {}
+        _news_data = (
+            news
+            if isinstance(news, dict)
+            else (news.data if hasattr(news, "data") and isinstance(news.data, dict) else {})
         )
-        diplo_data = diplo if isinstance(diplo, dict) else (
-            diplo.data if hasattr(diplo, "data") and isinstance(diplo.data, dict) else {}
+        _diplo_data = (
+            diplo
+            if isinstance(diplo, dict)
+            else (diplo.data if hasattr(diplo, "data") and isinstance(diplo.data, dict) else {})
         )
 
         result = dict(cp_enriched)
         if energy_data:
             brent_pct = None
-            for c in (energy_data.get("commodities") or []):
+            for c in energy_data.get("commodities") or []:
                 if c.get("symbol") == "BRENT":
                     brent_pct = c.get("change_pct")
             result["brent_change_pct"] = brent_pct
@@ -148,18 +163,19 @@ class MilitaryDivision(DivisionHead):
 
     # -- Anomaly detection overrides ----------------------------------------
 
-    def _detect_anomalies(self, agent_scores: Dict[str, float],
-                          agents_failed: List[str]) -> List[DivisionAnomaly]:
+    def _detect_anomalies(self, agent_scores: Dict[str, float], agents_failed: List[str]) -> List[DivisionAnomaly]:
         anomalies = super()._detect_anomalies(agent_scores, agents_failed)
 
         sigint_s = agent_scores.get("sigint", 0)
         geoint_s = agent_scores.get("geoint", 0)
         if sigint_s > 60 and geoint_s < 20:
-            anomalies.append(DivisionAnomaly(
-                type="contradiction",
-                description=f"SIGINT high ({sigint_s:.0f}) but GEOINT low ({geoint_s:.0f}) — possible covert activity",
-                severity="high",
-                agents_involved=["sigint", "geoint"],
-            ))
+            anomalies.append(
+                DivisionAnomaly(
+                    type="contradiction",
+                    description=f"SIGINT high ({sigint_s:.0f}) but GEOINT low ({geoint_s:.0f}) — possible covert activity",
+                    severity="high",
+                    agents_involved=["sigint", "geoint"],
+                )
+            )
 
         return anomalies

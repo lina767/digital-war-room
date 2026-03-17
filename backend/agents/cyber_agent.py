@@ -2,26 +2,28 @@
 CYBER / Threat Intel Agent – CISA KEV, threat reports, OTX, GreyNoise, InternetDB, NVD CVSS.
 Structured Pydantic output, per-source fetched_at, KEV cache (TTL), dateAdded trend, MITRE ATT&CK extraction.
 """
+
 import asyncio
 import logging
 import os
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+from agents.otel_callbacks import traced
+from services.http_client import get_http_client
 
 from .health_registry import get_health_registry
 from .utils import (
     AgentMetadata,
     SourceResult,
+    compute_confidence_from_sources,
     run_async,
     utc_now_iso,
-    compute_confidence_from_sources,
 )
-from services.http_client import get_http_client
-from agents.otel_callbacks import traced
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ NVD_TIMEOUT = 15.0
 INTERNETDB_TIMEOUT = 10.0
 
 KEV_CACHE_TTL_SEC = 86400  # 24h – CISA updates daily
-NVD_RATE_DELAY_SEC = 6.5   # 5 req/30s without key
+NVD_RATE_DELAY_SEC = 6.5  # 5 req/30s without key
 MAX_NVD_LOOKUPS = 5
 MAX_NVD_LOOKUPS_NO_KEY = 2  # fewer lookups when unauthenticated to avoid long runs
 MAX_INTERNETDB_IPS = 5
@@ -54,14 +56,21 @@ MAX_OTX_WHEN_NO_KEYWORDS = 10
 MITRE_REGEX = re.compile(r"T\d{4}(?:\.\d{3})?|TA\d{4}", re.IGNORECASE)
 
 CONFLICT_COUNTRY_CODES: Dict[str, List[str]] = {
-    "iran": ["IR"], "us-iran": ["IR", "US"], "russia": ["RU"], "ukraine": ["UA"],
-    "china": ["CN"], "taiwan": ["TW"], "north korea": ["KP"],
+    "iran": ["IR"],
+    "us-iran": ["IR", "US"],
+    "russia": ["RU"],
+    "ukraine": ["UA"],
+    "china": ["CN"],
+    "taiwan": ["TW"],
+    "north korea": ["KP"],
     "middle east": ["IR", "IL", "SY", "LB", "YE", "IQ", "JO", "SA", "AE"],
-    "hezbollah": ["LB", "IL", "SY"], "houthis": ["YE", "SA"],
+    "hezbollah": ["LB", "IL", "SY"],
+    "houthis": ["YE", "SA"],
 }
 
 
 # ─── Pydantic models ───────────────────────────────────────────────────────
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -160,10 +169,26 @@ def _conflict_to_keywords(conflict: str) -> List[str]:
     # Naher Osten / Middle East: breite Abdeckung Iran, Levante, Golf, Jemen
     if "middle east" in cl or "naher osten" in cl or "middleeast" in cl:
         return [
-            "iran", "apt33", "apt34", "muddywater", "oilrig",
-            "israel", "gaza", "palestine", "hezbollah", "lebanon", "idf", "hamas",
-            "houthi", "yemen", "ansar allah", "red sea",
-            "syria", "iraq", "irgc", "tehran",
+            "iran",
+            "apt33",
+            "apt34",
+            "muddywater",
+            "oilrig",
+            "israel",
+            "gaza",
+            "palestine",
+            "hezbollah",
+            "lebanon",
+            "idf",
+            "hamas",
+            "houthi",
+            "yemen",
+            "ansar allah",
+            "red sea",
+            "syria",
+            "iraq",
+            "irgc",
+            "tehran",
         ]
     return [cl] if cl else []
 
@@ -174,15 +199,18 @@ def _kev_cache_get() -> Optional[Dict[str, Any]]:
     if redis_url:
         try:
             import redis
+
             r = redis.from_url(redis_url, decode_responses=True)
             raw = r.get("cyber:kev:raw")
             if raw:
                 import json
+
                 return json.loads(raw)
         except Exception as e:
             logger.debug("CYBER: Redis KEV cache get failed: %s", e)
     try:
         from cachetools import TTLCache
+
         if not hasattr(_kev_cache_get, "_mem_cache"):
             _kev_cache_get._mem_cache = TTLCache(maxsize=1, ttl=KEV_CACHE_TTL_SEC)
         cache = _kev_cache_get._mem_cache
@@ -197,8 +225,10 @@ def _kev_cache_set(data: Dict[str, Any]) -> None:
     redis_url = (os.getenv("REDIS_URL") or "").strip()
     if redis_url:
         try:
-            import redis
             import json
+
+            import redis
+
             r = redis.from_url(redis_url, decode_responses=True)
             r.setex("cyber:kev:raw", KEV_CACHE_TTL_SEC, json.dumps(data))
         except Exception as e:
@@ -206,6 +236,7 @@ def _kev_cache_set(data: Dict[str, Any]) -> None:
         return
     try:
         from cachetools import TTLCache
+
         if not hasattr(_kev_cache_get, "_mem_cache"):
             _kev_cache_get._mem_cache = TTLCache(maxsize=1, ttl=KEV_CACHE_TTL_SEC)
         _kev_cache_get._mem_cache["kev"] = data
@@ -248,7 +279,7 @@ async def _fetch_nvd_cvss(client: Any, cve_id: str, api_key: Optional[str]) -> O
             timeout=NVD_TIMEOUT,
         )
         data = resp.json()
-        vulns = (data.get("vulnerabilities") or [])
+        vulns = data.get("vulnerabilities") or []
         if not vulns:
             return None
         cve = vulns[0].get("cve") or {}
@@ -328,6 +359,7 @@ def _extract_mitre_tactics(text: str) -> List[str]:
 async def _fetch_threat_rss(client: Any, conflict: str) -> List[ThreatReportEntry]:
     """Fetch threat intel RSS (Mandiant, CrowdStrike); filter by conflict; extract MITRE ATT&CK from titles."""
     import feedparser
+
     try:
         import httpx
     except ImportError:
@@ -346,13 +378,15 @@ async def _fetch_threat_rss(client: Any, conflict: str) -> List[ThreatReportEntr
                 link = e.get("link") or ""
                 summary = (e.get("summary") or e.get("description") or "")[:300]
                 if not keywords or any(k in (title + summary).lower() for k in keywords):
-                    entries.append(ThreatReportEntry(
-                        title=title,
-                        url=link,
-                        summary=(summary[:200] if summary else ""),
-                        mitre_tactics=_extract_mitre_tactics(title + " " + summary),
-                        fetched_at=fetched_at,
-                    ))
+                    entries.append(
+                        ThreatReportEntry(
+                            title=title,
+                            url=link,
+                            summary=(summary[:200] if summary else ""),
+                            mitre_tactics=_extract_mitre_tactics(title + " " + summary),
+                            fetched_at=fetched_at,
+                        )
+                    )
             if not keywords and len(entries) > MAX_RSS_WHEN_NO_KEYWORDS:
                 entries = entries[:MAX_RSS_WHEN_NO_KEYWORDS]
         except Exception as e:
@@ -361,9 +395,15 @@ async def _fetch_threat_rss(client: Any, conflict: str) -> List[ThreatReportEntr
                 err_msg = f"HTTP {e.response.status_code}"
             feed_errors.append(f"{url[:40]}… ({err_msg})")
             logger.warning("CYBER: Threat RSS %s failed: %s", url[:50], e)
-            entries.append(ThreatReportEntry(
-                title="Feed error", url=url, summary="", error=err_msg, fetched_at=fetched_at,
-            ))
+            entries.append(
+                ThreatReportEntry(
+                    title="Feed error",
+                    url=url,
+                    summary="",
+                    error=err_msg,
+                    fetched_at=fetched_at,
+                )
+            )
     valid_count = len([r for r in entries if not r.error])
     if valid_count == 0 and feed_errors:
         logger.info(
@@ -407,14 +447,16 @@ async def _fetch_otx_pulses(client: Any, api_key: str, conflict: str) -> List[Ot
                 ind = p.get("indicator_count")
                 if ind is None and isinstance(p.get("indicators"), list):
                     ind = len(p["indicators"])
-                out.append(OtxPulseEntry(
-                    name=p.get("name"),
-                    id=str(p.get("id")) if p.get("id") is not None else None,
-                    created=p.get("created"),
-                    author_name=(p.get("author_name") or ""),
-                    indicator_count=int(ind) if ind is not None else 0,
-                    fetched_at=fetched_at,
-                ))
+                out.append(
+                    OtxPulseEntry(
+                        name=p.get("name"),
+                        id=str(p.get("id")) if p.get("id") is not None else None,
+                        created=p.get("created"),
+                        author_name=(p.get("author_name") or ""),
+                        indicator_count=int(ind) if ind is not None else 0,
+                        fetched_at=fetched_at,
+                    )
+                )
         if not keywords and len(out) > MAX_OTX_WHEN_NO_KEYWORDS:
             out = out[:MAX_OTX_WHEN_NO_KEYWORDS]
         if not results:
@@ -424,7 +466,9 @@ async def _fetch_otx_pulses(client: Any, api_key: str, conflict: str) -> List[Ot
         elif not out and keywords:
             logger.info(
                 "CYBER: OTX – %d pulse(s) from API but none matched conflict '%s' (keywords: %s).",
-                len(results), conflict, keywords[:5],
+                len(results),
+                conflict,
+                keywords[:5],
             )
         return out[:15]
     except Exception as e:
@@ -460,7 +504,9 @@ async def _fetch_greynoise_scan_context(client: Any, api_key: str) -> GreyNoiseS
         count = int(data.get("count") or 0)
         stats = data.get("stats") or {}
         actors = [x for x in (stats.get("actors") or [])[:5] if isinstance(x, dict) and x.get("actor")]
-        source_countries = [x for x in (stats.get("source_countries") or [])[:5] if isinstance(x, dict) and x.get("country")]
+        source_countries = [
+            x for x in (stats.get("source_countries") or [])[:5] if isinstance(x, dict) and x.get("country")
+        ]
         classifications = [x for x in (stats.get("classifications") or []) if isinstance(x, dict)]
         return GreyNoiseScanContext(
             available=True,
@@ -468,7 +514,9 @@ async def _fetch_greynoise_scan_context(client: Any, api_key: str) -> GreyNoiseS
             query=query,
             top_actors=[{"actor": a.get("actor"), "count": a.get("count")} for a in actors],
             top_source_countries=[{"country": c.get("country"), "count": c.get("count")} for c in source_countries],
-            classifications=[{"classification": c.get("classification"), "count": c.get("count")} for c in classifications],
+            classifications=[
+                {"classification": c.get("classification"), "count": c.get("count")} for c in classifications
+            ],
             fetched_at=fetched_at,
         )
     except Exception as e:
@@ -477,11 +525,12 @@ async def _fetch_greynoise_scan_context(client: Any, api_key: str) -> GreyNoiseS
 
 
 INTERNETDB_DEFAULT_IPS = [
-    "78.39.159.1",     # Iran (AS12880, IRNIC)
-    "185.143.233.1",   # Iran (AS203214, HiWeb)
-    "5.160.218.1",     # Iran (AS48159, Telecommunication Infrastructure)
-    "91.108.128.1",    # Iran (AS44208, IRANCELL)
+    "78.39.159.1",  # Iran (AS12880, IRNIC)
+    "185.143.233.1",  # Iran (AS203214, HiWeb)
+    "5.160.218.1",  # Iran (AS48159, Telecommunication Infrastructure)
+    "91.108.128.1",  # Iran (AS44208, IRANCELL)
 ]
+
 
 def _get_internetdb_ips() -> List[str]:
     """Conflict-relevant IPs for Shodan InternetDB: from env CYBER_INTERNETDB_IPS or defaults."""
@@ -505,13 +554,15 @@ async def _fetch_internetdb(client: Any, ips: List[str]) -> InternetDbResult:
                 timeout=INTERNETDB_TIMEOUT,
             )
             data = resp.json() if resp.status_code == 200 else {}
-            hosts.append(InternetDbHost(
-                ip=data.get("ip", ip),
-                ports=data.get("ports") or [],
-                vulns=data.get("vulns") or [],
-                tags=data.get("tags") or [],
-                hostnames=data.get("hostnames") or [],
-            ))
+            hosts.append(
+                InternetDbHost(
+                    ip=data.get("ip", ip),
+                    ports=data.get("ports") or [],
+                    vulns=data.get("vulns") or [],
+                    tags=data.get("tags") or [],
+                    hostnames=data.get("hostnames") or [],
+                )
+            )
         except Exception as e:
             logger.debug("CYBER: InternetDB %s failed: %s", ip, e)
     return InternetDbResult(hosts=hosts, fetched_at=fetched_at)
@@ -573,6 +624,7 @@ async def _generate_haiku_summary_cyber(
     """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
     try:
         from services.haiku_service import analyst_summary
+
         compact = {
             "conflict": conflict,
             "cyber_score": score,
@@ -584,6 +636,7 @@ async def _generate_haiku_summary_cyber(
             "internet_db_hosts": len(internet_db.hosts) if internet_db.hosts else 0,
         }
         import json
+
         data = json.dumps(compact, indent=2)
         system = (
             "You are a cyber-threat analyst for conflict zones. Summarize the following "
@@ -628,6 +681,7 @@ def _greynoise_context_from_snapshot(conflict: str) -> Optional[GreyNoiseScanCon
     """Use greynoise_agent SQLite snapshot for this conflict (avoids duplicate API calls)."""
     try:
         from agents.greynoise_agent import get_greynoise_context_for_cyber
+
         data = get_greynoise_context_for_cyber(conflict)
         if not data:
             return None
@@ -664,7 +718,9 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
     greynoise_key = (os.getenv("GREYNOISE_API_KEY") or "").strip()
     internetdb_ips = _get_internetdb_ips()
     if not otx_key:
-        logger.info("CYBER: OTX_API_KEY not set – OTX pulses skipped. Set in backend/.env for AlienVault OTX (otx.alienvault.com).")
+        logger.info(
+            "CYBER: OTX_API_KEY not set – OTX pulses skipped. Set in backend/.env for AlienVault OTX (otx.alienvault.com)."
+        )
 
     async def _no_otx() -> List[OtxPulseEntry]:
         return []
@@ -692,7 +748,13 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
         cyber_score = _compute_cyber_score(kev, threat_reports, otx_pulses, greynoise, internet_db)
         rule_summary = _build_summary(kev, threat_reports, otx_pulses, greynoise, internet_db, cyber_score)
         llm_summary = await _generate_haiku_summary_cyber(
-            conflict, kev, threat_reports, otx_pulses, greynoise, internet_db, cyber_score,
+            conflict,
+            kev,
+            threat_reports,
+            otx_pulses,
+            greynoise,
+            internet_db,
+            cyber_score,
         )
         summary = llm_summary if llm_summary else rule_summary
         return CyberAgentResult(
@@ -718,11 +780,40 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
             gn = result.greynoise_scan_context
             idb = result.internet_db
             source_results = [
-                SourceResult(name="CISA KEV", status="ok" if (kev.total or kev.sample) and not kev.error else "error", fetched_at=fetched_at, record_count=kev.total or 0),
-                SourceResult(name="Threat RSS", status="ok" if not any(r.error for r in tr) else ("ok" if any(r.title and not r.error for r in tr) else "error"), fetched_at=fetched_at, record_count=len([r for r in tr if not r.error])),
-                SourceResult(name="OTX", status="ok" if not any(p.error for p in otx) else ("ok" if any(p.name and not p.error for p in otx) else "error"), fetched_at=fetched_at, record_count=len([p for p in otx if not p.error])),
-                SourceResult(name="GreyNoise", status="ok" if (gn and gn.available and not gn.error) else "error", fetched_at=fetched_at, record_count=gn.count if gn else 0),
-                SourceResult(name="InternetDB", status="ok" if (idb and idb.hosts) else "error", fetched_at=fetched_at, record_count=len(idb.hosts) if idb else 0),
+                SourceResult(
+                    name="CISA KEV",
+                    status="ok" if (kev.total or kev.sample) and not kev.error else "error",
+                    fetched_at=fetched_at,
+                    record_count=kev.total or 0,
+                ),
+                SourceResult(
+                    name="Threat RSS",
+                    status="ok"
+                    if not any(r.error for r in tr)
+                    else ("ok" if any(r.title and not r.error for r in tr) else "error"),
+                    fetched_at=fetched_at,
+                    record_count=len([r for r in tr if not r.error]),
+                ),
+                SourceResult(
+                    name="OTX",
+                    status="ok"
+                    if not any(p.error for p in otx)
+                    else ("ok" if any(p.name and not p.error for p in otx) else "error"),
+                    fetched_at=fetched_at,
+                    record_count=len([p for p in otx if not p.error]),
+                ),
+                SourceResult(
+                    name="GreyNoise",
+                    status="ok" if (gn and gn.available and not gn.error) else "error",
+                    fetched_at=fetched_at,
+                    record_count=gn.count if gn else 0,
+                ),
+                SourceResult(
+                    name="InternetDB",
+                    status="ok" if (idb and idb.hosts) else "error",
+                    fetched_at=fetched_at,
+                    record_count=len(idb.hosts) if idb else 0,
+                ),
             ]
             reg = get_health_registry()
             if reg:
@@ -731,14 +822,34 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
             duration_ms = int((time.perf_counter() - start) * 1000)
             confidence = compute_confidence_from_sources(source_results)
             ok_count = sum(1 for s in source_results if s.status == "ok")
-            data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
-            meta = AgentMetadata(agent="cyber", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+            data_freshness = (
+                "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+            )
+            meta = AgentMetadata(
+                agent="cyber",
+                fetched_at=fetched_at,
+                duration_ms=duration_ms,
+                sources=source_results,
+                confidence=confidence,
+                data_freshness=data_freshness,
+                fallback_used=False,
+                error_summary=None,
+            )
             out["_meta"] = meta.model_dump(mode="json")
             return out
         except Exception as e:
             logger.exception("CYBER agent run failed")
             duration_ms = int((time.perf_counter() - start) * 1000)
-            meta = AgentMetadata(agent="cyber", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
+            meta = AgentMetadata(
+                agent="cyber",
+                fetched_at=fetched_at,
+                duration_ms=duration_ms,
+                sources=[],
+                confidence=compute_confidence_from_sources([]),
+                data_freshness="unavailable",
+                fallback_used=True,
+                error_summary=str(e),
+            )
             fallback = CyberAgentResult(
                 cyber_score=25.0,
                 cisa_kev=CisaKevResult(total=0, sample=[], error=str(e)),

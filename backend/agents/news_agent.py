@@ -7,27 +7,32 @@ Multi-API strategy: one request per API per run (respects 100/day NewsAPI & GNew
 200/day NewsData). Same query via _build_query(conflict); merge, URL-dedupe, then
 HF semantic dedup and cross-encoder ranking. See docs/API-KEYS.md "News-APIs gemeinsam einsetzen".
 """
-import asyncio
+
 import logging
 import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from .context import AgentContext
 from urllib.parse import urlparse
 
 import feedparser
 import httpx
-from .config import USER_AGENT
+
+from .config import NEWS_MAX_PER_SOURCE, NEWS_TOP_K, USER_AGENT
+from .domain_runner import run_domain_with_analysts
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .utils import (
     AgentMetadata,
     SourceResult,
+    compute_confidence_from_sources,
     run_async,
     utc_now_iso,
-    compute_confidence_from_sources,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,7 +93,18 @@ RSS_FEEDS = {
 }
 
 TITLE_EXCLUDE = ["marathon", "eurovision", "cricket", "bollywood", "sports", "weather"]
-ESCALATION_KW = ["attack", "strike", "missile", "war", "explosion", "killed", "military", "nuclear", "threat", "sanctions"]
+ESCALATION_KW = [
+    "attack",
+    "strike",
+    "missile",
+    "war",
+    "explosion",
+    "killed",
+    "military",
+    "nuclear",
+    "threat",
+    "sanctions",
+]
 DE_ESCALATION_KW = ["ceasefire", "talks", "diplomatic", "deal", "agreement", "withdraw", "peace", "negotiate"]
 
 # Farsi/Persian escalation keywords for sentiment analysis
@@ -119,9 +135,24 @@ CHOKEPOINT_KEYWORDS: Dict[str, List[str]] = {
     "Suez Canal": ["suez", "suez canal"],
 }
 DISRUPTION_VERBS = [
-    "blockade", "blockaded", "halt", "halted", "suspend", "suspended",
-    "close", "closed", "shut", "shut down", "no transit", "reroute", "rerouted",
-    "cape of good hope", "disrupt", "disrupted", "restricted", "closure",
+    "blockade",
+    "blockaded",
+    "halt",
+    "halted",
+    "suspend",
+    "suspended",
+    "close",
+    "closed",
+    "shut",
+    "shut down",
+    "no transit",
+    "reroute",
+    "rerouted",
+    "cape of good hope",
+    "disrupt",
+    "disrupted",
+    "restricted",
+    "closure",
 ]
 
 
@@ -151,12 +182,11 @@ def _build_query(conflict: str) -> str:
         return (
             '(Iran OR IRGC OR "Persian Gulf" OR Khamenei OR Rouhani OR "nuclear deal" '
             'OR "Iranian military" OR "US Iran" OR "Israel Iran" OR Hormuz OR "Iranian strike" '
-            'OR Hezbollah OR Houthi OR Houthis OR IDF OR Yemen OR Lebanon) '
+            "OR Hezbollah OR Houthi OR Houthis OR IDF OR Yemen OR Lebanon) "
             "AND (attack OR military OR nuclear OR sanctions OR war OR strike OR missile OR deal)"
         )
     if "ukraine" in cl:
-        return ('(Ukraine OR Zelensky OR Kyiv OR Donbas) '
-                "AND (Russia OR invasion OR NATO OR military OR sanctions)")
+        return "(Ukraine OR Zelensky OR Kyiv OR Donbas) AND (Russia OR invasion OR NATO OR military OR sanctions)"
     return f'"{conflict}"' if " " in conflict else conflict
 
 
@@ -195,6 +225,7 @@ def _label_from_haiku(haiku_label: str) -> str:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
+
 def _normalize_url(url: str) -> str:
     """Normalize URL for deduplication (strip trailing slash, lowercase scheme/host)."""
     if not url or not isinstance(url, str):
@@ -211,8 +242,6 @@ SOURCE_WEIGHTS = {"newsapi": 0.35, "gdelt": 0.25, "rss": 0.2, "newsdata": 0.1, "
 
 
 # Max articles per source in top-N so one outlet (e.g. Al Jazeera) doesn't dominate. Override via env.
-NEWS_MAX_PER_SOURCE = int(os.getenv("NEWS_MAX_PER_SOURCE", "5"))
-NEWS_TOP_K = int(os.getenv("NEWS_TOP_K", "20"))
 
 
 def _normalize_source_for_cap(article: Dict[str, Any]) -> str:
@@ -275,36 +304,39 @@ def _merge_news_results(
     # Semantic dedup + cross-encoder ranking (graceful: falls back to sentiment sort)
     _hf_available = False
     try:
-        from services.hf_service import deduplicate_items, rank_by_relevance, _get_ranking_query
+        from services.hf_service import _get_ranking_query, deduplicate_items, rank_by_relevance
+
         _hf_available = True
     except Exception:
         pass
 
     if _hf_available:
         try:
-            articles = run_async(deduplicate_items(
-                articles, text_key="title", threshold=0.92,
-                source="news", conflict=conflict,
-            ))
+            articles = run_async(
+                deduplicate_items(
+                    articles,
+                    text_key="title",
+                    threshold=0.92,
+                    source="news",
+                    conflict=conflict,
+                )
+            )
         except Exception as e:
             logger.debug("HF semantic dedup failed: %s", e)
 
     if _hf_available and conflict:
         try:
             query = _get_ranking_query(conflict)
-            texts = [
-                ((a.get("title") or "") + " " + (a.get("summary") or "")).strip()[:512]
-                for a in articles
-            ]
+            texts = [((a.get("title") or "") + " " + (a.get("summary") or "")).strip()[:512] for a in articles]
             if texts:
                 ranked = run_async(rank_by_relevance(query, texts, top_k=NEWS_TOP_K * 2))  # rank more, then cap
                 articles = [articles[i] for i, _ in ranked if i < len(articles)]
         except Exception as e:
             logger.debug("HF cross-encoder ranking failed: %s", e)
-            articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
+            articles.sort(key=lambda a: a.get("sentiment_score") or 0, reverse=True)
             articles = articles[: NEWS_TOP_K * 2]
     else:
-        articles.sort(key=lambda a: (a.get("sentiment_score") or 0), reverse=True)
+        articles.sort(key=lambda a: a.get("sentiment_score") or 0, reverse=True)
         articles = articles[: NEWS_TOP_K * 2]
 
     # Per-source cap so one outlet (e.g. Al Jazeera) doesn't dominate the top list
@@ -315,6 +347,7 @@ def _merge_news_results(
     # Replace keyword sentiment with Haiku batch_sentiment when available (budget/limits apply)
     try:
         from services.haiku_service import batch_sentiment
+
         texts = [
             ((a.get("title") or "") + " " + (a.get("summary") or a.get("description") or "")).strip()[:2000]
             for a in top20
@@ -322,7 +355,7 @@ def _merge_news_results(
         if texts:
             haiku_results = run_async(batch_sentiment(texts))
             if haiku_results and not all(r is None for r in haiku_results):
-                for a, res in zip(top20, haiku_results):
+                for a, res in zip(top20, haiku_results, strict=True):
                     if res is not None and isinstance(res, dict):
                         # For conflict: Haiku "negative" (violence/threat) = escalation = positive score
                         score = float(res.get("score", 0))
@@ -399,16 +432,18 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
             desc = art.get("description") or ""
             score = _sentiment_keyword(f"{title} {desc}")
             source = (art.get("source") or {}).get("name") or ""
-            articles.append({
-                "title": title,
-                "source": source,
-                "url": art.get("url"),
-                "published_at": art.get("publishedAt"),
-                "sentiment_score": score,
-                "sentiment_label": _label(score),
-                "language": "en",
-                "source_type": "newsapi",
-            })
+            articles.append(
+                {
+                    "title": title,
+                    "source": source,
+                    "url": art.get("url"),
+                    "published_at": art.get("publishedAt"),
+                    "sentiment_score": score,
+                    "sentiment_label": _label(score),
+                    "language": "en",
+                    "source_type": "newsapi",
+                }
+            )
         return articles
     except Exception as e:
         return [{"error": str(e)}]
@@ -474,17 +509,19 @@ def search_newsdata_news(conflict: str) -> List[Dict[str, Any]]:
                 continue
             desc = (art.get("description") or "").strip()
             score = _sentiment_keyword(f"{title} {desc}")
-            articles.append({
-                "title": title[:500] if title else "(No title)",
-                "source": art.get("source_name") or "NewsData",
-                "url": link,
-                "published_at": art.get("pubDate"),
-                "description": desc[:1000] if desc else "",
-                "sentiment_score": score,
-                "sentiment_label": _label(score),
-                "language": (art.get("language") or "en").lower(),
-                "source_type": "newsdata",
-            })
+            articles.append(
+                {
+                    "title": title[:500] if title else "(No title)",
+                    "source": art.get("source_name") or "NewsData",
+                    "url": link,
+                    "published_at": art.get("pubDate"),
+                    "description": desc[:1000] if desc else "",
+                    "sentiment_score": score,
+                    "sentiment_label": _label(score),
+                    "language": (art.get("language") or "en").lower(),
+                    "source_type": "newsdata",
+                }
+            )
         return articles[:10]
     except Exception as e:
         return [{"error": str(e)}]
@@ -528,19 +565,21 @@ def search_gnews_news(conflict: str) -> List[Dict[str, Any]]:
                 continue
             desc = (art.get("description") or art.get("content") or "").strip()
             score = _sentiment_keyword(f"{title} {desc}")
-            source = (art.get("source") or {})
+            source = art.get("source") or {}
             source_name = source.get("name", "GNews") if isinstance(source, dict) else "GNews"
-            articles.append({
-                "title": title[:500] if title else "(No title)",
-                "source": source_name,
-                "url": url,
-                "published_at": art.get("publishedAt"),
-                "description": desc[:1000] if desc else "",
-                "sentiment_score": score,
-                "sentiment_label": _label(score),
-                "language": "en",
-                "source_type": "gnews",
-            })
+            articles.append(
+                {
+                    "title": title[:500] if title else "(No title)",
+                    "source": source_name,
+                    "url": url,
+                    "published_at": art.get("publishedAt"),
+                    "description": desc[:1000] if desc else "",
+                    "sentiment_score": score,
+                    "sentiment_label": _label(score),
+                    "language": "en",
+                    "source_type": "gnews",
+                }
+            )
         return articles[:10]
     except Exception as e:
         return [{"error": str(e)}]
@@ -562,7 +601,20 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
     keywords_fa: List[str] = []
     cl = conflict.lower()
     if "iran" in cl:
-        keywords_en = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian", "houthi", "hezbollah", "idf", "yemen", "lebanon"]
+        keywords_en = [
+            "iran",
+            "irgc",
+            "tehran",
+            "nuclear",
+            "khamenei",
+            "persian gulf",
+            "iranian",
+            "houthi",
+            "hezbollah",
+            "idf",
+            "yemen",
+            "lebanon",
+        ]
         # Basic Farsi conflict keywords for Iran context
         keywords_fa = [
             "ایران",
@@ -607,16 +659,18 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                     continue
                 score = _sentiment_keyword(f"{title} {summary}")
                 source = (parsed.feed.get("title") or feed_url) if getattr(parsed, "feed", None) else feed_url
-                results.append({
-                    "title": title[:500],
-                    "source": source,
-                    "url": link,
-                    "published_at": entry.get("published") or entry.get("updated"),
-                    "sentiment_score": score,
-                    "sentiment_label": _label(score),
-                    "language": "",  # language not reliably available from RSS; leave empty
-                    "source_type": "rss",
-                })
+                results.append(
+                    {
+                        "title": title[:500],
+                        "source": source,
+                        "url": link,
+                        "published_at": entry.get("published") or entry.get("updated"),
+                        "sentiment_score": score,
+                        "sentiment_label": _label(score),
+                        "language": "",  # language not reliably available from RSS; leave empty
+                        "source_type": "rss",
+                    }
+                )
         except Exception:
             continue
     return results
@@ -624,13 +678,11 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
 
 # ── Rule-based NEWS multi-agent building blocks ─────────────────────────────
 
+
 def _run_newsapi_source_agent(conflict: str, hours_back: int = 48) -> Dict[str, Any]:
     """Source agent: NewsAPI-only view of the conflict."""
     raw = search_conflict_news(conflict=conflict, hours_back=hours_back)
-    articles = [
-        a for a in (raw if isinstance(raw, list) else [])
-        if isinstance(a, dict) and "error" not in a
-    ]
+    articles = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
     return {
         "source": "newsapi",
         "articles": articles,
@@ -641,10 +693,7 @@ def _run_newsapi_source_agent(conflict: str, hours_back: int = 48) -> Dict[str, 
 def _run_gdelt_source_agent(conflict: str) -> Dict[str, Any]:
     """Source agent: GDELT-only view of the conflict."""
     raw = search_gdelt_news(conflict=conflict)
-    articles = [
-        a for a in (raw if isinstance(raw, list) else [])
-        if isinstance(a, dict) and "error" not in a
-    ]
+    articles = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
     return {
         "source": "gdelt",
         "articles": articles,
@@ -666,7 +715,20 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
             keywords_en: List[str]
             keywords_fa: List[str]
             if "iran" in cl:
-                keywords_en = ["iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf", "iranian", "houthi", "hezbollah", "idf", "yemen", "lebanon"]
+                keywords_en = [
+                    "iran",
+                    "irgc",
+                    "tehran",
+                    "nuclear",
+                    "khamenei",
+                    "persian gulf",
+                    "iranian",
+                    "houthi",
+                    "hezbollah",
+                    "idf",
+                    "yemen",
+                    "lebanon",
+                ]
                 keywords_fa = [
                     "ایران",
                     "تهران",
@@ -706,16 +768,18 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
                     continue
                 score = _sentiment_keyword(f"{title} {summary}")
                 source = (parsed.feed.get("title") or feed_url) if getattr(parsed, "feed", None) else feed_url
-                out.append({
-                    "title": title[:500],
-                    "source": source,
-                    "url": link,
-                    "published_at": entry.get("published") or entry.get("updated"),
-                    "sentiment_score": score,
-                    "sentiment_label": _label(score),
-                    "language": "",
-                    "source_type": "rss",
-                })
+                out.append(
+                    {
+                        "title": title[:500],
+                        "source": source,
+                        "url": link,
+                        "published_at": entry.get("published") or entry.get("updated"),
+                        "sentiment_score": score,
+                        "sentiment_label": _label(score),
+                        "language": "",
+                        "source_type": "rss",
+                    }
+                )
             return out
         except Exception as e:
             logger.debug("NEWS: RSS feed %s failed: %s", feed_url, e)
@@ -788,10 +852,7 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
 def _run_newsdata_source_agent(conflict: str) -> Dict[str, Any]:
     """Source agent: NewsData.io latest (200 credits/day, 10 articles/request). Only runs when NEWSDATA_API_KEY is set."""
     raw = search_newsdata_news(conflict=conflict)
-    articles = [
-        a for a in (raw if isinstance(raw, list) else [])
-        if isinstance(a, dict) and "error" not in a
-    ]
+    articles = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
     return {
         "source": "newsdata",
         "articles": articles,
@@ -802,10 +863,7 @@ def _run_newsdata_source_agent(conflict: str) -> Dict[str, Any]:
 def _run_gnews_source_agent(conflict: str) -> Dict[str, Any]:
     """Source agent: GNews (gnews.io). Only runs when GNEWS_API_KEY is set. 100 requests/day limit."""
     raw = search_gnews_news(conflict=conflict)
-    articles = [
-        a for a in (raw if isinstance(raw, list) else [])
-        if isinstance(a, dict) and "error" not in a
-    ]
+    articles = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
     return {
         "source": "gnews",
         "articles": articles,
@@ -848,9 +906,7 @@ def _run_news_fusion_agent(
         score += 10
     score = max(0, min(100, score))
 
-    top_sources = list(
-        dict.fromkeys(a.get("source") or "" for a in articles[:10] if a.get("source"))
-    )
+    top_sources = list(dict.fromkeys(a.get("source") or "" for a in articles[:10] if a.get("source")))
 
     return {
         "articles": articles,
@@ -878,6 +934,7 @@ def _run_escalation_headline_agent(articles: List[Dict[str, Any]]) -> Dict[str, 
 
 # ── NER enrichment (Phase 2) ─────────────────────────────────────────────────
 
+
 def _run_ner_enrichment(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Run NER on deduplicated/ranked articles. Uses Haiku NER first (up to limit),
@@ -886,13 +943,10 @@ def _run_ner_enrichment(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     if not articles:
         return []
-    texts = [
-        ((a.get("title") or "") + " " + (a.get("summary") or "")).strip()[:1000]
-        for a in articles
-    ]
+    texts = [((a.get("title") or "") + " " + (a.get("summary") or "")).strip()[:1000] for a in articles]
     all_entities: List[Dict[str, Any]] = []
     try:
-        from services.haiku_service import batch_ner, is_haiku_failed, HAIKU_MAX_NER_PER_RUN
+        from services.haiku_service import HAIKU_MAX_NER_PER_RUN, batch_ner, is_haiku_failed
         from services.hf_service import ner_bulk
 
         haiku_texts = texts[:HAIKU_MAX_NER_PER_RUN]
@@ -931,136 +985,144 @@ def _run_ner_enrichment(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return unique
 
 
-# ── Rule-based tool chain orchestrator (fixed order; no LLM) ────────────────
+# ── Manager: fusion + escalation + NER → full domain result ─────────────────
 
-def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
-    """
-    Execute NEWS as a small, rule-based multi-agent system:
 
-    1. Three source agents (NewsAPI, GDELT, RSS) fetch their respective views.
-    2. A fusion agent deduplicates and computes global sentiment/score.
-    3. A meta-agent focuses on escalatory headlines for an explicit escalation signal.
+def _news_manager(
+    conflict: str,
+    analyst_results: Dict[str, Any],
+    context: Optional["AgentContext"] = None,
+) -> Dict[str, Any]:
+    """Middle management: take analyst results, run fusion + escalation + NER, return full NEWS result."""
+    fetched_at = utc_now_iso()
+    newsapi_res = analyst_results.get("newsapi") or {}
+    rss_res = analyst_results.get("rss") or {}
+    newsdata_res = analyst_results.get("newsdata") or {}
+    gnews_res = analyst_results.get("gnews") or {}
+    gdelt_res = {"source": "gdelt", "articles": [], "count": 0}
+    if newsapi_res.get("error"):
+        newsapi_res = {"source": "newsapi", "articles": [], "count": 0}
+    if rss_res.get("error"):
+        rss_res = {"source": "rss", "articles": [], "count": 0}
+    if newsdata_res.get("error"):
+        newsdata_res = {"source": "newsdata", "articles": [], "count": 0}
+    if gnews_res.get("error"):
+        gnews_res = {"source": "gnews", "articles": [], "count": 0}
 
-    The overall return format remains compatible with existing callers of run_news_agent.
-    """
+    fusion = _run_news_fusion_agent(
+        newsapi_res,
+        gdelt_res,
+        rss_res,
+        conflict=conflict,
+        newsdata_res=newsdata_res or None,
+        gnews_res=gnews_res or None,
+    )
+    articles = fusion.get("articles", [])
+    escalation_meta = _run_escalation_headline_agent(articles)
+    all_entities = _run_ner_enrichment(articles)
+    news_score = fusion.get("news_score", 50.0)
+    esc_score = escalation_meta.get("escalation_score", 0.0)
+    adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
+
+    n_newsapi = len(newsapi_res.get("articles") or [])
+    n_rss = len(rss_res.get("articles") or [])
+    n_newsdata = len(newsdata_res.get("articles") or [])
+    n_gnews = len(gnews_res.get("articles") or [])
+    source_results = [
+        SourceResult(
+            name="NewsAPI", status="ok" if n_newsapi else "error", fetched_at=fetched_at, record_count=n_newsapi
+        ),
+        SourceResult(name="RSS", status="ok" if n_rss else "error", fetched_at=fetched_at, record_count=n_rss),
+    ]
+    if "newsdata" in analyst_results:
+        source_results.append(
+            SourceResult(
+                name="NewsData", status="ok" if n_newsdata else "error", fetched_at=fetched_at, record_count=n_newsdata
+            )
+        )
+    if "gnews" in analyst_results:
+        source_results.append(
+            SourceResult(name="GNews", status="ok" if n_gnews else "error", fetched_at=fetched_at, record_count=n_gnews)
+        )
+
+    reg = get_health_registry()
+    if reg:
+        for sr in source_results:
+            reg.record_result(sr.name, "news", sr)
+    confidence = compute_confidence_from_sources(source_results)
+    ok_count = sum(1 for s in source_results if s.status == "ok")
+    data_freshness = "live" if ok_count >= 2 else "recent" if ok_count >= 1 else "stale" if articles else "unavailable"
+    error_summary = None
+    sources_missing = [s.name for s in source_results if s.status == "error"]
+    if sources_missing:
+        error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}"
+    meta = AgentMetadata(
+        agent="news",
+        fetched_at=fetched_at,
+        duration_ms=0,
+        sources=source_results,
+        confidence=confidence,
+        data_freshness=data_freshness,
+        fallback_used=False,
+        error_summary=error_summary,
+    )
+    bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
+    handoff_note = ""
+    if context and getattr(context, "peer_summaries", None) and getattr(context, "peer_summaries", {}):
+        handoff_note = " Handoff: cross-referenced with peer agent summaries."
+    summary_parts = [f"{bd.get('newsapi', 0)} NewsAPI", f"{bd.get('rss', 0)} RSS"]
+    if "newsdata" in analyst_results:
+        summary_parts.append(f"{bd.get('newsdata', 0)} NewsData")
+    if "gnews" in analyst_results:
+        summary_parts.append(f"{bd.get('gnews', 0)} GNews")
+    return {
+        "conflict": conflict,
+        "articles": articles,
+        "overall_sentiment": fusion.get("overall_sentiment", 0.0),
+        "sentiment_label": fusion.get("sentiment_label", "NEUTRAL"),
+        "top_sources": fusion.get("top_sources", []),
+        "news_score": adjusted_news_score,
+        "summary": "News (rule-based multi-agent): "
+        + ", ".join(summary_parts)
+        + f".{handoff_note} Sentiment: {fusion.get('sentiment_label', 'NEUTRAL')}. Escalation score: {esc_score:.2f}.",
+        "source_breakdown": bd,
+        "escalation_headlines": escalation_meta.get("escalation_headlines", []),
+        "escalation_score": esc_score,
+        "entities": all_entities,
+        "_meta": meta.model_dump(mode="json"),
+    }
+
+
+# ── Rule-based: Analysts → Manager (domain_runner) ────────────────────────────
+
+
+def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+    """Execute NEWS as multi-agent: analysts in parallel, then manager (fusion + escalation + NER)."""
     start = time.perf_counter()
     fetched_at = utc_now_iso()
-    use_newsdata = bool(os.getenv("NEWSDATA_API_KEY"))
-    use_gnews = bool(os.getenv("GNEWS_API_KEY"))
-    gdelt_res = {"source": "gdelt", "articles": [], "count": 0}
+    analysts: List[tuple] = [
+        ("newsapi", _run_newsapi_source_agent),
+        ("rss", _run_rss_source_agent),
+    ]
+    if os.getenv("NEWSDATA_API_KEY"):
+        analysts.append(("newsdata", _run_newsdata_source_agent))
+    if os.getenv("GNEWS_API_KEY"):
+        analysts.append(("gnews", _run_gnews_source_agent))
     try:
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            fut_newsapi = executor.submit(_run_newsapi_source_agent, conflict)
-            fut_rss = executor.submit(_run_rss_source_agent, conflict)
-            if use_newsdata:
-                fut_newsdata = executor.submit(_run_newsdata_source_agent, conflict)
-            if use_gnews:
-                fut_gnews = executor.submit(_run_gnews_source_agent, conflict)
-            newsapi_res = fut_newsapi.result(timeout=35)
-            rss_res = fut_rss.result(timeout=35)
-            newsdata_res = fut_newsdata.result(timeout=35) if use_newsdata else {}
-            gnews_res = fut_gnews.result(timeout=35) if use_gnews else {}
-
-        fusion = _run_news_fusion_agent(
-            newsapi_res, gdelt_res, rss_res, conflict=conflict,
-            newsdata_res=newsdata_res, gnews_res=gnews_res,
+        result = run_domain_with_analysts(
+            conflict,
+            analysts=analysts,
+            manager=_news_manager,
+            context=context,
+            analyst_timeout_s=35.0,
+            max_workers=5,
         )
-        articles = fusion.get("articles", [])
-
-        escalation_meta = _run_escalation_headline_agent(articles)
-
-        # NER enrichment on top articles (Phase 2)
-        all_entities = _run_ner_enrichment(articles)
-
-        news_score = fusion.get("news_score", 50.0)
-        esc_score = escalation_meta.get("escalation_score", 0.0)
-        adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
-
-        n_newsapi = len(newsapi_res.get("articles") or [])
-        n_rss = len(rss_res.get("articles") or [])
-        n_newsdata = len(newsdata_res.get("articles") or []) if use_newsdata else 0
-        n_gnews = len(gnews_res.get("articles") or []) if use_gnews else 0
-        all_empty = (
-            not n_newsapi and not n_rss
-            and (not use_newsdata or not n_newsdata)
-            and (not use_gnews or not n_gnews)
-        )
-        if all_empty:
-            extra = []
-            if use_newsdata:
-                extra.append("NewsData")
-            if use_gnews:
-                extra.append("GNews")
-            logger.warning(
-                "NEWS: All sources (NewsAPI, RSS%s) returned 0 articles for conflict '%s'",
-                (", " + ", ".join(extra)) if extra else "",
-                conflict,
-            )
-
-        duration_ms = int((time.perf_counter() - start) * 1000)
-        source_results = [
-            SourceResult(name="NewsAPI", status="ok" if n_newsapi else "error", fetched_at=fetched_at, record_count=n_newsapi),
-            SourceResult(name="RSS", status="ok" if n_rss else "error", fetched_at=fetched_at, record_count=n_rss),
-        ]
-        if use_newsdata:
-            source_results.append(
-                SourceResult(name="NewsData", status="ok" if n_newsdata else "error", fetched_at=fetched_at, record_count=n_newsdata),
-            )
-        if use_gnews:
-            source_results.append(
-                SourceResult(name="GNews", status="ok" if n_gnews else "error", fetched_at=fetched_at, record_count=n_gnews),
-            )
-        reg = get_health_registry()
-        if reg:
-            for sr in source_results:
-                reg.record_result(sr.name, "news", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 2 else "recent" if ok_count >= 1 else "stale" if articles else "unavailable"
-        sources_missing = [s.name for s in source_results if s.status == "error"]
-        error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
-        meta = AgentMetadata(
-            agent="news",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=source_results,
-            confidence=confidence,
-            data_freshness=data_freshness,
-            fallback_used=False,
-            error_summary=error_summary,
-        )
-
-        bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
-        summary_parts = [
-            f"{bd.get('newsapi', 0)} NewsAPI",
-            f"{bd.get('gdelt', 0)} GDELT",
-            f"{bd.get('rss', 0)} RSS",
-        ]
-        if use_newsdata:
-            summary_parts.append(f"{bd.get('newsdata', 0)} NewsData")
-        if use_gnews:
-            summary_parts.append(f"{bd.get('gnews', 0)} GNews")
-        return {
-            "conflict": conflict,
-            "articles": fusion.get("articles", []),
-            "overall_sentiment": fusion.get("overall_sentiment", 0.0),
-            "sentiment_label": fusion.get("sentiment_label", "NEUTRAL"),
-            "top_sources": fusion.get("top_sources", []),
-            "news_score": adjusted_news_score,
-            "summary": (
-                "News (rule-based multi-agent): "
-                + ", ".join(summary_parts)
-                + f". Sentiment: {fusion.get('sentiment_label', 'NEUTRAL')}. "
-                f"Escalation score: {esc_score:.2f}."
-            ),
-            "source_breakdown": bd,
-            "escalation_headlines": escalation_meta.get("escalation_headlines", []),
-            "escalation_score": escalation_meta.get("escalation_score", 0.0),
-            "entities": all_entities,
-            "_meta": meta.model_dump(mode="json"),
-        }
+        result["_meta"]["duration_ms"] = int((time.perf_counter() - start) * 1000)
+        if not (result.get("articles") or []):
+            logger.warning("NEWS: All %d source(s) returned 0 articles for conflict '%s'", len(analysts), conflict)
+        return result
     except Exception as e:
-        logger.exception("NEWS: rule-based news pipeline failed for conflict '%s': %s", conflict, e)
+        logger.exception("NEWS: domain pipeline failed for conflict '%s': %s", conflict, e)
         duration_ms = int((time.perf_counter() - start) * 1000)
         meta = AgentMetadata(
             agent="news",
@@ -1122,18 +1184,32 @@ _NEWS_TOOL_FNS = {
     "search_rss_feeds": search_rss_feeds,
 }
 _NEWS_TOOL_SCHEMAS = [
-    {"name": "search_conflict_news", "description": "Search NewsAPI for conflict-related articles.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}, "hours_back": {"type": "integer"}}, "required": ["conflict"]}},
-    {"name": "search_rss_feeds", "description": "Search curated RSS/think-tank feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {
+        "name": "search_conflict_news",
+        "description": "Search NewsAPI for conflict-related articles.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"conflict": {"type": "string"}, "hours_back": {"type": "integer"}},
+            "required": ["conflict"],
+        },
+    },
+    {
+        "name": "search_rss_feeds",
+        "description": "Search curated RSS/think-tank feeds.",
+        "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]},
+    },
 ]
 
 
-def run_news_agent(conflict: str) -> Dict[str, Any]:
+def run_news_agent(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+    def rule_based(c: str):
+        return _run_rule_based_news(c, context)
+
     return run_agent_with_fallback(
         conflict,
-        rule_based_fn=_run_rule_based_news,
+        rule_based_fn=rule_based,
         system_prompt=NEWS_SYSTEM,
         user_content_template="Analyze news coverage for conflict: {conflict}",
         tool_fns=_NEWS_TOOL_FNS,
         tool_schemas=_NEWS_TOOL_SCHEMAS,
     )
-

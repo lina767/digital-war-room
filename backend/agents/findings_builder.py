@@ -2,6 +2,7 @@
 Key-findings assembly: appends agent-level findings to the LLM/rule-based key_findings list.
 Uses only agent_results and parameters; no compliance or state.
 """
+
 from typing import Any, Dict, List
 
 
@@ -38,7 +39,9 @@ def append_agent_findings(
     ships_list = sigint_result.get("ships") or []
     for a in ac_list[:2]:
         if isinstance(a, dict) and "error" not in a:
-            key_findings.append(f"SIGINT – {a.get('category', 'aircraft')}: {a.get('flight', '?')} ({a.get('region', a.get('source', ''))})")
+            key_findings.append(
+                f"SIGINT – {a.get('category', 'aircraft')}: {a.get('flight', '?')} ({a.get('region', a.get('source', ''))})"
+            )
     if ships_list:
         key_findings.append(f"SIGINT – {len(ships_list)} warship(s) in region")
     for r in (sigint_result.get("conflict_reports") or [])[:3]:
@@ -64,7 +67,9 @@ def append_agent_findings(
     ioda_outages = [o for o in (techint_result.get("ioda_outages") or []) if isinstance(o, dict) and "error" not in o]
     ioda_alerts = [a for a in (techint_result.get("ioda_alerts") or []) if isinstance(a, dict) and "error" not in a]
     if ioda_outages or ioda_alerts:
-        key_findings.append(f"TECHINT (IODA v2) – {len(ioda_outages)} outage(s), {len(ioda_alerts)} BGP/anomaly alert(s); signals (BGP/Ping/Telescope) available.")
+        key_findings.append(
+            f"TECHINT (IODA v2) – {len(ioda_outages)} outage(s), {len(ioda_alerts)} BGP/anomaly alert(s); signals (BGP/Ping/Telescope) available."
+        )
     if techint_result.get("ooni", {}).get("telegram_signal_blocked_iran"):
         key_findings.append("TECHINT (OONI) – Telegram/Signal confirmed blocked in Iran (escalation)")
     for o in (techint_result.get("cloudflare_outages") or [])[:1]:
@@ -83,7 +88,9 @@ def append_agent_findings(
             key_findings.append(f"CYBER – {r.get('title', '')[:60]}")
     gn = cyber_result.get("greynoise_scan_context") or {}
     if gn.get("available") and int(gn.get("count") or 0) > 0:
-        key_findings.append(f"CYBER (GreyNoise) – {gn['count']} malicious scanners (7d); top actors/countries in context")
+        key_findings.append(
+            f"CYBER (GreyNoise) – {gn['count']} malicious scanners (7d); top actors/countries in context"
+        )
 
     agsi_full = energy_result.get("agsi_storage", {}).get("full") or []
     if agsi_full:
@@ -98,13 +105,19 @@ def append_agent_findings(
             key_findings.append(f"Global impact – {note}")
         else:
             commodities = energy_result.get("commodities") or []
-            valid_c = [c for c in commodities if isinstance(c, dict) and c.get("change_pct_raw") is not None and "error" not in c]
+            valid_c = [
+                c
+                for c in commodities
+                if isinstance(c, dict) and c.get("change_pct_raw") is not None and "error" not in c
+            ]
             max_up = max((c.get("change_pct_raw") for c in valid_c), default=None)
             if max_up is not None and max_up >= 2.0:
-                key_findings.append(f"Global impact – Oil (Brent/WTI) {max_up:+.1f}% – potential Strait of Hormuz / chokepoint risk premium")
+                key_findings.append(
+                    f"Global impact – Oil (Brent/WTI) {max_up:+.1f}% – potential Strait of Hormuz / chokepoint risk premium"
+                )
     if conflict and "iran" in conflict.lower():
         global_kw = ("hormuz", "hormus", "oil", "chokepoint", "strait")
-        for art in (news_result.get("articles") or []):
+        for art in news_result.get("articles") or []:
             if not isinstance(art, dict) or "error" in art:
                 continue
             title = (art.get("title") or "").lower()
@@ -137,7 +150,7 @@ def append_agent_findings(
         if isinstance(ref, dict) and ref.get("title") and "error" not in str(ref.get("excerpt", ""))[:50]:
             key_findings.append(f"ACLED reference – {ref.get('title', '')[:70]}")
 
-    for cp in (chokepoint_result.get("chokepoints") or []):
+    for cp in chokepoint_result.get("chokepoints") or []:
         if not isinstance(cp, dict):
             continue
         risk = cp.get("disruption_risk", 0)
@@ -156,9 +169,11 @@ def append_agent_findings(
     food_risk = float(energy_result.get("food_security_risk", 0))
     if food_risk >= 50:
         food_items = energy_result.get("food_commodities") or []
-        food_movers = [f"{c.get('symbol')} {c.get('change_pct', '')}" for c in food_items
-                       if isinstance(c, dict) and c.get("change_pct_raw") is not None
-                       and abs(c.get("change_pct_raw", 0)) > 3]
+        food_movers = [
+            f"{c.get('symbol')} {c.get('change_pct', '')}"
+            for c in food_items
+            if isinstance(c, dict) and c.get("change_pct_raw") is not None and abs(c.get("change_pct_raw", 0)) > 3
+        ]
         detail = f" ({', '.join(food_movers[:3])})" if food_movers else ""
         key_findings.append(
             f"Global impact – Food security risk {food_risk:.0f}/100{detail} – "

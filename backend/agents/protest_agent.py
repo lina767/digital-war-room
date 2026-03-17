@@ -8,18 +8,20 @@ Three data sources:
 
 Score combines aggregated weekly event counts with GDELT article coverage.
 """
+
 import asyncio
 import csv
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .utils import run_async
 from services.acled_auth import get_acled_token_async, has_acled_oauth
+
+from .contracts import get_agent_fallback
+from .utils import build_agent_meta, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -59,15 +61,17 @@ def _parse_acled_records(data: Any) -> List[Dict[str, Any]]:
     for rec in (data.get("data") or [])[:50]:
         if not isinstance(rec, dict):
             continue
-        events.append({
-            "event_type": rec.get("event_type"),
-            "sub_event_type": rec.get("sub_event_type"),
-            "date": rec.get("event_date"),
-            "location": rec.get("location"),
-            "fatalities": rec.get("fatalities"),
-            "country": rec.get("country"),
-            "notes": (rec.get("notes") or "")[:200],
-        })
+        events.append(
+            {
+                "event_type": rec.get("event_type"),
+                "sub_event_type": rec.get("sub_event_type"),
+                "date": rec.get("event_date"),
+                "location": rec.get("location"),
+                "fatalities": rec.get("fatalities"),
+                "country": rec.get("country"),
+                "notes": (rec.get("notes") or "")[:200],
+            }
+        )
     return events
 
 
@@ -100,6 +104,7 @@ def _load_acled_aggregated(conflict: str) -> Dict[str, Any]:
         if not rows:
             return {}
         from collections import defaultdict
+
         weekly: Dict[str, Dict[str, int]] = defaultdict(lambda: {"protests": 0, "riots": 0, "vac": 0, "fatalities": 0})
         for r in rows:
             w = r.get("week", "")
@@ -119,8 +124,12 @@ def _load_acled_aggregated(conflict: str) -> Dict[str, Any]:
         latest = recent_data[-1] if recent_data else {}
         total_recent = sum(d["protests"] + d["riots"] + d["vac"] for d in recent_data)
         total_fatalities = sum(d["fatalities"] for d in recent_data)
-        logger.info("ACLED aggregated: %d weeks, latest=%s, recent_4w_events=%d",
-                     len(sorted_weeks), recent_weeks[-1] if recent_weeks else "?", total_recent)
+        logger.info(
+            "ACLED aggregated: %d weeks, latest=%s, recent_4w_events=%d",
+            len(sorted_weeks),
+            recent_weeks[-1] if recent_weeks else "?",
+            total_recent,
+        )
         return {
             "weeks": recent_data,
             "latest_week": recent_weeks[-1] if recent_weeks else "",
@@ -163,8 +172,7 @@ async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 200) -
                 }
                 resp = await client.get(ACLED_API_URL, params=params, headers=headers)
                 if resp.status_code != 200:
-                    logger.warning("ACLED HTTP %s for %s/%s: %.200s",
-                                   resp.status_code, country, event_type, resp.text)
+                    logger.warning("ACLED HTTP %s for %s/%s: %.200s", resp.status_code, country, event_type, resp.text)
                     continue
                 data = resp.json()
                 events.extend(_parse_acled_records(data))
@@ -224,7 +232,8 @@ async def _fetch_gdelt_protest(conflict: str) -> List[Dict[str, Any]]:
                     "title": a.get("title"),
                     "url": a.get("url"),
                     "date": a.get("seendate"),
-                    "source": a.get("domain") or (a.get("source", {}).get("name") if isinstance(a.get("source"), dict) else None),
+                    "source": a.get("domain")
+                    or (a.get("source", {}).get("name") if isinstance(a.get("source"), dict) else None),
                 }
                 for a in articles[:15]
                 if isinstance(a, dict) and a.get("url")
@@ -322,6 +331,7 @@ async def _cluster_protest_events_haiku(acled_events: List[Dict]) -> Optional[st
     )
     try:
         from services.haiku_service import summarize
+
         out = await summarize(text[:4000], max_output_tokens=200)
         return out.strip() if out else None
     except Exception:
@@ -331,12 +341,14 @@ async def _cluster_protest_events_haiku(acled_events: List[Dict]) -> Optional[st
 def run_protest_agent(conflict: str) -> Dict[str, Any]:
     """Run PROTEST/Civil Society agent: ACLED protests/riots, GDELT protest coverage."""
     import time
+
     from .health_registry import get_health_registry
-    from .utils import AgentMetadata, SourceResult, utc_now_iso, compute_confidence_from_sources
+    from .utils import SourceResult, utc_now_iso
 
     async def _run() -> Dict[str, Any]:
         try:
             from services.acled_aggregated import refresh_acled_aggregated
+
             refresh_acled_aggregated()
         except Exception as e:
             logger.debug("ACLED aggregated refresh skipped: %s", e)
@@ -366,31 +378,44 @@ def run_protest_agent(conflict: str) -> Dict[str, Any]:
         events = out.get("protest_events") or []
         articles = out.get("protest_articles") or []
         agg = out.get("acled_aggregated") or {}
-        acled_ok = bool(events and not (isinstance(events, list) and events and isinstance(events[0], dict) and events[0].get("error")))
-        gdelt_ok = bool(articles and not (isinstance(articles, list) and articles and isinstance(articles[0], dict) and articles[0].get("error")))
+        acled_ok = bool(
+            events
+            and not (isinstance(events, list) and events and isinstance(events[0], dict) and events[0].get("error"))
+        )
+        gdelt_ok = bool(
+            articles
+            and not (
+                isinstance(articles, list) and articles and isinstance(articles[0], dict) and articles[0].get("error")
+            )
+        )
         agg_ok = bool(agg.get("weeks"))
         source_results = [
-            SourceResult(name="ACLED-Aggregated", status="ok" if agg_ok else "error", fetched_at=fetched_at, record_count=agg.get("total_events_4w", 0)),
-            SourceResult(name="ACLED-API", status="ok" if acled_ok else "error", fetched_at=fetched_at, record_count=len(events)),
-            SourceResult(name="GDELT", status="ok" if gdelt_ok else "error", fetched_at=fetched_at, record_count=len(articles)),
+            SourceResult(
+                name="ACLED-Aggregated",
+                status="ok" if agg_ok else "error",
+                fetched_at=fetched_at,
+                record_count=agg.get("total_events_4w", 0),
+            ),
+            SourceResult(
+                name="ACLED-API", status="ok" if acled_ok else "error", fetched_at=fetched_at, record_count=len(events)
+            ),
+            SourceResult(
+                name="GDELT", status="ok" if gdelt_ok else "error", fetched_at=fetched_at, record_count=len(articles)
+            ),
         ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "protest", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 2 else "recent" if ok_count == 1 else "stale" if (events or articles or agg_ok) else "unavailable"
-        meta = AgentMetadata(agent="protest", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
-        out["_meta"] = meta.model_dump(mode="json")
+        has_data = bool(events or articles or agg.get("weeks"))
+        out["_meta"] = build_agent_meta("protest", fetched_at, duration_ms, source_results, has_any_data=has_data)
         return out
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="protest", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
-        return {
-            "protest_score": 25.0,
-            "protest_events": [],
-            "protest_articles": [{"error": str(e)}],
-            "summary": f"PROTEST error: {e}",
-            "_meta": meta.model_dump(mode="json"),
-        }
+        fallback = get_agent_fallback("protest")
+        fallback["conflict"] = conflict
+        fallback["summary"] = f"PROTEST error: {e}"
+        fallback["_meta"] = build_agent_meta(
+            "protest", fetched_at, duration_ms, [], fallback_used=True, error_summary=str(e), has_any_data=False
+        )
+        return fallback

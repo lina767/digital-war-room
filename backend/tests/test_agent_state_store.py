@@ -1,15 +1,12 @@
 """
 Tests for AgentStateStore: get/set results, content hashes, circuit breaker persistence.
 """
-import time
 
-import pytest
-from agents.agent_state_store import AgentStateStore, get_agent_state_store
+from agents.agent_state_store import get_agent_state_store
 from agents.base import CircuitBreakerState
 
 
 class TestResultStorage:
-
     def test_get_returns_none_when_empty(self, state_store):
         assert state_store.get_result("Iran", "sigint") is None
 
@@ -46,7 +43,6 @@ class TestResultStorage:
 
 
 class TestContentHash:
-
     def test_get_returns_none_when_empty(self, state_store):
         assert state_store.get_content_hash("Iran", "sigint") is None
 
@@ -67,7 +63,6 @@ class TestContentHash:
 
 
 class TestCircuitBreaker:
-
     def test_get_returns_default_when_empty(self, state_store):
         cb = state_store.get_circuit_breaker("sigint")
         assert isinstance(cb, CircuitBreakerState)
@@ -89,7 +84,6 @@ class TestCircuitBreaker:
 
 
 class TestClear:
-
     def test_clear_all(self, state_store):
         state_store.set_result("Iran", "sigint", {"x": 1}, 1.0)
         state_store.set_content_hash("Iran", "sigint", "h1")
@@ -108,7 +102,6 @@ class TestClear:
 
 
 class TestSingleton:
-
     def test_get_agent_state_store_returns_same_instance(self):
         s1 = get_agent_state_store()
         s2 = get_agent_state_store()

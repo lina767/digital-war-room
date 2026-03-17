@@ -11,13 +11,15 @@ compliance alerts.
 
 Zones are Iran-focused but the architecture is conflict-agnostic; add regions as needed.
 """
-from typing import Dict, List, Literal, Sequence, Tuple, Optional
+
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
 
 ZoneType = Literal["sanctions", "high_risk", "embargo"]
 
 
 class Zone:
     """A named geographic bounding box with metadata."""
+
     __slots__ = ("name", "lat_min", "lat_max", "lon_min", "lon_max", "zone_type", "source")
 
     def __init__(
@@ -56,8 +58,8 @@ class Zone:
 
 class PolygonZone:
     """A named geographic polygon zone (list of (lat, lon) vertices)."""
-    __slots__ = ("name", "vertices", "zone_type", "source",
-                 "_lat_min", "_lat_max", "_lon_min", "_lon_max")
+
+    __slots__ = ("name", "vertices", "zone_type", "source", "_lat_min", "_lat_max", "_lon_min", "_lon_max")
 
     def __init__(
         self,
@@ -119,8 +121,12 @@ IRAN_TERRITORIAL_WATERS = Zone("IRAN_TERRITORIAL_WATERS", 24.0, 30.5, 48.0, 62.0
 STRAIT_OF_HORMUZ = PolygonZone(
     "STRAIT_OF_HORMUZ",
     vertices=[
-        (26.0, 55.5), (27.2, 55.0), (27.0, 56.5),
-        (26.5, 57.5), (25.8, 57.0), (25.5, 56.0),
+        (26.0, 55.5),
+        (27.2, 55.0),
+        (27.0, 56.5),
+        (26.5, 57.5),
+        (25.8, 57.0),
+        (25.5, 56.0),
     ],
     zone_type="sanctions",
     source="OFAC maritime guidance 2025",
@@ -130,7 +136,10 @@ STRAIT_OF_HORMUZ = PolygonZone(
 FUJAIRAH_ANCHORAGE = PolygonZone(
     "FUJAIRAH_ANCHORAGE",
     vertices=[
-        (25.0, 56.2), (25.4, 56.2), (25.4, 56.6), (25.0, 56.6),
+        (25.0, 56.2),
+        (25.4, 56.2),
+        (25.4, 56.6),
+        (25.0, 56.6),
     ],
     zone_type="high_risk",
     source="OFAC maritime advisory 2025 (STS transfer zone)",
@@ -140,7 +149,9 @@ FUJAIRAH_ANCHORAGE = PolygonZone(
 BAB_EL_MANDEB = PolygonZone(
     "BAB_EL_MANDEB",
     vertices=[
-        (12.4, 43.0), (12.8, 43.0), (12.8, 43.6),
+        (12.4, 43.0),
+        (12.8, 43.0),
+        (12.8, 43.6),
         (12.4, 43.6),
     ],
     zone_type="high_risk",
@@ -151,7 +162,9 @@ BAB_EL_MANDEB = PolygonZone(
 SUEZ_CANAL = PolygonZone(
     "SUEZ_CANAL",
     vertices=[
-        (29.8, 32.2), (31.3, 32.2), (31.3, 32.6),
+        (29.8, 32.2),
+        (31.3, 32.2),
+        (31.3, 32.6),
         (29.8, 32.6),
     ],
     zone_type="high_risk",
@@ -177,8 +190,15 @@ LUHANSK_DONETSK = Zone("LUHANSK_DONETSK", 47.0, 50.0, 37.0, 41.0, "embargo", "EU
 # ── Zone sets ─────────────────────────────────────────────────────────────────
 
 CONFLICT_ZONES: List[AnyZone] = [
-    PERSIAN_GULF, RED_SEA, EASTERN_MED, GULF_OF_ADEN, IRAQ_IRAN,
-    IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ, BAB_EL_MANDEB, SUEZ_CANAL,
+    PERSIAN_GULF,
+    RED_SEA,
+    EASTERN_MED,
+    GULF_OF_ADEN,
+    IRAQ_IRAN,
+    IRAN_TERRITORIAL_WATERS,
+    STRAIT_OF_HORMUZ,
+    BAB_EL_MANDEB,
+    SUEZ_CANAL,
 ]
 
 CHOKEPOINT_ZONES: Dict[str, PolygonZone] = {
@@ -188,9 +208,14 @@ CHOKEPOINT_ZONES: Dict[str, PolygonZone] = {
 }
 
 SANCTIONS_ZONES: List[AnyZone] = [
-    IRAN_TERRITORIAL_WATERS, STRAIT_OF_HORMUZ, FUJAIRAH_ANCHORAGE,
-    BLACK_SEA, CRIMEA, LUHANSK_DONETSK,
-    VENEZUELA_WATERS, NORTH_KOREA_WATERS,
+    IRAN_TERRITORIAL_WATERS,
+    STRAIT_OF_HORMUZ,
+    FUJAIRAH_ANCHORAGE,
+    BLACK_SEA,
+    CRIMEA,
+    LUHANSK_DONETSK,
+    VENEZUELA_WATERS,
+    NORTH_KOREA_WATERS,
 ]
 
 ALL_ZONES: List[AnyZone] = list({z.name: z for z in CONFLICT_ZONES + SANCTIONS_ZONES}.values())

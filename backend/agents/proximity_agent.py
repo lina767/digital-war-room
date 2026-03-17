@@ -4,17 +4,19 @@ Uses NASA FIRMS thermal anomalies as strike triggers, Overpass (OSM) for schools
 optional tunnel/military sites GeoJSON for PROBABLE_HUMAN_SHIELD. Runs in the same pipeline as
 other agents; also available via GET /api/proximity/analyze and the Dashboard "Run" button.
 """
-import asyncio
+
 import os
 from typing import Any, Dict, List, Optional
 
-from .utils import run_async
-from agents.geoint_agent import get_thermal_anomalies, get_conflict_region
-from services.proximity_correlation import run_correlation_for_events
+from agents.geoint_agent import get_conflict_region, get_thermal_anomalies
 from services.http_client import get_http_client
+from services.proximity_correlation import run_correlation_for_events
+
+from .utils import run_async
 
 # Max strike events to correlate (Overpass rate limit; keep agent run time bounded)
 MAX_STRIKES = 15
+
 
 def _compute_proximity_score(evidence: List[Dict[str, Any]]) -> float:
     """Score 0–100 from evidence risk labels (critical/human-shield weigh most)."""
@@ -57,8 +59,10 @@ async def _generate_haiku_summary_proximity(
 ) -> Optional[str]:
     """Optional 2-3 sentence strike-civilian impact narrative via haiku_service.analyst_summary."""
     try:
-        from services.haiku_service import analyst_summary
         import json
+
+        from services.haiku_service import analyst_summary
+
         compact = {
             "conflict": conflict,
             "proximity_score": score,
@@ -67,7 +71,11 @@ async def _generate_haiku_summary_proximity(
             "human_shield": sum(1 for e in evidence if (e.get("riskLabel") or "") == "PROBABLE_HUMAN_SHIELD"),
             "high_risk": sum(1 for e in evidence if (e.get("riskLabel") or "") == "HIGH_RISK"),
             "sample": [
-                {"riskLabel": e.get("riskLabel"), "facility_type": e.get("facility_type"), "distance_m": e.get("distance_m")}
+                {
+                    "riskLabel": e.get("riskLabel"),
+                    "facility_type": e.get("facility_type"),
+                    "distance_m": e.get("distance_m"),
+                }
                 for e in (evidence or [])[:5]
             ],
         }
@@ -86,15 +94,18 @@ async def _generate_haiku_summary_proximity(
 def run_proximity_agent(conflict: str) -> Dict[str, Any]:
     """Run PROXIMITY agent: FIRMS strikes + Overpass + optional tunnel sites → evidence + score."""
     import time
+
+    from .contracts import get_agent_fallback
     from .health_registry import get_health_registry
-    from .utils import AgentMetadata, SourceResult, utc_now_iso, compute_confidence_from_sources
+    from .utils import SourceResult, build_agent_meta, utc_now_iso
 
     start = time.perf_counter()
     fetched_at = utc_now_iso()
     region = get_conflict_region(conflict)
     raw = get_thermal_anomalies(region=region, days=3)
     anomalies = [
-        a for a in (raw if isinstance(raw, list) else [])
+        a
+        for a in (raw if isinstance(raw, list) else [])
         if isinstance(a, dict) and "error" not in a and "lat" in a and "lon" in a
     ]
     events = [
@@ -158,27 +169,38 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
         if result.get("reason_empty") == "error" or result.get("error_message"):
             overpass_status = "error"
         source_results = [
-            SourceResult(name="NASA FIRMS", status="ok" if events or not error_message else "error", fetched_at=fetched_at, record_count=len(events)),
-            SourceResult(name="Overpass/OSM", status=overpass_status, fetched_at=fetched_at, record_count=len(evidence)),
+            SourceResult(
+                name="NASA FIRMS",
+                status="ok" if events or not error_message else "error",
+                fetched_at=fetched_at,
+                record_count=len(events),
+            ),
+            SourceResult(
+                name="Overpass/OSM", status=overpass_status, fetched_at=fetched_at, record_count=len(evidence)
+            ),
         ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "proximity", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 1 and evidence else "recent" if ok_count >= 1 else "stale" if events else "unavailable"
-        meta = AgentMetadata(agent="proximity", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=result.get("error_message"))
-        result["_meta"] = meta.model_dump(mode="json")
+        has_data = bool(events or evidence)
+        result["_meta"] = build_agent_meta(
+            "proximity",
+            fetched_at,
+            duration_ms,
+            source_results,
+            has_any_data=has_data,
+            error_summary=result.get("error_message"),
+        )
         return result
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="proximity", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
-        return {
-            "proximity_score": 0.0,
-            "evidence": [],
-            "summary": f"PROXIMITY error: {e}",
-            "reason_empty": "error",
-            "error_message": str(e),
-            "_meta": meta.model_dump(mode="json"),
-        }
+        fallback = get_agent_fallback("proximity")
+        fallback["conflict"] = conflict
+        fallback["summary"] = f"PROXIMITY error: {e}"
+        fallback["reason_empty"] = "error"
+        fallback["error_message"] = str(e)
+        fallback["_meta"] = build_agent_meta(
+            "proximity", fetched_at, duration_ms, [], fallback_used=True, error_summary=str(e), has_any_data=False
+        )
+        return fallback

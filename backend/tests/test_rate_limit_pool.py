@@ -1,17 +1,19 @@
 """
 Tests for RateLimitPool and TokenBucket.
 """
-import time
+
 import threading
-import pytest
+import time
 
 from agents.rate_limit_pool import (
-    TokenBucket, RateLimitPool, RateLimitConfig, get_rate_limit_pool,
+    RateLimitConfig,
+    RateLimitPool,
+    TokenBucket,
+    get_rate_limit_pool,
 )
 
 
 class TestTokenBucket:
-
     def test_initial_burst(self):
         bucket = TokenBucket(rate=1.0, burst=3)
         for _ in range(3):
@@ -46,22 +48,17 @@ class TestTokenBucket:
 
 
 class TestRateLimitPool:
-
     def test_acquire_unknown_api_uses_default(self):
         pool = RateLimitPool(config={})
         assert pool.acquire("unknown_api", timeout_s=0.1) is True
 
     def test_acquire_known_api(self):
-        pool = RateLimitPool(config={
-            "test": RateLimitConfig(tokens_per_second=10.0, max_burst=5)
-        })
+        pool = RateLimitPool(config={"test": RateLimitConfig(tokens_per_second=10.0, max_burst=5)})
         for _ in range(5):
             assert pool.acquire("test", timeout_s=0.1) is True
 
     def test_rate_limiting_blocks(self):
-        pool = RateLimitPool(config={
-            "strict": RateLimitConfig(tokens_per_second=1.0, max_burst=1)
-        })
+        pool = RateLimitPool(config={"strict": RateLimitConfig(tokens_per_second=1.0, max_burst=1)})
         assert pool.acquire("strict", timeout_s=0.1) is True
         assert pool.acquire("strict", timeout_s=0.05) is False
 

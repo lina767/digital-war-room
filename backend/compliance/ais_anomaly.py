@@ -16,6 +16,7 @@ Risk Score and generate alerts.
 
 IMPORTANT: Intelligence signals only – not legal advice.
 """
+
 import logging
 import math
 import time
@@ -37,19 +38,27 @@ def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R_NM = 3440.065
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
-    )
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R_NM * c
 
 
 class AISAnomaly:
     """A detected AIS anomaly for a vessel."""
-    __slots__ = ("asset_id", "asset_name", "anomaly_type", "severity",
-                 "detail", "lat", "lon", "zone_name",
-                 "gap_hours", "last_seen_at", "confidence")
+
+    __slots__ = (
+        "asset_id",
+        "asset_name",
+        "anomaly_type",
+        "severity",
+        "detail",
+        "lat",
+        "lon",
+        "zone_name",
+        "gap_hours",
+        "last_seen_at",
+        "confidence",
+    )
 
     def __init__(
         self,
@@ -144,23 +153,25 @@ def detect_spoofing(
                     # Confidence: HIGH if speed far above threshold, MEDIUM otherwise
                     confidence = "HIGH" if speed_kn > MAX_SPEED_KN * 5 else "MEDIUM"
                     curr_ts_val = curr_ts if curr_ts else None
-                    anomalies.append(AISAnomaly(
-                        asset_id=ship_id,
-                        asset_name=ship_name,
-                        anomaly_type="spoofing",
-                        severity="HIGH" if zone_name else "MEDIUM",
-                        detail=(
-                            f"Implausible position jump: {dist_nm:.0f} nm in "
-                            f"{time_diff_h:.1f}h (implied {speed_kn:.0f} kn, "
-                            f"max plausible ~{MAX_SPEED_KN:.0f} kn)"
-                        ),
-                        lat=float(lat),
-                        lon=float(lon),
-                        zone_name=zone_name,
-                        gap_hours=time_diff_h,
-                        last_seen_at=curr_ts_val,
-                        confidence=confidence,
-                    ))
+                    anomalies.append(
+                        AISAnomaly(
+                            asset_id=ship_id,
+                            asset_name=ship_name,
+                            anomaly_type="spoofing",
+                            severity="HIGH" if zone_name else "MEDIUM",
+                            detail=(
+                                f"Implausible position jump: {dist_nm:.0f} nm in "
+                                f"{time_diff_h:.1f}h (implied {speed_kn:.0f} kn, "
+                                f"max plausible ~{MAX_SPEED_KN:.0f} kn)"
+                            ),
+                            lat=float(lat),
+                            lon=float(lon),
+                            zone_name=zone_name,
+                            gap_hours=time_diff_h,
+                            last_seen_at=curr_ts_val,
+                            confidence=confidence,
+                        )
+                    )
 
         zones = all_matching_zones(float(lat), float(lon), SANCTIONS_ZONES)
         if zones:
@@ -169,21 +180,23 @@ def detect_spoofing(
             iran_zones = [z for z in zones if "IRAN" in z.name or "HORMUZ" in z.name]
             if iran_zones and flag and flag not in ("IR", "OM", "AE", "QA", "BH", "KW", "SA", "IQ"):
                 ts_val = ship.get("timestamp") if ship.get("timestamp") else None
-                anomalies.append(AISAnomaly(
-                    asset_id=ship_id,
-                    asset_name=ship_name,
-                    anomaly_type="spoofing",
-                    severity="MEDIUM",
-                    detail=(
-                        f"Non-regional flag ({flag}) vessel in {iran_zones[0].name}. "
-                        f"Destination: {dest or 'unknown'}. Review for potential evasion."
-                    ),
-                    lat=float(lat),
-                    lon=float(lon),
-                    zone_name=iran_zones[0].name,
-                    last_seen_at=ts_val,
-                    confidence="MEDIUM",
-                ))
+                anomalies.append(
+                    AISAnomaly(
+                        asset_id=ship_id,
+                        asset_name=ship_name,
+                        anomaly_type="spoofing",
+                        severity="MEDIUM",
+                        detail=(
+                            f"Non-regional flag ({flag}) vessel in {iran_zones[0].name}. "
+                            f"Destination: {dest or 'unknown'}. Review for potential evasion."
+                        ),
+                        lat=float(lat),
+                        lon=float(lon),
+                        zone_name=iran_zones[0].name,
+                        last_seen_at=ts_val,
+                        confidence="MEDIUM",
+                    )
+                )
 
     return anomalies
 
@@ -236,23 +249,25 @@ def detect_dark_activity(
         if matched:
             is_high_risk = any("HORMUZ" in z.name or "IRAN" in z.name for z in matched)
             gap_hours = (now - previous_run_ts) / 3600.0 if previous_run_ts is not None else None
-            anomalies.append(AISAnomaly(
-                asset_id=str(ship_id),
-                asset_name=prev_ship.get("name") or "Vessel",
-                anomaly_type="dark_activity",
-                severity="HIGH" if is_high_risk else "MEDIUM",
-                detail=(
-                    f"Previously seen in {matched[0].name} "
-                    f"(lat {float(prev_lat):.1f}, lon {float(prev_lon):.1f}), "
-                    f"now absent from AIS. Potential AIS switch-off in sensitive zone."
-                ),
-                lat=float(prev_lat),
-                lon=float(prev_lon),
-                zone_name=matched[0].name,
-                gap_hours=gap_hours,
-                last_seen_at=previous_run_ts,
-                confidence="HIGH" if is_high_risk else "MEDIUM",
-            ))
+            anomalies.append(
+                AISAnomaly(
+                    asset_id=str(ship_id),
+                    asset_name=prev_ship.get("name") or "Vessel",
+                    anomaly_type="dark_activity",
+                    severity="HIGH" if is_high_risk else "MEDIUM",
+                    detail=(
+                        f"Previously seen in {matched[0].name} "
+                        f"(lat {float(prev_lat):.1f}, lon {float(prev_lon):.1f}), "
+                        f"now absent from AIS. Potential AIS switch-off in sensitive zone."
+                    ),
+                    lat=float(prev_lat),
+                    lon=float(prev_lon),
+                    zone_name=matched[0].name,
+                    gap_hours=gap_hours,
+                    last_seen_at=previous_run_ts,
+                    confidence="HIGH" if is_high_risk else "MEDIUM",
+                )
+            )
 
     return anomalies
 

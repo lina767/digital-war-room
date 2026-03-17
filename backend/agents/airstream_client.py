@@ -5,6 +5,7 @@ Used by the Chokepoint agent to stream ship positions within bounding boxes
 (Hormuz, Bab el-Mandeb, Suez). No dependency on chokepoint_agent to avoid
 circular imports; the agent passes bounding_boxes, cp_bounds, and tanker_keywords.
 """
+
 import asyncio
 import json
 import logging
@@ -30,15 +31,10 @@ def _safe_float(v: Any) -> Optional[float]:
         return None
 
 
-def _point_in_bounds(
-    lat: float, lon: float, bounds: Tuple[float, float, float, float]
-) -> bool:
+def _point_in_bounds(lat: float, lon: float, bounds: Tuple[float, float, float, float]) -> bool:
     """Check if (lat, lon) is inside bounds (lat_min, lat_max, lon_min, lon_max)."""
     lat_min, lat_max, lon_min, lon_max = bounds
-    return (
-        lat_min <= lat <= lat_max
-        and lon_min <= lon <= lon_max
-    )
+    return lat_min <= lat <= lat_max and lon_min <= lon <= lon_max
 
 
 async def collect_tankers_by_chokepoint(
@@ -63,7 +59,9 @@ async def collect_tankers_by_chokepoint(
     Returns:
         Dict[cp_name, List[{name, type, lat, lon, source: "airstream"}]] or None on error.
     """
-    key = (api_key or os.getenv("AISSTREAM_API_KEY") or os.getenv("AIRSTREAM_API_KEY") or os.getenv("AIRSTREAM_API") or "").strip()
+    key = (
+        api_key or os.getenv("AISSTREAM_API_KEY") or os.getenv("AIRSTREAM_API_KEY") or os.getenv("AIRSTREAM_API") or ""
+    ).strip()
     if not key:
         return None
 
@@ -75,9 +73,7 @@ async def collect_tankers_by_chokepoint(
         collect_seconds = DEFAULT_COLLECT_SECONDS
 
     # Per chokepoint: MMSI -> latest vessel dict (dedup)
-    by_cp: Dict[str, Dict[int, Dict[str, Any]]] = {
-        cp_name: {} for cp_name in cp_bounds
-    }
+    by_cp: Dict[str, Dict[int, Dict[str, Any]]] = {cp_name: {} for cp_name in cp_bounds}
 
     async def collect() -> Optional[Dict[str, List[Dict[str, Any]]]]:
         async with websockets.connect(
@@ -122,9 +118,7 @@ async def collect_tankers_by_chokepoint(
                 except (TypeError, ValueError):
                     mmsi = hash((lat, lon, name)) % (2**31)
 
-                is_tanker = any(
-                    kw in (name or "").lower() for kw in tanker_keywords
-                )
+                is_tanker = any(kw in (name or "").lower() for kw in tanker_keywords)
                 if not is_tanker:
                     continue
 

@@ -3,6 +3,7 @@ Compliance enrichment for supervisor synthesis: geofencing, AIS anomalies,
 supply-chain screening, risk score, and centralised alerts. Stateless; state
 (previous_sigint, previous_sigint_ts) is passed in and updated values returned.
 """
+
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -38,7 +39,8 @@ def build_compliance_and_alerts(
 
     supply_chain_result = None
     ships_for_screening = [
-        s for s in (sigint_data.get("ships") or [])
+        s
+        for s in (sigint_data.get("ships") or [])
         if isinstance(s, dict) and s.get("lat") is not None and s.get("lon") is not None
     ]
     if ships_for_screening:
@@ -73,31 +75,43 @@ def build_compliance_and_alerts(
     )
     sigint_result = agent_results.get("sigint") or {}
     alerts: List[Dict[str, Any]] = []
-    for a in (sigint_result.get("alerts") or []):
+    for a in sigint_result.get("alerts") or []:
         if isinstance(a, str):
             severity = "high" if ("DOOMSDAY" in a or "⚠" in a) else "medium"
             alerts.append({"source": "sigint", "severity": severity, "text": a})
     for g in geofencing_alerts:
         if isinstance(g, dict):
-            alerts.append({
-                "source": "geofencing",
-                "severity": "high",
-                "text": f"{g.get('asset_type', 'asset')} {g.get('asset_name', g.get('asset_id', ''))} in {g.get('zone_name', '')}",
-            })
+            alerts.append(
+                {
+                    "source": "geofencing",
+                    "severity": "high",
+                    "text": f"{g.get('asset_type', 'asset')} {g.get('asset_name', g.get('asset_id', ''))} in {g.get('zone_name', '')}",
+                }
+            )
     for ai in ais_anomalies:
         if isinstance(ai, dict):
-            alerts.append({
-                "source": "ais_anomaly",
-                "severity": (ai.get("severity") or "medium").lower(),
-                "text": ai.get("detail", str(ai.get("anomaly_type", "anomaly"))),
-            })
+            alerts.append(
+                {
+                    "source": "ais_anomaly",
+                    "severity": (ai.get("severity") or "medium").lower(),
+                    "text": ai.get("detail", str(ai.get("anomaly_type", "anomaly"))),
+                }
+            )
     cyber_data = agent_results.get("cyber") or {}
     for ga in (cyber_data.get("greynoise_alerts") or cyber_data.get("alerts") or [])[:10]:
         if isinstance(ga, str):
             alerts.append({"source": "greynoise", "severity": "medium", "text": ga})
 
-    aircraft_list = [a for a in (sigint_data.get("aircraft") or []) if isinstance(a, dict) and "error" not in a and a.get("lat") is not None and a.get("lon") is not None]
-    ships_list = [s for s in (sigint_data.get("ships") or []) if isinstance(s, dict) and "error" not in s and s.get("lat") is not None and s.get("lon") is not None]
+    aircraft_list = [
+        a
+        for a in (sigint_data.get("aircraft") or [])
+        if isinstance(a, dict) and "error" not in a and a.get("lat") is not None and a.get("lon") is not None
+    ]
+    ships_list = [
+        s
+        for s in (sigint_data.get("ships") or [])
+        if isinstance(s, dict) and "error" not in s and s.get("lat") is not None and s.get("lon") is not None
+    ]
     compliance = {
         "geofencing_alerts": geofencing_alerts,
         "ais_anomalies": ais_anomalies,
@@ -118,8 +132,7 @@ def build_compliance_and_alerts(
             "error": eu_sanctions.get("error"),
         },
         "disclaimer": (
-            "Intelligence signals only – not legal advice. "
-            "Supports due diligence but does not replace legal review."
+            "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review."
         ),
     }
     return compliance, alerts, updated_previous_sigint, updated_previous_sigint_ts

@@ -9,6 +9,7 @@ chokepoints. Uses a tiered data-quality model:
 
 Disruption risk scoring uses explicit, tunable weights with EMA temporal smoothing.
 """
+
 import asyncio
 import json
 import logging
@@ -20,15 +21,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from .airstream_client import collect_tankers_by_chokepoint
-from .config import USER_AGENT, DEFAULT_TIMEOUT
 from .health_registry import get_health_registry
 from .utils import (
     AgentMetadata,
     SourceResult,
+    compute_confidence_from_sources,
     run_async,
     safe_float,
     utc_now_iso,
-    compute_confidence_from_sources,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,15 +75,36 @@ DISRUPTION_WEIGHTS_NO_AIS = {
 
 # Keywords for news-based chokepoint signal detection
 CHOKEPOINT_NEWS_KEYWORDS = (
-    "hormuz", "hormus", "bab el-mandeb", "bab al-mandab", "mandeb",
-    "suez", "chokepoint", "strait", "blockade", "maritime",
-    "tanker", "oil tanker", "shipping lane", "naval blockade",
-    "houthi", "red sea attack", "sea lane",
+    "hormuz",
+    "hormus",
+    "bab el-mandeb",
+    "bab al-mandab",
+    "mandeb",
+    "suez",
+    "chokepoint",
+    "strait",
+    "blockade",
+    "maritime",
+    "tanker",
+    "oil tanker",
+    "shipping lane",
+    "naval blockade",
+    "houthi",
+    "red sea attack",
+    "sea lane",
 )
 
 TANKER_KEYWORDS = [
-    "tanker", "crude", "vlcc", "suezmax", "aframax",
-    "lpg", "lng", "oil", "chemical", "petroleum",
+    "tanker",
+    "crude",
+    "vlcc",
+    "suezmax",
+    "aframax",
+    "lpg",
+    "lng",
+    "oil",
+    "chemical",
+    "petroleum",
 ]
 
 HISTORY_FILE = Path(__file__).resolve().parent.parent / "data" / "chokepoint_history.json"
@@ -111,9 +132,9 @@ CHOKEPOINT_SATURATION = {
 # Minimum risk when data_quality is baseline_only; unknown != safe
 BASELINE_ONLY_RISK_FLOOR = 15.0
 # When GDELT disruption hits exceed these, enforce minimum risk so status reflects closure
-GDELT_RISK_FLOOR_HIGH = 75.0   # gdelt_24h >= 10 -> at least DISRUPTED
-GDELT_RISK_FLOOR_MED = 50.0    # gdelt_24h >= 5  -> at least CONTESTED
-GDELT_RISK_FLOOR_LOW = 30.0    # gdelt_24h >= 3  -> at least RESTRICTED
+GDELT_RISK_FLOOR_HIGH = 75.0  # gdelt_24h >= 10 -> at least DISRUPTED
+GDELT_RISK_FLOOR_MED = 50.0  # gdelt_24h >= 5  -> at least CONTESTED
+GDELT_RISK_FLOOR_LOW = 30.0  # gdelt_24h >= 3  -> at least RESTRICTED
 GDELT_THRESHOLD_HIGH = 10
 GDELT_THRESHOLD_MED = 5
 GDELT_THRESHOLD_LOW = 3
@@ -132,6 +153,7 @@ GDELT_RISK_FLOOR_6H = 50.0
 GDELT_NO_LIVE_AIS_MIN_HITS = 1
 
 # ── EMA temporal smoothing ───────────────────────────────────────────────────
+
 
 def _ema_score(current: float, history: List[float], alpha: float = 0.3) -> float:
     """Exponential moving average: dampens single spikes, amplifies trends. Crisis-aware: high alpha on spike."""
@@ -186,7 +208,11 @@ def _load_overrides() -> Dict[str, str]:
         if OVERRIDES_FILE.exists():
             data = json.loads(OVERRIDES_FILE.read_text())
             if isinstance(data, dict):
-                return {k: str(v).upper() for k, v in data.items() if str(v).upper() in ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")}
+                return {
+                    k: str(v).upper()
+                    for k, v in data.items()
+                    if str(v).upper() in ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")
+                }
     except Exception:
         pass
     return {}
@@ -330,8 +356,10 @@ async def _fetch_aishub_tankers(bbox: str) -> Optional[List[Dict[str, Any]]]:
                     "format": "1",
                     "output": "json",
                     "compress": "0",
-                    "latmin": lat_min, "latmax": lat_max,
-                    "lonmin": lon_min, "lonmax": lon_max,
+                    "latmin": lat_min,
+                    "latmax": lat_max,
+                    "lonmin": lon_min,
+                    "lonmax": lon_max,
                 },
             )
             if resp.status_code != 200:
@@ -346,17 +374,19 @@ async def _fetch_aishub_tankers(bbox: str) -> Optional[List[Dict[str, Any]]]:
                     continue
                 ship_type = str(r.get("TYPE") or r.get("type") or r.get("ship_type") or "")
                 name = str(r.get("NAME") or r.get("name") or "")
-                is_tanker = (
-                    ship_type.isdigit() and 80 <= int(ship_type) <= 89
-                ) or any(kw in name.lower() for kw in TANKER_KEYWORDS)
+                is_tanker = (ship_type.isdigit() and 80 <= int(ship_type) <= 89) or any(
+                    kw in name.lower() for kw in TANKER_KEYWORDS
+                )
                 if is_tanker:
-                    tankers.append({
-                        "name": name,
-                        "type": ship_type,
-                        "lat": safe_float(r.get("LATITUDE") or r.get("latitude") or r.get("lat")),
-                        "lon": safe_float(r.get("LONGITUDE") or r.get("longitude") or r.get("lon")),
-                        "source": "aishub",
-                    })
+                    tankers.append(
+                        {
+                            "name": name,
+                            "type": ship_type,
+                            "lat": safe_float(r.get("LATITUDE") or r.get("latitude") or r.get("lat")),
+                            "lon": safe_float(r.get("LONGITUDE") or r.get("longitude") or r.get("lon")),
+                            "source": "aishub",
+                        }
+                    )
             return tankers
     except Exception as e:
         logger.debug("chokepoint: AISHub fetch failed: %s", e)
@@ -378,8 +408,10 @@ async def _fetch_marinetraffic_tankers(bbox: str) -> Optional[List[Dict[str, Any
                 f"https://services.marinetraffic.com/api/exportvessels/{api_key}",
                 params={
                     "v": "8",
-                    "MINLAT": lat_min, "MAXLAT": lat_max,
-                    "MINLON": lon_min, "MAXLON": lon_max,
+                    "MINLAT": lat_min,
+                    "MAXLAT": lat_max,
+                    "MINLON": lon_min,
+                    "MAXLON": lon_max,
                     "SHIPTYPE": "7",
                     "msgtype": "simple",
                     "protocol": "jsono",
@@ -459,7 +491,7 @@ async def _fetch_gdelt_one(query: str, timespan: str) -> int:
             if isinstance(data, list):
                 return len(data)
             for key in ("articles", "articleList", "results", "docs", "ArticleList"):
-                out = (data.get(key) if isinstance(data, dict) else None)
+                out = data.get(key) if isinstance(data, dict) else None
                 if isinstance(out, list):
                     return len(out)
             return 0
@@ -518,7 +550,7 @@ async def _fetch_gdelt_chokepoint_events() -> Dict[str, Any]:
         "Bab el-Mandeb": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
         "Suez Canal": {"hits_24h": 0, "hits_72h": 0, "hits_6h": 0, "hits_closure_24h": 0},
     }
-    for (cp_name, key), result in zip(keys, results):
+    for (cp_name, key), result in zip(keys, results, strict=True):
         if cp_name == "_tone" and key == "gdelt_tone_hormuz":
             out["gdelt_tone_hormuz"] = result
             continue
@@ -528,6 +560,7 @@ async def _fetch_gdelt_chokepoint_events() -> Dict[str, Any]:
 
 
 # ── Scoring ──────────────────────────────────────────────────────────────────
+
 
 def _compute_sub_scores(
     tanker_count: int,
@@ -627,6 +660,7 @@ def _gdelt_risk_floor(gdelt_24h: int, hits_closure_24h: int = 0, hits_6h: int = 
 
 # ── Optional Haiku summary ───────────────────────────────────────────────────
 
+
 async def _generate_haiku_summary_chokepoint(
     conflict: str,
     chokepoints: List[Dict[str, Any]],
@@ -635,6 +669,7 @@ async def _generate_haiku_summary_chokepoint(
     """Optional 2-3 sentence disruption narrative via haiku_service.analyst_summary."""
     try:
         from services.haiku_service import analyst_summary
+
         compact = {
             "conflict": conflict,
             "chokepoint_score": chokepoint_score,
@@ -664,6 +699,7 @@ async def _generate_haiku_summary_chokepoint(
 
 # ── Main agent function ─────────────────────────────────────────────────────
 
+
 def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
     """Run CHOKEPOINT agent: monitors Hormuz, Bab el-Mandeb, Suez."""
 
@@ -677,7 +713,11 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
 
         # AISStream: one WebSocket session for all three chokepoints (if key set)
         tankers_by_cp: Dict[str, List[Dict[str, Any]]] = {}
-        airstream_configured = bool((os.getenv("AISSTREAM_API_KEY") or os.getenv("AIRSTREAM_API_KEY") or os.getenv("AIRSTREAM_API") or "").strip())
+        airstream_configured = bool(
+            (
+                os.getenv("AISSTREAM_API_KEY") or os.getenv("AIRSTREAM_API_KEY") or os.getenv("AIRSTREAM_API") or ""
+            ).strip()
+        )
         bounding_boxes = []
         cp_bounds = {}
         for cp_name, baseline in CHOKEPOINT_BASELINES.items():
@@ -772,7 +812,11 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
             avg_t = CHOKEPOINT_BASELINES[cp["name"]]["avg_daily_tankers"]
             if cp["data_quality"] == "live_ais" and avg_t > 0 and cp["tanker_count"] < avg_t * LIVE_AIS_DISRUPTED_RATIO:
                 smoothed = max(smoothed, GDELT_RISK_FLOOR_HIGH)
-            elif cp["data_quality"] == "live_ais" and avg_t > 0 and cp["tanker_count"] < avg_t * LIVE_AIS_RESTRICTED_RATIO:
+            elif (
+                cp["data_quality"] == "live_ais"
+                and avg_t > 0
+                and cp["tanker_count"] < avg_t * LIVE_AIS_RESTRICTED_RATIO
+            ):
                 smoothed = max(smoothed, GDELT_RISK_FLOOR_MED)
             gdelt_floor = _gdelt_risk_floor(gdelt_24h, hits_closure_24h=hits_closure_24h, hits_6h=hits_6h)
             # When no live AIS (e.g. AISStream failed), 1+ GDELT hit still raises floor so closure/restricted can show
@@ -819,10 +863,23 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         cps = out.get("chokepoints") or []
         live_ais_count = sum(1 for cp in cps if cp.get("data_quality") == "live_ais")
         source_results = [
-            SourceResult(name="AISStream/MT", status="ok" if live_ais_count > 0 else "error", fetched_at=fetched_at, record_count=sum(len(cp.get("tanker_details") or []) for cp in cps)),
-            SourceResult(name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at),
+            SourceResult(
+                name="AISStream/MT",
+                status="ok" if live_ais_count > 0 else "error",
+                fetched_at=fetched_at,
+                record_count=sum(len(cp.get("tanker_details") or []) for cp in cps),
+            ),
+            SourceResult(
+                name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at
+            ),
             SourceResult(name="EIA baseline", status="ok", fetched_at=fetched_at),
-            SourceResult(name="External status", status="ok" if (out.get("external_status") or {}) else ("ok" if not os.getenv(CHOKEPOINT_STATUS_URL_ENV) else "error"), fetched_at=fetched_at),
+            SourceResult(
+                name="External status",
+                status="ok"
+                if (out.get("external_status") or {})
+                else ("ok" if not os.getenv(CHOKEPOINT_STATUS_URL_ENV) else "error"),
+                fetched_at=fetched_at,
+            ),
         ]
         reg = get_health_registry()
         if reg:
@@ -830,14 +887,34 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "chokepoint", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if live_ais_count > 0 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
-        meta = AgentMetadata(agent="chokepoint", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        data_freshness = (
+            "live" if live_ais_count > 0 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        )
+        meta = AgentMetadata(
+            agent="chokepoint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=None,
+        )
         out["_meta"] = meta.model_dump(mode="json")
         return out
     except Exception as e:
         logger.exception("CHOKEPOINT agent error: %s", e)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="chokepoint", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
+        meta = AgentMetadata(
+            agent="chokepoint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=[],
+            confidence=compute_confidence_from_sources([]),
+            data_freshness="unavailable",
+            fallback_used=True,
+            error_summary=str(e),
+        )
         return {
             "chokepoints": [],
             "chokepoint_score": 0.0,
@@ -871,7 +948,7 @@ def enrich_chokepoints(
 
     # Count military vessels per chokepoint zone
     ships = sigint_data.get("ships") or []
-    mil_by_cp: Dict[str, int] = {cp: 0 for cp in CHOKEPOINT_BASELINES}
+    mil_by_cp: Dict[str, int] = dict.fromkeys(CHOKEPOINT_BASELINES, 0)
     for s in ships:
         if not isinstance(s, dict):
             continue
@@ -886,7 +963,7 @@ def enrich_chokepoints(
     # Oil price impact and brent baseline for confirmation gate
     brent_pct = 0.0
     brent_price_current: Optional[float] = None
-    for c in (energy_data.get("commodities") or []):
+    for c in energy_data.get("commodities") or []:
         if isinstance(c, dict) and c.get("symbol") == "BRENT":
             brent_pct = safe_float(c.get("change_pct_raw")) or 0.0
             brent_price_current = safe_float(c.get("price"))
@@ -904,7 +981,7 @@ def enrich_chokepoints(
 
     # Per-chokepoint news disruption count (pre-tagged by NEWS agent)
     news_disruption_by_cp: Dict[str, int] = {cp["name"]: 0 for cp in chokepoints}
-    for art in (news_data.get("articles") or []):
+    for art in news_data.get("articles") or []:
         if not isinstance(art, dict) or not art.get("is_disruption"):
             continue
         for tag in art.get("chokepoint_tags") or []:
@@ -918,8 +995,7 @@ def enrich_chokepoints(
     if diplo_data.get("ofac_sdn", {}).get("total_matches"):
         diplo_signals += 1
     if diplo_data.get("un_icj_news"):
-        diplo_signals += len([n for n in diplo_data["un_icj_news"]
-                              if isinstance(n, dict) and "error" not in n])
+        diplo_signals += len([n for n in diplo_data["un_icj_news"] if isinstance(n, dict) and "error" not in n])
 
     # AIS anomalies from compliance
     ais_total = 0
@@ -930,7 +1006,9 @@ def enrich_chokepoints(
         brent_threshold = float(os.getenv("CHOKEPOINT_BRENT_PCT_THRESHOLD", str(BRENT_PCT_THRESHOLD_DEFAULT)))
     except (TypeError, ValueError):
         brent_threshold = BRENT_PCT_THRESHOLD_DEFAULT
-    brent_signal = abs(brent_pct) >= float(brent_threshold) or (brent_above_baseline_pct is not None and brent_above_baseline_pct >= 8.0)
+    brent_signal = abs(brent_pct) >= float(brent_threshold) or (
+        brent_above_baseline_pct is not None and brent_above_baseline_pct >= 8.0
+    )
 
     # Merge external status (from URL) and manual overrides (from UI); overrides take precedence
     external_status = chokepoint_data.get("external_status") or {}
@@ -955,11 +1033,7 @@ def enrich_chokepoints(
         sig_brent = brent_signal
         required_signals = 1 if cp.get("data_quality") != "live_ais" else 2
         confirmed = sum([sig_gdelt, sig_news, sig_brent]) >= required_signals
-        unconfirmed_one = (
-            sum([sig_gdelt, sig_news, sig_brent]) == 1
-            if cp.get("data_quality") == "live_ais"
-            else False
-        )
+        unconfirmed_one = sum([sig_gdelt, sig_news, sig_brent]) == 1 if cp.get("data_quality") == "live_ais" else False
 
         baseline_info = CHOKEPOINT_BASELINES.get(cp_name, {})
         avg_tankers = baseline_info.get("avg_daily_tankers", 30)
@@ -998,9 +1072,17 @@ def enrich_chokepoints(
         smoothed = _ema_score(raw_risk, cp_history)
         if cp.get("data_quality") == "baseline_only":
             smoothed = max(smoothed, BASELINE_ONLY_RISK_FLOOR)
-        if cp.get("data_quality") == "live_ais" and avg_tankers > 0 and cp["tanker_count"] < avg_tankers * LIVE_AIS_DISRUPTED_RATIO:
+        if (
+            cp.get("data_quality") == "live_ais"
+            and avg_tankers > 0
+            and cp["tanker_count"] < avg_tankers * LIVE_AIS_DISRUPTED_RATIO
+        ):
             smoothed = max(smoothed, GDELT_RISK_FLOOR_HIGH)
-        elif cp.get("data_quality") == "live_ais" and avg_tankers > 0 and cp["tanker_count"] < avg_tankers * LIVE_AIS_RESTRICTED_RATIO:
+        elif (
+            cp.get("data_quality") == "live_ais"
+            and avg_tankers > 0
+            and cp["tanker_count"] < avg_tankers * LIVE_AIS_RESTRICTED_RATIO
+        ):
             smoothed = max(smoothed, GDELT_RISK_FLOOR_MED)
         gdelt_floor = _gdelt_risk_floor(gdelt_24h, hits_closure_24h=hits_closure_24h, hits_6h=hits_6h)
         # When no live AIS, 1+ GDELT hit still raises floor so closure/restricted can show

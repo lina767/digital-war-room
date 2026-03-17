@@ -6,11 +6,12 @@ Owns:
 - Tier 4: information_summary
 - Exports: EntityRegistry (via ner_extract node)
 """
+
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from ..dag_scheduler import DAGNode, ResultStore
-from ..division import DivisionHead, DivisionAnomaly
+from ..division import DivisionAnomaly, DivisionHead
 from ..entity_registry import EntityRegistry, NEREntity
 
 logger = logging.getLogger(__name__)
@@ -81,12 +82,14 @@ class InformationDivision(DivisionHead):
                 entity_type = ent_dict.get("type", "UNKNOWN").upper()
                 if not entity_text:
                     continue
-                registry.add(NEREntity(
-                    entity=entity_text,
-                    type=entity_type,
-                    source_agent=source_name,
-                    confidence=float(ent_dict.get("confidence", 1.0)),
-                ))
+                registry.add(
+                    NEREntity(
+                        entity=entity_text,
+                        type=entity_type,
+                        source_agent=source_name,
+                        confidence=float(ent_dict.get("confidence", 1.0)),
+                    )
+                )
 
         registry.deduplicate()
         return registry
@@ -105,13 +108,15 @@ class InformationDivision(DivisionHead):
         socmint_data = _as_dict(socmint_result)
 
         try:
-            from services.haiku_service import classify, summarize, is_haiku_failed
+            from services.haiku_service import classify, is_haiku_failed, summarize
+
             if is_haiku_failed():
                 raise ImportError("haiku unavailable")
         except ImportError:
             return {"news": news_data, "socmint": socmint_data, "filtered": False}
 
         import os
+
         from ..utils import run_async
 
         threshold = float(os.getenv("CLASSIFY_CONFIDENCE_THRESHOLD", "0.3"))
@@ -146,19 +151,20 @@ class InformationDivision(DivisionHead):
 
     # -- Anomaly detection overrides ----------------------------------------
 
-    def _detect_anomalies(self, agent_scores: Dict[str, float],
-                          agents_failed: List[str]) -> List[DivisionAnomaly]:
+    def _detect_anomalies(self, agent_scores: Dict[str, float], agents_failed: List[str]) -> List[DivisionAnomaly]:
         anomalies = super()._detect_anomalies(agent_scores, agents_failed)
 
         news_score = agent_scores.get("news", 0)
         socmint_score = agent_scores.get("socmint", 0)
         if abs(news_score - socmint_score) > 40:
-            anomalies.append(DivisionAnomaly(
-                type="contradiction",
-                description=f"NEWS/SOCMINT sentiment divergence: news={news_score:.0f} vs socmint={socmint_score:.0f}",
-                severity="medium",
-                agents_involved=["news", "socmint"],
-            ))
+            anomalies.append(
+                DivisionAnomaly(
+                    type="contradiction",
+                    description=f"NEWS/SOCMINT sentiment divergence: news={news_score:.0f} vs socmint={socmint_score:.0f}",
+                    severity="medium",
+                    agents_involved=["news", "socmint"],
+                )
+            )
 
         return anomalies
 
@@ -166,6 +172,7 @@ class InformationDivision(DivisionHead):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _extract_entities_list(result: Any) -> List[Dict]:
     """Get entities list from agent result (dict or Pydantic model)."""

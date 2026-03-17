@@ -5,35 +5,36 @@ Reads all 5 Division-Summaries from the ResultStore, computes the weighted
 composite score, builds a delta-aware LLM prompt, and produces the final
 assessment. Preserves the API response format for backwards compatibility.
 """
+
 import json
 import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
+from .agent_state_store import get_agent_state_store
 from .dag_scheduler import DAGNode, DAGScheduler, ResultStore, ResultStoreManager
-from .division import DivisionHead, DivisionResult, CycleLog
-from .entity_registry import EntityRegistry
-from .registry import AgentRegistry, get_agent_registry
-from .agent_state_store import AgentStateStore, get_agent_state_store
+from .division import DivisionHead, DivisionResult
 from .divisions import (
+    FinancialDivision,
     InformationDivision,
     MilitaryDivision,
-    FinancialDivision,
     PoliticalDivision,
     TechnicalDivision,
 )
+from .entity_registry import EntityRegistry
+from .registry import AgentRegistry, get_agent_registry
 
 logger = logging.getLogger(__name__)
 
 # CEO-level division weights
 CEO_WEIGHTS = {
-    "military":    0.30,
-    "financial":   0.18,
+    "military": 0.30,
+    "financial": 0.18,
     "information": 0.22,
-    "political":   0.14,
-    "technical":   0.16,
+    "political": 0.14,
+    "technical": 0.16,
 }
 
 
@@ -57,21 +58,25 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     all_executors: Dict[str, Any] = {}
 
     # ACLED reference node (independent Tier 1)
-    all_nodes.append(DAGNode(
-        id="acled_refs",
-        node_type="agent",
-        streamable=True,
-        timeout_s=75.0,
-    ))
+    all_nodes.append(
+        DAGNode(
+            id="acled_refs",
+            node_type="agent",
+            streamable=True,
+            timeout_s=75.0,
+        )
+    )
 
     # Compliance build node (Tier 3)
-    all_nodes.append(DAGNode(
-        id="compliance_build",
-        dependencies=["sigint", "diplo"],
-        optional_deps=["mil_sigint_chokepoint_enrich"],
-        node_type="enrichment",
-        timeout_s=15.0,
-    ))
+    all_nodes.append(
+        DAGNode(
+            id="compliance_build",
+            dependencies=["sigint", "diplo"],
+            optional_deps=["mil_sigint_chokepoint_enrich"],
+            node_type="enrichment",
+            timeout_s=15.0,
+        )
+    )
 
     for div in divisions:
         div_nodes = div.get_dag_nodes()
@@ -81,13 +86,15 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     # Summary node dependencies
     summary_ids = [f"{d.name}_summary" for d in divisions]
 
-    all_nodes.append(DAGNode(
-        id="ceo_synthesis",
-        dependencies=summary_ids + ["compliance_build", "acled_refs"],
-        node_type="synthesis",
-        streamable=True,
-        timeout_s=30.0,
-    ))
+    all_nodes.append(
+        DAGNode(
+            id="ceo_synthesis",
+            dependencies=summary_ids + ["compliance_build", "acled_refs"],
+            node_type="synthesis",
+            streamable=True,
+            timeout_s=30.0,
+        )
+    )
 
     return all_nodes, all_executors
 
@@ -112,6 +119,7 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
     def exec_acled(store):
         try:
             from .acled_reference import fetch_acled_reference_analyses_sync
+
             refs = fetch_acled_reference_analyses_sync(conflict)
             return refs if isinstance(refs, list) else []
         except Exception as e:
@@ -121,6 +129,7 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
     def exec_compliance(store):
         try:
             from .compliance_enrichment import build_compliance_and_alerts
+
             sigint_data = _as_dict(store.get("sigint"))
             diplo_data = _as_dict(store.get("diplo"))
             state_store = get_agent_state_store()
@@ -131,13 +140,19 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
                 prev_sigint = prev_sigint.data if isinstance(prev_sigint.data, dict) else {}
 
             all_results = store.all_results()
-            agent_results = {k: _as_dict(v) for k, v in all_results.items()
-                             if not k.endswith("_summary") and k != "ceo_synthesis"}
+            agent_results = {
+                k: _as_dict(v) for k, v in all_results.items() if not k.endswith("_summary") and k != "ceo_synthesis"
+            }
 
             threat_level = "ELEVATED"
             compliance, alerts, upd_prev, upd_ts = build_compliance_and_alerts(
-                sigint_data, conflict, threat_level, diplo_data,
-                agent_results, prev_sigint, prev_ts,
+                sigint_data,
+                conflict,
+                threat_level,
+                diplo_data,
+                agent_results,
+                prev_sigint,
+                prev_ts,
             )
             return {"compliance": compliance, "alerts": alerts}
         except Exception as e:
@@ -158,8 +173,7 @@ def _build_ceo_executor(conflict: str, divisions: List[DivisionHead]) -> Dict[st
     return {"ceo_synthesis": exec_ceo}
 
 
-def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
-                    store: ResultStore) -> Dict[str, Any]:
+def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultStore) -> Dict[str, Any]:
     """CEO-level synthesis: weighted score, LLM or rule-based, full response."""
     # Collect division results
     division_results: Dict[str, DivisionResult] = {}
@@ -171,10 +185,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
     # Composite score
     total_weight = sum(CEO_WEIGHTS.get(d, 0) for d in division_results)
     if total_weight > 0:
-        composite = sum(
-            dr.score * (CEO_WEIGHTS.get(name, 0) / total_weight)
-            for name, dr in division_results.items()
-        )
+        composite = sum(dr.score * (CEO_WEIGHTS.get(name, 0) / total_weight) for name, dr in division_results.items())
     else:
         composite = 0.0
 
@@ -184,11 +195,16 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
         agent_scores.update(dr.agent_scores)
 
     # Score-to-threat-level
-    if composite >= 80: threat_level = "CRITICAL"
-    elif composite >= 60: threat_level = "HIGH"
-    elif composite >= 40: threat_level = "ELEVATED"
-    elif composite >= 20: threat_level = "LOW"
-    else: threat_level = "MINIMAL"
+    if composite >= 80:
+        threat_level = "CRITICAL"
+    elif composite >= 60:
+        threat_level = "HIGH"
+    elif composite >= 40:
+        threat_level = "ELEVATED"
+    elif composite >= 20:
+        threat_level = "LOW"
+    else:
+        threat_level = "MINIMAL"
 
     # Rule-based or LLM synthesis
     use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
@@ -206,6 +222,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
     else:
         try:
             from .llm import call_llm, get_model_name, require_api_key
+
             require_api_key()
             prompt = _build_ceo_prompt(conflict, division_results, composite, store)
             model = get_model_name("supervisor_routine")
@@ -234,6 +251,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
     # Append agent findings
     try:
         from .findings_builder import append_agent_findings
+
         all_agent_results = {k: _as_dict(v) for k, v in store.all_results().items()}
         chokepoint_score = agent_scores.get("chokepoint", 0)
         key_findings = append_agent_findings(key_findings, all_agent_results, conflict, chokepoint_score)
@@ -243,6 +261,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
     # Actors
     try:
         from .actor_model import build_actors_for_conflict
+
         actors = build_actors_for_conflict(conflict, key_findings)
     except Exception:
         actors = []
@@ -250,6 +269,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
     # Predictive
     try:
         from .predictive import build_predictive_block
+
         predictive = build_predictive_block(conflict, composite, agent_scores)
     except Exception:
         predictive = {}
@@ -276,23 +296,33 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead],
     }
 
     # Include per-agent raw results for API compatibility
-    for agent_name in ["finint", "sigint", "news", "geoint", "socmint",
-                        "techint", "cyber", "energy", "protest", "diplo",
-                        "proximity", "narrative", "chokepoint"]:
+    for agent_name in [
+        "finint",
+        "sigint",
+        "news",
+        "geoint",
+        "socmint",
+        "techint",
+        "cyber",
+        "energy",
+        "protest",
+        "diplo",
+        "proximity",
+        "narrative",
+        "chokepoint",
+    ]:
         raw_result = store.get(agent_name)
         response[agent_name] = _as_dict(raw_result) if raw_result else {}
 
     # Division metadata (new)
-    response["divisions"] = {
-        name: dr.model_dump(mode="json")
-        for name, dr in division_results.items()
-    }
+    response["divisions"] = {name: dr.model_dump(mode="json") for name, dr in division_results.items()}
 
     return response
 
 
-def _build_ceo_prompt(conflict: str, division_results: Dict[str, DivisionResult],
-                      composite: float, store: ResultStore) -> str:
+def _build_ceo_prompt(
+    conflict: str, division_results: Dict[str, DivisionResult], composite: float, store: ResultStore
+) -> str:
     """Build the delta-aware CEO prompt."""
     parts = [
         f"CONFLICT: {conflict}",
@@ -322,8 +352,10 @@ def _build_ceo_prompt(conflict: str, division_results: Dict[str, DivisionResult]
                 parts.append(f"  {etype}: {', '.join(names)}")
 
     parts.append("\nTASK: Produce a holistic assessment. Focus on cross-division patterns and changes.")
-    parts.append('OUTPUT: JSON: { "escalation_score": ..., "threat_level": ..., "key_findings": [...], '
-                 '"key_findings_context": [...], "scenarios": [...], "summary": "..." }')
+    parts.append(
+        'OUTPUT: JSON: { "escalation_score": ..., "threat_level": ..., "key_findings": [...], '
+        '"key_findings_context": [...], "scenarios": [...], "summary": "..." }'
+    )
 
     return "\n".join(parts)
 
@@ -352,6 +384,7 @@ Return ONLY valid JSON:
 # ---------------------------------------------------------------------------
 # Public API: analyze_conflict via DAG
 # ---------------------------------------------------------------------------
+
 
 def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
     """Run the full multi-agent hierarchy analysis using the DAG scheduler.
@@ -387,8 +420,14 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
     if isinstance(ceo_result, dict):
         return ceo_result
 
-    return {"conflict": conflict, "escalation_score": 0, "threat_level": "MINIMAL",
-            "key_findings": [], "scenarios": [], "summary": "Analysis failed."}
+    return {
+        "conflict": conflict,
+        "escalation_score": 0,
+        "threat_level": "MINIMAL",
+        "key_findings": [],
+        "scenarios": [],
+        "summary": "Analysis failed.",
+    }
 
 
 def analyze_conflict_dag_streaming(conflict: str):
@@ -423,6 +462,7 @@ def analyze_conflict_dag_streaming(conflict: str):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _as_dict(result: Any) -> Dict:
     if result is None:

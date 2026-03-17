@@ -20,6 +20,7 @@ Usage:
         tool_fns={...}, tool_schemas=[...],
     )
 """
+
 import json
 import logging
 import os
@@ -78,6 +79,7 @@ def call_llm(
 
     if provider == "openai" and os.getenv("OPENAI_API_KEY"):
         from openai import OpenAI
+
         client = OpenAI()
         resp = client.chat.completions.create(
             model=model,
@@ -91,6 +93,7 @@ def call_llm(
         return resp.choices[0].message.content or ""
     else:
         from anthropic import Anthropic
+
         client = Anthropic()
         resp = client.messages.create(
             model=model,
@@ -138,7 +141,9 @@ def run_tool_agent(
     model = model or get_model_name("agent")
 
     if provider == "openai" and os.getenv("OPENAI_API_KEY"):
-        return _run_openai_loop(system, user_content, tool_fns, tool_schemas, model, temperature, max_rounds, max_tokens)
+        return _run_openai_loop(
+            system, user_content, tool_fns, tool_schemas, model, temperature, max_rounds, max_tokens
+        )
     return _run_anthropic_loop(system, user_content, tool_fns, tool_schemas, model, temperature, max_rounds, max_tokens)
 
 
@@ -153,18 +158,28 @@ def _exec_tool(tool_fns: Dict[str, Callable], name: str, args: Dict) -> Any:
 
 
 def _run_anthropic_loop(
-    system: str, user_content: str,
-    tool_fns: Dict[str, Callable], tool_schemas: List[Dict],
-    model: str, temperature: float, max_rounds: int, max_tokens: int,
+    system: str,
+    user_content: str,
+    tool_fns: Dict[str, Callable],
+    tool_schemas: List[Dict],
+    model: str,
+    temperature: float,
+    max_rounds: int,
+    max_tokens: int,
 ) -> Optional[str]:
     from anthropic import Anthropic
+
     client = Anthropic()
     messages: list = [{"role": "user", "content": user_content}]
 
     for _ in range(max_rounds):
         resp = client.messages.create(
-            model=model, system=system, messages=messages,
-            tools=tool_schemas, temperature=temperature, max_tokens=max_tokens,
+            model=model,
+            system=system,
+            messages=messages,
+            tools=tool_schemas,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         text_parts = []
         tool_uses = []
@@ -188,22 +203,30 @@ def _run_anthropic_loop(
         tool_results = []
         for tu in tool_uses:
             result = _exec_tool(tool_fns, tu.name, tu.input or {})
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tu.id,
-                "content": json.dumps(result, default=str),
-            })
+            tool_results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tu.id,
+                    "content": json.dumps(result, default=str),
+                }
+            )
         messages.append({"role": "user", "content": tool_results})
 
     return None
 
 
 def _run_openai_loop(
-    system: str, user_content: str,
-    tool_fns: Dict[str, Callable], tool_schemas: List[Dict],
-    model: str, temperature: float, max_rounds: int, max_tokens: int,
+    system: str,
+    user_content: str,
+    tool_fns: Dict[str, Callable],
+    tool_schemas: List[Dict],
+    model: str,
+    temperature: float,
+    max_rounds: int,
+    max_tokens: int,
 ) -> Optional[str]:
     from openai import OpenAI
+
     client = OpenAI()
     messages: list = [
         {"role": "system", "content": system},
@@ -213,8 +236,11 @@ def _run_openai_loop(
 
     for _ in range(max_rounds):
         resp = client.chat.completions.create(
-            model=model, messages=messages, tools=openai_tools,
-            temperature=temperature, max_tokens=max_tokens,
+            model=model,
+            messages=messages,
+            tools=openai_tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         choice = resp.choices[0]
 
@@ -225,16 +251,19 @@ def _run_openai_loop(
         for tc in choice.message.tool_calls:
             args = json.loads(tc.function.arguments) if tc.function.arguments else {}
             result = _exec_tool(tool_fns, tc.function.name, args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": json.dumps(result, default=str),
-            })
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": json.dumps(result, default=str),
+                }
+            )
 
     return None
 
 
 # ── Generic agent entry point ────────────────────────────────────────────
+
 
 def run_agent_with_fallback(
     conflict: str,

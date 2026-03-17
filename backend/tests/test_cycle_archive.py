@@ -1,9 +1,10 @@
 """
 Tests for CycleArchive: save, load, list, rotation, replay.
 """
+
 import json
-import tempfile
 import time
+
 import pytest
 
 from agents.cycle_archive import CycleArchive, _safe_dirname
@@ -16,7 +17,6 @@ def tmp_archive(tmp_path):
 
 
 class TestSave:
-
     def test_saves_tier1_results(self, tmp_archive):
         store = ResultStore(cycle_id="c001", conflict="Iran")
         store.set("sigint", {"sigint_score": 65, "aircraft": []})
@@ -39,7 +39,6 @@ class TestSave:
 
 
 class TestLoad:
-
     def test_load_saved_archive(self, tmp_archive):
         store = ResultStore(cycle_id="c003", conflict="Iran")
         store.set("sigint", {"score": 50})
@@ -54,7 +53,6 @@ class TestLoad:
 
 
 class TestListCycles:
-
     def test_lists_saved_cycles(self, tmp_archive):
         for cid in ["c1", "c2", "c3"]:
             store = ResultStore(cycle_id=cid, conflict="Iran")
@@ -69,7 +67,6 @@ class TestListCycles:
 
 
 class TestRotation:
-
     def test_rotates_old_archives(self, tmp_archive):
         for i in range(5):
             store = ResultStore(cycle_id=f"c{i}", conflict="Iran")
@@ -81,7 +78,6 @@ class TestRotation:
 
 
 class TestReplay:
-
     def test_load_into_store(self, tmp_archive):
         original = ResultStore(cycle_id="replay_test", conflict="Iran")
         original.set("sigint", {"sigint_score": 72})
@@ -97,7 +93,6 @@ class TestReplay:
 
 
 class TestSafeDirname:
-
     def test_sanitizes_special_chars(self):
         assert _safe_dirname("Iran/Israel") == "Iran_Israel"
         assert _safe_dirname("Gaza Israel") == "Gaza_Israel"

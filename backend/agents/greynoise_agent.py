@@ -11,14 +11,14 @@ Data flow:
   → LLM Summary → SQLite snapshot.
   REST endpoint reads from SQLite only (no live GreyNoise calls in request path).
 """
+
 import asyncio
 import json
 import logging
 import os
 import re
 import sqlite3
-import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,10 +27,10 @@ from pydantic import BaseModel, Field
 from .config import (
     GREYNOISE_API_KEY,
     GREYNOISE_BASE_URL,
-    GREYNOISE_TIMEOUT,
     GREYNOISE_SCHEDULER_CONFLICTS,
+    GREYNOISE_TIMEOUT,
 )
-from .utils import utc_now_iso, ScoreConfidence
+from .utils import ScoreConfidence, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +50,18 @@ MAX_CVE_LOOKUPS = 5
 # Iran-Konflikt: zusätzlich Gulf-Staaten (Hormuz, US-Stützpunkte), Transit- und Konfliktpartner
 GREYNOISE_COUNTRY_FILTERS: Dict[str, List[str]] = {
     "iran": [
-        "Iran", "Iraq", "Syria", "Lebanon",
-        "United Arab Emirates", "Bahrain", "Qatar", "Kuwait", "Oman",  # Gulf / Hormuz
-        "Saudi Arabia", "Jordan",
-        "Turkey",   # NATO, Transit, Sanktionsumgehung
+        "Iran",
+        "Iraq",
+        "Syria",
+        "Lebanon",
+        "United Arab Emirates",
+        "Bahrain",
+        "Qatar",
+        "Kuwait",
+        "Oman",  # Gulf / Hormuz
+        "Saudi Arabia",
+        "Jordan",
+        "Turkey",  # NATO, Transit, Sanktionsumgehung
         "Pakistan",  # Grenze, Baluchistan, Eskalation
         "Azerbaijan",  # Nordgrenze, Energie
         "Afghanistan",  # Grenze, Taliban, Wasser
@@ -68,9 +76,21 @@ GREYNOISE_COUNTRY_FILTERS: Dict[str, List[str]] = {
     "jordan": ["Jordan", "Syria", "Iraq"],
     "yemen": ["Yemen", "Saudi Arabia"],
     "middle east": [
-        "Iran", "Iraq", "Syria", "Lebanon", "Israel", "Palestine",
-        "Yemen", "Saudi Arabia", "Bahrain", "Qatar", "United Arab Emirates",
-        "Kuwait", "Oman", "Jordan", "United States",
+        "Iran",
+        "Iraq",
+        "Syria",
+        "Lebanon",
+        "Israel",
+        "Palestine",
+        "Yemen",
+        "Saudi Arabia",
+        "Bahrain",
+        "Qatar",
+        "United Arab Emirates",
+        "Kuwait",
+        "Oman",
+        "Jordan",
+        "United States",
     ],
     "ukraine": ["Ukraine", "Russia"],
 }
@@ -159,7 +179,17 @@ CONFLICT_TAG_TAXONOMY: Dict[str, Dict[str, Dict[str, Any]]] = {
             "weight": 3.0,
         },
         "vpn_exploit": {
-            "tags": ["Cisco", "Fortinet", "FortiGate", "Palo Alto", "Pulse Secure", "SonicWall", "Citrix", "Ivanti", "VPN"],
+            "tags": [
+                "Cisco",
+                "Fortinet",
+                "FortiGate",
+                "Palo Alto",
+                "Pulse Secure",
+                "SonicWall",
+                "Citrix",
+                "Ivanti",
+                "VPN",
+            ],
             "weight": 2.5,
         },
         "apt_tooling": {
@@ -282,6 +312,7 @@ def _get_countries(conflict: str) -> List[str]:
 
 # ── Pydantic result models ───────────────────────────────────────────────
 
+
 class EmergingThreat(BaseModel):
     tag: str = ""
     category: str = ""
@@ -317,7 +348,9 @@ class GreynoiseResult(BaseModel):
 
 # ── SQLite persistence ───────────────────────────────────────────────────
 
-DB_PATH = Path(os.getenv("GREYNOISE_DB_PATH", Path(__file__).resolve().parent.parent / "data" / "greynoise_snapshots.db"))
+DB_PATH = Path(
+    os.getenv("GREYNOISE_DB_PATH", Path(__file__).resolve().parent.parent / "data" / "greynoise_snapshots.db")
+)
 
 
 def _ensure_db() -> sqlite3.Connection:
@@ -375,7 +408,14 @@ def save_snapshot(result: GreynoiseResult) -> None:
         total_events = result.outbound_count + result.inbound_count
         conn.execute(
             "INSERT INTO greynoise_snapshots (conflict, timestamp, greynoise_score, absolute_score, total_events, data_json) VALUES (?, ?, ?, ?, ?, ?)",
-            (result.conflict, result.fetched_at, result.greynoise_score, result.absolute_score, total_events, json.dumps(result.model_dump(mode="json"))),
+            (
+                result.conflict,
+                result.fetched_at,
+                result.greynoise_score,
+                result.absolute_score,
+                total_events,
+                json.dumps(result.model_dump(mode="json")),
+            ),
         )
         conn.commit()
     finally:
@@ -405,8 +445,7 @@ def get_trend_data(conflict: str, days: int = 7) -> List[Dict[str, Any]]:
             (conflict, cutoff),
         ).fetchall()
         return [
-            {"timestamp": r[0], "greynoise_score": r[1], "absolute_score": r[2], "total_events": r[3]}
-            for r in rows
+            {"timestamp": r[0], "greynoise_score": r[1], "absolute_score": r[2], "total_events": r[3]} for r in rows
         ]
     finally:
         conn.close()
@@ -428,6 +467,7 @@ def _get_historical_avg(conflict: str, days: int = 7) -> Optional[float]:
 
 
 # ── GreyNoise API helpers ────────────────────────────────────────────────
+
 
 def _gn_headers() -> Dict[str, str]:
     return {
@@ -648,6 +688,7 @@ def get_latest_ips(conflict: str, limit: int = 30) -> List[Dict[str, Any]]:
 
 # ── Core pipeline ────────────────────────────────────────────────────────
 
+
 def _match_tag_to_taxonomy(tag_name: str, taxonomy: Dict[str, Dict[str, Any]]) -> Tuple[Optional[str], float]:
     """Match a GreyNoise tag name against the taxonomy. Returns (category, weight) or (None, 1.0)."""
     tag_lower = tag_name.lower()
@@ -734,17 +775,19 @@ def _stats_to_threats(
         cve_matches = _CVE_PATTERN.findall(tag_name)
         cve_id = cve_matches[0].upper() if cve_matches else None
 
-        threats.append(EmergingThreat(
-            tag=tag_name,
-            category=category or "uncategorized",
-            direction=direction,
-            scan_volume=count,
-            priority=priority,
-            cve_id=cve_id,
-            weight=weight,
-            source_countries=countries if direction == "outbound" else [],
-            destination_countries=countries if direction == "inbound" else [],
-        ))
+        threats.append(
+            EmergingThreat(
+                tag=tag_name,
+                category=category or "uncategorized",
+                direction=direction,
+                scan_volume=count,
+                priority=priority,
+                cve_id=cve_id,
+                weight=weight,
+                source_countries=countries if direction == "outbound" else [],
+                destination_countries=countries if direction == "inbound" else [],
+            )
+        )
 
     return threats, top_tags
 
@@ -831,7 +874,9 @@ async def _enrich_cves(client: Any, threats: List[EmergingThreat]) -> float:
     return min(40.0, bonus)
 
 
-def _generate_alerts(threats: List[EmergingThreat], outbound_count: int, inbound_count: int, delta_score: float) -> List[str]:
+def _generate_alerts(
+    threats: List[EmergingThreat], outbound_count: int, inbound_count: int, delta_score: float
+) -> List[str]:
     alerts: List[str] = []
 
     high_inbound = [t for t in threats if t.direction == "inbound" and t.priority == "high"]
@@ -861,19 +906,31 @@ async def _generate_llm_summary(conflict: str, result: GreynoiseResult) -> str:
     """Generate analyst-style summary via Haiku (optional, falls back to rule-based). Uses haiku_service for budget tracking."""
     try:
         from services.haiku_service import analyst_summary
+
         top_threats = [
-            {"tag": t.tag, "category": t.category, "direction": t.direction, "volume": t.scan_volume, "priority": t.priority, "cve": t.cve_id, "cvss": t.cvss_score}
+            {
+                "tag": t.tag,
+                "category": t.category,
+                "direction": t.direction,
+                "volume": t.scan_volume,
+                "priority": t.priority,
+                "cve": t.cve_id,
+                "cvss": t.cvss_score,
+            }
             for t in sorted(result.emerging_threats, key=lambda x: x.weight * x.scan_volume, reverse=True)[:5]
         ]
-        prompt_data = json.dumps({
-            "conflict": conflict,
-            "greynoise_score": result.greynoise_score,
-            "trend": result.trend,
-            "outbound_count": result.outbound_count,
-            "inbound_count": result.inbound_count,
-            "top_threats": top_threats,
-            "alerts": result.alerts,
-        }, indent=2)
+        prompt_data = json.dumps(
+            {
+                "conflict": conflict,
+                "greynoise_score": result.greynoise_score,
+                "trend": result.trend,
+                "outbound_count": result.outbound_count,
+                "inbound_count": result.inbound_count,
+                "top_threats": top_threats,
+                "alerts": result.alerts,
+            },
+            indent=2,
+        )
         system = (
             "You are a cyber-threat analyst for conflict zones. Summarize the following "
             "GreyNoise Emerging Threats data in 2-3 sentences. Focus on the most critical "
@@ -907,22 +964,64 @@ def _rule_based_summary(result: GreynoiseResult) -> str:
 # ── Tag Discovery ────────────────────────────────────────────────────────
 
 DISCOVERY_KEYWORDS = [
-    "iran", "iranian", "irgc", "apt33", "apt34", "apt35", "muddywater",
-    "charming kitten", "oilrig",
-    "israel", "israeli", "gaza", "check point",
-    "usa", "united states", "apt28", "apt29", "lazarus", "volt typhoon",
-    "salt typhoon", "sandworm",
-    "uae", "emirates", "abu dhabi",
-    "saudi", "aramco", "shamoon", "triton", "trisis",
-    "lebanon", "hezbollah",
-    "jordan", "jordanian",
-    "hamas", "houthi", "yemen",
-    "ics", "scada", "modbus", "dnp3", "plc",
-    "cobalt strike", "meterpreter", "brute ratel", "sliver", "havoc",
-    "ukraine", "gamaredon",
-    "fortinet", "cisco", "palo alto", "ivanti", "vpn",
-    "wiper", "destructive",
-    "exchange", "vmware", "confluence",
+    "iran",
+    "iranian",
+    "irgc",
+    "apt33",
+    "apt34",
+    "apt35",
+    "muddywater",
+    "charming kitten",
+    "oilrig",
+    "israel",
+    "israeli",
+    "gaza",
+    "check point",
+    "usa",
+    "united states",
+    "apt28",
+    "apt29",
+    "lazarus",
+    "volt typhoon",
+    "salt typhoon",
+    "sandworm",
+    "uae",
+    "emirates",
+    "abu dhabi",
+    "saudi",
+    "aramco",
+    "shamoon",
+    "triton",
+    "trisis",
+    "lebanon",
+    "hezbollah",
+    "jordan",
+    "jordanian",
+    "hamas",
+    "houthi",
+    "yemen",
+    "ics",
+    "scada",
+    "modbus",
+    "dnp3",
+    "plc",
+    "cobalt strike",
+    "meterpreter",
+    "brute ratel",
+    "sliver",
+    "havoc",
+    "ukraine",
+    "gamaredon",
+    "fortinet",
+    "cisco",
+    "palo alto",
+    "ivanti",
+    "vpn",
+    "wiper",
+    "destructive",
+    "exchange",
+    "vmware",
+    "confluence",
 ]
 
 
@@ -965,6 +1064,7 @@ def _save_pending_tags(tags: List[str], conflict: str) -> None:
 
 
 # ── Main pipeline ────────────────────────────────────────────────────────
+
 
 async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
     """Full pipeline: GNQL Stats (outbound+inbound) → taxonomy → CVE enrichment → scoring → summary."""
@@ -1129,9 +1229,9 @@ def run_greynoise_agent(conflict: str) -> Dict[str, Any]:
 
 # ── Scheduler ────────────────────────────────────────────────────────────
 
+
 async def run_greynoise_scheduler_cycle() -> None:
     """Run one scheduler cycle: pipeline for all configured conflicts."""
-    import httpx
 
     for conflict in GREYNOISE_SCHEDULER_CONFLICTS:
         try:

@@ -8,10 +8,11 @@ using PostgreSQL + pgvector. Falls back gracefully to in-memory operations
 Requires: asyncpg, pgvector extension on PostgreSQL.
 Migration: backend/migrations/001_pgvector_setup.sql
 """
+
 import hashlib
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ async def store_embeddings_batch(
     stored = 0
     try:
         async with pool.acquire() as conn:
-            for item, emb in zip(items, embeddings):
+            for item, emb in zip(items, embeddings, strict=True):
                 text = item.get("text") or item.get("title") or item.get("summary") or ""
                 if not text or not emb:
                     continue
@@ -229,7 +230,7 @@ async def deduplicate_by_db(
         return list(range(len(texts)))
 
     novel_indices = []
-    for i, (text, emb) in enumerate(zip(texts, embeddings)):
+    for i, (text, emb) in enumerate(zip(texts, embeddings, strict=True)):
         similar = await find_similar(emb, top_k=1, source=source, threshold=threshold)
         if not similar:
             novel_indices.append(i)

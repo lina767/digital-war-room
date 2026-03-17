@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  getApiBase,
+  getAgentsStatus,
   getAgentsHealth,
   getAgentsHistory,
   getAnalyzeStatus,
@@ -12,6 +12,7 @@ import {
   type AgentsHealthResponse,
   type AnalysisRunSummary,
 } from "@/lib/api";
+import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { toast } from "sonner";
 import { ArrowLeft, AlertTriangle, Activity, Clock, Database, History, Play, RefreshCw } from "lucide-react";
@@ -54,7 +55,6 @@ function formatRelativeTime(iso?: string): string {
   }
 }
 
-const DEFAULT_CONFLICT = "Iran";
 const POLL_INTERVAL_MS = 6000;
 const RUN_AGAIN_TIMEOUT_MS = 150_000;
 
@@ -85,7 +85,7 @@ function AgentMonitorContent() {
     setError(null);
     try {
       const [statusRes, healthRes, historyRes] = await Promise.all([
-        fetch(`${getApiBase()}/api/agents/status`).then((r) => (r.ok ? r.json() : null)),
+        getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
       ]);
@@ -168,7 +168,7 @@ function AgentMonitorContent() {
         }
       }
       const [statusRes, healthRes, historyRes] = await Promise.all([
-        fetch(`${getApiBase()}/api/agents/status`).then((r) => (r.ok ? r.json() : null)),
+        getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
       ]);

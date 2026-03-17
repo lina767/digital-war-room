@@ -3,6 +3,7 @@ ACLED API OAuth authentication (acleddata.com).
 Uses ACLED_EMAIL + ACLED_PASSWORD to obtain a Bearer token (valid 24h).
 See: https://acleddata.com/api-documentation/getting-started
 """
+
 import logging
 import os
 import time

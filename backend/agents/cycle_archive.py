@@ -7,6 +7,7 @@ After each cycle, all raw agent results are serialized to JSON in
 - Debugging: inspect raw agent outputs from past cycles
 - Prompt optimization: A/B test CEO prompts on the same dataset
 """
+
 import json
 import logging
 import os
@@ -22,11 +23,19 @@ DEFAULT_ARCHIVE_DIR = os.getenv("CYCLE_ARCHIVE_DIR", "data/cycle_archive")
 DEFAULT_MAX_ARCHIVES = int(os.getenv("CYCLE_ARCHIVE_MAX", "28"))  # ~7 days at 6h cycles
 
 TIER1_AGENT_NAMES = [
-    "sigint", "geoint", "proximity", "chokepoint",
-    "finint", "energy",
-    "news", "socmint", "narrative",
-    "diplo", "protest",
-    "techint", "cyber",
+    "sigint",
+    "geoint",
+    "proximity",
+    "chokepoint",
+    "finint",
+    "energy",
+    "news",
+    "socmint",
+    "narrative",
+    "diplo",
+    "protest",
+    "techint",
+    "cyber",
     "acled_refs",
 ]
 

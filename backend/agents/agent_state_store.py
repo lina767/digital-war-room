@@ -6,6 +6,7 @@ with a generic, typed store keyed by (conflict, agent_name).
 
 Survives cycles but not server restarts (same semantics as the old pattern).
 """
+
 import threading
 from typing import Any, Dict, Optional, Tuple
 

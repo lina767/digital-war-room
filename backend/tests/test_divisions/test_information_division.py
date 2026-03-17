@@ -1,7 +1,7 @@
 """
 Tests for InformationDivision: NER extract, prefilter, summary, anomaly detection.
 """
-import pytest
+
 from agents.dag_scheduler import ResultStore
 from agents.divisions.information_division import InformationDivision
 from agents.entity_registry import EntityRegistry
@@ -11,7 +11,8 @@ def _mock_news_result(score=45, entities=None):
     return {
         "news_score": score,
         "articles": [{"title": "Iran missile test", "source": "reuters"}],
-        "entities": entities or [
+        "entities": entities
+        or [
             {"entity": "Iran", "type": "LOCATION", "confidence": 0.95},
             {"entity": "IRGC", "type": "ORG", "confidence": 0.88},
             {"entity": "Khamenei", "type": "PERSON", "confidence": 0.92},
@@ -24,7 +25,8 @@ def _mock_socmint_result(score=40, entities=None):
     return {
         "socmint_score": score,
         "top_signals": [{"text": "Breaking: escalation in region"}],
-        "entities": entities or [
+        "entities": entities
+        or [
             {"entity": "Hezbollah", "type": "ORG", "confidence": 0.85},
             {"entity": "Iran", "type": "LOCATION", "confidence": 0.70},
         ],
@@ -41,7 +43,6 @@ def _mock_narrative_result(score=30):
 
 
 class TestNERExtract:
-
     def test_extracts_entities_from_news_and_socmint(self):
         store = ResultStore()
         store.set("news", _mock_news_result())
@@ -53,24 +54,44 @@ class TestNERExtract:
 
     def test_deduplicates_across_sources(self):
         store = ResultStore()
-        store.set("news", _mock_news_result(entities=[
-            {"entity": "Iran", "type": "LOCATION"},
-        ]))
-        store.set("socmint", _mock_socmint_result(entities=[
-            {"entity": "Iran", "type": "LOCATION"},
-        ]))
+        store.set(
+            "news",
+            _mock_news_result(
+                entities=[
+                    {"entity": "Iran", "type": "LOCATION"},
+                ]
+            ),
+        )
+        store.set(
+            "socmint",
+            _mock_socmint_result(
+                entities=[
+                    {"entity": "Iran", "type": "LOCATION"},
+                ]
+            ),
+        )
 
         registry = InformationDivision._exec_ner_extract(store)
         assert registry.count == 1
 
     def test_alias_dedup(self):
         store = ResultStore()
-        store.set("news", _mock_news_result(entities=[
-            {"entity": "IRGC", "type": "ORG"},
-        ]))
-        store.set("socmint", _mock_socmint_result(entities=[
-            {"entity": "Islamic Revolutionary Guard Corps", "type": "ORG"},
-        ]))
+        store.set(
+            "news",
+            _mock_news_result(
+                entities=[
+                    {"entity": "IRGC", "type": "ORG"},
+                ]
+            ),
+        )
+        store.set(
+            "socmint",
+            _mock_socmint_result(
+                entities=[
+                    {"entity": "Islamic Revolutionary Guard Corps", "type": "ORG"},
+                ]
+            ),
+        )
 
         registry = InformationDivision._exec_ner_extract(store)
         assert registry.count == 1
@@ -104,7 +125,6 @@ class TestNERExtract:
 
 
 class TestPrefilter:
-
     def test_returns_valid_structure(self):
         store = ResultStore()
         store.set("news", _mock_news_result())
@@ -124,7 +144,6 @@ class TestPrefilter:
 
 
 class TestSummaryNode:
-
     def test_computes_weighted_score(self):
         div = InformationDivision()
         store = ResultStore()
@@ -173,7 +192,6 @@ class TestSummaryNode:
 
 
 class TestDAGNodes:
-
     def test_info_division_produces_correct_nodes(self):
         div = InformationDivision()
         nodes = div.get_dag_nodes()

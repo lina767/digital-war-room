@@ -13,6 +13,7 @@ a DB-backed store would be required (see docs).
 IMPORTANT: Geofencing alerts are intelligence signals, not legal advice.
 They support due diligence but do not replace legal review.
 """
+
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,8 +25,8 @@ _geofencing_state: Dict[Tuple[str, str, str], Dict[str, float]] = {}
 
 class GeofencingAlert:
     """An alert generated when a tracked asset enters a sanctions zone."""
-    __slots__ = ("asset_type", "asset_id", "asset_name", "lat", "lon",
-                 "zone", "timestamp", "source")
+
+    __slots__ = ("asset_type", "asset_id", "asset_name", "lat", "lon", "zone", "timestamp", "source")
 
     def __init__(
         self,
@@ -111,15 +112,17 @@ def check_sigint_for_sanctions(
             continue
         matched = all_matching_zones(lat, lon, zone_list)
         for zone in matched:
-            alerts.append(GeofencingAlert(
-                asset_type="aircraft",
-                asset_id=ac.get("flight") or ac.get("hex") or "unknown",
-                asset_name=ac.get("flight") or ac.get("type") or "Aircraft",
-                lat=lat,
-                lon=lon,
-                zone=zone,
-                source=ac.get("source") or "ADSB",
-            ))
+            alerts.append(
+                GeofencingAlert(
+                    asset_type="aircraft",
+                    asset_id=ac.get("flight") or ac.get("hex") or "unknown",
+                    asset_name=ac.get("flight") or ac.get("type") or "Aircraft",
+                    lat=lat,
+                    lon=lon,
+                    zone=zone,
+                    source=ac.get("source") or "ADSB",
+                )
+            )
 
     for ship in sigint_result.get("ships") or []:
         if not isinstance(ship, dict) or "error" in ship:
@@ -131,15 +134,17 @@ def check_sigint_for_sanctions(
             continue
         matched = all_matching_zones(lat, lon, zone_list)
         for zone in matched:
-            alerts.append(GeofencingAlert(
-                asset_type="ship",
-                asset_id=ship.get("mmsi") or ship.get("name") or "unknown",
-                asset_name=ship.get("name") or "Vessel",
-                lat=lat,
-                lon=lon,
-                zone=zone,
-                source=ship.get("source") or "AIS",
-            ))
+            alerts.append(
+                GeofencingAlert(
+                    asset_type="ship",
+                    asset_id=ship.get("mmsi") or ship.get("name") or "unknown",
+                    asset_name=ship.get("name") or "Vessel",
+                    lat=lat,
+                    lon=lon,
+                    zone=zone,
+                    source=ship.get("source") or "AIS",
+                )
+            )
 
     out: List[Dict[str, Any]] = []
     for a in alerts:

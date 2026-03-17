@@ -1,27 +1,30 @@
+import asyncio
 import json
 import os
-import asyncio
 import time
-from collections import deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import httpx
-from fastapi import APIRouter, Request, Header, Body
-from fastapi.responses import Response, JSONResponse, StreamingResponse
+from fastapi import APIRouter, Header, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from agents.supervisor import analyze_conflict, run_analysis_streaming
-from agents.geoint_agent import get_thermal_anomalies, get_conflict_events_for_heatmap, get_theater_events
-from agents.iaea_tracker import run_iaea_tracker, fetch_notams
-from api.proximity_correlation import run_correlation_for_events
-from services.http_client import get_http_client
-from services.job_queue import JobQueue, Job
-from compliance.sanctions_search import search_sanctions, get_threshold_policy
-from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
-from compliance.supply_chain import screen_route, get_intermediary_policy
-from compliance.risk_score import compute_compliance_risk
 from agents.chokepoint_agent import _load_overrides, _save_overrides
+from agents.config import DEFAULT_CONFLICT
+from agents.geoint_agent import (
+    get_conflict_events_for_heatmap,
+    get_theater_events,
+    get_thermal_anomalies,
+)
+from agents.iaea_tracker import fetch_notams, run_iaea_tracker
+from agents.supervisor import analyze_conflict, run_analysis_streaming
+from api.proximity_correlation import run_correlation_for_events
+from compliance.risk_score import compute_compliance_risk
+from compliance.sanctions_search import get_threshold_policy, search_sanctions
+from compliance.supply_chain import get_intermediary_policy, screen_route
+from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
+from services.http_client import get_http_client
+from services.job_queue import Job, JobQueue
 
 router = APIRouter()
 
@@ -48,8 +51,19 @@ def _get_escalation_timeline(request: Request):
 
 # Agent keys present in supervisor result (for status recording).
 AGENT_KEYS = (
-    "finint", "sigint", "news", "geoint", "socmint", "techint", "cyber",
-    "energy", "protest", "diplo", "proximity", "narrative", "chokepoint",
+    "finint",
+    "sigint",
+    "news",
+    "geoint",
+    "socmint",
+    "techint",
+    "cyber",
+    "energy",
+    "protest",
+    "diplo",
+    "proximity",
+    "narrative",
+    "chokepoint",
 )
 
 
@@ -106,13 +120,17 @@ def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> No
         agent_result = result.get(key)
         if isinstance(agent_result, dict):
             meta = agent_result.get("_meta") or {}
-            per_agent[key] = {"duration_ms": meta.get("duration_ms"), "status": "error" if agent_result.get("timeout_or_error") else "ok"}
+            per_agent[key] = {
+                "duration_ms": meta.get("duration_ms"),
+                "status": "error" if agent_result.get("timeout_or_error") else "ok",
+            }
     entry = {
         "at": at_ts,
         "conflict": conflict,
         "escalation_score": result.get("escalation_score"),
         "agents": per_agent,
-        "error": result.get("error") or (result.get("_run_error") if isinstance(result.get("_run_error"), str) else None),
+        "error": result.get("error")
+        or (result.get("_run_error") if isinstance(result.get("_run_error"), str) else None),
     }
     history.append(entry)
 
@@ -139,12 +157,13 @@ def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dic
 
 
 @router.get("/analyze/stream")
-async def analyze_stream(request: Request, conflict: str = "Iran"):
+async def analyze_stream(request: Request, conflict: str = DEFAULT_CONFLICT):
     """
     GET /api/analyze/stream?conflict=Iran
     Server-Sent Events: one event per agent as it completes, then a final supervisor event.
     Event data: {"event": "agent", "agent": "finint", "result": {...}} or {"event": "supervisor", "result": {...}}.
     """
+
     async def event_stream():
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
@@ -198,6 +217,7 @@ async def agents_health():
     Per-source health report from HealthRegistry: availability %, avg latency, circuit_open, last_error.
     """
     from agents.health_registry import get_health_registry
+
     reg = get_health_registry()
     if reg is None:
         return {"sources": [], "summary": {"total_sources": 0, "degraded": 0, "down": 0, "ok": 0}}
@@ -219,7 +239,7 @@ async def agents_history(request: Request, limit: int = 20):
 
 
 @router.get("/analyze/status")
-async def analyze_status(request: Request, conflict: str = "Iran"):
+async def analyze_status(request: Request, conflict: str = DEFAULT_CONFLICT):
     """
     GET /analyze/status?conflict=Iran
     Leichtgewichtige Antwort: ob Cache existiert, wann zuletzt aktualisiert,
@@ -238,7 +258,7 @@ async def analyze_status(request: Request, conflict: str = "Iran"):
 
 
 @router.get("/analyze/latest")
-async def get_latest_analysis(request: Request, conflict: str = "Iran"):
+async def get_latest_analysis(request: Request, conflict: str = DEFAULT_CONFLICT):
     """
     GET /analyze/latest?conflict=Iran
     Liefert die letzte gecachte Analyse (nur vom 10-Min-Auto-Run). Startet keine neue Analyse.
@@ -251,7 +271,7 @@ async def get_latest_analysis(request: Request, conflict: str = "Iran"):
 
 
 @router.get("/analyze/timeline")
-async def get_escalation_timeline(request: Request, conflict: str = "Iran"):
+async def get_escalation_timeline(request: Request, conflict: str = DEFAULT_CONFLICT):
     """
     GET /analyze/timeline?conflict=Iran
     Returns escalation score over time for the Escalation Timeline UI.
@@ -266,16 +286,20 @@ async def get_escalation_timeline(request: Request, conflict: str = "Iran"):
         try:
             dt = datetime.fromtimestamp(float(at_ts), tz=timezone.utc)
             # label = Uhrzeit (HH:MM), label_with_date = genaue Laufzeit inkl. Datum (DD.MM. HH:MM)
-            points.append({
-                "at": at_ts,
-                "escalation_score": score,
-                "datetime_iso": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "hour": dt.strftime("%H"),
-                "label": dt.strftime("%H:%M"),
-                "label_with_date": dt.strftime("%d.%m. %H:%M"),
-            })
+            points.append(
+                {
+                    "at": at_ts,
+                    "escalation_score": score,
+                    "datetime_iso": dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "hour": dt.strftime("%H"),
+                    "label": dt.strftime("%H:%M"),
+                    "label_with_date": dt.strftime("%d.%m. %H:%M"),
+                }
+            )
         except (TypeError, ValueError, OSError):
-            points.append({"at": at_ts, "escalation_score": score, "datetime_iso": "", "label": "", "label_with_date": ""})
+            points.append(
+                {"at": at_ts, "escalation_score": score, "datetime_iso": "", "label": "", "label_with_date": ""}
+            )
     points.sort(key=lambda x: x.get("at") or 0)
     return {"conflict": conflict, "points": points}
 
@@ -305,7 +329,7 @@ ANALYZE_TIMEOUT_SEC = 300  # 5 minutes
 
 
 @router.get("/analyze/refresh")
-async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool = False):
+async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, sync: bool = False):
     """
     GET /analyze/refresh?conflict=Iran
     Kicks off a full analysis in the background and returns immediately.
@@ -338,6 +362,7 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
             return JSONResponse(status_code=504, content={"error": msg, "conflict": conflict})
         except Exception as e:
             import traceback
+
             last_error[conflict] = str(e)
             return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
@@ -367,13 +392,17 @@ async def refresh_analysis(request: Request, conflict: str = "Iran", sync: bool 
             print(f"[refresh] Analysis for {conflict} failed: {e}")
 
     asyncio.create_task(_run_in_background())
-    return {"status": "started", "conflict": conflict, "message": "Analysis running in background. Poll /api/analyze/status to check."}
+    return {
+        "status": "started",
+        "conflict": conflict,
+        "message": "Analysis running in background. Poll /api/analyze/status to check.",
+    }
 
 
 @router.post("/analyze/trigger")
 async def trigger_analysis(
     request: Request,
-    conflict: str = "Iran",
+    conflict: str = DEFAULT_CONFLICT,
     x_trigger_secret: str | None = Header(default=None, alias="X-Trigger-Secret"),
 ):
     """
@@ -382,7 +411,12 @@ async def trigger_analysis(
     """
     secret = os.getenv("ANALYZE_TRIGGER_SECRET", "").strip()
     if secret and x_trigger_secret != secret:
-        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Trigger-Secret. Remove ANALYZE_TRIGGER_SECRET from env to disable."})
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "Invalid or missing X-Trigger-Secret. Remove ANALYZE_TRIGGER_SECRET from env to disable."
+            },
+        )
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
@@ -402,6 +436,7 @@ async def trigger_analysis(
 
 # ── Proximity Analyzer: strike data (NASA FIRMS thermal anomalies) ───────────
 
+
 @router.get("/proximity/strikes")
 async def get_proximity_strikes(region: str = "middle_east", days: int = 3):
     """
@@ -416,7 +451,8 @@ async def get_proximity_strikes(region: str = "middle_east", days: int = 3):
             lambda: get_thermal_anomalies(region=region, days=max(1, min(5, int(days)))),
         )
         anomalies = [
-            a for a in (raw if isinstance(raw, list) else [])
+            a
+            for a in (raw if isinstance(raw, list) else [])
             if isinstance(a, dict) and "error" not in a and "lat" in a and "lon" in a
         ]
         return {"strikes": anomalies, "region": region, "days": days}
@@ -444,7 +480,8 @@ async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
             lambda: get_thermal_anomalies(region=region, days=max(1, min(5, int(days)))),
         )
         anomalies = [
-            a for a in (raw if isinstance(raw, list) else [])
+            a
+            for a in (raw if isinstance(raw, list) else [])
             if isinstance(a, dict) and "error" not in a and "lat" in a and "lon" in a
         ]
         events = [
@@ -455,7 +492,7 @@ async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
                 "description": a.get("type") or "thermal anomaly",
                 "acquired": a.get("acquired"),
             }
-            for a in anomalies[: _PROXIMITY_ANALYZE_MAX_STRIKES]
+            for a in anomalies[:_PROXIMITY_ANALYZE_MAX_STRIKES]
         ]
         tunnel_geojson = None
         if region in ("middle_east", "iran"):
@@ -496,12 +533,14 @@ async def get_chokepoint_overrides():
 
 
 @router.post("/chokepoints/overrides")
-async def set_chokepoint_overrides(body: Dict[str, Optional[str]] = Body(default={})):
+async def set_chokepoint_overrides(body: Optional[Dict[str, Optional[str]]] = None):
     """
     POST /api/chokepoints/overrides
     Body: { "Strait of Hormuz": "DISRUPTED", "Bab el-Mandeb": null, ... }
     Merges with existing overrides; null removes override for that chokepoint.
     """
+    if body is None:
+        body = {}
     current = _load_overrides()
     for cp_name, value in body.items():
         if cp_name not in CHOKEPOINT_NAMES:
@@ -515,6 +554,7 @@ async def set_chokepoint_overrides(body: Dict[str, Optional[str]] = Body(default
 
 
 # ── IAEA / OE-III Tracker (ADS-B, NOTAMs, IAEA Press – Rafael Grossi) ───────────
+
 
 @router.get("/iaea-tracker")
 async def get_iaea_tracker():
@@ -561,8 +601,9 @@ async def get_notam(
 
 # ── Conflict events for heatmap (ACLED lat/lon + intensity) ────────────────────
 
+
 @router.get("/conflict-events")
-async def get_conflict_events(conflict: str = "Iran", limit: int = 200):
+async def get_conflict_events(conflict: str = DEFAULT_CONFLICT, limit: int = 200):
     """
     GET /api/conflict-events?conflict=Iran&limit=200
     Returns conflict events with lat, lon, intensity for heatmap layer (ACLED).
@@ -580,7 +621,7 @@ async def get_conflict_events(conflict: str = "Iran", limit: int = 200):
 
 
 @router.get("/theater-events")
-async def get_theater_events_route(conflict: str = "Iran", limit: int = 400):
+async def get_theater_events_route(conflict: str = DEFAULT_CONFLICT, limit: int = 400):
     """
     GET /api/theater-events?conflict=Iran&limit=400
     Returns unified theater map events: FIRMS thermal anomalies + ACLED (with lat/lon).
@@ -599,6 +640,7 @@ async def get_theater_events_route(conflict: str = "Iran", limit: int = 400):
 
 
 # ── Proximity: IRGC tunnel / military sites GeoJSON (for human-shield correlation) ─
+
 
 @router.get("/proximity/tunnel-sites")
 async def get_tunnel_sites():
@@ -622,6 +664,7 @@ async def get_tunnel_sites():
 
 
 # ── Webhook: incoming events (e.g. from Liveuamap, cron, or external aggregator) ─
+
 
 class ProximityEventItem(BaseModel):
     lat: float
@@ -705,6 +748,7 @@ async def get_proximity_job_status(request: Request, job_id: str):
 
 # ── Sanctions Compliance ─────────────────────────────────────────────────────
 
+
 class SanctionsCheckRequest(BaseModel):
     query: Optional[str] = None
     queries: Optional[List[str]] = None
@@ -725,8 +769,7 @@ async def sanctions_check(body: SanctionsCheckRequest):
     DISCLAIMER: Intelligence signals only – not legal advice.
     """
     disclaimer = (
-        "Intelligence signals only – not legal advice. "
-        "Supports due diligence but does not replace legal review."
+        "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review."
     )
     try:
         if body.queries:
@@ -791,6 +834,7 @@ async def get_compliance_threshold_policy():
 
 class ComplianceDocumentQAContext(BaseModel):
     """Optional compliance context sent from the frontend (current panel state)."""
+
     ofac_sample: Optional[List[str]] = None
     ofac_programs_summary: Optional[str] = None
     risk_level: Optional[str] = None
@@ -799,6 +843,7 @@ class ComplianceDocumentQAContext(BaseModel):
 
 class ComplianceDocumentQARequest(BaseModel):
     """Request for Document QA using compliance context only (no PDF ingest)."""
+
     question: str
     conflict: Optional[str] = None
     context: Optional[ComplianceDocumentQAContext] = None
@@ -834,7 +879,7 @@ async def compliance_document_qa(body: ComplianceDocumentQARequest):
         if not (body.question or "").strip():
             return JSONResponse(status_code=400, content={"error": "question is required"})
 
-        conflict = (body.conflict or "").strip() or "Iran"
+        conflict = (body.conflict or "").strip() or DEFAULT_CONFLICT
         context_str = _build_compliance_context(conflict, body.context)
         if not context_str.strip():
             context_str = "No compliance context provided."
@@ -855,8 +900,7 @@ async def compliance_document_qa(body: ComplianceDocumentQARequest):
                 ),
             }
         result["disclaimer"] = (
-            "Intelligence signals only – not legal advice. "
-            "Supports due diligence but does not replace legal review."
+            "Intelligence signals only – not legal advice. Supports due diligence but does not replace legal review."
         )
         return result
     except Exception as e:
@@ -966,6 +1010,7 @@ async def ingest_document(body: DocumentIngestRequest):
     """
     try:
         from services.pdf_ingest_service import ingest_pdf
+
         result = await ingest_pdf(
             url=body.url,
             source=body.source,
@@ -986,6 +1031,7 @@ async def list_documents():
     """GET /documents — List all ingested documents."""
     try:
         from services.pdf_ingest_service import list_documents as _list
+
         return _list()
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -1024,6 +1070,7 @@ async def document_qa(body: DocumentQARequest):
         # Try Haiku first
         try:
             from services.haiku_service import document_qa as haiku_qa
+
             result = await haiku_qa(body.question, chunks, max_chunks=5)
             if result and result.get("answer"):
                 return result
@@ -1033,6 +1080,7 @@ async def document_qa(body: DocumentQARequest):
         # Fallback to HF extractive QA
         try:
             from services.hf_service import document_qa_multi
+
             hf_results = await document_qa_multi(body.question, chunks, top_k=3)
             if hf_results:
                 return {

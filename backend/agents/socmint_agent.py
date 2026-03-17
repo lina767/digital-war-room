@@ -6,6 +6,7 @@ Telegram: scrapes public preview pages t.me/s/{channel}. This is fragile – Tel
 changes HTML or serves content via JavaScript, so the scraper may return 0 messages.
 See docs/API-KEYS.md "Warum Telegram oft 0 liefert" for details and alternatives.
 """
+
 import asyncio
 import logging
 import os
@@ -18,14 +19,15 @@ from typing import Any, Dict, List
 import feedparser
 import httpx
 
+from .config import RELIEFWEB_APPNAME
 from .health_registry import get_health_registry
 from .llm import run_tool_agent
 from .utils import (
     AgentMetadata,
     SourceResult,
+    compute_confidence_from_sources,
     run_async,
     utc_now_iso,
-    compute_confidence_from_sources,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,13 +135,40 @@ RSS_FEEDS = {
     ],
 }
 
-ESCALATION_KW = ["attack", "strike", "missile", "war", "explosion", "killed", "military", "nuclear", "threat", "mobilization", "troops", "airstrike"]
+ESCALATION_KW = [
+    "attack",
+    "strike",
+    "missile",
+    "war",
+    "explosion",
+    "killed",
+    "military",
+    "nuclear",
+    "threat",
+    "mobilization",
+    "troops",
+    "airstrike",
+]
 DE_ESCALATION_KW = ["ceasefire", "talks", "diplomatic", "deal", "agreement", "peace", "negotiate", "withdraw"]
 
 
 def _conflict_to_region(conflict: str) -> str:
     cl = conflict.lower()
-    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "lebanon", "hezbollah", "houthi", "middle east", "naher osten"]):
+    if any(
+        k in cl
+        for k in [
+            "iran",
+            "israel",
+            "gaza",
+            "yemen",
+            "syria",
+            "lebanon",
+            "hezbollah",
+            "houthi",
+            "middle east",
+            "naher osten",
+        ]
+    ):
         return "middle_east"
     if any(k in cl for k in ["ukraine", "russia", "donbas"]):
         return "eastern_europe"
@@ -164,11 +193,27 @@ def _conflict_keywords(conflict: str) -> List[str]:
     # Naher Osten / Middle East: breite Abdeckung
     if "middle east" in cl or "naher osten" in cl or "middleeast" in cl:
         return [
-            "iran", "irgc", "tehran", "persian gulf",
-            "houthi", "houthis", "ansar allah", "yemen", "red sea",
-            "hezbollah", "idf", "lebanon", "nasrallah",
-            "israel", "gaza", "hamas", "palestine", "west bank",
-            "syria", "iraq", "beirut",
+            "iran",
+            "irgc",
+            "tehran",
+            "persian gulf",
+            "houthi",
+            "houthis",
+            "ansar allah",
+            "yemen",
+            "red sea",
+            "hezbollah",
+            "idf",
+            "lebanon",
+            "nasrallah",
+            "israel",
+            "gaza",
+            "hamas",
+            "palestine",
+            "west bank",
+            "syria",
+            "iraq",
+            "beirut",
         ]
     if "hezbollah" in cl:
         return ["hezbollah", "lebanon", "nasrallah", "beirut", "south lebanon", "litani", "idf", "israel"]
@@ -176,9 +221,21 @@ def _conflict_keywords(conflict: str) -> List[str]:
         return ["houthi", "houthis", "yemen", "sanaa", "red sea", "ansar allah"]
     if "iran" in cl:
         return [
-            "iran", "irgc", "tehran", "nuclear", "khamenei", "persian gulf",
-            "houthi", "houthis", "ansar allah", "yemen", "red sea",
-            "hezbollah", "idf", "lebanon", "nasrallah",
+            "iran",
+            "irgc",
+            "tehran",
+            "nuclear",
+            "khamenei",
+            "persian gulf",
+            "houthi",
+            "houthis",
+            "ansar allah",
+            "yemen",
+            "red sea",
+            "hezbollah",
+            "idf",
+            "lebanon",
+            "nasrallah",
         ]
     if "ukraine" in cl:
         return ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky"]
@@ -196,6 +253,7 @@ def _conflict_keywords(conflict: str) -> List[str]:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
+
 def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
     """
     Scrape public Telegram channels for conflict-related posts.
@@ -209,7 +267,7 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
     TELEGRAM_MESSAGE_PATTERNS = [
         r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>\s*</div>',
         r'class="tgme_widget_message_text"[^>]*>(.*?)</div>',
-        r'<div[^>]+js-message-text[^>]*>(.*?)</div>',
+        r"<div[^>]+js-message-text[^>]*>(.*?)</div>",
         r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>',
     ]
 
@@ -217,16 +275,22 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
         for pattern in TELEGRAM_MESSAGE_PATTERNS:
             messages = re.findall(pattern, html, re.DOTALL)
             if messages:
-                return [re.sub(r'<[^>]+>', '', m).strip() for m in messages]
+                return [re.sub(r"<[^>]+>", "", m).strip() for m in messages]
         og_desc = re.findall(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
         if og_desc:
-            return [re.sub(r'<[^>]+>', '', d).strip() for d in og_desc if d.strip()]
+            return [re.sub(r"<[^>]+>", "", d).strip() for d in og_desc if d.strip()]
         return []
 
     async def _fetch_channel(client: httpx.AsyncClient, channel: str) -> List[Dict[str, Any]]:
         try:
             url = f"https://t.me/s/{channel}"
-            resp = await client.get(url, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"})
+            resp = await client.get(
+                url,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                },
+            )
             if resp.status_code != 200:
                 logger.debug("SOCMINT Telegram %s: HTTP %s", channel, resp.status_code)
                 return []
@@ -236,7 +300,8 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
             if not clean:
                 logger.debug(
                     "SOCMINT Telegram %s: 0 messages extracted (HTML len=%s). Telegram may have changed t.me/s layout or serve content via JS.",
-                    channel, len(html),
+                    channel,
+                    len(html),
                 )
             results = []
             for text in clean[:15]:
@@ -246,13 +311,19 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
                 if not any(kw in text_lower for kw in keywords):
                     continue
                 score = _sentiment(text)
-                results.append({
-                    "source": f"telegram:{channel}",
-                    "text": text[:300],
-                    "sentiment_score": score,
-                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                    "platform": "telegram",
-                })
+                results.append(
+                    {
+                        "source": f"telegram:{channel}",
+                        "text": text[:300],
+                        "sentiment_score": score,
+                        "sentiment_label": "ESCALATORY"
+                        if score > 0.2
+                        else "DE-ESCALATORY"
+                        if score < -0.2
+                        else "NEUTRAL",
+                        "platform": "telegram",
+                    }
+                )
             return results
         except Exception as e:
             logger.debug("SOCMINT Telegram %s failed: %s", channel, e)
@@ -312,7 +383,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                         continue
                     results = []
                     for raw in matches[:10]:
-                        text = re.sub(r'<[^>]+>', '', raw).strip().replace("&amp;", "&").replace("&#39;", "'")
+                        text = re.sub(r"<[^>]+>", "", raw).strip().replace("&amp;", "&").replace("&#39;", "'")
                         if not text or len(text) < 15:
                             continue
                         if not any(kw in text.lower() for kw in keywords):
@@ -335,7 +406,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                 results = []
                 for entry in (feed.entries or [])[:10]:
                     title = (entry.get("title") or "").strip()
-                    summary = (entry.get("summary") or entry.get("description") or "")
+                    summary = entry.get("summary") or entry.get("description") or ""
                     text = (title + " " + re.sub(r"<[^>]+>", " ", summary)).strip() or title
                     if not text or len(text) < 15:
                         continue
@@ -352,13 +423,14 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
         """Last-resort fallback: scrape X profile via Firecrawl (requires FIRECRAWL_API_KEY)."""
         try:
             from firecrawl import Firecrawl
+
             api_key = os.getenv("FIRECRAWL_API_KEY")
             if not api_key:
                 return []
             fc = Firecrawl(api_key=api_key)
             result = fc.scrape(f"https://x.com/{account}", formats=["markdown"])
             md = (result or {}).get("markdown") or ""
-            lines = [l.strip() for l in md.split("\n") if l.strip() and len(l.strip()) > 20]
+            lines = [line.strip() for line in md.split("\n") if line.strip() and len(line.strip()) > 20]
             posts = []
             for line in lines[:15]:
                 if not any(kw in line.lower() for kw in keywords):
@@ -427,17 +499,23 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                 if not any(kw in combined for kw in keywords):
                     continue
                 score = _sentiment(combined)
-                results.append({
-                    "source": f"reddit:r/{subreddit}",
-                    "title": title,
-                    "text": text[:200] if text else "",
-                    "url": f"https://reddit.com{p.get('permalink', '')}",
-                    "upvotes": p.get("score", 0),
-                    "sentiment_score": score,
-                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                    "platform": "reddit",
-                    "published_at": created.isoformat(),
-                })
+                results.append(
+                    {
+                        "source": f"reddit:r/{subreddit}",
+                        "title": title,
+                        "text": text[:200] if text else "",
+                        "url": f"https://reddit.com{p.get('permalink', '')}",
+                        "upvotes": p.get("score", 0),
+                        "sentiment_score": score,
+                        "sentiment_label": "ESCALATORY"
+                        if score > 0.2
+                        else "DE-ESCALATORY"
+                        if score < -0.2
+                        else "NEUTRAL",
+                        "platform": "reddit",
+                        "published_at": created.isoformat(),
+                    }
+                )
             return results
         except Exception:
             return []
@@ -455,7 +533,7 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
             results = []
             for entry in (feed.entries or [])[:limit]:
                 title = (entry.get("title") or "").strip()
-                summary = (entry.get("summary") or entry.get("description") or "")
+                summary = entry.get("summary") or entry.get("description") or ""
                 text = re.sub(r"<[^>]+>", " ", summary).strip() or ""
                 combined = f"{title} {text}".lower()
                 if not any(kw in combined for kw in keywords):
@@ -464,25 +542,30 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
                     try:
                         import calendar
-                        published = datetime.fromtimestamp(
-                            calendar.timegm(entry.published_parsed), tz=timezone.utc
-                        )
+
+                        published = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), tz=timezone.utc)
                     except Exception:
                         pass
                 if published and published < cutoff:
                     continue
                 score = _sentiment(combined)
-                results.append({
-                    "source": f"reddit:r/{subreddit}",
-                    "title": title,
-                    "text": text[:200] if text else "",
-                    "url": entry.get("link", ""),
-                    "upvotes": 0,
-                    "sentiment_score": score,
-                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                    "platform": "reddit",
-                    "published_at": published.isoformat() if published else "",
-                })
+                results.append(
+                    {
+                        "source": f"reddit:r/{subreddit}",
+                        "title": title,
+                        "text": text[:200] if text else "",
+                        "url": entry.get("link", ""),
+                        "upvotes": 0,
+                        "sentiment_score": score,
+                        "sentiment_label": "ESCALATORY"
+                        if score > 0.2
+                        else "DE-ESCALATORY"
+                        if score < -0.2
+                        else "NEUTRAL",
+                        "platform": "reddit",
+                        "published_at": published.isoformat() if published else "",
+                    }
+                )
             return results
         except Exception:
             return []
@@ -537,31 +620,35 @@ def fetch_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                 if hasattr(entry, "published_parsed") and entry.published_parsed:
                     try:
                         import calendar
-                        published = datetime.fromtimestamp(
-                            calendar.timegm(entry.published_parsed), tz=timezone.utc
-                        )
+
+                        published = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), tz=timezone.utc)
                     except Exception:
                         pass
                 if published and published < cutoff:
                     continue
                 score = _sentiment(combined)
-                results.append({
-                    "source": f"rss:{feed.feed.get('title', feed_url)}",
-                    "title": title,
-                    "summary": summary[:200],
-                    "url": entry.get("link", ""),
-                    "sentiment_score": score,
-                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                    "platform": "rss",
-                    "published_at": published.isoformat() if published else "",
-                })
+                results.append(
+                    {
+                        "source": f"rss:{feed.feed.get('title', feed_url)}",
+                        "title": title,
+                        "summary": summary[:200],
+                        "url": entry.get("link", ""),
+                        "sentiment_score": score,
+                        "sentiment_label": "ESCALATORY"
+                        if score > 0.2
+                        else "DE-ESCALATORY"
+                        if score < -0.2
+                        else "NEUTRAL",
+                        "platform": "rss",
+                        "published_at": published.isoformat() if published else "",
+                    }
+                )
         except Exception:
             continue
 
     return results[:20]
 
 
-RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"
 RELIEFWEB_COUNTRY_NAMES = {
     "iran": "Iran",
     "israel": "Israel",
@@ -591,16 +678,22 @@ async def _reliefweb_rss_fallback(country_name: str, keywords: List[str]) -> Lis
                 if not any(kw in combined for kw in keywords):
                     continue
                 score = _sentiment(combined)
-                results.append({
-                    "title": title[:400],
-                    "date": entry.get("published") or "",
-                    "body_excerpt": summary,
-                    "source": "ReliefWeb (RSS)",
-                    "url": entry.get("link") or "",
-                    "sentiment_score": score,
-                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                    "platform": "reliefweb",
-                })
+                results.append(
+                    {
+                        "title": title[:400],
+                        "date": entry.get("published") or "",
+                        "body_excerpt": summary,
+                        "source": "ReliefWeb (RSS)",
+                        "url": entry.get("link") or "",
+                        "sentiment_score": score,
+                        "sentiment_label": "ESCALATORY"
+                        if score > 0.2
+                        else "DE-ESCALATORY"
+                        if score < -0.2
+                        else "NEUTRAL",
+                        "platform": "reliefweb",
+                    }
+                )
                 if len(results) >= 10:
                     break
             return results
@@ -635,7 +728,9 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
             async with httpx.AsyncClient(timeout=14.0) as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code == 403:
-                    logger.info("SOCMINT ReliefWeb: 403 – appname not approved, falling back to RSS. Register at https://apidoc.reliefweb.int/parameters#appname")
+                    logger.info(
+                        "SOCMINT ReliefWeb: 403 – appname not approved, falling back to RSS. Register at https://apidoc.reliefweb.int/parameters#appname"
+                    )
                     return await _reliefweb_rss_fallback(country_name, keywords)
                 if resp.status_code != 200:
                     return []
@@ -659,21 +754,29 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
             if not any(kw in combined for kw in keywords):
                 continue
             date_obj = fields.get("date") or {}
-            date_created = date_obj.get("created") or date_obj.get("changed") or "" if isinstance(date_obj, dict) else ""
+            date_created = (
+                date_obj.get("created") or date_obj.get("changed") or "" if isinstance(date_obj, dict) else ""
+            )
             src_list = fields.get("source") or []
             source = src_list[0].get("name", "ReliefWeb") if src_list and isinstance(src_list[0], dict) else "ReliefWeb"
-            url_link = fields.get("url", "") if isinstance(fields.get("url"), str) else (fields.get("url", [{}])[0].get("url", "") if isinstance(fields.get("url"), list) else "")
+            url_link = (
+                fields.get("url", "")
+                if isinstance(fields.get("url"), str)
+                else (fields.get("url", [{}])[0].get("url", "") if isinstance(fields.get("url"), list) else "")
+            )
             score = _sentiment(combined)
-            results.append({
-                "title": title,
-                "date": date_created,
-                "body_excerpt": body_excerpt,
-                "source": source,
-                "url": url_link,
-                "sentiment_score": score,
-                "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
-                "platform": "reliefweb",
-            })
+            results.append(
+                {
+                    "title": title,
+                    "date": date_created,
+                    "body_excerpt": body_excerpt,
+                    "source": source,
+                    "url": url_link,
+                    "sentiment_score": score,
+                    "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
+                    "platform": "reliefweb",
+                }
+            )
         return results[:15]
 
     try:
@@ -683,6 +786,7 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
 
 
 # ── NER enrichment (Phase 2) ─────────────────────────────────────────────────
+
 
 def _run_socmint_ner(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -697,13 +801,10 @@ def _run_socmint_ner(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         key=lambda x: abs(x.get("sentiment_score", 0)),
         reverse=True,
     )[:30]
-    texts = [
-        (p.get("text") or p.get("title") or p.get("body_excerpt") or "")[:1000]
-        for p in top_posts
-    ]
+    texts = [(p.get("text") or p.get("title") or p.get("body_excerpt") or "")[:1000] for p in top_posts]
     all_entities: List[Dict[str, Any]] = []
     try:
-        from services.haiku_service import batch_ner, is_haiku_failed, HAIKU_MAX_NER_PER_RUN
+        from services.haiku_service import HAIKU_MAX_NER_PER_RUN, batch_ner, is_haiku_failed
         from services.hf_service import ner_bulk
 
         haiku_texts = texts[:HAIKU_MAX_NER_PER_RUN]
@@ -731,6 +832,7 @@ def _run_socmint_ner(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                             all_entities.extend(ents)
     except Exception as e:
         import logging as _log_mod
+
         _log_mod.getLogger(__name__).debug("SOCMINT NER enrichment unavailable: %s", e)
 
     seen = set()
@@ -744,6 +846,7 @@ def _run_socmint_ner(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
+
 
 def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
     """Execute SOCMINT tool chain: all five sources in parallel. No LLM."""
@@ -760,19 +863,28 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             twitter = [p for p in (fut_twitter.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
             reddit = [p for p in (fut_reddit.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
             rss = [p for p in (fut_rss.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
-            reliefweb = [p for p in (fut_reliefweb.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
+            reliefweb = [
+                p for p in (fut_reliefweb.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p
+            ]
 
         all_posts = telegram + twitter + reddit + rss + reliefweb
 
         # Semantic deduplication (graceful: returns unchanged if HF unavailable)
         try:
             from services.hf_service import deduplicate_items
-            all_posts = run_async(deduplicate_items(
-                all_posts, text_key="text", threshold=0.92,
-                source="socmint", conflict=conflict,
-            ))
+
+            all_posts = run_async(
+                deduplicate_items(
+                    all_posts,
+                    text_key="text",
+                    threshold=0.92,
+                    source="socmint",
+                    conflict=conflict,
+                )
+            )
         except Exception as e:
             import logging as _log
+
             _log.getLogger(__name__).debug("HF semantic dedup unavailable in SOCMINT: %s", e)
 
         escalatory = sum(1 for p in all_posts if p.get("sentiment_label") == "ESCALATORY")
@@ -781,10 +893,16 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         overall_sentiment = (sent_sum / len(all_posts)) if all_posts else 0.0
 
         base = 30.0
-        twitter_esc = sum(1 for p in twitter if p.get("sentiment_label") == "ESCALATORY" and p.get("account") in ("sentdefcon", "OSINTdefender"))
+        twitter_esc = sum(
+            1
+            for p in twitter
+            if p.get("sentiment_label") == "ESCALATORY" and p.get("account") in ("sentdefcon", "OSINTdefender")
+        )
         base += min(50, twitter_esc * 8)
         base += min(20, len(reliefweb) * 10)
-        telegram_channels_with_esc = len(set(p.get("source", "") for p in telegram if p.get("sentiment_label") == "ESCALATORY"))
+        telegram_channels_with_esc = len(
+            {p.get("source", "") for p in telegram if p.get("sentiment_label") == "ESCALATORY"}
+        )
         base += min(24, telegram_channels_with_esc * 6)
         base += min(30, max(0, escalatory - twitter_esc) * 3)
         base -= de_esc * 2
@@ -803,11 +921,25 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
-            SourceResult(name="Telegram", status="ok" if telegram else "error", fetched_at=fetched_at, record_count=len(telegram)),
-            SourceResult(name="Twitter/Nitter", status="ok" if twitter else "error", fetched_at=fetched_at, record_count=len(twitter)),
-            SourceResult(name="Reddit", status="ok" if reddit else "error", fetched_at=fetched_at, record_count=len(reddit)),
+            SourceResult(
+                name="Telegram", status="ok" if telegram else "error", fetched_at=fetched_at, record_count=len(telegram)
+            ),
+            SourceResult(
+                name="Twitter/Nitter",
+                status="ok" if twitter else "error",
+                fetched_at=fetched_at,
+                record_count=len(twitter),
+            ),
+            SourceResult(
+                name="Reddit", status="ok" if reddit else "error", fetched_at=fetched_at, record_count=len(reddit)
+            ),
             SourceResult(name="RSS", status="ok" if rss else "error", fetched_at=fetched_at, record_count=len(rss)),
-            SourceResult(name="ReliefWeb", status="ok" if reliefweb else "error", fetched_at=fetched_at, record_count=len(reliefweb)),
+            SourceResult(
+                name="ReliefWeb",
+                status="ok" if reliefweb else "error",
+                fetched_at=fetched_at,
+                record_count=len(reliefweb),
+            ),
         ]
         reg = get_health_registry()
         if reg:
@@ -815,8 +947,19 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "socmint", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
-        meta = AgentMetadata(agent="socmint", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        data_freshness = (
+            "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        )
+        meta = AgentMetadata(
+            agent="socmint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=None,
+        )
         return {
             "conflict": conflict,
             "telegram_posts": telegram,
@@ -836,7 +979,16 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         }
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="socmint", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
+        meta = AgentMetadata(
+            agent="socmint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=[],
+            confidence=compute_confidence_from_sources([]),
+            data_freshness="unavailable",
+            fallback_used=True,
+            error_summary=str(e),
+        )
     return {
         "conflict": conflict,
         "telegram_posts": [],
@@ -893,7 +1045,9 @@ No markdown, no explanation, just JSON."""
 def run_socmint_agent(conflict: str) -> Dict[str, Any]:
     """Run SOCMINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
     import json
+
     from .config import USE_RULE_BASED_AGENTS
+
     if USE_RULE_BASED_AGENTS:
         return _run_rule_based_socmint(conflict)
 
@@ -905,11 +1059,51 @@ def run_socmint_agent(conflict: str) -> Dict[str, Any]:
         "fetch_reliefweb_reports": fetch_reliefweb_reports,
     }
     TOOL_SCHEMAS = [
-        {"name": "scrape_telegram_channels", "description": "Scrape Telegram channels for conflict signals.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "scrape_twitter_nitter", "description": "Scrape Twitter/Nitter for conflict signals.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "search_reddit", "description": "Search Reddit for conflict-related posts.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "fetch_rss_feeds", "description": "Fetch curated RSS feeds for conflict analysis.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-        {"name": "fetch_reliefweb_reports", "description": "Fetch ReliefWeb humanitarian reports.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+        {
+            "name": "scrape_telegram_channels",
+            "description": "Scrape Telegram channels for conflict signals.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"conflict": {"type": "string"}},
+                "required": ["conflict"],
+            },
+        },
+        {
+            "name": "scrape_twitter_nitter",
+            "description": "Scrape Twitter/Nitter for conflict signals.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"conflict": {"type": "string"}},
+                "required": ["conflict"],
+            },
+        },
+        {
+            "name": "search_reddit",
+            "description": "Search Reddit for conflict-related posts.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"conflict": {"type": "string"}},
+                "required": ["conflict"],
+            },
+        },
+        {
+            "name": "fetch_rss_feeds",
+            "description": "Fetch curated RSS feeds for conflict analysis.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"conflict": {"type": "string"}},
+                "required": ["conflict"],
+            },
+        },
+        {
+            "name": "fetch_reliefweb_reports",
+            "description": "Fetch ReliefWeb humanitarian reports.",
+            "input_schema": {
+                "type": "object",
+                "properties": {"conflict": {"type": "string"}},
+                "required": ["conflict"],
+            },
+        },
     ]
     text = run_tool_agent(
         system=SOCMINT_SYSTEM,
@@ -922,7 +1116,7 @@ def run_socmint_agent(conflict: str) -> Dict[str, Any]:
         text = text.strip()
         for prefix in ("```json", "```"):
             if text.startswith(prefix):
-                text = text[len(prefix):].strip()
+                text = text[len(prefix) :].strip()
         if text.endswith("```"):
             text = text[:-3].strip()
         try:

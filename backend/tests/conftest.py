@@ -1,6 +1,7 @@
 """
 Shared pytest fixtures for the multi-agent hierarchy test suite.
 """
+
 import pytest
 
 from agents.agent_state_store import AgentStateStore

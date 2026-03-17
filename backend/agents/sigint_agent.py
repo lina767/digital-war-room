@@ -14,6 +14,7 @@ Naval vessels: no external API in use (VesselFinder removed). Ships list can be 
 Intelligence reports:
   - CriticalThreats, LongWarJournal, UnderstandingWar RSS feeds
 """
+
 import asyncio
 import logging
 import os
@@ -25,18 +26,18 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import BaseModel, Field
 
-from .config import USER_AGENT, DEFAULT_TIMEOUT
+from .config import USER_AGENT
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .utils import (
     AgentMetadata,
+    ScoreConfidence,
     SourceResult,
+    compute_confidence_from_sources,
+    parse_adsb_response,
+    run_async,
     safe_float,
     utc_now_iso,
-    parse_adsb_response,
-    ScoreConfidence,
-    run_async,
-    compute_confidence_from_sources,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,46 +62,84 @@ ADSB_REGIONS = [
 
 # ── Classification ────────────────────────────────────────────────────────
 MILITARY_CALLSIGN_PREFIXES = [
-    "RCH", "USAF", "NAVY", "DUKE", "REACH", "JAKE", "EVAC", "SAM",
-    "HAVOC", "VIPER", "SKULL", "IRON", "DOOM", "GHOST", "ATLAS", "SPAR",
-    "FORTE",    # RQ-4 Global Hawk (FORTE11, FORTE12, etc.)
-    "TACAMO",   # E-6B Mercury (nuclear C3)
-    "NCHO",     # E-6B / TACAMO alternate
+    "RCH",
+    "USAF",
+    "NAVY",
+    "DUKE",
+    "REACH",
+    "JAKE",
+    "EVAC",
+    "SAM",
+    "HAVOC",
+    "VIPER",
+    "SKULL",
+    "IRON",
+    "DOOM",
+    "GHOST",
+    "ATLAS",
+    "SPAR",
+    "FORTE",  # RQ-4 Global Hawk (FORTE11, FORTE12, etc.)
+    "TACAMO",  # E-6B Mercury (nuclear C3)
+    "NCHO",  # E-6B / TACAMO alternate
 ]
 SURVEILLANCE_TYPES = [
-    "RC-135", "E-3", "E-8", "P-8", "EP-3", "RQ-4", "MQ-9", "U-2",
-    "E-2", "E-6", "RC12", "MC-12", "P-3",
-    "E-7",      # E-7A Wedgetail (drone/cruise missile detection)
+    "RC-135",
+    "E-3",
+    "E-8",
+    "P-8",
+    "EP-3",
+    "RQ-4",
+    "MQ-9",
+    "U-2",
+    "E-2",
+    "E-6",
+    "RC12",
+    "MC-12",
+    "P-3",
+    "E-7",  # E-7A Wedgetail (drone/cruise missile detection)
     "E7A",
-    "E6B",      # E-6B Mercury (TACAMO – nuclear C3, doomsday plane)
+    "E6B",  # E-6B Mercury (TACAMO – nuclear C3, doomsday plane)
 ]
 TANKER_TYPES = [
-    "KC-135", "KC-10", "KC-46", "KC130",
-    "A330",     # A330 MRTT (Israel/NATO/UAE – long-range refueling)
+    "KC-135",
+    "KC-10",
+    "KC-46",
+    "KC130",
+    "A330",  # A330 MRTT (Israel/NATO/UAE – long-range refueling)
     "MRTT",
-    "A310",     # A310 MRTT (Luftwaffe)
-    "KC-30",    # RAAF A330 MRTT designation
+    "A310",  # A310 MRTT (Luftwaffe)
+    "KC-30",  # RAAF A330 MRTT designation
 ]
 FIGHTER_TYPES = ["F-16", "F-15", "F-35", "F/A-18", "FA18", "B-52", "B-2", "B1"]
 TRANSPORT_TYPES = [
-    "C-17", "C-130", "C-5", "C-40", "C-37", "C-32",
-    "Il-76", "IL76",   # Pouya Air / Iranian military transport
-    "An-124", "AN124",
-    "747",              # Qeshm Fars Air 747F (EP-FAA, EP-FAB)
+    "C-17",
+    "C-130",
+    "C-5",
+    "C-40",
+    "C-37",
+    "C-32",
+    "Il-76",
+    "IL76",  # Pouya Air / Iranian military transport
+    "An-124",
+    "AN124",
+    "747",  # Qeshm Fars Air 747F (EP-FAA, EP-FAB)
 ]
 DOOMSDAY_TYPES = [
-    "E-6",  "E6B",     # E-6B Mercury (TACAMO – nuclear C3)
-    "E-4",  "E4B",     # E-4B Nightwatch (NAOC)
+    "E-6",
+    "E6B",  # E-6B Mercury (TACAMO – nuclear C3)
+    "E-4",
+    "E4B",  # E-4B Nightwatch (NAOC)
 ]
 # Callsign patterns that indicate high-priority intel events
 HIGH_PRIORITY_CALLSIGNS = [
-    "FORTE",            # RQ-4 Global Hawk ISR
-    "TACAMO",           # E-6B Mercury
-    "NCHO",             # E-6B alternate
-    "DARKSTAR",         # classified ISR
-    "GORDO",            # RQ-4 alternate
+    "FORTE",  # RQ-4 Global Hawk ISR
+    "TACAMO",  # E-6B Mercury
+    "NCHO",  # E-6B alternate
+    "DARKSTAR",  # classified ISR
+    "GORDO",  # RQ-4 alternate
 ]
 # Hormuz tankers: filled from Chokepoint agent (AISStream) in supervisor when AIRSTREAM_API_KEY is set.
+
 
 # Optional target aircraft profiles – track multiple high-value aircraft via ADSBexchange/RapidAPI + free ADS-B.
 # Add entries here or via env (e.g. OEIII_HEX for ICAO). Each key = target name, value = { hex?, regs?, notes? }.
@@ -165,14 +204,14 @@ ADSB_TARGET_SCAN_REGIONS = [
     ("Eastern Med", 33.0, 35.0, 400),
     ("Persian Gulf", 26.0, 55.0, 450),
     # Key military bases & transit corridors
-    ("Al Udeid/Qatar", 25.1, 51.3, 200),      # CENTCOM forward HQ
-    ("Al Dhafra/UAE", 24.2, 54.5, 200),        # US/French air base
-    ("Akrotiri/Cyprus", 34.6, 33.0, 250),      # RAF base (staging)
-    ("Jordan corridor", 31.5, 36.5, 300),      # transit corridor → Iran
-    ("Northern Iraq", 36.0, 44.0, 300),         # Erbil/Kirkuk corridor
-    ("Strait of Hormuz", 26.5, 56.3, 200),     # maritime ISR (P-8)
-    ("Tehran FIR", 35.7, 51.4, 400),           # Iranian airspace
-    ("Syria corridor", 34.5, 38.5, 300),       # Damascus/Aleppo (arms flights)
+    ("Al Udeid/Qatar", 25.1, 51.3, 200),  # CENTCOM forward HQ
+    ("Al Dhafra/UAE", 24.2, 54.5, 200),  # US/French air base
+    ("Akrotiri/Cyprus", 34.6, 33.0, 250),  # RAF base (staging)
+    ("Jordan corridor", 31.5, 36.5, 300),  # transit corridor → Iran
+    ("Northern Iraq", 36.0, 44.0, 300),  # Erbil/Kirkuk corridor
+    ("Strait of Hormuz", 26.5, 56.3, 200),  # maritime ISR (P-8)
+    ("Tehran FIR", 35.7, 51.4, 400),  # Iranian airspace
+    ("Syria corridor", 34.5, 38.5, 300),  # Damascus/Aleppo (arms flights)
 ]
 # Backwards compat alias
 ADSB_REGIONS_OEIII = ADSB_TARGET_SCAN_REGIONS
@@ -184,7 +223,6 @@ ADSBEXCHANGE_RAPIDAPI_KEY = (os.getenv("ADSBEXCHANGE_RAPIDAPI_KEY") or os.getenv
 ADSBEXCHANGE_RAPIDAPI_HOST = (os.getenv("ADSBEXCHANGE_RAPIDAPI_HOST") or "adsbexchange-com1.p.rapidapi.com").strip()
 OPENSKY_USERNAME = (os.getenv("OPENSKY_USERNAME") or "").strip() or None
 OPENSKY_PASSWORD = (os.getenv("OPENSKY_PASSWORD") or "").strip() or None
-
 
 
 def _adsbexchange_rapidapi_headers() -> Dict[str, str]:
@@ -264,9 +302,7 @@ async def _fetch_adsb_by_registration(client: httpx.AsyncClient, reg: str) -> Li
     return []
 
 
-async def _fetch_adsb_regions_for_target(
-    client: httpx.AsyncClient, cfg: Dict[str, Any]
-) -> List[Dict[str, Any]]:
+async def _fetch_adsb_regions_for_target(client: httpx.AsyncClient, cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Scan Vienna, Eastern Med, Gulf via adsb.fi/adsb.lol and return aircraft matching target."""
     candidates: List[Dict[str, Any]] = []
     for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
@@ -294,23 +330,49 @@ _REG_TO_COUNTRY: Dict[str, str] = {
     "N": "United States",
     "EP": "Iran",
     "4X": "Israel",
-    "RA": "Russia", "RF": "Russia", "RU": "Russia",
-    "UR": "Ukraine", "UU": "Ukraine",
+    "RA": "Russia",
+    "RF": "Russia",
+    "RU": "Russia",
+    "UR": "Ukraine",
+    "UU": "Ukraine",
     "YK": "Syria",
-    "A6": "UAE", "HZ": "Saudi Arabia", "7P": "Afghanistan",
-    "9K": "Kuwait", "A9C": "Bahrain", "A40": "Oman", "A7": "Qatar",
-    "TC": "Turkey", "JY": "Jordan", "OD": "Lebanon", "4K": "Azerbaijan",
-    "T": "UK (military)", "G": "United Kingdom", "F": "France", "D": "Germany",
-    "I": "Italy", "SP": "Poland", "ST": "Sudan", "7O": "Yemen",
+    "A6": "UAE",
+    "HZ": "Saudi Arabia",
+    "7P": "Afghanistan",
+    "9K": "Kuwait",
+    "A9C": "Bahrain",
+    "A40": "Oman",
+    "A7": "Qatar",
+    "TC": "Turkey",
+    "JY": "Jordan",
+    "OD": "Lebanon",
+    "4K": "Azerbaijan",
+    "T": "UK (military)",
+    "G": "United Kingdom",
+    "F": "France",
+    "D": "Germany",
+    "I": "Italy",
+    "SP": "Poland",
+    "ST": "Sudan",
+    "7O": "Yemen",
 }
 # ICAO 24-bit hex first 3 chars (e.g. 73C = Iran, A00 = USA)
 _ICAO_PREFIX_TO_COUNTRY: Dict[str, str] = {
-    "73C": "Iran", "73A": "Iran", "73B": "Iran",
-    "738": "Israel", "739": "Israel",
-    "A00": "United States", "A01": "United States", "A1F": "United States",
-    "A80": "United States", "A81": "United States",
-    "14": "Russia", "15": "Russia",
-    "50": "United Kingdom", "4A": "Switzerland", "3E": "Germany",
+    "73C": "Iran",
+    "73A": "Iran",
+    "73B": "Iran",
+    "738": "Israel",
+    "739": "Israel",
+    "A00": "United States",
+    "A01": "United States",
+    "A1F": "United States",
+    "A80": "United States",
+    "A81": "United States",
+    "14": "Russia",
+    "15": "Russia",
+    "50": "United Kingdom",
+    "4A": "Switzerland",
+    "3E": "Germany",
 }
 
 
@@ -354,16 +416,19 @@ def _classify_aircraft(callsign: str, ac_type: str, reg: str = "") -> str | None
 
 def _in_conflict_zone(lat: float, lon: float) -> bool:
     from compliance.zones import in_conflict_zone
+
     return in_conflict_zone(lat, lon)
 
 
 # ── Tools ──────────────────────────────────────────────────────────────────
+
 
 def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
     """
     Fetch military and surveillance aircraft across the full Middle East region.
     Queries multiple ADS-B regions: Persian Gulf, Iraq/Iran, Eastern Med, Red Sea.
     """
+
     async def _fetch_mil_global(client: httpx.AsyncClient) -> List[Dict]:
         for url in ADSB_MIL_ENDPOINTS:
             try:
@@ -408,19 +473,22 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                 seen_icao.add(icao)
                 callsign = str(ac.get("flight") or "").strip()
                 ac_type = str(ac.get("t") or ac.get("type") or "").strip()
-                results.append({
-                    "flight": callsign or icao,
-                    "type": ac_type,
-                    "lat": lat, "lon": lon,
-                    "category": _classify_aircraft(callsign, ac_type) or "military",
-                    "source": "mil-global",
-                    "country": _aircraft_country(icao, None),
-                })
+                results.append(
+                    {
+                        "flight": callsign or icao,
+                        "type": ac_type,
+                        "lat": lat,
+                        "lon": lon,
+                        "category": _classify_aircraft(callsign, ac_type) or "military",
+                        "source": "mil-global",
+                        "country": _aircraft_country(icao, None),
+                    }
+                )
 
             # Regional scans (free: adsb.fi, adsb.lol)
             tasks = [_fetch_region(client, lat, lon, dist) for _, lat, lon, dist in ADSB_REGIONS]
             all_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for (label, _, _, _), ac_list in zip(ADSB_REGIONS, all_results):
+            for (label, _, _, _), ac_list in zip(ADSB_REGIONS, all_results, strict=True):
                 if not isinstance(ac_list, list):
                     continue
                 for ac in ac_list:
@@ -438,13 +506,18 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                     lon = safe_float(ac.get("lon"))
                     if lat is None or lon is None:
                         continue
-                    results.append({
-                        "flight": callsign or ac_type or icao,
-                        "type": ac_type, "lat": lat, "lon": lon,
-                        "category": cat, "region": label,
-                        "reg": reg or None,
-                        "country": _aircraft_country(icao, reg or None),
-                    })
+                    results.append(
+                        {
+                            "flight": callsign or ac_type or icao,
+                            "type": ac_type,
+                            "lat": lat,
+                            "lon": lon,
+                            "category": cat,
+                            "region": label,
+                            "reg": reg or None,
+                            "country": _aircraft_country(icao, reg or None),
+                        }
+                    )
 
             # ADSBexchange RapidAPI (paid): extra region scans (2 circles per region for better coverage)
             if ADSBEXCHANGE_RAPIDAPI_KEY:
@@ -473,17 +546,19 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
                                 if lat_f is None or lon_f is None or not _in_conflict_zone(lat_f, lon_f):
                                     continue
                                 seen_icao.add(icao)
-                                results.append({
-                                    "flight": callsign or ac_type or icao,
-                                    "type": ac_type,
-                                    "lat": lat_f,
-                                    "lon": lon_f,
-                                    "category": cat,
-                                    "region": label,
-                                    "reg": reg or None,
-                                    "source": "adsbexchange",
-                                    "country": _aircraft_country(icao, reg or None),
-                                })
+                                results.append(
+                                    {
+                                        "flight": callsign or ac_type or icao,
+                                        "type": ac_type,
+                                        "lat": lat_f,
+                                        "lon": lon_f,
+                                        "category": cat,
+                                        "region": label,
+                                        "reg": reg or None,
+                                        "source": "adsbexchange",
+                                        "country": _aircraft_country(icao, reg or None),
+                                    }
+                                )
                         except Exception as e:
                             logger.debug("SIGINT: ADSBexchange RapidAPI region %s failed: %s", label, e)
         return results
@@ -511,6 +586,7 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
 
     async def _fetch():
         import re
+
         results = []
         # Gemischte Quellen: internationale Medien zuerst, dann Think-Tanks
         feeds = [
@@ -535,12 +611,14 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
                         title = re.sub(r"<[^>]+>|<!\[CDATA\[|\]\]>", "", title_m.group(1) if title_m else "").strip()
                         if not title or not any(kw in title.lower() for kw in keywords):
                             continue
-                        results.append({
-                            "title": title,
-                            "date": date_m.group(1) if date_m else "",
-                            "url": link_m.group(1) if link_m else "",
-                            "source": feed_url.split("/")[2],
-                        })
+                        results.append(
+                            {
+                                "title": title,
+                                "date": date_m.group(1) if date_m else "",
+                                "url": link_m.group(1) if link_m else "",
+                                "source": feed_url.split("/")[2],
+                            }
+                        )
                 except Exception:
                     continue
         return results[:10]
@@ -562,6 +640,7 @@ def get_naval_vessels(region: str = "Middle East") -> List[Dict[str, Any]]:
 
 # ── Structured result models ────────────────────────────────────────────────
 
+
 class SigintResult(BaseModel):
     conflict: str
     aircraft: List[Dict[str, Any]] = Field(default_factory=list)
@@ -579,6 +658,7 @@ class SigintResult(BaseModel):
 
 
 # ── Target aircraft tracking (OE-III, etc.) ─────────────────────────────────
+
 
 def _match_target_aircraft(ac: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
     """Return True if ADS-B aircraft dict matches configured target (by hex, registration or callsign)."""
@@ -635,7 +715,7 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
 
         async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
             # 0. Free registration lookup first (adsb.fi / adsb.lol) – works well for OE-III
-            for reg in (cfg.get("regs") or []):
+            for reg in cfg.get("regs") or []:
                 if not reg or not isinstance(reg, str):
                     continue
                 ac_list_reg = await _fetch_adsb_by_registration(client, reg)
@@ -657,7 +737,7 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
                 try:
                     ac_list_rapid: List[Dict[str, Any]] = []
                     # Try by callsign (e.g. OEIII, AFG401, FORTE11) – RapidAPI /api/aircraft/call/{callsign}
-                    for reg in (cfg.get("regs") or []):
+                    for reg in cfg.get("regs") or []:
                         if not reg or not isinstance(reg, str):
                             continue
                         cs_clean = (reg or "").replace("-", "").replace(" ", "").strip().upper()
@@ -678,7 +758,9 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
                                 latest_adsbx = _ac_to_position(candidates[0], "adsbexchange_rapidapi")
                     if not latest_adsbx:
                         for _label, lat, lon, dist in ADSB_REGIONS_OEIII:
-                            ac_list_rapid = await _fetch_adsbexchange_rapidapi(client, lat=lat, lon=lon, dist_nm=min(100, dist))
+                            ac_list_rapid = await _fetch_adsbexchange_rapidapi(
+                                client, lat=lat, lon=lon, dist_nm=min(100, dist)
+                            )
                             if ac_list_rapid:
                                 candidates = [ac for ac in ac_list_rapid if _match_target_aircraft(ac, cfg)]
                                 if candidates:
@@ -780,6 +862,7 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
 
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
+
 def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
     """Execute SIGINT tool chain: aircraft → vessels → conflict_reports → NOTAMs. Hormuz tankers are filled from Chokepoint (AISStream) in supervisor when AIRSTREAM_API_KEY is set."""
     from .iaea_tracker import fetch_notams
@@ -818,7 +901,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
 
             # Hormuz tankers: filled from Chokepoint (AISStream) in supervisor merge
             target_tracks_dict: Dict[str, Any] = {}
-            for name, fut in zip(target_names, fut_targets):
+            for name, fut in zip(target_names, fut_targets, strict=True):
                 try:
                     target_tracks_dict[name] = fut.result(timeout=40)
                 except Exception as e:
@@ -826,19 +909,10 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                     target_tracks_dict[name] = {"target": name, "error": str(e)}
             target_track = target_tracks_dict
 
-        aircraft = [
-            a for a in (raw_aircraft or [])
-            if isinstance(a, dict) and "error" not in a
-        ]
-        ships = [
-            s for s in (raw_ships or [])
-            if isinstance(s, dict) and "error" not in s
-        ]
+        aircraft = [a for a in (raw_aircraft or []) if isinstance(a, dict) and "error" not in a]
+        ships = [s for s in (raw_ships or []) if isinstance(s, dict) and "error" not in s]
 
-        reports = [
-            r for r in (raw_reports or [])
-            if isinstance(r, dict) and "error" not in r
-        ]
+        reports = [r for r in (raw_reports or []) if isinstance(r, dict) and "error" not in r]
         notams = (notam_result.get("notams") or []) if isinstance(notam_result, dict) else []
 
         base = 30.0
@@ -866,8 +940,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 )
             if "iranian_gov" in by_cat:
                 alerts.append(
-                    f"🇮🇷 {len(by_cat['iranian_gov'])} Iranian gov/IRGC aircraft: "
-                    f"{', '.join(by_cat['iranian_gov'][:5])}"
+                    f"🇮🇷 {len(by_cat['iranian_gov'])} Iranian gov/IRGC aircraft: {', '.join(by_cat['iranian_gov'][:5])}"
                 )
             for cat, flights in by_cat.items():
                 if cat in ("doomsday", "iranian_gov"):
@@ -894,8 +967,15 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             else:
                 sources_missing.append(name)
         for tname, tdata in (target_track if isinstance(target_track, dict) else {}).items():
-            if isinstance(tdata, dict) and not tdata.get("error") and (
-                tdata.get("adsbx") or tdata.get("adsbexchange_rapidapi") or tdata.get("fallback_sigint") or tdata.get("opensky")
+            if (
+                isinstance(tdata, dict)
+                and not tdata.get("error")
+                and (
+                    tdata.get("adsbx")
+                    or tdata.get("adsbexchange_rapidapi")
+                    or tdata.get("fallback_sigint")
+                    or tdata.get("opensky")
+                )
             ):
                 sources_ok.append(f"target_{tname}")
         score_confidence = ScoreConfidence(
@@ -937,9 +1017,24 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         adsb_has_error = any(isinstance(a, dict) and a.get("error") for a in (raw_aircraft or []))
         notam_has_error = isinstance(notam_result, dict) and notam_result.get("error")
         source_results = [
-            SourceResult(name="ADS-B", status="error" if adsb_has_error else "ok", fetched_at=fetched_at, record_count=len(aircraft)),
-            SourceResult(name="Conflict Reports", status="ok" if reports else "error", fetched_at=fetched_at, record_count=len(reports)),
-            SourceResult(name="NOTAMs", status="error" if notam_has_error else "ok", fetched_at=fetched_at, record_count=len(notams)),
+            SourceResult(
+                name="ADS-B",
+                status="error" if adsb_has_error else "ok",
+                fetched_at=fetched_at,
+                record_count=len(aircraft),
+            ),
+            SourceResult(
+                name="Conflict Reports",
+                status="ok" if reports else "error",
+                fetched_at=fetched_at,
+                record_count=len(reports),
+            ),
+            SourceResult(
+                name="NOTAMs",
+                status="error" if notam_has_error else "ok",
+                fetched_at=fetched_at,
+                record_count=len(notams),
+            ),
         ]
         reg = get_health_registry()
         if reg:
@@ -947,7 +1042,15 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "sigint", sr)
         confidence = compute_confidence_from_sources(source_results) if source_results else score_confidence
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= len(source_results) * 0.8 else "recent" if ok_count >= len(source_results) * 0.5 else "stale" if ok_count > 0 else "unavailable"
+        data_freshness = (
+            "live"
+            if ok_count >= len(source_results) * 0.8
+            else "recent"
+            if ok_count >= len(source_results) * 0.5
+            else "stale"
+            if ok_count > 0
+            else "unavailable"
+        )
         error_summary = f"{len(sources_missing)} source(s) missing" if sources_missing else None
         meta = AgentMetadata(
             agent="sigint",
@@ -1018,9 +1121,21 @@ _SIGINT_TOOL_FNS = {
     "get_conflict_reports": get_conflict_reports,
 }
 _SIGINT_TOOL_SCHEMAS = [
-    {"name": "get_military_aircraft", "description": "Fetch military aircraft in conflict regions via ADS-B.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_naval_vessels", "description": "Fetch naval vessels in conflict regions.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_conflict_reports", "description": "Fetch conflict intelligence reports from RSS feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {
+        "name": "get_military_aircraft",
+        "description": "Fetch military aircraft in conflict regions via ADS-B.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_naval_vessels",
+        "description": "Fetch naval vessels in conflict regions.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_conflict_reports",
+        "description": "Fetch conflict intelligence reports from RSS feeds.",
+        "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]},
+    },
 ]
 
 

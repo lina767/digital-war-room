@@ -1,15 +1,15 @@
 """
 Tests for BaseAgent: run_safe, circuit breaker, content hash, fallback, timeout.
 """
+
 import time
 
-import pytest
-from agents.base import BaseAgent, AgentResult, CircuitBreakerState, BaseAgentResult
-from agents.contracts import EnergyResult
 from agents.agent_state_store import AgentStateStore
-
+from agents.base import AgentResult, BaseAgent, BaseAgentResult, CircuitBreakerState
+from agents.contracts import EnergyResult
 
 # -- Test agent implementations (also available via conftest fixtures) ------
+
 
 class SuccessAgent(BaseAgent[EnergyResult]):
     name = "test_success"
@@ -56,7 +56,6 @@ class SlowAgent(BaseAgent[EnergyResult]):
 
 
 class TestRunSafeSuccess:
-
     def test_returns_agent_result(self):
         agent = SuccessAgent()
         ar = agent.run_safe("Iran")
@@ -98,7 +97,6 @@ class TestRunSafeSuccess:
 
 
 class TestRunSafeFailure:
-
     def test_failure_returns_fallback(self):
         agent = FailingAgent()
         ar = agent.run_safe("Iran")
@@ -119,7 +117,6 @@ class TestRunSafeFailure:
 
 
 class TestTimeout:
-
     def test_timeout_returns_fallback(self):
         agent = SlowAgent()
         ar = agent.run_safe("Iran")
@@ -128,7 +125,6 @@ class TestTimeout:
 
 
 class TestCircuitBreaker:
-
     def test_opens_after_3_failures(self):
         agent = FailingAgent()
         for _ in range(3):
@@ -178,7 +174,6 @@ class TestCircuitBreaker:
 
 
 class TestStateStoreIntegration:
-
     def test_stores_result(self):
         store = AgentStateStore()
         agent = SuccessAgent()
@@ -202,14 +197,11 @@ class TestStateStoreIntegration:
         a1.name = "energy"
         a1.run_safe("Iran", store=store)
 
-        new_hash = BaseAgent._compute_hash(
-            EnergyResult(conflict="Iran", energy_score=99.0)
-        )
+        new_hash = BaseAgent._compute_hash(EnergyResult(conflict="Iran", energy_score=99.0))
         assert store.has_changed("Iran", "energy", new_hash)
 
 
 class TestRunSafeDict:
-
     def test_returns_dict(self):
         agent = SuccessAgent()
         d = agent.run_safe_dict("Iran")
@@ -223,7 +215,6 @@ class TestRunSafeDict:
 
 
 class TestSchemaVersion:
-
     def test_base_result_has_schema_version(self):
         r = BaseAgentResult(conflict="test")
         assert r.schema_version == 1

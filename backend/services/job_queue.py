@@ -4,7 +4,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
-
 JobPayload = Dict[str, Any]
 JobResult = Dict[str, Any]
 JobHandler = Callable[[JobPayload], Awaitable[JobResult]]
@@ -57,4 +56,3 @@ class JobQueue:
             finally:
                 job.finished_at = time.time()
                 self._queue.task_done()
-

@@ -3,6 +3,7 @@ GEOINT Agent.
 Detects thermal anomalies via NASA FIRMS in conflict regions.
 Uses area-specific API (no world download). Supplemented by ReliefWeb/ACLED event data.
 """
+
 import asyncio
 import csv
 import io
@@ -11,22 +12,28 @@ import os
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from .context import AgentContext
 
 import httpx
 
-logger = logging.getLogger(__name__)
 from services.acled_auth import get_acled_token_async, has_acled_oauth
+
+from .config import RELIEFWEB_APPNAME
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .utils import (
     AgentMetadata,
     SourceResult,
+    compute_confidence_from_sources,
     run_async,
     safe_float,
     utc_now_iso,
-    compute_confidence_from_sources,
 )
+
+logger = logging.getLogger(__name__)
 
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
@@ -46,7 +53,15 @@ REGION_BBOX = {
 }
 
 # GDACS (Global Disaster Alert and Coordination System) – earthquakes, cyclones, floods, etc. Optional; uses gdacs-api.
-GDACS_EVENT_TYPE_LABEL = {"TC": "Tropical Cyclone", "EQ": "Earthquake", "FL": "Flood", "VO": "Volcano", "WF": "Wildfire", "DR": "Drought"}
+GDACS_EVENT_TYPE_LABEL = {
+    "TC": "Tropical Cyclone",
+    "EQ": "Earthquake",
+    "FL": "Flood",
+    "VO": "Volcano",
+    "WF": "Wildfire",
+    "DR": "Drought",
+}
+
 
 # For in-memory bbox filter (lat_min, lat_max, lon_min, lon_max) derived from REGION_BBOX
 def _bbox_to_region(area: str) -> Dict[str, float]:
@@ -55,6 +70,7 @@ def _bbox_to_region(area: str) -> Dict[str, float]:
         return {"lat_min": 20, "lat_max": 40, "lon_min": 35, "lon_max": 65}
     lon_min, lat_min, lon_max, lat_max = parts
     return {"lat_min": lat_min, "lat_max": lat_max, "lon_min": lon_min, "lon_max": lon_max}
+
 
 REGIONS = {k: _bbox_to_region(v) for k, v in REGION_BBOX.items()}
 
@@ -169,18 +185,21 @@ def _is_explosion_cluster(
                 nearby.append(b)
         else:
             nearby = [
-                b for b in anomalies
+                b
+                for b in anomalies
                 if not b.get("gas_flaring")
                 and abs(_safe_float(b.get("lat"), 0) - lat) <= radius_deg
                 and abs(_safe_float(b.get("lon"), 0) - lon) <= radius_deg
             ]
         if len(nearby) >= 3:
             used.add(key)
-            clusters.append({
-                "center_lat": round(lat, 4),
-                "center_lon": round(lon, 4),
-                "count": len(nearby),
-            })
+            clusters.append(
+                {
+                    "center_lat": round(lat, 4),
+                    "center_lon": round(lon, 4),
+                    "count": len(nearby),
+                }
+            )
     return clusters
 
 
@@ -203,7 +222,8 @@ def _parse_firms_row(row: dict, bbox: dict) -> dict | None:
     is_flaring = _is_gas_flare_site(lat, lon)
     ftype = "industrial" if is_flaring else _classify(frp)
     return {
-        "lat": lat, "lon": lon,
+        "lat": lat,
+        "lon": lon,
         "frp": frp,
         "confidence": conf,
         "type": ftype,
@@ -213,6 +233,7 @@ def _parse_firms_row(row: dict, bbox: dict) -> dict | None:
 
 
 # ── Tools ──────────────────────────────────────────────────────────────────
+
 
 def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Dict[str, Any]]:
     """
@@ -273,6 +294,45 @@ def get_thermal_anomalies(region: str = "middle_east", days: int = 3) -> List[Di
         return [{"error": str(e)}]
 
 
+def _fetch_thermal_anomalies_for_focus_regions(
+    focus_regions: List[Dict[str, Any]], days: int = 3
+) -> List[Dict[str, Any]]:
+    """Fetch FIRMS thermal anomalies for a bbox around handoff focus regions (SIGINT-derived)."""
+    if not focus_regions:
+        return []
+    api_key = os.getenv("NASA_FIRMS_KEY")
+    if not api_key:
+        return []
+    lats = [float(r["lat"]) for r in focus_regions if isinstance(r, dict) and r.get("lat") is not None]
+    lons = [float(r["lon"]) for r in focus_regions if isinstance(r, dict) and r.get("lon") is not None]
+    if not lats or not lons:
+        return []
+    pad = 1.0
+    lat_min, lat_max = min(lats) - pad, max(lats) + pad
+    lon_min, lon_max = min(lons) - pad, max(lons) + pad
+    # FIRMS area format: W,S,E,N = lon_min, lat_min, lon_max, lat_max
+    bbox_str = f"{lon_min:.2f},{lat_min:.2f},{lon_max:.2f},{lat_max:.2f}"
+    bbox = {"lat_min": lat_min, "lat_max": lat_max, "lon_min": lon_min, "lon_max": lon_max}
+    url = FIRMS_AREA_URL.format(key=api_key, area=bbox_str, days=max(1, min(5, days)))
+
+    async def _fetch() -> List[Dict[str, Any]]:
+        out = []
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                return []
+            for row in csv.DictReader(io.StringIO(resp.text)):
+                a = _parse_firms_row(row, bbox)
+                if a:
+                    out.append(a)
+        return out
+
+    try:
+        return run_async(_fetch())
+    except Exception:
+        return []
+
+
 def get_conflict_region(conflict: str) -> str:
     """Map a conflict name to its geographic region for thermal anomaly detection."""
     cl = conflict.lower()
@@ -327,13 +387,15 @@ def _get_gdacs_events_for_region(region: str, limit: int = 25) -> List[Dict[str,
             from_date = props.get("fromdate") or props.get("pubdate") or props.get("date") or ""
             alert_level = (props.get("alertlevel") or "").strip()
             title = f"{label}: {name}" if name != label else f"{label} ({alert_level})".strip(" ()") or label
-            reports.append({
-                "title": title[:300],
-                "date": str(from_date)[:30],
-                "body_excerpt": f"Alert: {alert_level}" if alert_level else f"Location: {lat:.2f}, {lon:.2f}",
-                "source": "GDACS",
-                "country": props.get("country") or props.get("location") or region,
-            })
+            reports.append(
+                {
+                    "title": title[:300],
+                    "date": str(from_date)[:30],
+                    "body_excerpt": f"Alert: {alert_level}" if alert_level else f"Location: {lat:.2f}, {lon:.2f}",
+                    "source": "GDACS",
+                    "country": props.get("country") or props.get("location") or region,
+                }
+            )
     except Exception as e:
         logger.debug("GDACS fetch failed: %s", e)
     return reports[:15]
@@ -356,8 +418,7 @@ HAPI_ISO3_BY_CONFLICT: Dict[str, List[str]] = {
     "default": ["IRN", "SYR", "YEM", "PSE", "ISR"],
 }
 
-# ReliefWeb API v2: filter by country name (e.g. "Iran", "Ukraine"). appname required (see https://reliefweb.int/help/api).
-RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"
+# ReliefWeb API v2: filter by country name (e.g. "Iran", "Ukraine"). appname from config.
 RELIEFWEB_COUNTRY_NAMES = {
     "iran": ["Iran"],
     "israel": ["Israel"],
@@ -474,7 +535,7 @@ def _normalize_hapi_conflict_events(row: Dict[str, Any]) -> Optional[Dict[str, A
 
 async def _reliefweb_rss_fallback(countries: list) -> List[Dict[str, Any]]:
     """Fallback: scrape ReliefWeb RSS feed when API returns 403 (appname not approved)."""
-    import re
+
     try:
         import feedparser
     except ImportError:
@@ -493,13 +554,17 @@ async def _reliefweb_rss_fallback(countries: list) -> List[Dict[str, Any]]:
                 combined = f"{title} {summary}".lower()
                 if not any(kw in combined for kw in country_kw):
                     continue
-                reports.append({
-                    "title": title[:300],
-                    "date": entry.get("published") or "",
-                    "body_excerpt": summary,
-                    "source": "ReliefWeb (RSS)",
-                    "country": next((c for c in countries if c.lower() in combined), countries[0] if countries else ""),
-                })
+                reports.append(
+                    {
+                        "title": title[:300],
+                        "date": entry.get("published") or "",
+                        "body_excerpt": summary,
+                        "source": "ReliefWeb (RSS)",
+                        "country": next(
+                            (c for c in countries if c.lower() in combined), countries[0] if countries else ""
+                        ),
+                    }
+                )
                 if len(reports) >= 10:
                     break
     except Exception as e:
@@ -574,14 +639,20 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                     else:
                         source = "ReliefWeb"
                     country_list = fields.get("country") or []
-                    country_display = country_list[0].get("name", country_name) if country_list and isinstance(country_list[0], dict) else country_name
-                    reports.append({
-                        "title": title,
-                        "date": date_created,
-                        "body_excerpt": body_excerpt,
-                        "source": source,
-                        "country": country_display,
-                    })
+                    country_display = (
+                        country_list[0].get("name", country_name)
+                        if country_list and isinstance(country_list[0], dict)
+                        else country_name
+                    )
+                    reports.append(
+                        {
+                            "title": title,
+                            "date": date_created,
+                            "body_excerpt": body_excerpt,
+                            "source": source,
+                            "country": country_display,
+                        }
+                    )
             except Exception as e:
                 last_rw_error = str(e)
                 continue
@@ -618,7 +689,11 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
             logger.debug("GEOINT GDACS fetch failed: %s", e)
 
     # HDX HAPI: merge humanitarian indicators (operational presence, conflict events) when app identifier is set
-    if HAPI_APP_IDENTIFIER and isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+    if (
+        HAPI_APP_IDENTIFIER
+        and isinstance(reports, list)
+        and not any(isinstance(r, dict) and r.get("error") for r in reports)
+    ):
         try:
             iso3_list = next(
                 (v for k, v in HAPI_ISO3_BY_CONFLICT.items() if k != "default" and k in cl),
@@ -639,10 +714,13 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     reports_have_error = isinstance(reports, list) and any(isinstance(r, dict) and r.get("error") for r in reports)
     if acled_ok and isinstance(reports, list) and not reports_have_error:
         try:
+
             async def _acled():
                 token = await get_acled_token_async() if has_acled_oauth() else None
                 if has_acled_oauth() and not token:
-                    logger.debug("ReliefWeb/ACLED: ACLED skipped (OAuth token missing). Set ACLED_EMAIL/ACLED_PASSWORD.")
+                    logger.debug(
+                        "ReliefWeb/ACLED: ACLED skipped (OAuth token missing). Set ACLED_EMAIL/ACLED_PASSWORD."
+                    )
                     return
                 event_date_val, event_date_where = _acled_event_date_range(90)
                 params = {
@@ -673,13 +751,16 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                     data = resp.json()
                     for rec in (data.get("data") or [])[:10]:
                         if isinstance(rec, dict):
-                            reports.append({
-                                "title": (rec.get("event") or rec.get("title") or "")[:300],
-                                "date": rec.get("event_date", ""),
-                                "body_excerpt": (rec.get("notes") or "")[:200],
-                                "source": "ACLED",
-                                "country": rec.get("country", acled_country),
-                            })
+                            reports.append(
+                                {
+                                    "title": (rec.get("event") or rec.get("title") or "")[:300],
+                                    "date": rec.get("event_date", ""),
+                                    "body_excerpt": (rec.get("notes") or "")[:200],
+                                    "source": "ACLED",
+                                    "country": rec.get("country", acled_country),
+                                }
+                            )
+
             run_async(_acled())
         except Exception as e:
             logger.warning("ReliefWeb/ACLED: ACLED request failed: %s", e)
@@ -720,6 +801,7 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
 
     try:
         event_date_val, event_date_where = _acled_event_date_range(90)
+
         async def _fetch() -> List[Dict[str, Any]]:
             out: List[Dict[str, Any]] = []
             token = await get_acled_token_async() if use_oauth else None
@@ -784,19 +866,21 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
                         notes = notes[:497] + "..."
                     event_date = (rec.get("event_date") or rec.get("date") or "").strip() or None
                     sub_event_type = (rec.get("sub_event_type") or "").strip() or None
-                    out.append({
-                        "lat": round(lat, 5),
-                        "lon": round(lon, 5),
-                        "intensity": round(intensity, 2),
-                        "source": "ACLED",
-                        "event_type": event_type or None,
-                        "fatalities": fatalities,
-                        "actor1": actor1,
-                        "actor2": actor2,
-                        "notes": notes,
-                        "event_date": event_date,
-                        "sub_event_type": sub_event_type,
-                    })
+                    out.append(
+                        {
+                            "lat": round(lat, 5),
+                            "lon": round(lon, 5),
+                            "intensity": round(intensity, 2),
+                            "source": "ACLED",
+                            "event_type": event_type or None,
+                            "fatalities": fatalities,
+                            "actor1": actor1,
+                            "actor2": actor2,
+                            "notes": notes,
+                            "event_date": event_date,
+                            "sub_event_type": sub_event_type,
+                        }
+                    )
             return out
 
         events = run_async(_fetch())
@@ -807,6 +891,7 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
 
 # ── Theater Map: unified events for map visualization (Iran / conflict region) ─────
 # event_type for frontend: airstrike | missile | drone | explosion | naval | fire | other
+
 
 def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: str | None = None) -> str:
     """Map source-specific event type to theater event_type for map icons."""
@@ -842,7 +927,9 @@ def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: s
 
 
 MILITARY_EVENT_TYPES = {
-    "Battles", "Explosions/Remote violence", "Violence against civilians",
+    "Battles",
+    "Explosions/Remote violence",
+    "Violence against civilians",
 }
 MILITARY_SUB_EVENTS_THEATER = {
     "Air/drone strike": "airstrike",
@@ -864,21 +951,25 @@ def _load_aggregated_theater_events(conflict: str, weeks: int = 4) -> List[Dict[
     cl = conflict.lower()
     country_files = []
     if "iran" in cl:
-        country_files.extend([
-            ("Iran", "acled_iran_aggregated_current.csv"),
-            ("Israel", "acled_israel_aggregated_current.csv"),
-            ("Iraq", "acled_iraq_aggregated_current.csv"),
-            ("Syria", "acled_syria_aggregated_current.csv"),
-            ("Lebanon", "acled_lebanon_aggregated_current.csv"),
-            ("Yemen", "acled_yemen_aggregated_current.csv"),
-        ])
+        country_files.extend(
+            [
+                ("Iran", "acled_iran_aggregated_current.csv"),
+                ("Israel", "acled_israel_aggregated_current.csv"),
+                ("Iraq", "acled_iraq_aggregated_current.csv"),
+                ("Syria", "acled_syria_aggregated_current.csv"),
+                ("Lebanon", "acled_lebanon_aggregated_current.csv"),
+                ("Yemen", "acled_yemen_aggregated_current.csv"),
+            ]
+        )
     elif "israel" in cl or "gaza" in cl:
-        country_files.extend([
-            ("Israel", "acled_israel_aggregated_current.csv"),
-            ("Palestine", "acled_palestine_aggregated_current.csv"),
-            ("Lebanon", "acled_lebanon_aggregated_current.csv"),
-            ("Iran", "acled_iran_aggregated_current.csv"),
-        ])
+        country_files.extend(
+            [
+                ("Israel", "acled_israel_aggregated_current.csv"),
+                ("Palestine", "acled_palestine_aggregated_current.csv"),
+                ("Lebanon", "acled_lebanon_aggregated_current.csv"),
+                ("Iran", "acled_iran_aggregated_current.csv"),
+            ]
+        )
     elif "ukraine" in cl:
         return []
     else:
@@ -899,8 +990,7 @@ def _load_aggregated_theater_events(conflict: str, weeks: int = 4) -> List[Dict[
                     if row.get("event_type") not in MILITARY_EVENT_TYPES:
                         continue
                     sub = row.get("sub_event_type", "")
-                    if sub in ("Peaceful protest", "Protest with intervention",
-                               "Excessive force against protesters"):
+                    if sub in ("Peaceful protest", "Protest with intervention", "Excessive force against protesters"):
                         continue
                     lat = _safe_float(row.get("centroid_lat"), 0)
                     lon = _safe_float(row.get("centroid_lon"), 0)
@@ -915,20 +1005,22 @@ def _load_aggregated_theater_events(conflict: str, weeks: int = 4) -> List[Dict[
                     if fatalities > 0:
                         label += f", {fatalities} fatalities"
                     label += f" ({row.get('admin1', '?')}, {country})"
-                    events.append({
-                        "lat": round(lat, 5),
-                        "lon": round(lon, 5),
-                        "event_type": theater_type,
-                        "source": "ACLED-Aggregated",
-                        "confidence": "high" if fatalities > 0 else "nominal",
-                        "label": label,
-                        "event_date": row.get("week"),
-                        "sub_event_type": sub,
-                        "fatalities": fatalities,
-                        "events_count": ev_count,
-                        "country": country,
-                        "admin1": row.get("admin1", ""),
-                    })
+                    events.append(
+                        {
+                            "lat": round(lat, 5),
+                            "lon": round(lon, 5),
+                            "event_type": theater_type,
+                            "source": "ACLED-Aggregated",
+                            "confidence": "high" if fatalities > 0 else "nominal",
+                            "label": label,
+                            "event_date": row.get("week"),
+                            "sub_event_type": sub,
+                            "fatalities": fatalities,
+                            "events_count": ev_count,
+                            "country": country,
+                            "admin1": row.get("admin1", ""),
+                        }
+                    )
         except Exception as e:
             logger.warning("Failed to load aggregated theater data from %s: %s", fname, e)
 
@@ -948,6 +1040,7 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     # 1) Aggregated ACLED data (real-time weekly, military events across the region)
     try:
         from services.acled_aggregated import refresh_acled_aggregated
+
         refresh_acled_aggregated()
     except Exception:
         pass
@@ -971,16 +1064,18 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
                 continue
             frp = int(_safe_float(a.get("frp"), 0))
             eo_url = f"https://apps.sentinel-hub.com/eo-browser/?lat={lat}&lng={lon}&zoom=10"
-            out.append({
-                "lat": round(lat, 5),
-                "lon": round(lon, 5),
-                "event_type": _normalize_theater_event_type("FIRMS", a.get("type")),
-                "source": "FIRMS",
-                "confidence": a.get("confidence", "nominal"),
-                "label": f"FRP {frp} MW (thermal anomaly – satellite)",
-                "url": eo_url,
-                "event_date": a.get("acquired"),
-            })
+            out.append(
+                {
+                    "lat": round(lat, 5),
+                    "lon": round(lon, 5),
+                    "event_type": _normalize_theater_event_type("FIRMS", a.get("type")),
+                    "source": "FIRMS",
+                    "confidence": a.get("confidence", "nominal"),
+                    "label": f"FRP {frp} MW (thermal anomaly – satellite)",
+                    "url": eo_url,
+                    "event_date": a.get("acquired"),
+                }
+            )
     except Exception:
         pass
 
@@ -1015,7 +1110,7 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
     except Exception:
         pass
 
-    return out[: limit]
+    return out[:limit]
 
 
 # ── EO Browser / Sentinel Hub (links; optional Process API when credentials set) ─
@@ -1066,11 +1161,7 @@ def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
     # Default (Sentinel-2 / optical) view
     url_s2 = f"{base}/?lat={lat}&lng={lon}&zoom={zoom}"
     # Sentinel-1 SAR (AWD-style radar visualisation) – useful under heavy cloud cover
-    url_s1 = (
-        f"{base}/?lat={lat}&lng={lon}&zoom={zoom}"
-        "&datasetId=S1GRD&fromTime=NOW-7DAYS&toTime=NOW"
-        "&layerId=S1-IW-VVVH"
-    )
+    url_s1 = f"{base}/?lat={lat}&lng={lon}&zoom={zoom}&datasetId=S1GRD&fromTime=NOW-7DAYS&toTime=NOW&layerId=S1-IW-VVVH"
     return {
         "region": region,
         "eo_browser_s2_url": url_s2,
@@ -1145,8 +1236,7 @@ def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
                 country_counts[sc] = country_counts.get(sc, 0) + 1
         total = sum(country_counts.values()) or 1
         out: List[Dict[str, Any]] = [
-            {"country": c, "percent": round(n / total * 100, 2)}
-            for c, n in country_counts.items()
+            {"country": c, "percent": round(n / total * 100, 2)} for c, n in country_counts.items()
         ]
         return sorted(out, key=lambda x: x.get("percent", 0), reverse=True)[:30]
     except Exception as e:
@@ -1216,11 +1306,7 @@ def _compute_geoint_score(anomalies: List[Dict[str, Any]]) -> Tuple[float, int, 
     # Ignore gas flares / industrial sites for scoring – they tend to be persistent and not conflict-driven.
     non_flaring = [a for a in anomalies if not a.get("gas_flaring")]
     high = sum(1 for a in non_flaring if a.get("confidence") == "high")
-    explosion_count = sum(
-        1
-        for a in non_flaring
-        if a.get("type") == "explosion" or _safe_float(a.get("frp"), 0) > 500
-    )
+    explosion_count = sum(1 for a in non_flaring if a.get("type") == "explosion" or _safe_float(a.get("frp"), 0) > 500)
     # Spatial + temporal cluster (radius 0.5°, ≤2h window) for concerted strikes
     clusters = _is_explosion_cluster(non_flaring, radius_deg=0.5, max_hours=2.0)
     recent = sum(1 for a in anomalies if _recent_within_hours(a.get("acquired", ""), 6.0))
@@ -1266,8 +1352,10 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
 
 # ── Rule-based tool chain (fixed order; no LLM) ─────────────────────────────
 
-def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
-    """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → eo_browser_links. No LLM."""
+
+def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+    """Execute GEOINT tool chain: region → thermal_anomalies → hotspot_news → eo_browser_links. No LLM.
+    When context is provided (handoff mode), also fetches thermal anomalies around SIGINT focus regions."""
     start = time.perf_counter()
     fetched_at = utc_now_iso()
     try:
@@ -1276,8 +1364,24 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             region = "middle_east"
         raw = get_thermal_anomalies(region=region, days=3)
         anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
+        # Handoff: fetch FIRMS around SIGINT-reported regions for closer collaboration
+        if context and getattr(context, "focus_regions", None):
+            extra = _fetch_thermal_anomalies_for_focus_regions(getattr(context, "focus_regions", []), days=3)
+            seen = {(round(_safe_float(a.get("lat"), 0), 2), round(_safe_float(a.get("lon"), 0), 2)) for a in anomalies}
+            for a in extra:
+                if not isinstance(a, dict) or "error" in a:
+                    continue
+                key = (round(_safe_float(a.get("lat"), 0), 2), round(_safe_float(a.get("lon"), 0), 2))
+                if key not in seen:
+                    seen.add(key)
+                    a["source"] = "handoff_focus"
+                    anomalies.append(a)
         reliefweb_raw = get_conflict_hotspot_news(conflict=conflict)
-        reliefweb_reports = [r for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else []) if isinstance(r, dict) and "error" not in r]
+        reliefweb_reports = [
+            r
+            for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else [])
+            if isinstance(r, dict) and "error" not in r
+        ]
         has_acled_cfg = has_acled_oauth() or os.getenv("ACLED_API_KEY")
         has_acled_reports = any(r.get("source") == "ACLED" for r in reliefweb_reports)
         eo_links = get_eo_browser_links(conflict=conflict)
@@ -1293,18 +1397,47 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
         if has_acled_cfg and not has_acled_reports:
             summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and ReliefWeb."
         duration_ms = int((time.perf_counter() - start) * 1000)
-        hapi_count = sum(1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "").startswith("HDX HAPI"))
+        hapi_count = sum(
+            1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "").startswith("HDX HAPI")
+        )
         gdacs_count = sum(1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "") == "GDACS")
         source_results = [
-            SourceResult(name="NASA FIRMS", status="ok" if anomalies else "error", fetched_at=fetched_at, record_count=len(anomalies)),
-            SourceResult(name="ReliefWeb/ACLED", status="ok" if reliefweb_reports else "error", fetched_at=fetched_at, record_count=len(reliefweb_reports)),
-            SourceResult(name="GDACS", status="ok" if gdacs_count else "error", fetched_at=fetched_at, record_count=gdacs_count),
-            SourceResult(name="EO Browser", status="ok" if eo_links else "error", fetched_at=fetched_at, record_count=len(eo_links) if isinstance(eo_links, dict) else 0),
-            SourceResult(name="GDELT GEO", status="ok" if gdelt_geo_countries else "error", fetched_at=fetched_at, record_count=len(gdelt_geo_countries)),
+            SourceResult(
+                name="NASA FIRMS",
+                status="ok" if anomalies else "error",
+                fetched_at=fetched_at,
+                record_count=len(anomalies),
+            ),
+            SourceResult(
+                name="ReliefWeb/ACLED",
+                status="ok" if reliefweb_reports else "error",
+                fetched_at=fetched_at,
+                record_count=len(reliefweb_reports),
+            ),
+            SourceResult(
+                name="GDACS", status="ok" if gdacs_count else "error", fetched_at=fetched_at, record_count=gdacs_count
+            ),
+            SourceResult(
+                name="EO Browser",
+                status="ok" if eo_links else "error",
+                fetched_at=fetched_at,
+                record_count=len(eo_links) if isinstance(eo_links, dict) else 0,
+            ),
+            SourceResult(
+                name="GDELT GEO",
+                status="ok" if gdelt_geo_countries else "error",
+                fetched_at=fetched_at,
+                record_count=len(gdelt_geo_countries),
+            ),
         ]
         if HAPI_APP_IDENTIFIER:
             source_results.append(
-                SourceResult(name="HDX HAPI", status="ok" if hapi_count else "error", fetched_at=fetched_at, record_count=hapi_count),
+                SourceResult(
+                    name="HDX HAPI",
+                    status="ok" if hapi_count else "error",
+                    fetched_at=fetched_at,
+                    record_count=hapi_count,
+                ),
             )
         reg = get_health_registry()
         if reg:
@@ -1312,9 +1445,19 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "geoint", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if (anomalies or reliefweb_reports) else "unavailable"
+        data_freshness = (
+            "live"
+            if ok_count >= 3
+            else "recent"
+            if ok_count >= 1
+            else "stale"
+            if (anomalies or reliefweb_reports)
+            else "unavailable"
+        )
         sources_missing = [s.name for s in source_results if s.status == "error"]
-        error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
+        error_summary = (
+            f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
+        )
         meta = AgentMetadata(
             agent="geoint",
             fetched_at=fetched_at,
@@ -1325,6 +1468,10 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             fallback_used=False,
             error_summary=error_summary,
         )
+        handoff_note = ""
+        if context and getattr(context, "focus_regions", None):
+            n_focus = len(getattr(context, "focus_regions", []))
+            handoff_note = f" Handoff: {n_focus} SIGINT-derived focus region(s) included."
         return {
             "conflict": conflict,
             "anomalies": anomalies,
@@ -1337,7 +1484,7 @@ def _run_rule_based_geoint(conflict: str) -> Dict[str, Any]:
             "reliefweb_reports": reliefweb_reports,
             "eo_browser_links": eo_links,
             "gdelt_geo_countries": gdelt_geo_countries,
-            "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included. Score {score:.0f}.",
+            "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included.{handoff_note} Score {score:.0f}.",
             "_meta": meta.model_dump(mode="json"),
         }
     except Exception as e:
@@ -1353,10 +1500,30 @@ _GEOINT_TOOL_FNS = {
     "get_eo_browser_links": get_eo_browser_links,
 }
 _GEOINT_TOOL_SCHEMAS = [
-    {"name": "get_conflict_region", "description": "Map conflict to a geographic region.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-    {"name": "get_thermal_anomalies", "description": "Fetch NASA FIRMS thermal anomalies.", "input_schema": {"type": "object", "properties": {"region": {"type": "string"}, "days": {"type": "integer"}}, "required": ["region"]}},
-    {"name": "get_conflict_hotspot_news", "description": "Fetch ReliefWeb/ACLED hotspot news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
-    {"name": "get_eo_browser_links", "description": "Generate EO Browser links.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {
+        "name": "get_conflict_region",
+        "description": "Map conflict to a geographic region.",
+        "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]},
+    },
+    {
+        "name": "get_thermal_anomalies",
+        "description": "Fetch NASA FIRMS thermal anomalies.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"region": {"type": "string"}, "days": {"type": "integer"}},
+            "required": ["region"],
+        },
+    },
+    {
+        "name": "get_conflict_hotspot_news",
+        "description": "Fetch ReliefWeb/ACLED hotspot news.",
+        "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]},
+    },
+    {
+        "name": "get_eo_browser_links",
+        "description": "Generate EO Browser links.",
+        "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]},
+    },
 ]
 
 
@@ -1371,16 +1538,11 @@ def enrich_with_ner_entities(
     if not entities:
         return geoint_result
 
-    location_ents = [
-        ent for ent in entities
-        if ent.get("type") == "LOCATION" and ent.get("entity")
-    ]
+    location_ents = [ent for ent in entities if ent.get("type") == "LOCATION" and ent.get("entity")]
     if not location_ents:
         return geoint_result
 
-    location_names = list(dict.fromkeys(
-        ent.get("entity", "").strip() for ent in location_ents if ent.get("entity")
-    ))
+    location_names = list(dict.fromkeys(ent.get("entity", "").strip() for ent in location_ents if ent.get("entity")))
 
     hotspots = geoint_result.get("hotspots", [])
     anomalies = geoint_result.get("anomalies", [])
@@ -1408,10 +1570,13 @@ def enrich_with_ner_entities(
     return geoint_result
 
 
-def run_geoint_agent(conflict: str) -> Dict[str, Any]:
+def run_geoint_agent(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+    def rule_based(c: str):
+        return _run_rule_based_geoint(c, context)
+
     return run_agent_with_fallback(
         conflict,
-        rule_based_fn=_run_rule_based_geoint,
+        rule_based_fn=rule_based,
         system_prompt=GEOINT_SYSTEM,
         user_content_template="Detect thermal anomalies for conflict: {conflict}",
         tool_fns=_GEOINT_TOOL_FNS,

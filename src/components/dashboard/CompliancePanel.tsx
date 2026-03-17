@@ -3,7 +3,17 @@ import { Shield, AlertTriangle, Search, ChevronDown, ChevronRight, Radio, Info, 
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { getApiBase } from "@/lib/api";
+import {
+  getApiBase,
+  getComplianceZones,
+  postComplianceRouteScreening,
+  getDocuments,
+  postDocumentsIngest,
+  postDocumentsQa,
+  type RouteScreeningResult,
+  type ZonesResponse,
+} from "@/lib/api";
+import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import {
   COMPLIANCE_DISCLAIMER,
@@ -306,23 +316,6 @@ function GeofencingAlerts({ alerts }: { alerts: GeofencingAlert[] }) {
   );
 }
 
-interface RouteScreeningWaypoint {
-  label: string;
-  lat: number;
-  lon: number;
-  country_code?: string;
-  port_type?: string;
-}
-
-interface RouteScreeningResult {
-  route_label: string;
-  waypoints: Array<{ label: string; lat: number; lon: number }>;
-  zone_hits: Array<{ waypoint: string; zone_name: string; zone_type: string; zone_source?: string }>;
-  suspicious_hops: Array<{ waypoint: string; country_code: string; hub_label: string; condition: string; rationale?: string }>;
-  touches_sanctions_zone: boolean;
-  disclaimer?: string;
-}
-
 function RouteScreeningSection() {
   const [routeLabel, setRouteLabel] = useState("");
   const [waypointsText, setWaypointsText] = useState("");
@@ -334,7 +327,7 @@ function RouteScreeningSection() {
     e.preventDefault();
     if (!routeLabel.trim()) return;
     const lines = waypointsText.trim().split(/\n/).filter(Boolean);
-    const waypoints: RouteScreeningWaypoint[] = lines.slice(0, 20).map((line) => {
+    const waypoints = lines.slice(0, 20).map((line) => {
       const parts = line.split(/[\t,;]+/).map((p) => p.trim());
       const label = parts[0] || "";
       const lat = parseFloat(parts[1] ?? "0");
@@ -350,13 +343,10 @@ function RouteScreeningSection() {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch(`${getApiBase()}/api/compliance/route-screening`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ route_label: routeLabel.trim(), waypoints }),
+      const data = await postComplianceRouteScreening({
+        route_label: routeLabel.trim(),
+        waypoints,
       });
-      if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as RouteScreeningResult;
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
@@ -432,23 +422,15 @@ function RouteScreeningSection() {
   );
 }
 
-interface ZonesResponse {
-  sanctions_zones: Array<{ name?: string; zone_type?: string; source?: string }>;
-  all_zones: Array<{ name?: string; zone_type?: string; source?: string }>;
-}
-
 function ComplianceZonesSection() {
   const [zones, setZones] = useState<ZonesResponse | null>(null);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${getApiBase()}/api/compliance/zones`)
-      .then((res) => res.ok ? res.json() : null)
-      .then((data: ZonesResponse | null) => {
-        if (!cancelled && data) setZones(data);
-      })
-      .catch(() => {});
+    getComplianceZones().then((data) => {
+      if (!cancelled && data) setZones(data);
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -753,7 +735,7 @@ interface DocumentQAResponse {
 
 function DocumentManagementSection() {
   const [ingestUrl, setIngestUrl] = useState("");
-  const [ingestConflict, setIngestConflict] = useState("Iran");
+  const [ingestConflict, setIngestConflict] = useState(DEFAULT_CONFLICT);
   const [ingestLoading, setIngestLoading] = useState(false);
   const [docList, setDocList] = useState<Array<{ id?: string; url?: string; source?: string; conflict?: string }>>([]);
   const [listLoading, setListLoading] = useState(false);
@@ -766,19 +748,14 @@ function DocumentManagementSection() {
     if (!ingestUrl.trim()) return;
     setIngestLoading(true);
     try {
-      const res = await fetch(`${getApiBase()}/api/documents/ingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: ingestUrl.trim(), source: "pdf", conflict: ingestConflict.trim() }),
+      await postDocumentsIngest({
+        url: ingestUrl.trim(),
+        source: "pdf",
+        conflict: ingestConflict.trim() || undefined,
       });
-      if (res.ok) {
-        setIngestUrl("");
-        const listRes = await fetch(`${getApiBase()}/api/documents`);
-        if (listRes.ok) {
-          const arr = await listRes.json();
-          setDocList(Array.isArray(arr) ? arr : arr?.documents ?? []);
-        }
-      }
+      setIngestUrl("");
+      const list = await getDocuments();
+      setDocList(list);
     } finally {
       setIngestLoading(false);
     }
@@ -787,11 +764,8 @@ function DocumentManagementSection() {
   async function handleList() {
     setListLoading(true);
     try {
-      const res = await fetch(`${getApiBase()}/api/documents`);
-      if (res.ok) {
-        const arr = await res.json();
-        setDocList(Array.isArray(arr) ? arr : arr?.documents ?? []);
-      }
+      const list = await getDocuments();
+      setDocList(list);
     } finally {
       setListLoading(false);
     }
@@ -803,15 +777,11 @@ function DocumentManagementSection() {
     setQaLoading(true);
     setQaResult(null);
     try {
-      const res = await fetch(`${getApiBase()}/api/documents/qa`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: qaQuestion.trim(), conflict: "Iran" }),
+      const data = await postDocumentsQa({
+        question: qaQuestion.trim(),
+        conflict: DEFAULT_CONFLICT,
       });
-      if (res.ok) {
-        const data = await res.json();
-        setQaResult(data);
-      }
+      setQaResult(data);
     } finally {
       setQaLoading(false);
     }
@@ -921,7 +891,7 @@ function DocumentQASection({ data }: { data: ConflictData | null }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: question.trim(),
-          conflict: data?.conflict ?? "Iran",
+          conflict: data?.conflict ?? DEFAULT_CONFLICT,
           context: buildContext(),
         }),
         signal: abortRef.current.signal,

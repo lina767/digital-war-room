@@ -1,12 +1,11 @@
 """
 Tests for EntityRegistry: add, deduplicate, get_by_type, alias matching.
 """
-import pytest
-from agents.entity_registry import EntityRegistry, NEREntity, _ALIAS_INDEX
+
+from agents.entity_registry import _ALIAS_INDEX, EntityRegistry, NEREntity
 
 
 class TestBasicOperations:
-
     def test_add_and_get_all(self):
         reg = EntityRegistry()
         reg.add(NEREntity(entity="Iran", type="LOCATION", source_agent="news"))
@@ -15,10 +14,12 @@ class TestBasicOperations:
 
     def test_add_many(self):
         reg = EntityRegistry()
-        reg.add_many([
-            NEREntity(entity="Iran", type="LOCATION", source_agent="news"),
-            NEREntity(entity="IRGC", type="ORG", source_agent="socmint"),
-        ])
+        reg.add_many(
+            [
+                NEREntity(entity="Iran", type="LOCATION", source_agent="news"),
+                NEREntity(entity="IRGC", type="ORG", source_agent="socmint"),
+            ]
+        )
         assert reg.count == 2
 
     def test_get_by_type(self):
@@ -32,7 +33,6 @@ class TestBasicOperations:
 
 
 class TestDeduplication:
-
     def test_exact_duplicate_merged(self):
         reg = EntityRegistry()
         reg.add(NEREntity(entity="Iran", type="LOCATION", source_agent="news"))
@@ -87,7 +87,6 @@ class TestDeduplication:
 
 
 class TestAliasIndex:
-
     def test_known_aliases_in_index(self):
         assert "irgc" in _ALIAS_INDEX
         assert "sepah" in _ALIAS_INDEX
@@ -99,7 +98,6 @@ class TestAliasIndex:
 
 
 class TestToList:
-
     def test_serializes_to_dicts(self):
         reg = EntityRegistry()
         reg.add(NEREntity(entity="Iran", type="LOCATION", source_agent="news"))

@@ -9,6 +9,7 @@ Analyzes four signals: Lexical, Latency, Discrepancy, Reaction.
 Output: Source comparison table, signal assessment, synthesis (Bayesian-style), anomalies.
 All output in English for frontend.
 """
+
 import logging
 import os
 import re
@@ -50,12 +51,28 @@ STATE_SOURCE_NAMES = {s["name"] for s in STATE_SOURCES}
 
 # Lexical framing: terms often used by state vs exile (for comparison hints)
 STATE_FRAMING_TERMS = [
-    "rioter", "sedition", "conspiracy", "enemy", "terrorist", "sabotage",
-    "hypocrite", "arrest", "restore order", "foreign-backed",
+    "rioter",
+    "sedition",
+    "conspiracy",
+    "enemy",
+    "terrorist",
+    "sabotage",
+    "hypocrite",
+    "arrest",
+    "restore order",
+    "foreign-backed",
 ]
 EXILE_FRAMING_TERMS = [
-    "protester", "protest", "demonstration", "crackdown", "killed", "detained",
-    "human rights", "abuse", "regime", "supreme leader",
+    "protester",
+    "protest",
+    "demonstration",
+    "crackdown",
+    "killed",
+    "detained",
+    "human rights",
+    "abuse",
+    "regime",
+    "supreme leader",
 ]
 REACTION_KEYWORDS = ["deny", "denial", "dismiss", "reject", "accusation", "conspiracy", "fake", "fabricated"]
 
@@ -67,7 +84,7 @@ def _is_mostly_farsi(text: str) -> bool:
     chars = [c for c in text if c.strip()]
     if not chars:
         return False
-    farsi_count = sum(1 for c in chars if "\u0600" <= c <= "\u06FF")
+    farsi_count = sum(1 for c in chars if "\u0600" <= c <= "\u06ff")
     return farsi_count / len(chars) >= 0.3
 
 
@@ -86,6 +103,7 @@ def _ensure_english_display(
         try:
             from agents.utils import run_async
             from services.haiku_service import translate_fa_en
+
             translated = run_async(translate_fa_en(exile_raw))
             if translated:
                 exile_en = translated
@@ -99,6 +117,7 @@ def _ensure_english_display(
         try:
             from agents.utils import run_async
             from services.haiku_service import translate_fa_en
+
             translated = run_async(translate_fa_en(exile_raw))
             if translated:
                 exile_en = translated
@@ -124,6 +143,7 @@ def _parse_feed_item_published(entry: Any) -> Optional[float]:
             raw = getattr(entry, key, None) or (entry.get(key) if isinstance(entry, dict) else None)
             if raw and isinstance(raw, str):
                 from dateutil import parser as date_parser
+
                 dt = date_parser.parse(raw)
                 return dt.timestamp()
     except Exception:
@@ -140,6 +160,7 @@ def _fetch_state_via_firecrawl(url: str, source_name: str) -> List[Dict[str, Any
     fallback_ts = time.time()
     try:
         from firecrawl import Firecrawl
+
         api_key = os.getenv("FIRECRAWL_API_KEY")
         if not api_key:
             return items
@@ -165,15 +186,19 @@ def _fetch_state_via_firecrawl(url: str, source_name: str) -> List[Dict[str, Any
             title = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", title)
             if len(title) < 15:
                 continue
-            items.append({
-                "title": title[:500],
-                "link": "",
-                "published_ts": fallback_ts,
-                "source_name": source_name,
-                "text": title[:2000],
-            })
+            items.append(
+                {
+                    "title": title[:500],
+                    "link": "",
+                    "published_ts": fallback_ts,
+                    "source_name": source_name,
+                    "text": title[:2000],
+                }
+            )
         if items:
-            logger.info("SignalFramework: state source %s got %d items via Firecrawl fallback.", source_name, len(items))
+            logger.info(
+                "SignalFramework: state source %s got %d items via Firecrawl fallback.", source_name, len(items)
+            )
     except Exception as e:
         logger.debug("SignalFramework: Firecrawl fallback for %s failed: %s", source_name, e)
     return items[:25]
@@ -207,13 +232,15 @@ def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
             if ts is None:
                 ts = fallback_ts
             text = f"{title} {summary}"
-            out.append({
-                "title": title[:500],
-                "link": link,
-                "published_ts": ts,
-                "source_name": source_name,
-                "text": text[:2000],
-            })
+            out.append(
+                {
+                    "title": title[:500],
+                    "link": link,
+                    "published_ts": ts,
+                    "source_name": source_name,
+                    "text": text[:2000],
+                }
+            )
         return out
 
     items = _do_fetch()
@@ -235,13 +262,38 @@ def _tokenize_for_lexical(text: str) -> List[str]:
         return []
     normalized = re.sub(r"[^\w\s]", " ", text.lower())
     words = normalized.split()
-    stop = {"the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "is", "are", "was", "were", "be", "been", "by", "with", "from", "as", "this", "that"}
+    stop = {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "by",
+        "with",
+        "from",
+        "as",
+        "this",
+        "that",
+    }
     return [w for w in words if len(w) > 2 and w not in stop]
 
 
 def _extract_key_terms(items: List[Dict[str, Any]], top_n: int = 12) -> List[str]:
     """Extract most frequent meaningful terms from camp items."""
     from collections import Counter
+
     all_tokens: List[str] = []
     for it in items:
         all_tokens.extend(_tokenize_for_lexical(it.get("text") or it.get("title") or ""))
@@ -299,12 +351,13 @@ def _synthesis_confidence(
 
 # ── Pydantic output models ───────────────────────────────────────────────────
 
+
 class SourceComparisonRow(BaseModel):
     point: str
     state_narrative: str
     exile_narrative: str
     state_narrative_en: Optional[str] = None  # English; state feeds are usually EN
-    exile_narrative_en: Optional[str] = None   # English; from Iran International or translated
+    exile_narrative_en: Optional[str] = None  # English; from Iran International or translated
 
 
 class SignalAssessment(BaseModel):
@@ -314,17 +367,20 @@ class SignalAssessment(BaseModel):
 
 class SignalSummary(BaseModel):
     """Four signals for frontend display (Methodology: Signal Framework)."""
-    lexical: Dict[str, Any] = Field(default_factory=dict)   # state_terms, exile_terms, interpretation hint
+
+    lexical: Dict[str, Any] = Field(default_factory=dict)  # state_terms, exile_terms, interpretation hint
     latency: str = ""
-    discrepancy: str = ""   # narrative vs visual/social evidence gaps
-    reaction: List[str] = Field(default_factory=list)      # defensive/denial/deflection signals
+    discrepancy: str = ""  # narrative vs visual/social evidence gaps
+    reaction: List[str] = Field(default_factory=list)  # defensive/denial/deflection signals
 
 
 class SignalFrameworkReport(BaseModel):
     conflict: str
     source_comparison_table: List[SourceComparisonRow] = Field(default_factory=list)
-    signal_assessment: SignalAssessment = Field(default_factory=lambda: SignalAssessment(latency="", credibility_gaps=""))
-    signals: Optional[SignalSummary] = None   # explicit 4-signal breakdown for UI
+    signal_assessment: SignalAssessment = Field(
+        default_factory=lambda: SignalAssessment(latency="", credibility_gaps="")
+    )
+    signals: Optional[SignalSummary] = None  # explicit 4-signal breakdown for UI
     synthesis_probability: float = 0.0
     synthesis_text: str = ""
     anomalies: List[str] = Field(default_factory=list)
@@ -370,7 +426,10 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
                     logger.debug("SignalFramework: exile feed failed: %s", e)
 
         # Prefer English exile source (Iran International) for display so UI can show English first
-        exile_items_sorted = sorted(exile_items, key=lambda x: (0 if x.get("source_name") == ENGLISH_EXILE_SOURCE else 1, -(x.get("published_ts") or 0)))
+        exile_items_sorted = sorted(
+            exile_items,
+            key=lambda x: (0 if x.get("source_name") == ENGLISH_EXILE_SOURCE else 1, -(x.get("published_ts") or 0)),
+        )
         english_exile_items = [i for i in exile_items if i.get("source_name") == ENGLISH_EXILE_SOURCE]
 
         # Lexical signal
@@ -424,8 +483,12 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
         if ts_state is not None and ts_exile is not None:
             diff_sec = abs(ts_state - ts_exile)
             latency_hours = diff_sec / 3600.0
-            t_state_utc = datetime.fromtimestamp(ts_state, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts_state else ""
-            t_exile_utc = datetime.fromtimestamp(ts_exile, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts_exile else ""
+            t_state_utc = (
+                datetime.fromtimestamp(ts_state, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts_state else ""
+            )
+            t_exile_utc = (
+                datetime.fromtimestamp(ts_exile, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") if ts_exile else ""
+            )
             if ts_state < ts_exile:
                 latency_str = f"State media reported first (≈{latency_hours:.1f}h before exile). Earliest state: {t_state_utc} UTC, exile: {t_exile_utc} UTC."
             else:

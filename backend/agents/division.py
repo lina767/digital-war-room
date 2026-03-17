@@ -7,8 +7,8 @@ Division Heads own groups of DAG-Nodes and are responsible for:
 - Rule-based summary (Haiku only on anomalies or periodic)
 - Division-Summary as a DAG-Node (Tier 4)
 """
+
 import logging
-import os
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
@@ -24,9 +24,11 @@ logger = logging.getLogger(__name__)
 # Data models
 # ---------------------------------------------------------------------------
 
+
 class DivisionAnomaly(BaseModel):
     """Anomaly detected within a division's agents."""
-    type: str          # "contradiction" | "score_outlier" | "threshold_breach" | "missing_agent"
+
+    type: str  # "contradiction" | "score_outlier" | "threshold_breach" | "missing_agent"
     description: str
     severity: str = "medium"  # "low" | "medium" | "high"
     agents_involved: List[str] = Field(default_factory=list)
@@ -34,6 +36,7 @@ class DivisionAnomaly(BaseModel):
 
 class DivisionResult(BaseModel):
     """Output of a division summary node (Tier 4)."""
+
     division: str
     score: float = 0.0
     agent_scores: Dict[str, float] = Field(default_factory=dict)
@@ -47,6 +50,7 @@ class DivisionResult(BaseModel):
 
 class CycleLog(BaseModel):
     """Structured log entry emitted at end of each cycle."""
+
     cycle_id: str = ""
     conflict: str = ""
     timestamp: str = ""
@@ -63,6 +67,7 @@ class CycleLog(BaseModel):
 # ---------------------------------------------------------------------------
 # DivisionHead base
 # ---------------------------------------------------------------------------
+
 
 class DivisionHead(ABC):
     """Abstract base for all five divisions.
@@ -92,13 +97,15 @@ class DivisionHead(ABC):
         """Return all DAG nodes this division owns (agents + enrichment + summary)."""
         nodes = []
         for agent_name in self.agent_names:
-            nodes.append(DAGNode(
-                id=agent_name,
-                node_type="agent",
-                owner_division=self.name,
-                streamable=True,
-                timeout_s=75.0,
-            ))
+            nodes.append(
+                DAGNode(
+                    id=agent_name,
+                    node_type="agent",
+                    owner_division=self.name,
+                    streamable=True,
+                    timeout_s=75.0,
+                )
+            )
         nodes.extend(self._get_enrichment_nodes())
         nodes.append(self._get_summary_node())
         return nodes
@@ -221,29 +228,24 @@ class DivisionHead(ABC):
         """Weighted average with normalization for missing agents."""
         if not agent_scores:
             return 0.0
-        total_weight = sum(
-            self.weight_map.get(name, 0.0)
-            for name in agent_scores
-        )
+        total_weight = sum(self.weight_map.get(name, 0.0) for name in agent_scores)
         if total_weight <= 0:
             return sum(agent_scores.values()) / len(agent_scores)
-        return sum(
-            score * (self.weight_map.get(name, 0.0) / total_weight)
-            for name, score in agent_scores.items()
-        )
+        return sum(score * (self.weight_map.get(name, 0.0) / total_weight) for name, score in agent_scores.items())
 
-    def _detect_anomalies(self, agent_scores: Dict[str, float],
-                          agents_failed: List[str]) -> List[DivisionAnomaly]:
+    def _detect_anomalies(self, agent_scores: Dict[str, float], agents_failed: List[str]) -> List[DivisionAnomaly]:
         """Base anomaly detection: contradiction, threshold, missing agents."""
         anomalies: List[DivisionAnomaly] = []
 
         if agents_failed:
-            anomalies.append(DivisionAnomaly(
-                type="missing_agent",
-                description=f"Agents unavailable: {', '.join(agents_failed)}",
-                severity="medium",
-                agents_involved=agents_failed,
-            ))
+            anomalies.append(
+                DivisionAnomaly(
+                    type="missing_agent",
+                    description=f"Agents unavailable: {', '.join(agents_failed)}",
+                    severity="medium",
+                    agents_involved=agents_failed,
+                )
+            )
 
         scores = list(agent_scores.values())
         if len(scores) >= 2:
@@ -251,27 +253,31 @@ class DivisionHead(ABC):
             if spread > self.anomaly_score_spread:
                 high = max(agent_scores, key=agent_scores.get)
                 low = min(agent_scores, key=agent_scores.get)
-                anomalies.append(DivisionAnomaly(
-                    type="contradiction",
-                    description=f"Score spread {spread:.0f}: {high}={agent_scores[high]:.0f} vs {low}={agent_scores[low]:.0f}",
-                    severity="high",
-                    agents_involved=[high, low],
-                ))
+                anomalies.append(
+                    DivisionAnomaly(
+                        type="contradiction",
+                        description=f"Score spread {spread:.0f}: {high}={agent_scores[high]:.0f} vs {low}={agent_scores[low]:.0f}",
+                        severity="high",
+                        agents_involved=[high, low],
+                    )
+                )
 
         for name, score in agent_scores.items():
             if score > self.anomaly_threshold_score:
-                anomalies.append(DivisionAnomaly(
-                    type="threshold_breach",
-                    description=f"{name} score {score:.0f} > threshold {self.anomaly_threshold_score:.0f}",
-                    severity="high",
-                    agents_involved=[name],
-                ))
+                anomalies.append(
+                    DivisionAnomaly(
+                        type="threshold_breach",
+                        description=f"{name} score {score:.0f} > threshold {self.anomaly_threshold_score:.0f}",
+                        severity="high",
+                        agents_involved=[name],
+                    )
+                )
 
         return anomalies
 
-    def _build_summary(self, agent_scores: Dict[str, float],
-                       anomalies: List[DivisionAnomaly],
-                       store: ResultStore) -> str:
+    def _build_summary(
+        self, agent_scores: Dict[str, float], anomalies: List[DivisionAnomaly], store: ResultStore
+    ) -> str:
         """Rule-based summary text. Override for domain-specific logic."""
         parts = [f"{self.name.title()} Division:"]
         for name, score in sorted(agent_scores.items(), key=lambda x: -x[1]):
@@ -285,12 +291,11 @@ class DivisionHead(ABC):
     def _should_trigger_haiku(self, anomalies: List[DivisionAnomaly]) -> bool:
         """Decide whether to make a Haiku LLM call."""
         has_high_severity = any(a.severity == "high" for a in anomalies)
-        periodic = (self.haiku_periodic_cycles > 0 and
-                    self._cycle_count % self.haiku_periodic_cycles == 0)
+        periodic = self.haiku_periodic_cycles > 0 and self._cycle_count % self.haiku_periodic_cycles == 0
         return has_high_severity or periodic
 
-    def _call_haiku(self, agent_scores: Dict[str, float],
-                    anomalies: List[DivisionAnomaly],
-                    store: ResultStore) -> Optional[str]:
+    def _call_haiku(
+        self, agent_scores: Dict[str, float], anomalies: List[DivisionAnomaly], store: ResultStore
+    ) -> Optional[str]:
         """Override to make an actual Haiku LLM call. Base returns None."""
         return None

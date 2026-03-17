@@ -2,6 +2,7 @@
 Actor model for conflict synthesis: builds actor lists with activity scores from key_findings.
 Currently Iran-specific; structured for future conflict-specific config.
 """
+
 from typing import Any, Dict, List
 
 # Iran conflict actors (aligned with conflicts.app). Activity derived from key_findings mentions.
@@ -44,10 +45,12 @@ def build_actors_for_conflict(conflict: str, key_findings: List[str]) -> List[Di
     out = []
     for a in IRAN_ACTORS:
         activity = actor_activity_from_findings(a["id"], a["name"], key_findings)
-        out.append({
-            "id": a["id"],
-            "name": a["name"],
-            "role": a["role"],
-            "activity": activity,
-        })
+        out.append(
+            {
+                "id": a["id"],
+                "name": a["name"],
+                "role": a["role"],
+                "activity": activity,
+            }
+        )
     return out

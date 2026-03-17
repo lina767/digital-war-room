@@ -1,17 +1,18 @@
 """
 Tests for DivisionHead base: score computation, anomaly detection, summary building.
 """
+
 import pytest
+
 from agents.dag_scheduler import ResultStore
-from agents.division import DivisionHead, DivisionResult, DivisionAnomaly
-from agents.divisions.military_division import MilitaryDivision
+from agents.division import DivisionAnomaly
 from agents.divisions.financial_division import FinancialDivision
+from agents.divisions.military_division import MilitaryDivision
 from agents.divisions.political_division import PoliticalDivision
 from agents.divisions.technical_division import TechnicalDivision
 
 
 class TestWeightedScore:
-
     def test_all_agents_present(self):
         div = FinancialDivision()
         store = ResultStore()
@@ -33,7 +34,6 @@ class TestWeightedScore:
 
 
 class TestAnomalyDetection:
-
     def test_contradiction_detected(self):
         div = MilitaryDivision()
         store = ResultStore()
@@ -68,7 +68,6 @@ class TestAnomalyDetection:
 
 
 class TestDivisionDAGNodes:
-
     def test_military_nodes(self):
         div = MilitaryDivision()
         nodes = div.get_dag_nodes()
@@ -98,8 +97,7 @@ class TestDivisionDAGNodes:
         assert len(enrichment) == 0
 
     def test_all_summaries_streamable(self):
-        for DivClass in [MilitaryDivision, FinancialDivision,
-                         PoliticalDivision, TechnicalDivision]:
+        for DivClass in [MilitaryDivision, FinancialDivision, PoliticalDivision, TechnicalDivision]:
             div = DivClass()
             nodes = div.get_dag_nodes()
             summaries = [n for n in nodes if n.node_type == "division_summary"]
@@ -107,7 +105,6 @@ class TestDivisionDAGNodes:
 
 
 class TestHaikuStrategy:
-
     def test_no_haiku_on_normal_scores(self):
         div = FinancialDivision()
         anomalies = []

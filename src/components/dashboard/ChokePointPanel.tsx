@@ -4,7 +4,7 @@ import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import { Anchor, Droplets, Wheat, AlertTriangle, Shield, Settings2 } from "lucide-react";
-import { getApiBase } from "@/lib/api";
+import { getChokepointOverrides, postChokepointOverrides } from "@/lib/api";
 import { toast } from "sonner";
 
 interface ChokePointPanelProps {
@@ -88,11 +88,8 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
 
   const loadOverrides = useCallback(async () => {
     try {
-      const res = await fetch(`${getApiBase()}/api/chokepoints/overrides`);
-      if (res.ok) {
-        const next = (await res.json()) as Record<string, string>;
-        setOverrides(next ?? {});
-      }
+      const next = await getChokepointOverrides();
+      setOverrides(next ?? {});
     } catch {
       // ignore
     }
@@ -111,18 +108,8 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
       } else {
         next[cpName] = status;
       }
-      const res = await fetch(`${getApiBase()}/api/chokepoints/overrides`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      if (res.ok) {
-        const updated = (await res.json()) as Record<string, string>;
-        setOverrides(updated ?? {});
-      } else {
-        const msg = await res.text();
-        toast.error(msg || "Failed to update chokepoint status");
-      }
+      const updated = await postChokepointOverrides(next);
+      setOverrides(updated ?? {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update chokepoint status");
     } finally {

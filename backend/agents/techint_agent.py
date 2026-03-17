@@ -4,7 +4,8 @@ Fetches: tech ETF quotes (Alpha Vantage), export-control news (NewsAPI), IODA v2
 (outages, BGP/signals raw, alerts, entities/ASNs), OONI, Cloudflare Radar, Shodan.
 IODA: https://api.ioda.inetintel.cc.gatech.edu/v2/ — BGP routing anomalies, internet outages.
 """
-import asyncio
+
+import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,8 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from .utils import run_async
+
+logger = logging.getLogger(__name__)
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 NEWS_API_URL = "https://newsapi.org/v2/everything"
@@ -39,9 +42,9 @@ WAYBACK_URLS_BY_CONFLICT: Dict[str, List[str]] = {
 SHODAN_PORT_QUERIES = [
     (502, "port:502", "industrial_modbus"),
     (44818, "port:44818", "industrial_ethernet_ip"),  # Rockwell EtherNet/IP
-    (47808, "port:47808", "industrial_bacnet"),       # BACnet building automation
-    (1911, "port:1911", "industrial_niagara"),       # Tridium Niagara
-    (102, "port:102", "industrial_s7"),               # Siemens S7
+    (47808, "port:47808", "industrial_bacnet"),  # BACnet building automation
+    (1911, "port:1911", "industrial_niagara"),  # Tridium Niagara
+    (102, "port:102", "industrial_s7"),  # Siemens S7
     (22, "port:22", "ssh"),
     (443, "port:443", "https"),
 ]
@@ -133,7 +136,9 @@ def _ioda_time_range(days: int = 7) -> tuple[int, int]:
     return from_ts, until_ts
 
 
-async def _fetch_ioda_outages(client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int, limit: int = 10) -> List[Dict[str, Any]]:
+async def _fetch_ioda_outages(
+    client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int, limit: int = 10
+) -> List[Dict[str, Any]]:
     """GET /v2/outages/events — outage events for country (entityType, entityCode, from, until)."""
     try:
         resp = await client.get(
@@ -151,12 +156,24 @@ async def _fetch_ioda_outages(client: httpx.AsyncClient, entity_code: str, from_
         items = data.get("data") if isinstance(data, dict) else (data if isinstance(data, list) else [])
         if not isinstance(items, list):
             return []
-        return [{"entityCode": entity_code, "location": x.get("location"), "start": x.get("start"), "duration": x.get("duration"), "datasource": x.get("datasource"), **(x if isinstance(x, dict) else {})} for x in items[:limit]]
+        return [
+            {
+                "entityCode": entity_code,
+                "location": x.get("location"),
+                "start": x.get("start"),
+                "duration": x.get("duration"),
+                "datasource": x.get("datasource"),
+                **(x if isinstance(x, dict) else {}),
+            }
+            for x in items[:limit]
+        ]
     except Exception as e:
         return [{"entityCode": entity_code, "error": str(e)}]
 
 
-async def _fetch_ioda_signals_raw(client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int) -> Dict[str, Any]:
+async def _fetch_ioda_signals_raw(
+    client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int
+) -> Dict[str, Any]:
     """GET /v2/signals/raw/country/{code} — BGP, Active Probing (Ping), Telescope time-series."""
     try:
         resp = await client.get(
@@ -174,7 +191,9 @@ async def _fetch_ioda_signals_raw(client: httpx.AsyncClient, entity_code: str, f
         return {"entityCode": entity_code, "error": str(e), "signals": {}}
 
 
-async def _fetch_ioda_alerts(client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int) -> List[Dict[str, Any]]:
+async def _fetch_ioda_alerts(
+    client: httpx.AsyncClient, entity_code: str, from_ts: int, until_ts: int
+) -> List[Dict[str, Any]]:
     """Fetch anomaly alerts (same /outages/events with includeAlerts=true for BGP/signal-deviation alerts)."""
     try:
         resp = await client.get(
@@ -286,32 +305,33 @@ async def _fetch_ooni_measurements(conflict: str) -> Dict[str, Any]:
                         data = resp.json()
                         results = data.get("results") or []
                         for r in results:
-                            all_measurements.append({
-                                "probe_cc": probe_cc,
-                                "test_name": test_name,
-                                "measurement_id": r.get("measurement_id"),
-                                "input": r.get("input"),
-                                "anomaly": r.get("anomaly"),
-                                "confirmed": r.get("confirmed"),
-                            })
-                            # Check for confirmed_blocked (can be in r.confirmed or inside measurement)
-                            is_confirmed_blocked = (
-                                r.get("confirmed") is True
-                                or (isinstance(r.get("confirmed"), str) and "blocked" in str(r.get("confirmed")).lower())
-                            )
-                            if is_confirmed_blocked:
-                                confirmed_blocked.append({
+                            all_measurements.append(
+                                {
                                     "probe_cc": probe_cc,
                                     "test_name": test_name,
                                     "measurement_id": r.get("measurement_id"),
-                                })
+                                    "input": r.get("input"),
+                                    "anomaly": r.get("anomaly"),
+                                    "confirmed": r.get("confirmed"),
+                                }
+                            )
+                            # Check for confirmed_blocked (can be in r.confirmed or inside measurement)
+                            is_confirmed_blocked = r.get("confirmed") is True or (
+                                isinstance(r.get("confirmed"), str) and "blocked" in str(r.get("confirmed")).lower()
+                            )
+                            if is_confirmed_blocked:
+                                confirmed_blocked.append(
+                                    {
+                                        "probe_cc": probe_cc,
+                                        "test_name": test_name,
+                                        "measurement_id": r.get("measurement_id"),
+                                    }
+                                )
                     except Exception as e:
                         all_measurements.append({"probe_cc": probe_cc, "test_name": test_name, "error": str(e)})
     except Exception as e:
         return {"measurements": [], "confirmed_blocked": [], "telegram_signal_blocked_iran": False, "error": str(e)}
-    telegram_signal_blocked_iran = any(
-        c.get("probe_cc") == "IR" for c in confirmed_blocked
-    )
+    telegram_signal_blocked_iran = any(c.get("probe_cc") == "IR" for c in confirmed_blocked)
     return {
         "measurements": all_measurements[:30],
         "confirmed_blocked": confirmed_blocked,
@@ -335,7 +355,9 @@ async def _fetch_cloudflare_outages(token: str, conflict: str) -> List[Dict[str,
         annotations = result.get("annotations") or []
         # Optionally filter by conflict-relevant locations
         if codes:
-            filtered = [a for a in annotations if a.get("locations") and any(loc in (a.get("locations") or []) for loc in codes)]
+            filtered = [
+                a for a in annotations if a.get("locations") and any(loc in (a.get("locations") or []) for loc in codes)
+            ]
             if filtered:
                 return filtered[:10]
         return list(annotations)[:10]
@@ -444,12 +466,14 @@ async def _fetch_wayback_snapshots(conflict: str) -> Dict[str, Any]:
                     # First row is header; rows are [urlkey, timestamp, original, ...]
                     rows = data[1:]
                     last_ts = rows[0][1] if rows else None
-                    result.append({
-                        "url": url,
-                        "snapshot_count": len(rows),
-                        "last_capture": last_ts,
-                        "wayback_url": f"https://web.archive.org/web/{last_ts}/{url}" if last_ts else None,
-                    })
+                    result.append(
+                        {
+                            "url": url,
+                            "snapshot_count": len(rows),
+                            "last_capture": last_ts,
+                            "wayback_url": f"https://web.archive.org/web/{last_ts}/{url}" if last_ts else None,
+                        }
+                    )
                 except Exception as e:
                     result.append({"url": url, "error": str(e)})
         return {
@@ -547,11 +571,7 @@ async def _fetch_whois_dns(conflict: str) -> Dict[str, Any]:
                 results.append(item)
 
         ok = [r for r in results if r.get("whois") or r.get("dns_a")]
-        summary = (
-            f"WHOIS/DNS: {len(ok)} domain(s) resolved."
-            if ok
-            else "WHOIS/DNS: no successful lookups."
-        )
+        summary = f"WHOIS/DNS: {len(ok)} domain(s) resolved." if ok else "WHOIS/DNS: no successful lookups."
         return {"domains": domains, "results": results, "summary": summary}
     except Exception as e:  # pragma: no cover - network failure path
         return {"domains": domains, "results": [], "summary": "", "error": str(e)}
@@ -560,11 +580,15 @@ async def _fetch_whois_dns(conflict: str) -> Dict[str, Any]:
 async def _fetch_quote(client: httpx.AsyncClient, symbol: str, api_key: str) -> Dict[str, Any]:
     """Fetch GLOBAL_QUOTE for one symbol."""
     try:
-        resp = await client.get(ALPHAVANTAGE_URL, params={
-            "function": "GLOBAL_QUOTE",
-            "symbol": symbol,
-            "apikey": api_key,
-        }, timeout=15.0)
+        resp = await client.get(
+            ALPHAVANTAGE_URL,
+            params={
+                "function": "GLOBAL_QUOTE",
+                "symbol": symbol,
+                "apikey": api_key,
+            },
+            timeout=15.0,
+        )
         resp.raise_for_status()
         data = resp.json()
         q = data.get("Global Quote") or {}
@@ -588,7 +612,7 @@ async def _fetch_tech_indicators(api_key: str) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient() as client:
         for symbol, _ in TECH_SYMBOLS:
             r = await _fetch_quote(client, symbol, api_key)
-            r["label"] = next((l for s, l in TECH_SYMBOLS if s == symbol), symbol)
+            r["label"] = next((label for s, label in TECH_SYMBOLS if s == symbol), symbol)
             results.append(r)
     return results
 
@@ -627,13 +651,15 @@ async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[s
                             if not title:
                                 continue
                             source = (art.get("source") or {}).get("name") or ""
-                            articles.append({
-                                "title": title,
-                                "source": source,
-                                "url": art.get("url"),
-                                "published_at": art.get("publishedAt"),
-                                "description": (art.get("description") or "")[:200],
-                            })
+                            articles.append(
+                                {
+                                    "title": title,
+                                    "source": source,
+                                    "url": art.get("url"),
+                                    "published_at": art.get("publishedAt"),
+                                    "description": (art.get("description") or "")[:200],
+                                }
+                            )
         except Exception:
             pass
     return articles
@@ -758,13 +784,13 @@ def _compute_techint_score(
     if total_shodan > 500000:
         base += 5
     if industrial > 500:
-        base += 12   # Exposed industrial/SCADA in conflict zone = strong escalation
+        base += 12  # Exposed industrial/SCADA in conflict zone = strong escalation
     elif industrial > 100:
         base += 8
     elif industrial > 0:
         base += 4
     if vuln_count is not None and int(vuln_count) > 20000:
-        base += 5   # Large attack surface in region
+        base += 5  # Large attack surface in region
     # Light touch: if WHOIS/DNS/Wigle have data, nudge score slightly (signals active infrastructure mapping)
     if whois_dns and isinstance(whois_dns, dict) and whois_dns.get("results"):
         base += 2
@@ -853,10 +879,15 @@ async def _generate_haiku_summary_techint(
     """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
     try:
         from services.haiku_service import analyst_summary
+
         compact = {
             "conflict": conflict,
             "techint_score": techint_score,
-            "tech_etfs": [{"symbol": t.get("symbol"), "change_pct": t.get("change_pct")} for t in (tech_indicators or [])[:5] if t.get("symbol")],
+            "tech_etfs": [
+                {"symbol": t.get("symbol"), "change_pct": t.get("change_pct")}
+                for t in (tech_indicators or [])[:5]
+                if t.get("symbol")
+            ],
             "export_control_articles": len([a for a in (export_controls or []) if "error" not in a]),
             "ioda_outages": len(ioda_result.get("outages") or []),
             "ioda_alerts": len(ioda_result.get("alerts") or []),
@@ -866,6 +897,7 @@ async def _generate_haiku_summary_techint(
             "shodan_industrial": shodan_activity.get("industrial_exposed"),
         }
         import json
+
         data = json.dumps(compact, indent=2)
         system = (
             "You are a tech and export-control analyst for conflict monitoring. Summarize the following "
@@ -881,8 +913,9 @@ async def _generate_haiku_summary_techint(
 def run_techint_agent(conflict: str) -> Dict[str, Any]:
     """Run TECHINT: tech indicators, export control, IODA, OONI, Cloudflare Radar, Shodan."""
     import time
+
     from .health_registry import get_health_registry
-    from .utils import AgentMetadata, SourceResult, utc_now_iso, compute_confidence_from_sources
+    from .utils import AgentMetadata, SourceResult, compute_confidence_from_sources, utc_now_iso
 
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
     news_key = os.getenv("NEWS_API_KEY")
@@ -901,18 +934,38 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         whois_dns = await _fetch_whois_dns(conflict)
         wigle_result = await _fetch_wigle_networks(conflict)
         techint_score = _compute_techint_score(
-            tech_indicators, export_controls, ioda_events,
-            ooni_result, cloudflare_outages, shodan_activity,
-            whois_dns, wigle_result,
+            tech_indicators,
+            export_controls,
+            ioda_events,
+            ooni_result,
+            cloudflare_outages,
+            shodan_activity,
+            whois_dns,
+            wigle_result,
         )
         rule_summary = _build_summary(
-            tech_indicators, export_controls, ioda_events, ioda_result,
-            ooni_result, cloudflare_outages, shodan_activity,
-            techint_score, wayback_result, whois_dns, wigle_result,
+            tech_indicators,
+            export_controls,
+            ioda_events,
+            ioda_result,
+            ooni_result,
+            cloudflare_outages,
+            shodan_activity,
+            techint_score,
+            wayback_result,
+            whois_dns,
+            wigle_result,
         )
         llm_summary = await _generate_haiku_summary_techint(
-            conflict, tech_indicators, export_controls, ioda_events, ioda_result,
-            ooni_result, cloudflare_outages, shodan_activity, techint_score,
+            conflict,
+            tech_indicators,
+            export_controls,
+            ioda_events,
+            ioda_result,
+            ooni_result,
+            cloudflare_outages,
+            shodan_activity,
+            techint_score,
         )
         summary = llm_summary if llm_summary else rule_summary
         return {
@@ -939,11 +992,36 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         out = run_async(_run())
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
-            SourceResult(name="Tech indicators", status="ok" if (out.get("tech_indicators") or []) else "error", fetched_at=fetched_at, record_count=len(out.get("tech_indicators") or [])),
-            SourceResult(name="Export control", status="ok" if any(isinstance(a, dict) and "error" not in a for a in (out.get("export_controls") or [])) else "error", fetched_at=fetched_at),
-            SourceResult(name="IODA", status="ok" if (out.get("ioda_events") or out.get("ioda_outages") or out.get("ioda_alerts")) else "error", fetched_at=fetched_at),
-            SourceResult(name="OONI", status="ok" if (out.get("ooni") and not out.get("ooni", {}).get("error")) else "error", fetched_at=fetched_at),
-            SourceResult(name="Shodan/Wigle", status="ok" if (out.get("shodan") or out.get("wigle")) else "error", fetched_at=fetched_at),
+            SourceResult(
+                name="Tech indicators",
+                status="ok" if (out.get("tech_indicators") or []) else "error",
+                fetched_at=fetched_at,
+                record_count=len(out.get("tech_indicators") or []),
+            ),
+            SourceResult(
+                name="Export control",
+                status="ok"
+                if any(isinstance(a, dict) and "error" not in a for a in (out.get("export_controls") or []))
+                else "error",
+                fetched_at=fetched_at,
+            ),
+            SourceResult(
+                name="IODA",
+                status="ok"
+                if (out.get("ioda_events") or out.get("ioda_outages") or out.get("ioda_alerts"))
+                else "error",
+                fetched_at=fetched_at,
+            ),
+            SourceResult(
+                name="OONI",
+                status="ok" if (out.get("ooni") and not out.get("ooni", {}).get("error")) else "error",
+                fetched_at=fetched_at,
+            ),
+            SourceResult(
+                name="Shodan/Wigle",
+                status="ok" if (out.get("shodan") or out.get("wigle")) else "error",
+                fetched_at=fetched_at,
+            ),
         ]
         reg = get_health_registry()
         if reg:
@@ -951,13 +1029,39 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "techint", sr)
         confidence = compute_confidence_from_sources(source_results)
         ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = "live" if ok_count >= 3 else "recent" if ok_count >= 1 else "stale" if out.get("techint_score", 0) > 0 else "unavailable"
-        meta = AgentMetadata(agent="techint", fetched_at=fetched_at, duration_ms=duration_ms, sources=source_results, confidence=confidence, data_freshness=data_freshness, fallback_used=False, error_summary=None)
+        data_freshness = (
+            "live"
+            if ok_count >= 3
+            else "recent"
+            if ok_count >= 1
+            else "stale"
+            if out.get("techint_score", 0) > 0
+            else "unavailable"
+        )
+        meta = AgentMetadata(
+            agent="techint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=source_results,
+            confidence=confidence,
+            data_freshness=data_freshness,
+            fallback_used=False,
+            error_summary=None,
+        )
         out["_meta"] = meta.model_dump(mode="json")
         return out
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(agent="techint", fetched_at=fetched_at, duration_ms=duration_ms, sources=[], confidence=compute_confidence_from_sources([]), data_freshness="unavailable", fallback_used=True, error_summary=str(e))
+        meta = AgentMetadata(
+            agent="techint",
+            fetched_at=fetched_at,
+            duration_ms=duration_ms,
+            sources=[],
+            confidence=compute_confidence_from_sources([]),
+            data_freshness="unavailable",
+            fallback_used=True,
+            error_summary=str(e),
+        )
         return {
             "tech_indicators": [],
             "export_controls": [{"error": str(e)}],

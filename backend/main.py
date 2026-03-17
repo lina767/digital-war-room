@@ -26,8 +26,10 @@ from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 
 # Konflikt, der periodisch automatisch analysiert wird (unabhängig von Aufrufen)
-# Standard: nur "Iran"
-AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", "Iran")
+from agents.config import DEFAULT_CONFLICT
+
+# Standard conflict for periodic analysis (default: Iran)
+AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", DEFAULT_CONFLICT)
 # Default: 1x täglich (86400s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
 AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "86400"))  # 24 Stunden
 
@@ -66,6 +68,7 @@ async def lifespan(app: FastAPI):
 
     try:
         from services.acled_aggregated import refresh_acled_aggregated
+
         refresh_acled_aggregated()
         logger.info("ACLED aggregated data checked/refreshed at startup")
     except Exception as e:
@@ -81,11 +84,13 @@ async def lifespan(app: FastAPI):
                 # Reset Haiku per-run counters and warm up HF models
                 try:
                     from services.haiku_service import reset_run_counters, log_run_stats
+
                     reset_run_counters()
                 except Exception:
                     pass
                 try:
                     from services.hf_service import warmup
+
                     await warmup()
                 except Exception:
                     pass
@@ -113,7 +118,9 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 consecutive_failures += 1
                 retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)
-                logger.warning("Analysis failed (attempt %d): %s. Retrying in %ds.", consecutive_failures, e, retry_delay)
+                logger.warning(
+                    "Analysis failed (attempt %d): %s. Retrying in %ds.", consecutive_failures, e, retry_delay
+                )
                 await asyncio.sleep(retry_delay)
 
     analysis_task = asyncio.create_task(run_periodic_analysis())
@@ -123,8 +130,10 @@ async def lifespan(app: FastAPI):
     greynoise_task = None
     greynoise_discovery_task = None
     if GREYNOISE_API_KEY:
+
         async def run_greynoise_scheduler():
             from agents.greynoise_agent import run_greynoise_scheduler_cycle
+
             await asyncio.sleep(15)
             while True:
                 try:
@@ -136,6 +145,7 @@ async def lifespan(app: FastAPI):
 
         async def run_greynoise_tag_discovery():
             from agents.greynoise_agent import run_tag_discovery_cycle
+
             await asyncio.sleep(60)
             while True:
                 try:
@@ -236,4 +246,3 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
         except Exception:
             pass
         websocket.app.state.ws_manager.disconnect(websocket)
-

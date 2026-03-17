@@ -6,6 +6,7 @@ synthesis so agents "pay attention" to these points instead of only linking to t
 When FIRECRAWL_API_KEY is set, uses Firecrawl for robust scraping (markdown, JS support).
 Otherwise falls back to httpx + regex. Free Plan: max 2 concurrent Firecrawl requests.
 """
+
 import asyncio
 import os
 import re
@@ -61,6 +62,7 @@ def _scrape_one_firecrawl(url: str) -> Dict[str, Any]:
     """
     try:
         from firecrawl import Firecrawl
+
         api_key = os.getenv("FIRECRAWL_API_KEY")
         if not api_key:
             return {"url": url, "error": "FIRECRAWL_API_KEY not set"}
@@ -108,7 +110,10 @@ async def fetch_acled_reference_analyses_async(conflict: str) -> List[Dict[str, 
     Uses Firecrawl when FIRECRAWL_API_KEY is set (max 2 concurrent); otherwise httpx fallback.
     """
     cl = (conflict or "").lower()
-    if not any(x in cl for x in ("iran", "us-iran", "middle east", "israel", "gaza", "lebanon", "hezbollah", "yemen", "iraq", "syria")):
+    if not any(
+        x in cl
+        for x in ("iran", "us-iran", "middle east", "israel", "gaza", "lebanon", "hezbollah", "yemen", "iraq", "syria")
+    ):
         return []
     use_firecrawl = bool(os.getenv("FIRECRAWL_API_KEY"))
     results: List[Dict[str, Any]] = []
@@ -117,9 +122,11 @@ async def fetch_acled_reference_analyses_async(conflict: str) -> List[Dict[str, 
         sem = asyncio.Semaphore(FIRECRAWL_MAX_CONCURRENT)
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor(max_workers=FIRECRAWL_MAX_CONCURRENT) as executor:
+
             async def scrape_one(url: str) -> Dict[str, Any]:
                 async with sem:
                     return await loop.run_in_executor(executor, _scrape_one_firecrawl, url)
+
             raw = await asyncio.gather(*(scrape_one(u) for u in ACLED_REFERENCE_URLS), return_exceptions=True)
         for i, one in enumerate(raw):
             if isinstance(one, Exception):
@@ -128,7 +135,13 @@ async def fetch_acled_reference_analyses_async(conflict: str) -> List[Dict[str, 
             elif one.get("excerpt") or one.get("title"):
                 results.append(one)
             elif one.get("error"):
-                results.append({"url": one.get("url", ""), "title": one.get("url", ""), "excerpt": f"(Fetch error: {one['error']})"})
+                results.append(
+                    {
+                        "url": one.get("url", ""),
+                        "title": one.get("url", ""),
+                        "excerpt": f"(Fetch error: {one['error']})",
+                    }
+                )
     else:
         for url in ACLED_REFERENCE_URLS:
             one = await _fetch_one(url)

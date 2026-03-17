@@ -10,15 +10,16 @@ The download page URL pattern:
 The XLSX link pattern (updated weekly by ACLED):
   https://acleddata.com/system/files/YYYY-MM/Middle-East_aggregated_data_up_to-YYYY-MM-DD.xlsx
 """
+
 import csv
 import logging
 import os
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from zipfile import ZipFile
 
 import httpx
@@ -136,13 +137,23 @@ def _parse_xlsx_to_csvs(xlsx_path: Path) -> int:
                         strings.append(t.text if t is not None else "")
 
             country_rows: Dict[str, List[Dict[str, str]]] = {c: [] for c in COUNTRY_CSV_MAP}
-            col_map = {"A": "week", "B": "region", "C": "country", "D": "admin1",
-                       "E": "event_type", "F": "sub_event_type", "G": "events",
-                       "H": "fatalities", "I": "population_exposure", "J": "disorder_type",
-                       "L": "centroid_lat", "M": "centroid_lon"}
+            col_map = {
+                "A": "week",
+                "B": "region",
+                "C": "country",
+                "D": "admin1",
+                "E": "event_type",
+                "F": "sub_event_type",
+                "G": "events",
+                "H": "fatalities",
+                "I": "population_exposure",
+                "J": "disorder_type",
+                "L": "centroid_lat",
+                "M": "centroid_lon",
+            }
 
             with z.open("xl/worksheets/sheet1.xml") as f:
-                for event, elem in ET.iterparse(f):
+                for _event, elem in ET.iterparse(f):
                     if elem.tag != f"{{{XLSX_NS}}}row":
                         continue
                     if elem.get("r") == "1":
@@ -180,8 +191,17 @@ def _parse_xlsx_to_csvs(xlsx_path: Path) -> int:
                     elem.clear()
 
         total = 0
-        fields = ["week", "admin1", "event_type", "sub_event_type", "events", "fatalities",
-                  "disorder_type", "centroid_lat", "centroid_lon"]
+        fields = [
+            "week",
+            "admin1",
+            "event_type",
+            "sub_event_type",
+            "events",
+            "fatalities",
+            "disorder_type",
+            "centroid_lat",
+            "centroid_lon",
+        ]
         for country, fname in COUNTRY_CSV_MAP.items():
             rows = country_rows.get(country, [])
             if not rows:

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getApiBase } from "@/lib/api";
+import { getAgentsStatus } from "@/lib/api";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 /** GET /api/agents/status returns { finint: { status: "ok"|"error", ... } | "ok"|"error", ... } */
@@ -13,12 +13,9 @@ export function AgentsStatusBar() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${getApiBase()}/api/agents/status`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: Record<string, unknown> | null) => {
-        if (!cancelled && data && typeof data === "object") setStatus(data);
-      })
-      .catch(() => {});
+    getAgentsStatus().then((data) => {
+      if (!cancelled && data && typeof data === "object") setStatus(data);
+    });
     return () => { cancelled = true; };
   }, []);
 
