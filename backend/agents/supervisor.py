@@ -37,6 +37,11 @@ from .findings_builder import append_agent_findings
 from .compliance_enrichment import build_compliance_and_alerts
 
 
+def _use_dag_analysis() -> bool:
+    """True = use CEO/DAG pipeline; False = legacy _collect_all_agents path."""
+    return os.getenv("USE_DAG_ANALYSIS", "1").strip().lower() not in ("0", "false", "no")
+
+
 # Per-agent timeout (seconds). Prevents one slow API from blocking the whole run.
 _AGENT_TIMEOUT = 75
 
@@ -89,6 +94,12 @@ def run_analysis_streaming(conflict: str) -> Generator[Tuple[str, Any], None, No
     Run analysis and yield (agent_name, result) as each agent completes, then ("supervisor", final_result).
     Used by GET /api/analyze/stream for SSE progressive rendering.
     """
+    if _use_dag_analysis():
+        from .ceo import analyze_conflict_dag_streaming
+        for name, data in analyze_conflict_dag_streaming(conflict):
+            yield ("supervisor", data) if name == "ceo_synthesis" else (name, data)
+        return
+
     _AGENT_FUTURES = [
         ("finint", run_finint_agent, {"escalation_score": 0.0, "brent": None, "polymarket": []}),
         ("sigint", run_sigint_agent, {"sigint_score": 0.0, "aircraft": [], "ships": [], "hormuz_tankers": [], "hormuz_tanker_count": 0, "conflict_reports": []}),
@@ -639,41 +650,44 @@ def _summarize_long_items(agent_results: Dict[str, Any]):
 
 
 def analyze_conflict(conflict: str) -> Dict[str, Any]:
-    """Public entrypoint – runs all 11 agents then supervisor synthesis."""
+    """Public entrypoint – runs analysis via CEO/DAG pipeline or legacy path."""
     from .health_registry import get_health_registry
     reg = get_health_registry()
     if reg:
         reg.clear()
     with traced("analysis.full", {"conflict": conflict}):
+        if _use_dag_analysis():
+            from .ceo import analyze_conflict_dag
+            return analyze_conflict_dag(conflict)
         agent_results = _collect_all_agents(conflict)
         agent_results = _ner_post_processing(agent_results)
         agent_results = _prefilter_and_summarize(agent_results)
         synthesis = _synthesize(conflict, agent_results)
 
-    return {
-        "conflict": conflict,
-        "finint":   synthesis.get("finint", {}),
-        "sigint":   synthesis.get("sigint", {}),
-        "news":     synthesis.get("news", {}),
-        "geoint":   synthesis.get("geoint", {}),
-        "socmint":  synthesis.get("socmint", {}),
-        "techint":  synthesis.get("techint", {}),
-        "cyber":    synthesis.get("cyber", {}),
-        "energy":   synthesis.get("energy", {}),
-        "protest":  synthesis.get("protest", {}),
-        "diplo":    synthesis.get("diplo", {}),
-        "proximity": synthesis.get("proximity", {}),
-        "narrative": synthesis.get("narrative", {}),
-        "chokepoint": synthesis.get("chokepoint", {}),
-        "escalation_score": synthesis.get("escalation_score", 0.0),
-        "threat_level":     synthesis.get("threat_level", "MINIMAL"),
-        "key_findings":     synthesis.get("key_findings", []),
-        "key_findings_context": synthesis.get("key_findings_context", []),
-        "corroborated_patterns": synthesis.get("corroborated_patterns", []),
-        "scenarios":        synthesis.get("scenarios", []),
-        "summary":          synthesis.get("summary", ""),
-        "actors":           synthesis.get("actors", []),
-        "predictive":       synthesis.get("predictive", {}),
-        "compliance":       synthesis.get("compliance", {}),
-        "alerts":           synthesis.get("alerts", []),
-    }
+        return {
+            "conflict": conflict,
+            "finint":   synthesis.get("finint", {}),
+            "sigint":   synthesis.get("sigint", {}),
+            "news":     synthesis.get("news", {}),
+            "geoint":   synthesis.get("geoint", {}),
+            "socmint":  synthesis.get("socmint", {}),
+            "techint":  synthesis.get("techint", {}),
+            "cyber":    synthesis.get("cyber", {}),
+            "energy":   synthesis.get("energy", {}),
+            "protest":  synthesis.get("protest", {}),
+            "diplo":    synthesis.get("diplo", {}),
+            "proximity": synthesis.get("proximity", {}),
+            "narrative": synthesis.get("narrative", {}),
+            "chokepoint": synthesis.get("chokepoint", {}),
+            "escalation_score": synthesis.get("escalation_score", 0.0),
+            "threat_level":     synthesis.get("threat_level", "MINIMAL"),
+            "key_findings":     synthesis.get("key_findings", []),
+            "key_findings_context": synthesis.get("key_findings_context", []),
+            "corroborated_patterns": synthesis.get("corroborated_patterns", []),
+            "scenarios":        synthesis.get("scenarios", []),
+            "summary":          synthesis.get("summary", ""),
+            "actors":           synthesis.get("actors", []),
+            "predictive":       synthesis.get("predictive", {}),
+            "compliance":       synthesis.get("compliance", {}),
+            "alerts":           synthesis.get("alerts", []),
+        }
