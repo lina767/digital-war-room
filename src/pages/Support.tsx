@@ -15,6 +15,10 @@ const Support = () => {
         title="Support the Mission — Digital War Room"
         description={SUPPORT_DESCRIPTION}
         path="/support"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Support", url: "https://digital-war-room.com/support" },
+        ]}
       />
       <ContentPageLayout
         label="SUPPORT"

@@ -42,5 +42,9 @@ Set the following in a `.env` file in the project root:
 ## Deployment
 
 1. Set environment variables in your hosting platform (Vercel, Cloudflare Pages, etc.)
-2. Build command: `npm run build`
+2. Build command: `npm run build` (runs `prebuild` → generates `public/sitemap.xml` with `lastmod`)
 3. Output directory: `dist`
+
+**SEO (pre-rendered routes):** The build produces one HTML file per route (e.g. `dist/how-it-works/index.html`). Configure your server so that requests to `/how-it-works` are served from `how-it-works/index.html` (or equivalent rewrite). Fallback for unknown paths should be `index.html` for the SPA.
+
+**OG image:** `public/og-image.png` is used for social/snippet previews. Recommended size 1200×630 px. In your hosting config, set cache headers for `/og-image.png` if needed (e.g. `Cache-Control: public, max-age=86400`).

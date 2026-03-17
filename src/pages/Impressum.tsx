@@ -8,6 +8,10 @@ const Impressum = () => {
         title="Legal Notice — Digital War Room"
         description="Legal notice and contact information for Digital War Room."
         path="/impressum"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Legal Notice", url: "https://digital-war-room.com/impressum" },
+        ]}
       />
       <ContentPageLayout label="LEGAL" title="Legal Notice" maxWidth="3xl">
       <div className="space-y-6 text-sm sm:text-[15px] text-muted-foreground">

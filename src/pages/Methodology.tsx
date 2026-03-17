@@ -50,7 +50,7 @@ const CHART_COLORS = [
 ];
 
 const METHODOLOGY_DESCRIPTION =
-  "How the composite escalation score and threat level are computed from 12 intelligence streams, and how the Signal Framework compares state vs. exile media.";
+  "How the Digital War Room computes the composite escalation score and threat level from 12 OSINT intelligence streams, and how the Signal Framework compares state vs. exile media.";
 
 const Methodology = () => {
   return (

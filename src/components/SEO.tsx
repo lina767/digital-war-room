@@ -64,6 +64,8 @@ export function SEO({
       <meta property="og:url" content={canonical} />
       <meta property="og:image" content={imageUrl} />
       <meta property="og:type" content="website" />
+      <meta property="og:locale" content={lang === "de" ? "de_DE" : "en_US"} />
+      <meta property="og:locale:alternate" content={lang === "de" ? "en_US" : "de_DE"} />
 
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={title} />

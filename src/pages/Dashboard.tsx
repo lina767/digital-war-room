@@ -28,7 +28,7 @@ const Dashboard = () => {
     <>
       <SEO
         title="Digital War Room — AI-Powered OSINT Intelligence"
-        description="Multi-agent AI system monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT and TECHINT. Real-time escalation scores and BLUF-style briefings."
+        description="Digital War Room: AI-powered OSINT conflict monitoring. Real-time escalation score, multi-agent intelligence (GEOINT, SIGINT, SOCMINT, FININT, TECHINT) and BLUF-style briefings."
         path="/"
         imageAlt="Digital War Room dashboard showing conflict escalation and intelligence streams"
       />
@@ -123,9 +123,9 @@ function DashboardContent() {
           >
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <div className="font-mono font-bold text-primary text-glow-intense text-xs sm:text-sm tracking-[0.25em] truncate">
+          <h1 className="font-mono font-bold text-primary text-glow-intense text-xs sm:text-sm tracking-[0.25em] truncate m-0">
             DIGITAL WAR ROOM
-          </div>
+          </h1>
         </div>
 
         <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">

@@ -16,6 +16,10 @@ const Privacy = () => {
         title="Privacy Policy — Digital War Room"
         description="Privacy policy and data protection information for Digital War Room."
         path="/privacy"
+        breadcrumbs={[
+          { name: "Home", url: "https://digital-war-room.com/" },
+          { name: "Privacy Policy", url: "https://digital-war-room.com/privacy" },
+        ]}
       />
       <ContentPageLayout
         label="LEGAL"

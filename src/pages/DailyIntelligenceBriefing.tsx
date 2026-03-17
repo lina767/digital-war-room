@@ -88,16 +88,28 @@ export default function DailyIntelligenceBriefing() {
   const escalation7d = escalationList.find((f) => f.horizon === "7d");
   const escalationForecasts = [escalation24h, escalation7d].filter(Boolean) as typeof escalationList;
 
+  const dailyBriefingStructuredData = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "Daily Intelligence Briefing — Digital War Room",
+    url: "https://digital-war-room.com/daily-briefing",
+    datePublished: formatDateOnly(now),
+    dateModified: formatDateOnly(now),
+    description:
+      "BLUF-style OSINT report with real-time escalation score, key findings, and predictive outlook.",
+  };
+
   return (
     <>
       <SEO
         title="Daily Intelligence Briefing — Digital War Room"
-        description="BLUF-style daily intelligence report with escalation score, key findings, and predictive outlook. Export as PDF or share."
+        description="Daily Intelligence Briefing — Digital War Room: BLUF-style OSINT report with real-time escalation score, key findings, and predictive outlook. Export as PDF or share."
         path="/daily-briefing"
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },
           { name: "Daily Briefing", url: "https://digital-war-room.com/daily-briefing" },
         ]}
+        structuredData={dailyBriefingStructuredData}
       />
       <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">

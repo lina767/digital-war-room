@@ -34,7 +34,7 @@ const SourceDirectory = () => {
   }, [search, agentFilter, reliabilityFilter]);
 
   const sourceDirDescription =
-    "A transparent, searchable directory of all data sources used by the platform, with reliability ratings. Each source is linked to the intelligence agents that use it.";
+    "Digital War Room source directory: transparent, searchable list of all OSINT data sources with reliability ratings. Each source is linked to the intelligence agents (GEOINT, SIGINT, NEWS, FININT, etc.) that use it.";
 
   return (
     <>
