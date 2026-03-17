@@ -16,7 +16,6 @@ from .utils import run_async
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 NEWS_API_URL = "https://newsapi.org/v2/everything"
-GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"  # fallback for export control (no key)
 # IODA v2 API – outages, signals (BGP/Ping/Telescope), alerts, entities (ASNs)
 IODA_BASE = "https://api.ioda.inetintel.cc.gatech.edu/v2"
 OONI_MEASUREMENTS_URL = "https://api.ooni.io/api/v1/measurements"
@@ -594,63 +593,8 @@ async def _fetch_tech_indicators(api_key: str) -> List[Dict[str, Any]]:
     return results
 
 
-async def _fetch_export_control_gdelt() -> List[Dict[str, Any]]:
-    """Fallback: fetch export-control related articles from GDELT DOC 2.0 (no API key)."""
-    try:
-        query = '("export control" OR "export controls" OR "semiconductor sanctions" OR "BIS entity list" OR "technology sanctions" OR "dual-use")'
-        max_retries = 2
-        data = None
-        for attempt in range(max_retries):
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(
-                    GDELT_DOC_URL,
-                    params={
-                        "query": query,
-                        "mode": "artlist",
-                        "format": "json",
-                        "timespan": "72H",
-                        "maxrecords": 25,
-                    },
-                )
-                if resp.status_code == 429 and attempt < max_retries - 1:
-                    await asyncio.sleep(6)
-                    continue
-                ct = (resp.headers.get("content-type") or "").lower()
-                if "json" not in ct and "javascript" not in ct:
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(6)
-                        continue
-                    return []
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
-                break
-        if data is None:
-            return []
-        articles = []
-        items = data if isinstance(data, list) else data.get("articles", data.get("articleList", data.get("results", [])))
-        if not isinstance(items, list):
-            return []
-        for art in items[:15]:
-            if not isinstance(art, dict):
-                continue
-            title = (art.get("title") or art.get("title_orig") or "").strip()
-            if not title:
-                continue
-            articles.append({
-                "title": title,
-                "source": art.get("source", art.get("source domain", "")),
-                "url": art.get("url", art.get("link", "")),
-                "published_at": art.get("date", art.get("publishedAt", "")),
-                "description": (art.get("description") or art.get("socialimage") or "")[:200],
-            })
-        return articles
-    except Exception:
-        return []
-
-
 async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[str, Any]]:
-    """Search NewsAPI for export control / tech sanctions articles. Falls back to GDELT if NewsAPI fails or returns empty."""
+    """Search NewsAPI for export control / tech sanctions articles."""
     articles: List[Dict[str, Any]] = []
     if api_key:
         try:
@@ -671,12 +615,12 @@ async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[s
             async with httpx.AsyncClient(timeout=15.0) as client:
                 resp = await client.get(NEWS_API_URL, params=params)
                 if resp.status_code == 429:
-                    logger.info("TECHINT: NewsAPI rate limited, falling back to GDELT for export controls")
+                    logger.info("TECHINT: NewsAPI rate limited for export controls")
                 else:
                     resp.raise_for_status()
                     data = resp.json()
                     if data.get("status") == "error" and "rateLimited" in (data.get("code") or ""):
-                        logger.info("TECHINT: NewsAPI rate limited, falling back to GDELT for export controls")
+                        logger.info("TECHINT: NewsAPI rate limited for export controls")
                     else:
                         for art in data.get("articles", []):
                             title = (art.get("title") or "").strip()
@@ -692,8 +636,6 @@ async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[s
                             })
         except Exception:
             pass
-    if not articles:
-        articles = await _fetch_export_control_gdelt()
     return articles
 
 

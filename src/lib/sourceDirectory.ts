@@ -78,7 +78,6 @@ const SOURCE_META: Record<
   "Threat RSS": { reliability: "community", keyRequired: false, free: true },
   "AlienVault OTX": { reliability: "curated", keyRequired: true, free: true, url: "https://otx.alienvault.com" },
   "GreyNoise": { reliability: "curated", keyRequired: true, free: true, url: "https://www.greynoise.io" },
-  "AGSI+": { reliability: "curated", keyRequired: true, free: true, url: "https://agsi.gie.eu/account" },
   "Oil (EIA/FRED/AV)": { reliability: "curated", keyRequired: true, free: true, url: "https://www.alphavantage.co/support/#api-key" },
   "Food commodities": { reliability: "curated", keyRequired: true, free: true, url: "https://www.alphavantage.co/support/#api-key" },
   "FAO FPI": { reliability: "official", keyRequired: false, free: true, url: "https://www.fao.org/worldfoodsituation/foodpricesindex/en/" },

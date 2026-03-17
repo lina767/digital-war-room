@@ -947,17 +947,16 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
     fetched_at = utc_now_iso()
     use_newsdata = bool(os.getenv("NEWSDATA_API_KEY"))
     use_gnews = bool(os.getenv("GNEWS_API_KEY"))
+    gdelt_res = {"source": "gdelt", "articles": [], "count": 0}
     try:
         with ThreadPoolExecutor(max_workers=5) as executor:
             fut_newsapi = executor.submit(_run_newsapi_source_agent, conflict)
-            fut_gdelt = executor.submit(_run_gdelt_source_agent, conflict)
             fut_rss = executor.submit(_run_rss_source_agent, conflict)
             if use_newsdata:
                 fut_newsdata = executor.submit(_run_newsdata_source_agent, conflict)
             if use_gnews:
                 fut_gnews = executor.submit(_run_gnews_source_agent, conflict)
             newsapi_res = fut_newsapi.result(timeout=35)
-            gdelt_res = fut_gdelt.result(timeout=35)
             rss_res = fut_rss.result(timeout=35)
             newsdata_res = fut_newsdata.result(timeout=35) if use_newsdata else {}
             gnews_res = fut_gnews.result(timeout=35) if use_gnews else {}
@@ -978,12 +977,11 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
         adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))
 
         n_newsapi = len(newsapi_res.get("articles") or [])
-        n_gdelt = len(gdelt_res.get("articles") or [])
         n_rss = len(rss_res.get("articles") or [])
         n_newsdata = len(newsdata_res.get("articles") or []) if use_newsdata else 0
         n_gnews = len(gnews_res.get("articles") or []) if use_gnews else 0
         all_empty = (
-            not n_newsapi and not n_gdelt and not n_rss
+            not n_newsapi and not n_rss
             and (not use_newsdata or not n_newsdata)
             and (not use_gnews or not n_gnews)
         )
@@ -994,7 +992,7 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
             if use_gnews:
                 extra.append("GNews")
             logger.warning(
-                "NEWS: All sources (NewsAPI, GDELT, RSS%s) returned 0 articles for conflict '%s'",
+                "NEWS: All sources (NewsAPI, RSS%s) returned 0 articles for conflict '%s'",
                 (", " + ", ".join(extra)) if extra else "",
                 conflict,
             )
@@ -1002,7 +1000,6 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
         duration_ms = int((time.perf_counter() - start) * 1000)
         source_results = [
             SourceResult(name="NewsAPI", status="ok" if n_newsapi else "error", fetched_at=fetched_at, record_count=n_newsapi),
-            SourceResult(name="GDELT", status="ok" if n_gdelt else "error", fetched_at=fetched_at, record_count=n_gdelt),
             SourceResult(name="RSS", status="ok" if n_rss else "error", fetched_at=fetched_at, record_count=n_rss),
         ]
         if use_newsdata:
@@ -1091,14 +1088,14 @@ def _run_rule_based_news(conflict: str) -> Dict[str, Any]:
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 NEWS_SYSTEM = """You are a NEWS/OSINT analyst monitoring open-source media.
-Your job: fetch news from all three tools (NewsAPI, GDELT, RSS), combine and analyze.
+Your job: fetch news from NewsAPI and RSS, combine and analyze. (GDELT news disabled.)
 
-You MUST call all three tools: search_conflict_news, search_gdelt_news, search_rss_feeds.
+You MUST call both tools: search_conflict_news, search_rss_feeds.
 Then combine results as follows:
 - Deduplicate by URL (keep first occurrence).
-- Compute overall_sentiment as weighted average: NewsAPI weight 0.5, GDELT 0.3, RSS 0.2.
+- Compute overall_sentiment as weighted average: NewsAPI weight 0.5, RSS 0.2.
 - Return top 20 articles total, sorted by sentiment_score descending.
-- Add source_breakdown: {"newsapi": N, "gdelt": N, "rss": N} with article counts per source.
+- Add source_breakdown: {"newsapi": N, "rss": N} with article counts per source.
 
 Scoring rules for news_score (0-100):
 - Base: 50
@@ -1116,18 +1113,16 @@ Return ONLY valid JSON (no markdown, no explanation):
   "top_sources": ["source1", ...],
   "news_score": <number>,
   "summary": "<1-2 sentence summary>",
-  "source_breakdown": {"newsapi": N, "gdelt": N, "rss": N}
+  "source_breakdown": {"newsapi": N, "rss": N}
 }"""
 
 
 _NEWS_TOOL_FNS = {
     "search_conflict_news": search_conflict_news,
-    "search_gdelt_news": search_gdelt_news,
     "search_rss_feeds": search_rss_feeds,
 }
 _NEWS_TOOL_SCHEMAS = [
     {"name": "search_conflict_news", "description": "Search NewsAPI for conflict-related articles.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}, "hours_back": {"type": "integer"}}, "required": ["conflict"]}},
-    {"name": "search_gdelt_news", "description": "Search GDELT for conflict news.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     {"name": "search_rss_feeds", "description": "Search curated RSS/think-tank feeds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
 ]
 

@@ -132,8 +132,8 @@ def data_hint(name: str, data: dict) -> str:
         if gn.get("available") and gn.get("count") is not None:
             hints.append(f"greynoise_scan={gn.get('count', 0)}")
     elif name == "energy":
-        hints.append(f"agsi_records={len(data.get('agsi_storage', {}).get('full') or [])}")
         hints.append(f"commodities={len(data.get('commodities') or [])}")
+        hints.append(f"food_commodities={len(data.get('food_commodities') or [])}")
     elif name == "protest":
         hints.append(f"protest_events={len(data.get('protest_events') or [])}")
         hints.append(f"protest_articles={len(data.get('protest_articles') or [])}")
@@ -193,7 +193,7 @@ def main():
     if not verbose and ok_count == len(results):
         print("Tip: run with -v to see data hints (e.g. article/outage counts).")
     print("Env vars for full data: ALPHAVANTAGE_API_KEY, NEWS_API_KEY, NASA_FIRMS_KEY,")
-    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, AGSI_API_KEY, GREYNOISE_API_KEY, ACLED_API_KEY")
+    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, GREYNOISE_API_KEY, ACLED_API_KEY")
     print("  (see backend/.env.example or .env)")
     return 0 if ok_count == len(results) else 1
 
@@ -235,30 +235,6 @@ def test_acled():
             print(f"  First date: {b['data'][0].get('event_date')}")
 
 
-def test_agsi():
-    """Direct AGSI API test."""
-    import httpx, json
-    key = os.getenv("AGSI_API_KEY", "")
-    print(f"AGSI key set: {bool(key)} (len={len(key)})")
-    if not key:
-        print("FAIL: Set AGSI_API_KEY in backend/.env")
-        return
-    r = httpx.get("https://agsi.gie.eu/api", params={"type": "eu", "size": 5},
-                   headers={"x-key": key.strip()}, timeout=20.0)
-    print(f"Status: {r.status_code}")
-    print(f"Content-Type: {r.headers.get('content-type')}")
-    if r.status_code == 200:
-        data = r.json()
-        records = data.get("data") if isinstance(data, dict) else data
-        if isinstance(records, list):
-            print(f"Records: {len(records)}")
-            if records:
-                rec = records[0]
-                print(f"First: name={rec.get('name')}, full={rec.get('full')}")
-    else:
-        print(f"Error: {r.text[:500]}")
-
-
 def test_gdelt():
     """Direct GDELT DOC 2.0 API test."""
     import httpx, json, time
@@ -291,8 +267,6 @@ def test_gdelt():
 if __name__ == "__main__":
     if "--test-acled" in sys.argv:
         test_acled()
-    elif "--test-agsi" in sys.argv:
-        test_agsi()
     elif "--test-gdelt" in sys.argv:
         test_gdelt()
     else:
