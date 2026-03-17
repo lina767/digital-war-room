@@ -1,142 +1,197 @@
-# Digital War Room
+<div align="center">
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Live Demo](https://img.shields.io/badge/demo-digital--war--room.com-0ea5e9)](https://digital-war-room.com) [![GitHub](https://img.shields.io/badge/GitHub-lina767%2Fdigital--war--room-181717?logo=github)](https://github.com/lina767/digital-war-room)
+# 🛰️ Digital War Room
 
-**AI-powered OSINT intelligence platform** — a multi-agent system that monitors global conflicts in near–real time across 11 intelligence disciplines (GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, ENERGY, NEWS, PROTEST, DIPLO, PROXIMITY). One LLM supervisor synthesizes all streams into a single threat assessment with escalation scores, BLUF-style key findings, scenarios, and built-in sanctions compliance checks.
+**AI-Powered Multi-Agent OSINT Intelligence Platform**
 
-**Live demo:** [digital-war-room.com](https://digital-war-room.com) · **Code:** [github.com/lina767/digital-war-room](https://github.com/lina767/digital-war-room)
+The only open-source geopolitical intelligence platform combining 11 specialized AI agents with political science methodology — monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT, CYBER & TECHINT in real time.
 
----
+*Built at the intersection of AI engineering, international relations, and OSINT tradecraft.*
 
-## What It Is & Why It Matters
-
-Digital War Room aggregates open-source signals from 20+ public and semi-public APIs, runs 11 specialized agents in parallel, and fuses their outputs with a single supervisor LLM (Claude or GPT-4o). You get near–real-time escalation scores, key findings, predictive outlooks, and a compliance layer (geofencing, AIS anomaly detection, OFAC/EU cross-referencing) — all from one dashboard. No classified data; the platform shows what’s achievable with OSINT and AI orchestration.
-
-**Current focus:** Iran / Middle East.
-
-## Who It's For
-
-- **OSINT analysts and researchers** — Multi-source fusion and BLUF-style briefings
-- **Geopolitical risk consultants** — Escalation scores and scenario framing
-- **Intelligence professionals** — AI-augmented workflows and compliance screening
-- **AI/ML engineers** — Multi-agent architecture, direct LLM SDKs, graceful degradation
+</div>
 
 ---
 
-## Architecture
+## 🔍 What is Digital War Room?
 
-The backend runs **11 agents** via `ThreadPoolExecutor` (75s timeout per agent). Each returns a structured payload; the supervisor LLM fuses them into one assessment. The frontend is a React dashboard with threat level, key findings, agent cards, and map overlays.
+Digital War Room is a real-time geopolitical intelligence platform that deploys **11 specialized OSINT agents** — supervised by a single Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from dozens of open sources. Unlike simple dashboards that aggregate news feeds, DWR applies structured analytical frameworks to transform raw signals into actionable intelligence assessments.
 
-### The 11 Intelligence Agents
-
-| Agent | Sources | What It Measures |
-|-------|---------|------------------|
-| **FININT** | Brent/WTI/Gold, Polymarket, Metaculus, OFAC, Etherscan | Financial stress and market-implied conflict probability |
-| **SIGINT** | ADS-B (adsb.fi, adsb.lol), CriticalThreats RSS, Hormuz Tankers (AISStream) | Military aircraft, intel reports, Hormuz tanker traffic |
-| **NEWS** | NewsAPI, GDELT Doc API, RSS (BBC, DW, Al Jazeera, RFE/RL) | Open-source media sentiment and coverage volume |
-| **GEOINT** | NASA FIRMS (thermal), ACLED, Sentinel Hub EO Browser | Satellite-detected thermal anomalies and conflict events |
-| **SOCMINT** | Telegram, Nitter/X, Reddit, RSS, ReliefWeb | Social signal detection and grassroots sentiment |
-| **TECHINT** | IODA, OONI, Shodan, Cloudflare Radar, Wayback Machine | Internet disruptions, censorship, cyber exposure |
-| **CYBER** | CISA KEV, Mandiant/CrowdStrike RSS, AlienVault OTX, GreyNoise | Active exploits, threat intel, malicious scanning |
-| **ENERGY** | AGSI+ (EU gas storage), Alpha Vantage (Brent/WTI) | Energy supply stress and commodity price shocks |
-| **PROTEST** | ACLED (protests/riots), GDELT (protest coverage) | Civil society unrest and protest intensity |
-| **DIPLO** | OFAC SDN, EU Consolidated List, UN Press, ICJ RSS | Diplomatic/legal signals, sanctions activity |
-| **PROXIMITY** | NASA FIRMS + OSM (Overpass API) | Strike-to-civilian-infrastructure correlation, human-shield flags |
-
-For a full diagram and design decisions, see **[Architecture & one-pager](docs/social-assets/one-pager.md)** and **[Architecture](docs/ARCHITECTURE.md)**.
-
-### Data Sources (Summary)
-
-| Category | Sources |
-|----------|---------|
-| **Conflict & events** | ACLED, GDELT |
-| **Internet & censorship** | OONI, IODA, Shodan, Cloudflare Radar |
-| **Markets & prediction** | Polymarket, Metaculus, Alpha Vantage, FRED, EIA |
-| **Aircraft & vessels** | ADS-B Exchange (adsb.fi, adsb.lol), AISStream (Hormuz chokepoint) |
-| **Threat intel** | GreyNoise, CISA KEV, AlienVault OTX |
-| **Satellite & geography** | NASA FIRMS, Sentinel Hub, OpenStreetMap (Overpass) |
-| **News & social** | NewsAPI, RSS, ReliefWeb, Telegram, Reddit |
-| **Sanctions & legal** | OFAC SDN, EU Consolidated List, UN, ICJ |
-
-Full API keys and setup: **[API keys & env](docs/API-KEYS.md)**.
+**Why this matters:** Most OSINT dashboards show you what happened. Digital War Room tells you **what it means** — by cross-referencing financial sanctions data with flight patterns, protest activity with internet shutdowns, and diplomatic signals with commodity flows.
 
 ---
 
-## Screenshots
+## 🏗️ Architecture
 
-| Theater Map | Daily Briefing | Predictive Outlook |
-|-------------|----------------|---------------------|
-| Dashboard with conflict map, agent cards, and escalation score | BLUF-style key findings and scenario summaries | 24h forecast and risk indicators |
-| *Screenshot: [docs/social-assets/](docs/social-assets/) or run the app and open `/`* | *Screenshot: `/daily-briefing`* | *Screenshot: predictive block on dashboard* |
-
-*(Add actual screenshots or GIFs to `docs/social-assets/` and link them here for best discovery.)*
-
----
-
-## Getting Started
-
-```sh
-# Install dependencies
-npm install
-
-# Start the development server
-npm run dev
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    CLAUDE SONNET SUPERVISOR                       │
+│         Orchestrates agents · Resolves conflicts · Briefs        │
+└──────────────┬──────────────────────────────────┬───────────────┘
+               │                                  │
+    ┌──────────▼──────────┐            ┌──────────▼──────────┐
+    │   INTELLIGENCE LAYER │            │   MONITORING LAYER   │
+    │                      │            │                      │
+    │  📡 SIGINT Agent     │            │  🌍 GEOINT Agent     │
+    │  💰 FININT Agent     │            │  📱 SOCMINT Agent    │
+    │  🔒 CYBER Agent      │            │  📰 NEWS Agent       │
+    │  🏛️ DIPLO Agent      │            │  ⚡ ENERGY Agent     │
+    │  🔬 TECHINT Agent    │            │  ✊ PROTEST Agent    │
+    │                      │            │  📍 PROXIMITY Agent  │
+    └──────────┬───────────┘            └──────────┬───────────┘
+               │                                   │
+    ┌──────────▼───────────────────────────────────▼──────────┐
+    │                      DATA SOURCES                        │
+    │  ACLED · GDELT · OONI · IODA · Polymarket · ADS-B       │
+    │  GreyNoise · OpenSanctions · OFAC · EU Sanctions List    │
+    └─────────────────────────────────────────────────────────┘
 ```
 
-The frontend runs on `http://localhost:8080` by default. The backend is in `backend/` (Python, FastAPI). See **[Deployment](docs/DEPLOYMENT.md)** for running the backend locally or deploying frontend and backend.
+---
+
+## Agent Breakdown
+
+| Agent | What it does | Key data sources | Communicates with |
+|-------|--------------|------------------|-------------------|
+| **SIGINT** | Monitors flight patterns, airspace closures, and ADS-B anomalies | ADS-B Exchange, Flightradar24 | GEOINT, PROXIMITY |
+| **FININT** | Tracks sanctions compliance (OFAC/EU/UN), ownership chains (50% rule), commodity price signals | OpenSanctions, OFAC SDN, EU Consolidated List | ENERGY, DIPLO |
+| **GEOINT** | Analyzes geographic conflict data, mapping strike events and territorial changes | ACLED, GDELT | SIGINT, NEWS |
+| **SOCMINT** | Processes social media intelligence, narrative tracking, and sentiment analysis | X/Twitter feeds, Telegram channels | PROTEST, NEWS |
+| **NEWS** | Aggregates and classifies breaking news across multilingual sources | RSS feeds, wire services (Reuters, AP) | All agents |
+| **CYBER** | Detects internet disruptions, DDoS campaigns, and hacktivist activity | GreyNoise, OONI, IODA, Cloudflare Radar | SIGINT, TECHINT |
+| **ENERGY** | Monitors energy infrastructure, commodity flows, and Strait of Hormuz shipping | Maritime AIS, Oil price APIs | FININT, GEOINT |
+| **TECHINT** | Tracks military technology deployments, weapons systems, and defense industry signals | SIPRI, defense wire services | SIGINT, DIPLO |
+| **PROTEST** | Maps civil unrest, protest movements, and government crackdowns | ACLED, SOCMINT feeds | SOCMINT, CYBER |
+| **DIPLO** | Analyzes diplomatic statements, UN votes, and treaty activity | Government press offices, UN records | FININT, ENERGY |
+| **PROXIMITY** | Calculates geographic risk scores and proximity-based threat assessments | Aggregated geolocation data | GEOINT, SIGINT |
+
+---
+
+## ✨ Key Features
+
+- **🗺️ Interactive Theater Map** — Real-time conflict visualization with multi-layer overlays — strike events, flight paths, naval movements, and protest hotspots on a single interactive map.
+- **📋 Daily Intelligence Briefings** — AI-generated morning briefings synthesizing overnight developments across all 11 agents into a structured assessment with confidence levels and source attribution.
+- **🔮 Predictive Outlook** — Probabilistic forecasting integrating Polymarket prediction data with structured agent assessments for scenario analysis.
+- **📂 Source Directory** — Transparent source attribution for every data point — every claim links back to its original source with reliability grading.
+- **⚓ Strait of Hormuz Monitor** — Dedicated module tracking maritime traffic, commodity flows, and insurance risk through the world's most critical oil chokepoint.
+- **🛡️ Sanctions Compliance Engine** — Automated OFAC/EU/UN sanctions screening with 50% ownership-chain analysis — the same methodology used by compliance departments at major financial institutions.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui |
+| **Backend** | Python 3.12, FastAPI, Pydantic |
+| **AI Orchestration** | Claude Sonnet (single supervisor), rule-based agent routing |
+| **Database & Auth** | Supabase (PostgreSQL + Auth) |
+| **Hosting** | Vercel (frontend), Railway (backend) |
+| **Payments** | Stripe |
+| **Analytics** | Vercel Analytics |
+
+---
+
+## Why Rule-Based + Claude Supervisor (not LangGraph?)
+
+DWR originally ran on a full LangGraph multi-agent graph. We migrated to a **hybrid architecture** — rule-based agent dispatch with a single Claude Sonnet supervisor for synthesis — reducing token costs by **~70%** while maintaining analytical quality. The supervisor handles what rules can't: resolving contradictory signals, weighting source reliability, and generating natural-language briefings.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.12+
+- Supabase account
+
+### Frontend
+
+```bash
+git clone https://github.com/lina767/digital-war-room.git
+cd digital-war-room
+npm install
+npm run dev
+# → http://localhost:8080
+```
+
+### Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
 
 ### Environment Variables
 
-In the project root `.env`:
+Create a `.env` file in the project root:
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_API_URL` | Backend API URL (e.g. Railway); **required** for production |
-
-All backend env vars and optional API keys per agent: **[API keys & env](docs/API-KEYS.md)**.
-
-### Scripts
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start dev server |
-| `npm run build` | Production build |
-| `npm run preview` | Preview production build |
-| `npm run lint` | Run ESLint |
-| `npm run test` | Run tests |
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_API_URL=your_backend_url
+```
 
 ---
 
-## Documentation
+## 📚 Research & Methodology
 
-- **[Deployment](docs/DEPLOYMENT.md)** — Frontend (Vercel), backend (Railway), env vars, custom domain
-- **[API keys & env](docs/API-KEYS.md)** — All backend env vars and optional API keys per agent
-- **[Architecture](docs/ARCHITECTURE.md)** — Pipeline, supervisor, agent pool, caching
-- **[Agents](docs/AGENTS.md)** — Per-agent description, inputs, outputs
-- **[Architecture & one-pager](docs/social-assets/one-pager.md)** — Diagram, design decisions, tech stack
-- **[API reference](docs/API-REFERENCE.md)** — Backend REST endpoints
+This platform is informed by academic research in comparative politics and technology policy:
 
-## Deployment
+- **Hood's NATO Framework** (Nodality, Authority, Treasure, Organisation) applied to intelligence automation
+- **Knill's Implementation Theory** for evaluating policy instrument effectiveness
+- Published research on EU Chips Act analysis and RISC-V diffusion in AI hardware
 
-1. Set environment variables in your hosting platform (Vercel, Cloudflare Pages, etc.).
-2. Build command: `npm run build` (runs `prebuild` → generates `public/sitemap.xml` with `lastmod`).
-3. Output directory: `dist`.
+---
 
-**SEO (pre-rendered routes):** With prerender enabled (e.g. in CI), the build produces one HTML file per route. Fallback for unknown paths should be `index.html` for the SPA.
+## 🗺️ Roadmap
 
-**OG image:** `public/og-image.png` is used for social/snippet previews (recommended 1200×630 px).
+- [ ] Multi-theater support (beyond Middle East)
+- [ ] Collaborative annotation layer
+- [ ] API access for researchers
+- [ ] Webhook-based alert system
+- [ ] Mobile-optimized briefing view
+- [ ] Integration with Bellingcat verification tools
 
-## Tech Stack
+---
 
-- **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui
-- **Backend:** Python 3, FastAPI
-- **Payments:** Stripe
-- **Analytics:** Vercel Analytics
+## 📜 Scripts
 
-## Contributing
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start frontend dev server |
+| `npm run build` | Production build |
+| `npm run preview` | Preview production build |
+| `npm run lint` | Run ESLint |
+| `npm run test` | Run tests (Vitest) |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to run locally, where to find docs, and how to report bugs or suggest features.
+---
 
-## License
+## 🤝 Contributing
 
-[MIT](LICENSE)
+Digital War Room is open source. Contributions are welcome — whether it's adding a new agent, improving an existing data pipeline, or fixing a UI bug.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/new-agent`)
+3. Commit your changes (`git commit -m 'Add maritime intelligence agent'`)
+4. Push to the branch (`git push origin feature/new-agent`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is open source. See [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+**Built by Lina — Political Science & AI Engineering**
+
+*Combining academic rigor with engineering execution at the intersection of geopolitics and artificial intelligence.*
+
+[Live Demo](https://digital-war-room.com) · [Report Bug](https://github.com/lina767/digital-war-room/issues) · [Request Feature](https://github.com/lina767/digital-war-room/issues)
+
+</div>
