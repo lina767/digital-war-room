@@ -293,7 +293,7 @@ function DashboardContent() {
             to="/impressum"
             className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
-            Impressum
+            Legal notice
           </Link>
           <span className="text-border">·</span>
           <Link

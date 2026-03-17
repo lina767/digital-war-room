@@ -119,7 +119,7 @@ export function DashboardMapSection({
               ))
             ) : (
               <span className="font-mono text-[10px] sm:text-[11px] text-muted-foreground italic">
-                Noch keine Verlaufsdaten — nach weiteren Analyseläufen erscheinen hier die Eskalation über die Zeit.
+                No timeline data yet — escalation over time will appear here after more analysis runs.
               </span>
             )}
           </div>

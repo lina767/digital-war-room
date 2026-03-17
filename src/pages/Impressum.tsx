@@ -5,16 +5,15 @@ const Impressum = () => {
   return (
     <>
       <SEO
-        title="Impressum — Digital War Room"
-        description="Legal notice and contact information for Digital War Room (Angaben gemäß § 5 TMG)."
+        title="Legal Notice — Digital War Room"
+        description="Legal notice and contact information for Digital War Room."
         path="/impressum"
-        lang="de"
       />
-      <ContentPageLayout label="LEGAL NOTICE" title="Impressum" maxWidth="3xl">
+      <ContentPageLayout label="LEGAL" title="Legal Notice" maxWidth="3xl">
       <div className="space-y-6 text-sm sm:text-[15px] text-muted-foreground">
         <section>
           <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-            Angaben gemäß § 5 TMG
+            Information according to § 5 TMG (Germany)
           </h2>
           <p className="leading-relaxed">
             Lina Braun<br />
@@ -25,10 +24,10 @@ const Impressum = () => {
 
         <section>
           <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-            Kontakt
+            Contact
           </h2>
           <p className="leading-relaxed">
-            E-Mail:{" "}
+            Email:{" "}
             <a
               href="mailto:social@linabraun.eu"
               className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
@@ -40,7 +39,7 @@ const Impressum = () => {
 
         <section>
           <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-            Verantwortlich für den Inhalt
+            Responsible for content
           </h2>
           <p className="leading-relaxed">
             Lina Braun<br />

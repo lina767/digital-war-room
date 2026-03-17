@@ -231,6 +231,9 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
         const r = 3 * s;
         const sw = 0.25 * s;
         const shape = (EVENT_SHAPES[evt.event_type] ?? DEFAULT_SHAPE)(r, sw, style);
+        const baseLabel = evt.label ?? evt.event_type;
+        const locationPart = [evt.country, evt.admin1].filter(Boolean).join(", ");
+        const tooltipContent = locationPart ? `${baseLabel} · ${locationPart}` : baseLabel;
 
         return (
           <Marker
@@ -240,7 +243,7 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
             <g
               className="cursor-pointer"
               onClick={() => onEventSelect(evt)}
-              onMouseEnter={(e) => onTooltipShow(evt.label ?? evt.event_type, style.stroke, e)}
+              onMouseEnter={(e) => onTooltipShow(tooltipContent, style.stroke, e)}
               onMouseLeave={onTooltipHide}
             >
               <circle
@@ -252,6 +255,17 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
                 strokeWidth={0.3 * s}
               />
               {shape}
+              {evt.country && (
+                <text
+                  y={r * 3.2}
+                  textAnchor="middle"
+                  fill="currentColor"
+                  className="fill-foreground/80"
+                  style={{ fontSize: `${Math.max(6, 8 * s)}px`, fontFamily: "system-ui, sans-serif", pointerEvents: "none" }}
+                >
+                  {evt.country}
+                </text>
+              )}
             </g>
           </Marker>
         );

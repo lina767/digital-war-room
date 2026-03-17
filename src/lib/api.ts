@@ -70,7 +70,7 @@ export interface AnalyzeResponse {
 /** Analysis can take 1–2 min (6 agents + LLM). Use long timeout. */
 const ANALYSIS_TIMEOUT_MS = 180_000;
 
-/** Timeout für Abruf der gecachten Analyse (Cold Start z. B. Railway). */
+/** Timeout for fetching cached analysis (e.g. cold start on Railway). */
 const LATEST_ANALYSIS_TIMEOUT_MS = 22_000;
 
 /** GET /api/analyze/status – cached, at, and optional error from last failed run. */

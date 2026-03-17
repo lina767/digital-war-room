@@ -360,7 +360,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     };
   }, [enabled]);
 
-  // Beim Laden gecachtes Ergebnis holen; mit Retry falls noch kein Cache existiert
+  // On load fetch cached result; retry if no cache yet
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -379,7 +379,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           getAnalyzeStatus(conflict).then((statusRes) => {
             if (cancelled) return;
             if (statusRes === null) {
-              setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+              setAnalysisError("Backend unreachable. Check VITE_API_URL (e.g. Railway URL) or start the backend.");
               setInitialLoadPending(false);
             } else if (!statusRes.cached) {
               setAnalysisError("First analysis still running – data will appear automatically shortly.");
@@ -402,7 +402,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
   }, [conflict]);
 
-  // Alle 2 Min gecachtes Ergebnis abrufen (zeigt Updates vom Auto-Run)
+  // Every 2 min fetch cached result (shows updates from auto-run)
   useEffect(() => {
     const interval = setInterval(() => {
       getLatestAnalysis(conflict).then((cached) => {
@@ -431,7 +431,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     connect();
   }, [connect]);
 
-  /** Holt gecachte Analyse; falls kein Cache, triggert Background-Refresh und pollt. */
+  /** Fetches cached analysis; if none, triggers background refresh and polls. */
   const runAnalysis = useCallback(async (): Promise<AnalyzeResponse | null> => {
     if (!enabled) return null;
     setAnalysisError(null);
@@ -447,14 +447,14 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       }
       const statusRes = await getAnalyzeStatus(conflictRef.current);
       if (statusRes === null) {
-        setAnalysisError("Backend nicht erreichbar. VITE_API_URL prüfen (Railway-URL) oder Backend starten.");
+        setAnalysisError("Backend unreachable. Check VITE_API_URL (e.g. Railway URL) or start the backend.");
         setStatus("error");
         return null;
       }
       if (statusRes.error) {
-        setAnalysisError(`Letzte Analyse fehlgeschlagen: ${statusRes.error} Starte neue Analyse…`);
+        setAnalysisError(`Last analysis failed: ${statusRes.error} Starting new analysis…`);
       } else {
-        setAnalysisError("Analyse gestartet – Daten werden geladen (kann 2–5 Min. dauern)…");
+        setAnalysisError("Analysis started – loading data (may take 2–5 min)…");
       }
       await triggerRefreshAnalysis(conflictRef.current);
       const maxPolls = 48; // 48 × 5s = 4 min
@@ -462,7 +462,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         await new Promise((r) => setTimeout(r, 5_000));
         const statusRes = await getAnalyzeStatus(conflictRef.current);
         if (statusRes?.error) {
-          setAnalysisError(`Analyse fehlgeschlagen: ${statusRes.error}`);
+          setAnalysisError(`Analysis failed: ${statusRes.error}`);
           setStatus("error");
           return null;
         }
@@ -477,9 +477,9 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       }
       const finalStatus = await getAnalyzeStatus(conflictRef.current);
       if (finalStatus?.error) {
-        setAnalysisError(`Analyse fehlgeschlagen: ${finalStatus.error}`);
+        setAnalysisError(`Analysis failed: ${finalStatus.error}`);
       } else {
-        setAnalysisError("Analyse dauert länger als erwartet. Seite neu laden oder später erneut versuchen.");
+        setAnalysisError("Analysis is taking longer than expected. Reload the page or try again later.");
       }
       setStatus(finalStatus?.error ? "error" : "connected");
       return null;

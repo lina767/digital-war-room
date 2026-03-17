@@ -16,14 +16,14 @@ function DeploySetupMessage() {
       minHeight: "100vh",
       boxSizing: "border-box",
     }}>
-      <h1 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Deploy-Konfiguration fehlt</h1>
+      <h1 style={{ fontSize: "1.25rem", marginBottom: 16 }}>Deploy configuration missing</h1>
       <p style={{ marginBottom: 12, lineHeight: 1.5 }}>
-        In Vercel unter <strong>Project → Settings → Environment Variables</strong> bitte setzen:
+        In Vercel, set under <strong>Project → Settings → Environment Variables</strong>:
       </p>
       <ul style={{ marginBottom: 16, paddingLeft: 20 }}>
-        <li><code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_API_URL</code> (Backend-URL, z. B. Railway)</li>
+        <li><code style={{ background: "#334155", padding: "2px 6px", borderRadius: 4 }}>VITE_API_URL</code> (backend URL, e.g. Railway)</li>
       </ul>
-      <p style={{ lineHeight: 1.5 }}>Danach <strong>Redeploy</strong> auslösen.</p>
+      <p style={{ lineHeight: 1.5 }}>Then trigger a <strong>Redeploy</strong>.</p>
     </div>
   );
 }
