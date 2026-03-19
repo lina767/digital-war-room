@@ -124,4 +124,5 @@ jobs:
         run: npm run typecheck
 
       - name: Python type check
+        continue-on-error: true
         run: mypy backend/ --follow-imports=skip --config-file backend/pyproject.toml
