@@ -30,7 +30,8 @@ from .config import (
     GREYNOISE_SCHEDULER_CONFLICTS,
     GREYNOISE_TIMEOUT,
 )
-from .utils import ScoreConfidence, utc_now_iso
+from .health_registry import get_health_registry
+from .utils import ScoreConfidence, SourceResult, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1205,6 +1206,18 @@ async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
         # Persist GNQL IP results for detail view (greynoise_ips table)
         _save_gnql_ips(conflict, "outbound", outbound_ips, result.fetched_at)
         _save_gnql_ips(conflict, "inbound", inbound_ips, result.fetched_at)
+
+        # Health registry: record per-source status for dashboard
+        source_results = [
+            SourceResult(name=n, status="ok", fetched_at=result.fetched_at) for n in result.score_confidence.sources_ok
+        ] + [
+            SourceResult(name=n, status="error", fetched_at=result.fetched_at)
+            for n in result.score_confidence.sources_missing
+        ]
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "greynoise", sr)
 
         return result
 

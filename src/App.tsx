@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { PageSkeleton } from "@/components/ui/skeleton";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -18,11 +19,7 @@ const Blog = lazy(() => import("./pages/Blog"));
 const BlogPost = lazy(() => import("./pages/BlogPost"));
 
 function PageFallback() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background" aria-busy="true" aria-label="Loading">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-    </div>
-  );
+  return <PageSkeleton />;
 }
 
 const App = () => (

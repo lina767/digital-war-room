@@ -169,8 +169,11 @@ export async function getEscalationTimeline(conflict: string): Promise<{ conflic
   }
 }
 
-/** GET last cached analysis (from auto-run every 6 hours). No analysis is run. */
+const OFFLINE_CACHE_KEY_PREFIX = "dwr:latest:";
+
+/** GET last cached analysis (from auto-run every 6 hours). No analysis is run. Uses IndexedDB when offline. */
 export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+  const cacheKey = `${OFFLINE_CACHE_KEY_PREFIX}${conflict}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LATEST_ANALYSIS_TIMEOUT_MS);
   try {
@@ -183,9 +186,19 @@ export async function getLatestAnalysis(conflict: string): Promise<AnalyzeRespon
     if (!res.ok) return null;
     const raw = await res.json();
     if (raw == null) return null;
-    return normalizeAnalysisResponse(raw as Record<string, unknown>);
+    const data = normalizeAnalysisResponse(raw as Record<string, unknown>);
+    if (data && typeof indexedDB !== "undefined") {
+      const { setCached } = await import("@/lib/offlineCache");
+      setCached(cacheKey, data, 60 * 60 * 24);
+    }
+    return data;
   } catch {
     clearTimeout(timeoutId);
+    if (typeof indexedDB !== "undefined") {
+      const { getCached } = await import("@/lib/offlineCache");
+      const cached = await getCached<AnalyzeResponse>(cacheKey);
+      if (cached) return cached;
+    }
     return null;
   }
 }

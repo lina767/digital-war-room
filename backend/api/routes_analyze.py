@@ -1,5 +1,6 @@
 """
 Analyze and agents state routes: stream, status, latest, timeline, refresh, trigger.
+Rate limiting and input sanitization applied to all conflict-bearing endpoints.
 """
 
 import asyncio
@@ -15,7 +16,9 @@ from pydantic import BaseModel
 
 from agents.config import DEFAULT_CONFLICT
 from agents.supervisor import analyze_conflict, run_analysis_streaming
+from middleware.rate_limit import limiter
 from models.analysis import AnalysisResult
+from utils.sanitize import sanitize_conflict
 
 from .state_helpers import (
     get_cache,
@@ -39,12 +42,17 @@ ANALYZE_TIMEOUT_SEC = 300  # 5 minutes
 
 
 @router.get("/analyze/stream")
+@limiter.limit("10/minute")
 async def analyze_stream(request: Request, conflict: str = DEFAULT_CONFLICT) -> StreamingResponse:
     """
     GET /api/analyze/stream?conflict=Iran
     Server-Sent Events: one event per agent as it completes, then a final supervisor event.
     Event data: {"event": "agent", "agent": "finint", "result": {...}} or {"event": "supervisor", "result": {...}}.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
 
     async def event_stream() -> AsyncGenerator[str, None]:
         loop = asyncio.get_running_loop()
@@ -132,6 +140,10 @@ async def analyze_status(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
     Leichtgewichtige Antwort: ob Cache existiert, wann zuletzt aktualisiert,
     und ob die letzte Background-Analyse fehlgeschlagen ist (error).
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     entry = get_cache(request, conflict)
     last_err = get_last_error(request, conflict)
     out = {"cached": bool(entry), "conflict": conflict}
@@ -148,6 +160,10 @@ async def get_latest_analysis(request: Request, conflict: str = DEFAULT_CONFLICT
     GET /analyze/latest?conflict=Iran
     Liefert die letzte gecachte Analyse (nur vom 10-Min-Auto-Run). Startet keine neue Analyse.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     entry = get_cache(request, conflict)
     if not entry:
         return JSONResponse(status_code=404, content={"error": "no_cached_analysis", "conflict": conflict})
@@ -161,6 +177,10 @@ async def get_escalation_timeline_route(request: Request, conflict: str = DEFAUL
     Returns escalation score over time for the Escalation Timeline UI.
     Each point is one completed analysis run (at, escalation_score). Points sorted by time ascending.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     raw = list(get_escalation_timeline(request, conflict) or [])
     points = []
     for p in raw:
@@ -187,25 +207,31 @@ async def get_escalation_timeline_route(request: Request, conflict: str = DEFAUL
 
 
 @router.post("/analyze")
+@limiter.limit("10/minute")
 async def analyze(request: Request, body: AnalyzeRequest) -> Any:
     """
     POST /analyze – startet KEINE neue Analyse.
     Gibt nur die gecachte Analyse zurück (wie GET /analyze/latest).
     Analysen laufen stündlich im Hintergrund.
     """
-    entry = get_cache(request, body.conflict)
+    try:
+        conflict = sanitize_conflict(body.conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+    entry = get_cache(request, conflict)
     if not entry:
         return JSONResponse(
             status_code=503,
             content={
                 "error": "No cached analysis yet. Analysis runs automatically every 6 hours.",
-                "conflict": body.conflict,
+                "conflict": conflict,
             },
         )
     return AnalysisResult.model_validate(entry["result"])
 
 
 @router.get("/analyze/refresh")
+@limiter.limit("10/minute")
 async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, sync: bool = False) -> Any:
     """
     GET /analyze/refresh?conflict=Iran
@@ -213,6 +239,10 @@ async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, s
     Add &sync=true to run synchronously and see errors (may timeout on Railway).
     On failure, error is stored and returned via GET /analyze/status.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     app_state = request.app.state
     state = get_state_service(request)
     if state:
@@ -311,6 +341,7 @@ async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, s
 
 
 @router.post("/analyze/trigger")
+@limiter.limit("5/minute")
 async def trigger_analysis(
     request: Request,
     conflict: str = DEFAULT_CONFLICT,
@@ -320,6 +351,10 @@ async def trigger_analysis(
     Führt einmalig eine Analyse aus und füllt den Cache (z. B. nach Neustart oder Limit-Reset).
     Optional: ANALYZE_TRIGGER_SECRET in Railway setzen, dann Header X-Trigger-Secret mitschicken.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     secret = os.getenv("ANALYZE_TRIGGER_SECRET", "").strip()
     if secret and x_trigger_secret != secret:
         return JSONResponse(

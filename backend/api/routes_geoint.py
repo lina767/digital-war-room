@@ -12,6 +12,7 @@ from agents.geoint_agent import (
     get_conflict_events_for_heatmap,
     get_theater_events,
 )
+from utils.sanitize import sanitize_conflict
 
 router = APIRouter()
 
@@ -23,6 +24,10 @@ async def get_conflict_events(conflict: str = DEFAULT_CONFLICT, limit: int = 200
     Returns conflict events with lat, lon, intensity for heatmap layer (ACLED).
     Requires ACLED_EMAIL + ACLED_PASSWORD (OAuth) or legacy ACLED_API_KEY. Intensity derived from fatalities and event type.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     try:
         loop = asyncio.get_running_loop()
         events = await loop.run_in_executor(
@@ -42,6 +47,10 @@ async def get_theater_events_route(conflict: str = DEFAULT_CONFLICT, limit: int 
     Each event has lat, lon, event_type (airstrike | missile | drone | explosion | naval | fire | other), source, confidence, label.
     Use for Theater Map layer (e.g. Iran) with type-specific icons.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     try:
         loop = asyncio.get_running_loop()
         events = await loop.run_in_executor(

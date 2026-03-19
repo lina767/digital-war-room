@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from services.http_client import get_http_client
 
 from .config import DEFAULT_TIMEOUT
+from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .source_fetch import SourceFetch
 from .utils import (
@@ -1625,6 +1626,10 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
     has_finint_data = bool(
         sources_ok or polymarket_list or metaculus_list or (isinstance(ofac, dict) and ofac.get("total_matches"))
     )
+    reg = get_health_registry()
+    if reg:
+        for sr in source_results:
+            reg.record_result(sr.name, "finint", sr)
     out["_meta"] = build_agent_meta(
         "finint",
         fetched_at,

@@ -1,5 +1,6 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
+import { TextSkeleton } from "@/components/ui/skeleton";
 import { formatTimeAgo } from "@/lib/utils";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 
@@ -25,9 +26,7 @@ function UpdatedBriefingContent({
 
   return (
     <>
-      {isLoading && !hasContent && (
-          <p className="text-xs text-muted-foreground italic animate-pulse">Loading analysis…</p>
-        )}
+      {isLoading && !hasContent && <TextSkeleton lines={3} className="text-xs" />}
         {!hasContent && !isLoading && (
           <p className="text-xs text-muted-foreground italic">Run analysis for {conflictLabel} to see the briefing.</p>
         )}

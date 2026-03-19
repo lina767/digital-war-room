@@ -130,6 +130,29 @@ Create a `.env` file in the project root:
 VITE_API_URL=your_backend_url
 ```
 
+For environment separation use:
+
+- `.env.development.example`
+- `.env.staging.example`
+- `.env.production.example`
+- `backend/.env.development.example`
+- `backend/.env.staging.example`
+- `backend/.env.production.example`
+
+Each backend environment file should be completed with the required secrets from `backend/.env.example`.
+
+### Local Full-Stack with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- Frontend: `http://localhost:8080`
+- Backend: `http://localhost:8000`
+- Postgres/pgvector: `localhost:5432`
+
 ---
 
 ## 🔌 API Quick Reference
@@ -211,6 +234,18 @@ Pre-commit hooks (`.pre-commit-config.yaml`) run:
 | `npm run preview` | Preview production build |
 | `npm run lint` | Run ESLint |
 | `npm run test` | Run tests (Vitest) |
+| `npm run typecheck` | Run TypeScript type check |
+| `npm run version:patch` | Bump patch version (SemVer) |
+| `npm run version:minor` | Bump minor version (SemVer) |
+| `npm run version:major` | Bump major version (SemVer) |
+
+---
+
+## ⚙️ DevOps
+
+- CI: `.github/workflows/ci.yml` runs backend lint/tests/coverage, frontend tests, and type checks on push and pull requests.
+- Dependency updates: `.github/dependabot.yml` creates automated update PRs for GitHub Actions, npm, and pip.
+- Versioning: project releases follow Semantic Versioning, tracked in `CHANGELOG.md`.
 
 ---
 

@@ -15,13 +15,17 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.gzip import GZipMiddleware
+
+from middleware.rate_limit import limiter
 from api.routes import router as api_router, push_escalation_timeline, push_agent_status, push_run_history
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
 from agents.supervisor import analyze_conflict
 from agents.config import CORS_ORIGINS, GREYNOISE_API_KEY, GREYNOISE_SCHEDULER_INTERVAL_SEC
-from agents.otel_callbacks import init_otel
+from observability import init as init_observability
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 from services.state_service import StateService
@@ -58,7 +62,7 @@ class ConnectionManager:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_otel()  # OpenTelemetry TracerProvider + OTLP exporter when OTEL_EXPORTER_OTLP_ENDPOINT set
+    init_observability()  # structlog, Sentry, OpenTelemetry (OTEL when OTEL_EXPORTER_OTLP_ENDPOINT set)
     app.state.state_service = StateService()
     # Legacy in-memory fallback when routes don't use state_service (e.g. tests)
     app.state.analysis_cache = {}
@@ -186,6 +190,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Conflict Analysis Backend", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(
@@ -195,6 +201,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+if "*" in CORS_ORIGINS and os.getenv("ENVIRONMENT", "").lower() == "production":
+    logger.warning(
+        "CORS is set to '*' in production. Set CORS_ORIGINS to explicit origins (e.g. https://yourdomain.com)."
+    )
 
 app.include_router(api_router, prefix="/api")
 app.include_router(pdf_router, prefix="/api")

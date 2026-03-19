@@ -13,6 +13,7 @@ import {
 import { COMPLIANCE_DISCLAIMER, COMPLIANCE_INTRO_SHORT } from "@/lib/complianceCopy";
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/SEO";
 import {
   TITLE_DAILY_BRIEFING,
@@ -171,7 +172,14 @@ export default function DailyIntelligenceBriefing() {
           </header>
 
           {loading && (
-            <p className="text-sm text-muted-foreground italic">Loading briefing data…</p>
+            <div className="space-y-4">
+              <Skeleton className="h-6 w-2/3" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-20 w-full rounded-lg" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-4/5" />
+            </div>
           )}
           {error && (
             <p className="text-sm text-destructive">{error}</p>

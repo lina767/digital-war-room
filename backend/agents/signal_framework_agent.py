@@ -22,6 +22,9 @@ import feedparser
 import httpx
 from pydantic import BaseModel, Field
 
+from .health_registry import get_health_registry
+from .utils import SourceResult, utc_now_iso
+
 logger = logging.getLogger(__name__)
 
 # Exile source that provides English content (prioritized for display)
@@ -411,19 +414,49 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
             state_futures = [executor.submit(_fetch_feed, s["url"], s["name"]) for s in STATE_SOURCES]
             exile_futures = [executor.submit(_fetch_feed, s["url"], s["name"]) for s in EXILE_SOURCES]
 
+            source_results: List[SourceResult] = []
             state_items: List[Dict[str, Any]] = []
-            for fut in state_futures:
+            for s, fut in zip(STATE_SOURCES, state_futures):
                 try:
-                    state_items.extend(fut.result(timeout=20) or [])
+                    items = fut.result(timeout=20) or []
+                    state_items.extend(items)
+                    source_results.append(
+                        SourceResult(
+                            name=s["name"],
+                            status="ok" if items else "degraded",
+                            record_count=len(items),
+                            fetched_at=utc_now_iso(),
+                        )
+                    )
                 except Exception as e:
                     logger.debug("SignalFramework: state feed failed: %s", e)
+                    source_results.append(
+                        SourceResult(name=s["name"], status="error", error=str(e), fetched_at=utc_now_iso())
+                    )
 
             exile_items: List[Dict[str, Any]] = []
-            for fut in exile_futures:
+            for s, fut in zip(EXILE_SOURCES, exile_futures):
                 try:
-                    exile_items.extend(fut.result(timeout=20) or [])
+                    items = fut.result(timeout=20) or []
+                    exile_items.extend(items)
+                    source_results.append(
+                        SourceResult(
+                            name=s["name"],
+                            status="ok" if items else "degraded",
+                            record_count=len(items),
+                            fetched_at=utc_now_iso(),
+                        )
+                    )
                 except Exception as e:
                     logger.debug("SignalFramework: exile feed failed: %s", e)
+                    source_results.append(
+                        SourceResult(name=s["name"], status="error", error=str(e), fetched_at=utc_now_iso())
+                    )
+
+            reg = get_health_registry()
+            if reg:
+                for sr in source_results:
+                    reg.record_result(sr.name, "narrative", sr)
 
         # Prefer English exile source (Iran International) for display so UI can show English first
         exile_items_sorted = sorted(

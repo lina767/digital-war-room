@@ -29,7 +29,12 @@ DEFAULT_TIMEOUT = 15.0
 LONG_TIMEOUT = 25.0
 SHORT_TIMEOUT = 10.0
 
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+# CORS: set CORS_ORIGINS to explicit origins in production (e.g. https://yourdomain.com).
+# "*" is permissive and only suitable for local development.
+_cors_raw = os.getenv("CORS_ORIGINS", "*").strip()
+CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not CORS_ORIGINS:
+    CORS_ORIGINS = ["*"]
 
 # ── GreyNoise (Emerging Threats agent) ────────────────────────────────────
 

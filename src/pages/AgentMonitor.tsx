@@ -26,6 +26,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import { PageSkeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/SEO";
 import { TITLE_AGENT_MONITOR, DESCRIPTION_AGENT_MONITOR } from "@/lib/seoCopy";
 
@@ -211,8 +212,8 @@ function AgentMonitorContent() {
   if (loading && !status) {
     return (
       <div className="min-h-screen bg-background text-foreground p-6">
-        <div className="max-w-6xl mx-auto flex items-center justify-center min-h-[200px]">
-          <p className="text-muted-foreground">Loading monitoring data…</p>
+        <div className="max-w-6xl mx-auto">
+          <PageSkeleton />
         </div>
       </div>
     );

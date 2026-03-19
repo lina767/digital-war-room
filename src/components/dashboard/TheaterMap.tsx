@@ -19,6 +19,7 @@ import {
   type SigintAircraft,
   type SigintShip,
 } from "./mapConfig";
+import { MapLoadingSkeleton } from "@/components/ui/skeleton";
 import { SAM_RINGS, AIR_ROUTES, SEA_LANES, CHOKEPOINT_ZONES, circlePoints } from "./mapOverlaysData";
 
 /* ------------------------------------------------------------------ */
@@ -510,7 +511,7 @@ export interface TheaterMapProps {
   chokepointStatuses?: ChokePointStatus[];
 }
 
-export function TheaterMap({
+function TheaterMapInner({
   activeConflict = null,
   geointAnomalies = [],
   sigintAircraft = [],
@@ -585,6 +586,11 @@ export function TheaterMap({
     setTooltip(null);
   }, []);
 
+  const handleMoveEnd = useCallback(({ coordinates, zoom: z }: { coordinates: [number, number]; zoom: number }) => {
+    setCenter(coordinates);
+    setZoom(z);
+  }, []);
+
   /* ---- conflict center navigation -------------------------------- */
   useEffect(() => {
     if (!activeConflict) return;
@@ -655,6 +661,44 @@ export function TheaterMap({
       .filter((item) => item.count > 0);
   }, [theaterEvents, theaterLoading]);
 
+  const airRouteLabels = useMemo(() => {
+    if (!layers.airRoutes || !hasOverlayDataForConflict(activeConflict) || zoom < 4) return null;
+    return AIR_ROUTES.map((route) => {
+      const mid = route.coordinates[Math.floor(route.coordinates.length / 2)];
+      return (
+        <Marker key={`air-label-${route.id}`} coordinates={mid}>
+          <text
+            textAnchor="middle"
+            fontSize={2.2}
+            fill="hsl(210 80% 55% / 0.9)"
+            style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}
+          >
+            {route.name}
+          </text>
+        </Marker>
+      );
+    });
+  }, [layers.airRoutes, activeConflict, zoom]);
+
+  const seaLaneLabels = useMemo(() => {
+    if (!layers.seaLanes || !hasOverlayDataForConflict(activeConflict) || zoom < 4) return null;
+    return SEA_LANES.map((lane) => {
+      const mid = lane.coordinates[Math.floor(lane.coordinates.length / 2)];
+      return (
+        <Marker key={`sea-label-${lane.id}`} coordinates={mid}>
+          <text
+            textAnchor="middle"
+            fontSize={2}
+            fill="hsl(160 70% 45% / 0.9)"
+            style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}
+          >
+            {lane.name}
+          </text>
+        </Marker>
+      );
+    });
+  }, [layers.seaLanes, activeConflict, zoom]);
+
   /* ---- render ---------------------------------------------------- */
   return (
     <div className="absolute inset-0" role="application" aria-label="Theater map, conflict region">
@@ -679,10 +723,7 @@ export function TheaterMap({
         <ZoomableGroup
           zoom={zoom}
           center={center}
-          onMoveEnd={({ coordinates, zoom: z }) => {
-            setCenter(coordinates);
-            setZoom(z);
-          }}
+          onMoveEnd={handleMoveEnd}
           minZoom={2}
           maxZoom={8}
         >
@@ -712,22 +753,7 @@ export function TheaterMap({
               />
             ))}
 
-          {layers.airRoutes && hasOverlayDataForConflict(activeConflict) && zoom >= 4 &&
-            AIR_ROUTES.map((route) => {
-              const mid = route.coordinates[Math.floor(route.coordinates.length / 2)];
-              return (
-                <Marker key={`air-label-${route.id}`} coordinates={mid}>
-                  <text
-                    textAnchor="middle"
-                    fontSize={2.2}
-                    fill="hsl(210 80% 55% / 0.9)"
-                    style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}
-                  >
-                    {route.name}
-                  </text>
-                </Marker>
-              );
-            })}
+          {airRouteLabels}
 
           {layers.seaLanes && hasOverlayDataForConflict(activeConflict) &&
             SEA_LANES.map((lane) => (
@@ -741,22 +767,7 @@ export function TheaterMap({
               />
             ))}
 
-          {layers.seaLanes && hasOverlayDataForConflict(activeConflict) && zoom >= 4 &&
-            SEA_LANES.map((lane) => {
-              const mid = lane.coordinates[Math.floor(lane.coordinates.length / 2)];
-              return (
-                <Marker key={`sea-label-${lane.id}`} coordinates={mid}>
-                  <text
-                    textAnchor="middle"
-                    fontSize={2.2}
-                    fill="hsl(160 70% 45% / 0.9)"
-                    style={{ fontFamily: "var(--font-mono)", fontWeight: 500 }}
-                  >
-                    {lane.name}
-                  </text>
-                </Marker>
-              );
-            })}
+          {seaLaneLabels}
 
           {layers.chokepoints &&
             CHOKEPOINT_ZONES.map((zone) => {
@@ -1204,11 +1215,9 @@ export function TheaterMap({
       )}
 
       {/* Loading overlay */}
-      {theaterLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none">
-          <span className="text-xs font-mono text-muted-foreground animate-pulse">Loading theater…</span>
-        </div>
-      )}
+      {theaterLoading && <MapLoadingSkeleton />}
     </div>
   );
 }
+
+export const TheaterMap = memo(TheaterMapInner);

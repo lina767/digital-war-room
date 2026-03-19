@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from agents.greynoise_agent import get_latest_ips, get_latest_snapshot, get_trend_data, run_greynoise_agent
+from utils.sanitize import sanitize_conflict
 
 router = APIRouter(prefix="/greynoise", tags=["greynoise"])
 
@@ -20,6 +21,10 @@ async def greynoise_latest(conflict: str):
     Returns the latest GreyNoise snapshot for a conflict from SQLite.
     Falls back to a live pipeline run if no snapshot exists yet.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     snapshot = get_latest_snapshot(conflict)
     if snapshot:
         snapshot["top_ips"] = get_latest_ips(conflict, limit=30)
@@ -41,5 +46,9 @@ async def greynoise_trend(conflict: str, days: int = Query(default=7, ge=1, le=9
     GET /api/greynoise/{conflict}/trend?days=7
     Returns a time series of GreyNoise scores for the past N days.
     """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     data = get_trend_data(conflict, days=days)
     return {"conflict": conflict, "days": days, "trend": data}
