@@ -4,9 +4,17 @@ Structured logging, tracing, and error tracking for production-ready operation.
 
 ## Built-in
 
-- **structlog** – Structured logging (JSON in production, readable console in development). Use `observability.get_logger()` and log with key-value pairs: `logger.info("event_name", agent=name, query_length=len(q))`.
+- **structlog** – Structured logging (JSON in production, readable console in development). Use `observability.get_logger()` and log with key-value pairs: `logger.info("event_name", agent=name, query_length=len(q))`. Standard library `logging.getLogger()` calls are bridged to structlog after `init()` so all logs use the same format.
 - **OpenTelemetry** – When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, spans are created for full analysis and per-DAG node. Existing `agents.otel_callbacks.traced()` is used; DAG scheduler wraps each node with `observability.run_node_traced()`.
-- **Sentry** – When `SENTRY_DSN` is set, errors and performance transactions are sent to Sentry (e.g. [Free Tier for Open Source](https://sentry.io)).
+- **Sentry** – When `SENTRY_DSN` is set, errors and performance transactions are sent to Sentry (e.g. [Free Tier for Open Source](https://sentry.io)). `logging.error` / `logging.exception` are also sent as Sentry events via LoggingIntegration.
+
+## Health endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Liveness: process is up. |
+| `GET /health/ready` | Readiness: if `DATABASE_URL` is set, checks DB connectivity; returns 503 when DB is unreachable. |
+| `GET /api/agents/health` | Per-source health from HealthRegistry: availability %, latency, circuit_open, last_error. |
 
 ## Usage
 

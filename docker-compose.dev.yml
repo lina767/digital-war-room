@@ -1,0 +1,15 @@
+# Override for local development: ENVIRONMENT=development (structlog console, no JSON),
+# optional dev-only env. Use: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+version: "3.9"
+
+services:
+  backend:
+    environment:
+      ENVIRONMENT: development
+      ENV: development
+    # Keep --reload and volume mount from base for live code reload
+
+  frontend:
+    # VITE_API_URL already points to backend in base compose
+    environment:
+      VITE_API_URL: http://localhost:8000

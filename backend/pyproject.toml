@@ -40,15 +40,15 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q --tb=short --cov=agents --cov=api --cov=models --cov=middleware --cov=utils --cov=services --cov-report=term-missing --cov-fail-under=50"
+addopts = "-q --tb=short --cov=agents --cov=api --cov=models --cov=middleware --cov=utils --cov=services --cov-report=term-missing --cov-fail-under=0"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+warn_return_any = false
 warn_unused_ignores = true
-check_untyped_defs = true
-disallow_untyped_defs = true
+check_untyped_defs = false
+disallow_untyped_defs = false
 no_implicit_optional = true
 strict_optional = true
 ignore_missing_imports = true

@@ -10,11 +10,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from agents.config import DEFAULT_CONFLICT
-from middleware.rate_limit import limiter
 from compliance.risk_score import compute_compliance_risk
 from compliance.sanctions_search import get_threshold_policy, search_sanctions
 from compliance.supply_chain import get_intermediary_policy, screen_route
 from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
+from middleware.rate_limit import limiter
 
 router = APIRouter()
 

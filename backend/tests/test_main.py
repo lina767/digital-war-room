@@ -1,9 +1,8 @@
-"""Tests for main app endpoints (health, root)."""
+"""Tests for main app endpoints (health, root). Uses full app so lifespan runs (background tasks)."""
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Import app after env is loaded so lifespan and limiter are configured
 from main import app
 
 

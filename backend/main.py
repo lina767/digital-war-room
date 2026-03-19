@@ -213,7 +213,33 @@ app.include_router(greynoise_router, prefix="/api")
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness: process is up. Use /health/ready for readiness (includes optional DB check)."""
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    """
+    Readiness: app is ready to serve. If DATABASE_URL is set, checks DB connectivity.
+    Returns 200 when ready, 503 when DB is unreachable (only when DATABASE_URL is set).
+    """
+    db_url = os.getenv("DATABASE_URL", "").strip()
+    if not db_url:
+        return {"status": "ok", "database": "not_configured"}
+    try:
+        import asyncpg
+
+        conn = await asyncio.wait_for(asyncpg.connect(db_url), timeout=3.0)
+        await conn.close()
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        logger.warning("Readiness DB check failed: %s", e)
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "database": "unreachable", "error": str(e)},
+        )
 
 
 @app.get("/")
