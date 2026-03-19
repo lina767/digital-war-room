@@ -40,7 +40,7 @@ jobs:
           python-version: "3.11"
 
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt', 'backend/requirements-dev.txt', 'backend/pyproject.toml') }}
@@ -95,7 +95,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-mypy-${{ hashFiles('backend/requirements.txt', 'backend/requirements-dev.txt', 'backend/pyproject.toml') }}
