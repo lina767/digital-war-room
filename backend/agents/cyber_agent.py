@@ -773,6 +773,10 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
             otx = result.otx_pulses
             gn = result.greynoise_scan_context
             idb = result.internet_db
+            nvd_enriched = len(
+                [e for e in (kev.sample or []) if e.cve_id and (e.cvss_score is not None or e.cvss_severity)]
+            )
+            nvd_candidates = len([e for e in (kev.sample or []) if e.cve_id])
             source_results = [
                 SourceResult(
                     name="CISA KEV",
@@ -807,6 +811,12 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
                     status="ok" if (idb and idb.hosts) else "error",
                     fetched_at=fetched_at,
                     record_count=len(idb.hosts) if idb else 0,
+                ),
+                SourceResult(
+                    name="NVD",
+                    status="ok" if nvd_enriched > 0 else ("error" if nvd_candidates > 0 else "ok"),
+                    fetched_at=fetched_at,
+                    record_count=nvd_enriched,
                 ),
             ]
             reg = get_health_registry()

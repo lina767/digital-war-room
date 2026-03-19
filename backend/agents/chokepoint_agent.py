@@ -856,12 +856,29 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         duration_ms = int((time.perf_counter() - start) * 1000)
         cps = out.get("chokepoints") or []
         live_ais_count = sum(1 for cp in cps if cp.get("data_quality") == "live_ais")
+        tanker_details = [d for cp in cps for d in (cp.get("tanker_details") or []) if isinstance(d, dict)]
+        aishub_hits = sum(1 for d in tanker_details if (d.get("source") or "").lower() == "aishub")
+        marinetraffic_hits = sum(1 for d in tanker_details if (d.get("source") or "").lower() == "marinetraffic")
+        aishub_enabled = bool((os.getenv("AISHUB_USERNAME") or "").strip())
+        marinetraffic_enabled = bool((os.getenv("MARINETRAFFIC_API_KEY") or "").strip())
         source_results = [
             SourceResult(
                 name="AISStream/MT",
                 status="ok" if live_ais_count > 0 else "error",
                 fetched_at=fetched_at,
                 record_count=sum(len(cp.get("tanker_details") or []) for cp in cps),
+            ),
+            SourceResult(
+                name="AISHub",
+                status="ok" if aishub_hits > 0 else ("error" if aishub_enabled else "ok"),
+                fetched_at=fetched_at,
+                record_count=aishub_hits,
+            ),
+            SourceResult(
+                name="MarineTraffic",
+                status="ok" if marinetraffic_hits > 0 else ("error" if marinetraffic_enabled else "ok"),
+                fetched_at=fetched_at,
+                record_count=marinetraffic_hits,
             ),
             SourceResult(
                 name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at

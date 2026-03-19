@@ -16,6 +16,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from typing import Any, Callable, Optional, TypeVar
@@ -54,6 +55,29 @@ def _configure_structlog() -> None:
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,
     )
+
+
+def _configure_stdlib_bridge() -> None:
+    """Route standard library logging to structlog so logging.getLogger() calls emit structured logs."""
+    import structlog
+    try:
+        from structlog.stdlib import ProcessorFormatter
+    except ImportError:
+        return
+    formatter = ProcessorFormatter(
+        processor=structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
+        if os.getenv("ENV", os.getenv("ENVIRONMENT", "")).lower() not in ("production", "prod")
+        else structlog.processors.JSONRenderer(),
+        foreign_pre_chain=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+        ],
+    )
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(formatter)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(logging.INFO)
 
 
 def get_logger(name: str = "") -> Any:

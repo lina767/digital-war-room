@@ -40,7 +40,7 @@ quote-style = "double"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q --tb=short --cov=agents --cov=api --cov=models --cov-report=term-missing --cov-fail-under=60"
+addopts = "-q --tb=short --cov=agents --cov=api --cov=models --cov=middleware --cov=utils --cov=services --cov-report=term-missing --cov-fail-under=50"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.mypy]

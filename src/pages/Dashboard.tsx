@@ -10,6 +10,7 @@ import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, 
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
+import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
 import { SEO } from "@/components/SEO";
 
 const THREAT_BADGE_STYLES: Record<string, string> = {
@@ -48,7 +49,7 @@ function DashboardContent() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [agentExpanded, setAgentExpanded] = useState<string | null>(null);
 
-  const { data: conflictData, initialLoadPending, lastUpdated } = useConflictWebSocket({
+  const { data: conflictData, status, initialLoadPending, lastUpdated, dataFromCache } = useConflictWebSocket({
     conflict: selectedConflict,
     enabled: true,
   });
@@ -65,9 +66,22 @@ function DashboardContent() {
 
   // Live clock
   const [utcTime, setUtcTime] = useState(() => new Date());
+  const [isOffline, setIsOffline] = useState(() =>
+    typeof navigator !== "undefined" ? !navigator.onLine : false
+  );
   useEffect(() => {
     const interval = setInterval(() => setUtcTime(new Date()), 1000);
     return () => clearInterval(interval);
+  }, []);
+  useEffect(() => {
+    const onOnline = () => setIsOffline(false);
+    const onOffline = () => setIsOffline(true);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, []);
   const formattedTime = utcTime.toISOString().slice(11, 19);
 
@@ -140,6 +154,9 @@ function DashboardContent() {
             <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "—"}</span>
             <span>signals</span>
           </div>
+          <div className="hidden lg:block">
+            <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} compact />
+          </div>
           <div className="relative" ref={conflictDropdownRef}>
             <button
               type="button"
@@ -201,6 +218,7 @@ function DashboardContent() {
               <Rss className="h-4 w-4 mr-2" aria-hidden /> Intel Feed
             </Button>
           </div>
+          <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} />
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
             <Link to="/how-it-works" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>How it works</Link>
             <Link to="/blog" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Blog</Link>

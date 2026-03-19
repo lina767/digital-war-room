@@ -128,15 +128,23 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
 
     async def _run() -> Dict[str, Any]:
         tunnel_geojson = None
+        tunnel_sites_configured = False
+        tunnel_sites_loaded = False
+        tunnel_sites_error = None
         if region in ("middle_east", "iran"):
             url = (os.getenv("TUNNEL_SITES_GEOJSON_URL") or "").strip()
             if url:
+                tunnel_sites_configured = True
                 try:
                     client = get_http_client()
                     tunnel_geojson = await client.get_json(url)
                     if not isinstance(tunnel_geojson, dict) or tunnel_geojson.get("type") != "FeatureCollection":
+                        tunnel_sites_error = "invalid_geojson"
                         tunnel_geojson = None
+                    else:
+                        tunnel_sites_loaded = True
                 except Exception:
+                    tunnel_sites_error = "fetch_failed"
                     tunnel_geojson = None
         evidence = await run_correlation_for_events(events, tunnel_sites_geojson=tunnel_geojson)
         current_reason = reason_empty
@@ -150,7 +158,11 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
             "proximity_score": round(score, 1),
             "evidence": evidence,
             "summary": summary,
+            "tunnel_sites_configured": tunnel_sites_configured,
+            "tunnel_sites_loaded": tunnel_sites_loaded,
         }
+        if tunnel_sites_error:
+            out["tunnel_sites_error"] = tunnel_sites_error
         if current_reason is not None:
             out["reason_empty"] = current_reason
         if error_message is not None:
@@ -168,6 +180,16 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
         overpass_status = "ok" if events else "ok"
         if result.get("reason_empty") == "error" or result.get("error_message"):
             overpass_status = "error"
+        tunnel_sites_hits = len(
+            [
+                e
+                for e in evidence
+                if isinstance(e, dict) and (e.get("riskLabel") or "") == "PROBABLE_HUMAN_SHIELD"
+            ]
+        )
+        tunnel_configured = bool(result.get("tunnel_sites_configured"))
+        tunnel_loaded = bool(result.get("tunnel_sites_loaded"))
+        tunnel_error = bool(result.get("tunnel_sites_error"))
         source_results = [
             SourceResult(
                 name="NASA FIRMS",
@@ -177,6 +199,12 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
             ),
             SourceResult(
                 name="Overpass/OSM", status=overpass_status, fetched_at=fetched_at, record_count=len(evidence)
+            ),
+            SourceResult(
+                name="Tunnel / military sites",
+                status="ok" if (not tunnel_configured or tunnel_loaded) else ("error" if tunnel_error else "degraded"),
+                fetched_at=fetched_at,
+                record_count=tunnel_sites_hits,
             ),
         ]
         reg = get_health_registry()

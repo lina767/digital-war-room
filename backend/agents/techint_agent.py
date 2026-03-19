@@ -991,6 +991,13 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
     try:
         out = run_async(_run())
         duration_ms = int((time.perf_counter() - start) * 1000)
+        cf_token = (os.getenv("CLOUDFLARE_RADAR_API_TOKEN") or "").strip()
+        cf_outages = out.get("cloudflare_outages") or []
+        cf_has_error = any(isinstance(x, dict) and x.get("error") for x in cf_outages)
+        wayback = out.get("wayback") or {}
+        wayback_urls = wayback.get("urls_checked") or []
+        wayback_snapshots = wayback.get("snapshots") or []
+        wayback_ok_count = len([s for s in wayback_snapshots if isinstance(s, dict) and "error" not in s])
         source_results = [
             SourceResult(
                 name="Tech indicators",
@@ -1021,6 +1028,18 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
                 name="Shodan/Wigle",
                 status="ok" if (out.get("shodan") or out.get("wigle")) else "error",
                 fetched_at=fetched_at,
+            ),
+            SourceResult(
+                name="Cloudflare Radar",
+                status="ok" if (not cf_token or not cf_has_error) else "error",
+                fetched_at=fetched_at,
+                record_count=len([x for x in cf_outages if isinstance(x, dict) and "error" not in x]),
+            ),
+            SourceResult(
+                name="Wayback Machine",
+                status="ok" if (not wayback_urls or wayback_ok_count > 0) else "error",
+                fetched_at=fetched_at,
+                record_count=wayback_ok_count,
             ),
         ]
         reg = get_health_registry()

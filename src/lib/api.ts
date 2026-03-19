@@ -171,8 +171,13 @@ export async function getEscalationTimeline(conflict: string): Promise<{ conflic
 
 const OFFLINE_CACHE_KEY_PREFIX = "dwr:latest:";
 
+export interface LatestAnalysisResult {
+  data: AnalyzeResponse | null;
+  fromCache: boolean;
+}
+
 /** GET last cached analysis (from auto-run every 6 hours). No analysis is run. Uses IndexedDB when offline. */
-export async function getLatestAnalysis(conflict: string): Promise<AnalyzeResponse | null> {
+export async function getLatestAnalysis(conflict: string): Promise<LatestAnalysisResult> {
   const cacheKey = `${OFFLINE_CACHE_KEY_PREFIX}${conflict}`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), LATEST_ANALYSIS_TIMEOUT_MS);
@@ -182,24 +187,24 @@ export async function getLatestAnalysis(conflict: string): Promise<AnalyzeRespon
       { method: "GET", signal: controller.signal }
     );
     clearTimeout(timeoutId);
-    if (res.status === 404 || res.status === 204) return null;
-    if (!res.ok) return null;
+    if (res.status === 404 || res.status === 204) return { data: null, fromCache: false };
+    if (!res.ok) return { data: null, fromCache: false };
     const raw = await res.json();
-    if (raw == null) return null;
+    if (raw == null) return { data: null, fromCache: false };
     const data = normalizeAnalysisResponse(raw as Record<string, unknown>);
     if (data && typeof indexedDB !== "undefined") {
       const { setCached } = await import("@/lib/offlineCache");
       setCached(cacheKey, data, 60 * 60 * 24);
     }
-    return data;
+    return { data, fromCache: false };
   } catch {
     clearTimeout(timeoutId);
     if (typeof indexedDB !== "undefined") {
       const { getCached } = await import("@/lib/offlineCache");
       const cached = await getCached<AnalyzeResponse>(cacheKey);
-      if (cached) return cached;
+      if (cached) return { data: cached, fromCache: true };
     }
-    return null;
+    return { data: null, fromCache: false };
   }
 }
 

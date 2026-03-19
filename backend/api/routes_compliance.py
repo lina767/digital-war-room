@@ -5,11 +5,12 @@ Sanctions compliance routes: sanctions-check, zones, threshold, document-qa, rou
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from agents.config import DEFAULT_CONFLICT
+from middleware.rate_limit import limiter
 from compliance.risk_score import compute_compliance_risk
 from compliance.sanctions_search import get_threshold_policy, search_sanctions
 from compliance.supply_chain import get_intermediary_policy, screen_route
@@ -29,7 +30,8 @@ def _screened_at_iso() -> str:
 
 
 @router.post("/compliance/sanctions-check")
-async def sanctions_check(body: SanctionsCheckRequest) -> Any:
+@limiter.limit("30/minute")
+async def sanctions_check(request: Request, body: SanctionsCheckRequest) -> Any:
     """
     POST /api/compliance/sanctions-check
     Screen one or more names against OFAC SDN (and later EU/UN) sanctions lists.
@@ -136,7 +138,8 @@ def _build_compliance_context(conflict: str, ctx: Optional[ComplianceDocumentQAC
 
 
 @router.post("/compliance/document-qa")
-async def compliance_document_qa(body: ComplianceDocumentQARequest) -> Any:
+@limiter.limit("20/minute")
+async def compliance_document_qa(request: Request, body: ComplianceDocumentQARequest) -> Any:
     """
     POST /api/compliance/document-qa
     Answer a question using the current compliance context (no PDF/RAG).
@@ -191,7 +194,8 @@ class RouteScreeningRequest(BaseModel):
 
 
 @router.post("/compliance/route-screening")
-async def route_screening(body: RouteScreeningRequest) -> Any:
+@limiter.limit("30/minute")
+async def route_screening(request: Request, body: RouteScreeningRequest) -> Any:
     """
     POST /api/compliance/route-screening
     Screen a trade route against sanctions zones and intermediary policy.
@@ -236,7 +240,8 @@ class RiskScoreRequest(BaseModel):
 
 
 @router.post("/compliance/risk-score")
-async def compliance_risk_score(body: RiskScoreRequest) -> Any:
+@limiter.limit("60/minute")
+async def compliance_risk_score(request: Request, body: RiskScoreRequest) -> Any:
     """
     POST /api/compliance/risk-score
     Compute compliance risk score from provided signals.

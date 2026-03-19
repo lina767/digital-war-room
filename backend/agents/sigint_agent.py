@@ -1015,6 +1015,21 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         out = result.model_dump(mode="json")
         duration_ms = int((time.perf_counter() - start) * 1000)
         adsb_has_error = any(isinstance(a, dict) and a.get("error") for a in (raw_aircraft or []))
+        adsbx_hits = 0
+        for a in aircraft:
+            if not isinstance(a, dict):
+                continue
+            src = (a.get("source") or "").lower()
+            if src in ("adsbexchange", "adsbx", "adsbexchange_rapidapi"):
+                adsbx_hits += 1
+        for tdata in (target_track if isinstance(target_track, dict) else {}).values():
+            if not isinstance(tdata, dict):
+                continue
+            if tdata.get("adsbx"):
+                adsbx_hits += 1
+            if tdata.get("adsbexchange_rapidapi"):
+                adsbx_hits += 1
+        adsbx_enabled = bool(ADSBEXCHANGE_RAPIDAPI_KEY or (ADSBX_BASE_URL and ADSBX_API_KEY))
         notam_has_error = isinstance(notam_result, dict) and notam_result.get("error")
         source_results = [
             SourceResult(
@@ -1022,6 +1037,12 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 status="error" if adsb_has_error else "ok",
                 fetched_at=fetched_at,
                 record_count=len(aircraft),
+            ),
+            SourceResult(
+                name="ADSBexchange",
+                status="ok" if adsbx_hits > 0 else ("error" if adsbx_enabled else "ok"),
+                fetched_at=fetched_at,
+                record_count=adsbx_hits,
             ),
             SourceResult(
                 name="Conflict Reports",

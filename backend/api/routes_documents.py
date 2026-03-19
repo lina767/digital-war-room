@@ -4,9 +4,11 @@ Document ingest and QA routes (PDF, RAG).
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from middleware.rate_limit import limiter
 
 router = APIRouter()
 
@@ -25,7 +27,8 @@ class DocumentQARequest(BaseModel):
 
 
 @router.post("/documents/ingest")
-async def ingest_document(body: DocumentIngestRequest):
+@limiter.limit("10/minute")
+async def ingest_document(request: Request, body: DocumentIngestRequest):
     """
     POST /documents/ingest
     Download and ingest a PDF document for Document QA.
@@ -60,7 +63,8 @@ async def list_documents():
 
 
 @router.post("/documents/qa")
-async def document_qa(body: DocumentQARequest):
+@limiter.limit("30/minute")
+async def document_qa(request: Request, body: DocumentQARequest):
     """
     POST /documents/qa
     Ask a question over ingested PDF documents.

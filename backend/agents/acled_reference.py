@@ -15,7 +15,8 @@ from typing import Any, Dict, List
 
 import httpx
 
-from .utils import run_async
+from .health_registry import get_health_registry
+from .utils import SourceResult, run_async, utc_now_iso
 
 # Curated ACLED analysis URLs (updates, expert comments, reports) – used when conflict is Iran/Middle East
 ACLED_REFERENCE_URLS = [
@@ -149,6 +150,25 @@ async def fetch_acled_reference_analyses_async(conflict: str) -> List[Dict[str, 
                 results.append(one)
             elif one.get("error"):
                 results.append({"url": url, "title": url, "excerpt": f"(Fetch error: {one['error']})"})
+
+    ok_count = len(
+        [
+            r
+            for r in results
+            if isinstance(r, dict)
+            and (r.get("excerpt") or r.get("title"))
+            and not str(r.get("excerpt") or "").startswith("(Fetch error:")
+        ]
+    )
+    source_result = SourceResult(
+        name="ACLED Reference",
+        status="ok" if ok_count > 0 else "error",
+        fetched_at=utc_now_iso(),
+        record_count=ok_count,
+    )
+    reg = get_health_registry()
+    if reg:
+        reg.record_result(source_result.name, "geoint", source_result)
     return results
 
 

@@ -305,6 +305,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [initialLoadPending, setInitialLoadPending] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [dataFromCache, setDataFromCache] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -349,6 +350,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           }
           setData(next);
           setLastUpdated(new Date());
+          setDataFromCache(false);
           setStatus("connected");
           setAnalysisError(null);
         } else if (msg.status === "error") {
@@ -379,11 +381,12 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     setInitialLoadPending(true);
 
     const attempt = (retryCount: number) => {
-      getLatestAnalysis(conflict).then((cached) => {
+      getLatestAnalysis(conflict).then((result) => {
         if (cancelled) return;
-        if (cached) {
-          setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
+        if (result.data) {
+          setData(normalizeAnalysisResponse(result.data as Record<string, unknown>) as unknown as ConflictData);
           setLastUpdated(new Date());
+          setDataFromCache(result.fromCache);
           setAnalysisError(null);
           setInitialLoadPending(false);
         } else {
@@ -416,10 +419,11 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   // Every 2 min fetch cached result (shows updates from auto-run)
   useEffect(() => {
     const interval = setInterval(() => {
-      getLatestAnalysis(conflict).then((cached) => {
-        if (cached) {
-          setData(normalizeAnalysisResponse(cached as Record<string, unknown>) as unknown as ConflictData);
+      getLatestAnalysis(conflict).then((result) => {
+        if (result.data) {
+          setData(normalizeAnalysisResponse(result.data as Record<string, unknown>) as unknown as ConflictData);
           setLastUpdated(new Date());
+          setDataFromCache(result.fromCache);
           setAnalysisError(null);
         }
       });
@@ -448,13 +452,14 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     setAnalysisError(null);
     setStatus("analyzing");
     try {
-      const result = await getLatestAnalysis(conflictRef.current);
-      if (result) {
-        setData(result as unknown as ConflictData);
+      const { data: latest, fromCache } = await getLatestAnalysis(conflictRef.current);
+      if (latest) {
+        setData(latest as unknown as ConflictData);
         setLastUpdated(new Date());
+        setDataFromCache(fromCache);
         setStatus("connected");
         setAnalysisError(null);
-        return result;
+        return latest;
       }
       const statusRes = await getAnalyzeStatus(conflictRef.current);
       if (statusRes === null) {
@@ -477,10 +482,11 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           setStatus("error");
           return null;
         }
-        const fresh = await getLatestAnalysis(conflictRef.current);
+        const { data: fresh, fromCache } = await getLatestAnalysis(conflictRef.current);
         if (fresh) {
           setData(fresh as unknown as ConflictData);
           setLastUpdated(new Date());
+          setDataFromCache(fromCache);
           setStatus("connected");
           setAnalysisError(null);
           return fresh;
@@ -503,5 +509,5 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     }
   }, [enabled]);
 
-  return { data, status, lastUpdated, analysisError, initialLoadPending, refresh, runAnalysis, setData };
+  return { data, status, lastUpdated, dataFromCache, analysisError, initialLoadPending, refresh, runAnalysis, setData };
 }
