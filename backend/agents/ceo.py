@@ -231,37 +231,14 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         if isinstance(dr, DivisionResult):
             division_results[div.name] = dr
 
-    # Composite score
+    # Division composite score (kept as diagnostic context).
     total_weight = sum(CEO_WEIGHTS.get(d, 0) for d in division_results)
     if total_weight > 0:
-        composite = sum(dr.score * (CEO_WEIGHTS.get(name, 0) / total_weight) for name, dr in division_results.items())
+        division_composite = sum(
+            dr.score * (CEO_WEIGHTS.get(name, 0) / total_weight) for name, dr in division_results.items()
+        )
     else:
-        composite = 0.0
-
-    # Per-agent scores for backwards compatibility
-    agent_scores = {}
-    for dr in division_results.values():
-        agent_scores.update(dr.agent_scores)
-
-    # Score-to-threat-level
-    if composite >= 80:
-        threat_level = "CRITICAL"
-    elif composite >= 60:
-        threat_level = "HIGH"
-    elif composite >= 40:
-        threat_level = "ELEVATED"
-    elif composite >= 20:
-        threat_level = "LOW"
-    else:
-        threat_level = "MINIMAL"
-
-    # Rule-based or LLM synthesis
-    use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
-
-    key_findings = []
-    key_findings_context = []
-    scenarios = []
-    summary = _build_rule_based_ceo_summary(conflict, composite, threat_level, division_results)
+        division_composite = 0.0
 
     agent_results = {
         name: _as_dict(store.get(name))
@@ -283,6 +260,99 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     }
     acled_refs = store.get("acled_refs") or []
 
+    finint_result = agent_results.get("finint") or {}
+    sigint_result = agent_results.get("sigint") or {}
+    news_result = agent_results.get("news") or {}
+    geoint_result = agent_results.get("geoint") or {}
+    socmint_result = agent_results.get("socmint") or {}
+    techint_result = agent_results.get("techint") or {}
+    cyber_result = agent_results.get("cyber") or {}
+    energy_result = agent_results.get("energy") or {}
+    protest_result = agent_results.get("protest") or {}
+    diplo_result = agent_results.get("diplo") or {}
+    proximity_result = agent_results.get("proximity") or {}
+    narrative_result = agent_results.get("narrative") or {}
+    chokepoint_result = agent_results.get("chokepoint") or {}
+
+    finint_score = float(finint_result.get("escalation_score", 0.0))
+    sigint_score = float(sigint_result.get("sigint_score", 0.0))
+    news_score = float(news_result.get("news_score", 0.0))
+    geoint_score = float(geoint_result.get("geoint_score", 0.0))
+    socmint_score = float(socmint_result.get("socmint_score", 0.0))
+    techint_score = float(techint_result.get("techint_score", 0.0))
+    cyber_score = float(cyber_result.get("cyber_score", 0.0))
+    energy_score = float(energy_result.get("energy_score", 0.0))
+    protest_score = float(protest_result.get("protest_score", 0.0))
+    diplo_score = float(diplo_result.get("diplo_score", 0.0))
+    proximity_score = float(proximity_result.get("proximity_score", 0.0))
+    chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
+
+    # Legacy supervisor weighting (as requested) to preserve historical output behavior.
+    legacy_combined = (
+        finint_score * 0.09
+        + sigint_score * 0.12
+        + news_score * 0.09
+        + geoint_score * 0.07
+        + socmint_score * 0.09
+        + techint_score * 0.07
+        + cyber_score * 0.07
+        + energy_score * 0.07
+        + protest_score * 0.07
+        + diplo_score * 0.06
+        + proximity_score * 0.09
+        + chokepoint_score * 0.11
+    )
+    has_agent_scores = any(
+        (
+            "escalation_score" in finint_result,
+            "sigint_score" in sigint_result,
+            "news_score" in news_result,
+            "geoint_score" in geoint_result,
+            "socmint_score" in socmint_result,
+            "techint_score" in techint_result,
+            "cyber_score" in cyber_result,
+            "energy_score" in energy_result,
+            "protest_score" in protest_result,
+            "diplo_score" in diplo_result,
+            "proximity_score" in proximity_result,
+            "chokepoint_score" in chokepoint_result,
+        )
+    )
+    synthesis_score = legacy_combined if has_agent_scores else division_composite
+
+    agent_scores_for_predictive = {
+        "finint": finint_score,
+        "sigint": sigint_score,
+        "news": news_score,
+        "geoint": geoint_score,
+        "socmint": socmint_score,
+        "techint": techint_score,
+        "cyber": cyber_score,
+        "energy": energy_score,
+        "protest": protest_score,
+        "diplo": diplo_score,
+        "proximity": proximity_score,
+        "chokepoint": chokepoint_score,
+    }
+
+    if synthesis_score >= 80:
+        threat_level = "CRITICAL"
+    elif synthesis_score >= 60:
+        threat_level = "HIGH"
+    elif synthesis_score >= 40:
+        threat_level = "ELEVATED"
+    elif synthesis_score >= 20:
+        threat_level = "LOW"
+    else:
+        threat_level = "MINIMAL"
+
+    use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
+
+    key_findings = []
+    key_findings_context = []
+    scenarios = []
+    summary = _build_rule_based_ceo_summary(conflict, synthesis_score, threat_level, division_results)
+
     if use_rule_based:
         for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
             if dr.anomalies:
@@ -296,33 +366,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             from .utils import parse_llm_json
 
             require_api_key()
-            finint_result = agent_results.get("finint") or {}
-            sigint_result = agent_results.get("sigint") or {}
-            news_result = agent_results.get("news") or {}
-            geoint_result = agent_results.get("geoint") or {}
-            socmint_result = agent_results.get("socmint") or {}
-            techint_result = agent_results.get("techint") or {}
-            cyber_result = agent_results.get("cyber") or {}
-            energy_result = agent_results.get("energy") or {}
-            protest_result = agent_results.get("protest") or {}
-            diplo_result = agent_results.get("diplo") or {}
-            proximity_result = agent_results.get("proximity") or {}
-            narrative_result = agent_results.get("narrative") or {}
-            chokepoint_result = agent_results.get("chokepoint") or {}
-
-            finint_score = float(finint_result.get("escalation_score", 0.0))
-            sigint_score = float(sigint_result.get("sigint_score", 0.0))
-            news_score = float(news_result.get("news_score", 0.0))
-            geoint_score = float(geoint_result.get("geoint_score", 0.0))
-            socmint_score = float(socmint_result.get("socmint_score", 0.0))
-            techint_score = float(techint_result.get("techint_score", 0.0))
-            cyber_score = float(cyber_result.get("cyber_score", 0.0))
-            energy_score = float(energy_result.get("energy_score", 0.0))
-            protest_score = float(protest_result.get("protest_score", 0.0))
-            diplo_score = float(diplo_result.get("diplo_score", 0.0))
-            proximity_score = float(proximity_result.get("proximity_score", 0.0))
-            chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
-
             agent_scores_list = [
                 finint_score,
                 sigint_score,
@@ -343,8 +386,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
 
             user_payload = {
                 "conflict": conflict,
-                "composite_score": composite,
+                "composite_score": synthesis_score,
                 "threat_level": threat_level,
+                "division_composite_score": division_composite,
                 "division_scores": {name: dr.score for name, dr in division_results.items()},
                 "acled_reference_analyses": [
                     {"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:1000]}
@@ -442,7 +486,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         from .findings_builder import append_agent_findings
 
         all_agent_results = {k: _as_dict(v) for k, v in store.all_results().items()}
-        chokepoint_score = agent_scores.get("chokepoint", 0)
         key_findings = append_agent_findings(key_findings, all_agent_results, conflict, chokepoint_score)
     except Exception:
         pass
@@ -462,7 +505,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     try:
         from .predictive import build_predictive_block
 
-        predictive = build_predictive_block(conflict, composite, agent_scores)
+        predictive = build_predictive_block(conflict, synthesis_score, agent_scores_for_predictive)
     except Exception:
         predictive = {}
 
@@ -474,7 +517,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     # Build backwards-compatible response
     response = {
         "conflict": conflict,
-        "escalation_score": round(composite, 1),
+        "escalation_score": round(synthesis_score, 1),
         "threat_level": threat_level,
         "key_findings": key_findings,
         "key_findings_context": key_findings_context,
