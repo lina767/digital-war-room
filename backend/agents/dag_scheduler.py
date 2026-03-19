@@ -218,6 +218,7 @@ class DAGScheduler:
         """Execute a single node's callable, passing the store for dep lookup."""
         try:
             from observability import run_node_traced
+
             conflict = getattr(store, "conflict", "") or ""
             return run_node_traced(node.id, node.node_type, conflict, lambda: executor(store))
         except Exception:

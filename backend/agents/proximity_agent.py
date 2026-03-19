@@ -181,11 +181,7 @@ def run_proximity_agent(conflict: str) -> Dict[str, Any]:
         if result.get("reason_empty") == "error" or result.get("error_message"):
             overpass_status = "error"
         tunnel_sites_hits = len(
-            [
-                e
-                for e in evidence
-                if isinstance(e, dict) and (e.get("riskLabel") or "") == "PROBABLE_HUMAN_SHIELD"
-            ]
+            [e for e in evidence if isinstance(e, dict) and (e.get("riskLabel") or "") == "PROBABLE_HUMAN_SHIELD"]
         )
         tunnel_configured = bool(result.get("tunnel_sites_configured"))
         tunnel_loaded = bool(result.get("tunnel_sites_loaded"))

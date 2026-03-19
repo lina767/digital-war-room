@@ -7,11 +7,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes_analyze import router as analyze_router
+from middleware.rate_limit import limiter
 
 
 @pytest.fixture
 def client():
     app = FastAPI()
+    app.state.limiter = limiter
     app.include_router(analyze_router, prefix="/api")
     app.state.analysis_cache = {}
     app.state.analysis_last_error = {}

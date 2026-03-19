@@ -31,7 +31,8 @@ def test_sanitize_conflict_too_long():
 
 
 def test_sanitize_conflict_invalid_chars():
-    with pytest.raises(ValueError, match="invalid characters"):
+    # Pattern/special chars -> "allows only"; control chars/null -> "contains invalid"
+    with pytest.raises(ValueError, match="allows only"):
         sanitize_conflict("Iran<script>")
     with pytest.raises(ValueError, match="invalid characters"):
         sanitize_conflict("Iran\x00")

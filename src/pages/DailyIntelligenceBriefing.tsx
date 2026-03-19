@@ -45,8 +45,8 @@ export default function DailyIntelligenceBriefing() {
     setLoading(true);
     setError(null);
     getLatestAnalysis(conflictParam)
-      .then((res) => {
-        setData(res as ConflictData | null);
+      .then((result) => {
+        setData(result.data as ConflictData | null);
       })
       .catch(() => setError("Failed to load briefing data."))
       .finally(() => setLoading(false));

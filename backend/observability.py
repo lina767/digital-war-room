@@ -60,17 +60,24 @@ def _configure_structlog() -> None:
 def _configure_stdlib_bridge() -> None:
     """Route standard library logging to structlog so logging.getLogger() calls emit structured logs."""
     import structlog
+
     try:
-        from structlog.stdlib import ProcessorFormatter
+        from structlog.stdlib import ProcessorFormatter, add_log_level, add_logger_name
     except ImportError:
         return
+    is_prod = os.getenv("ENV", os.getenv("ENVIRONMENT", "")).lower() in ("production", "prod")
+    shared = [
+        add_log_level,
+        add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso"),
+    ]
     formatter = ProcessorFormatter(
-        processor=structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
-        if os.getenv("ENV", os.getenv("ENVIRONMENT", "")).lower() not in ("production", "prod")
-        else structlog.processors.JSONRenderer(),
-        foreign_pre_chain=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
+        foreign_pre_chain=shared,
+        processors=[
+            ProcessorFormatter.remove_processors_meta,
+            structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
+            if not is_prod
+            else structlog.processors.JSONRenderer(),
         ],
     )
     handler = logging.StreamHandler(sys.stderr)
@@ -112,7 +119,7 @@ def _init_sentry() -> None:
             profiles_sample_rate=float(os.getenv("SENTRY_PROFILES_SAMPLE_RATE", "0")),
             integrations=[
                 FastApiIntegration(),
-                LoggingIntegration(level=None, event_level=None),
+                LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
             ],
             send_default_pii=False,
         )
@@ -124,8 +131,10 @@ def _init_sentry() -> None:
 # Tracing (OpenTelemetry) – delegates to existing otel_callbacks
 # ---------------------------------------------------------------------------
 
+
 def _get_traced() -> Any:
     from agents.otel_callbacks import traced
+
     return traced
 
 
@@ -185,6 +194,8 @@ def init() -> None:
     Call once at application startup (e.g. FastAPI lifespan).
     """
     _configure_structlog()
+    _configure_stdlib_bridge()
     _init_sentry()
     from agents.otel_callbacks import init_otel
+
     init_otel()

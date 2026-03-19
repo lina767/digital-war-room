@@ -416,7 +416,7 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
 
             source_results: List[SourceResult] = []
             state_items: List[Dict[str, Any]] = []
-            for s, fut in zip(STATE_SOURCES, state_futures):
+            for s, fut in zip(STATE_SOURCES, state_futures, strict=True):
                 try:
                     items = fut.result(timeout=20) or []
                     state_items.extend(items)
@@ -435,7 +435,7 @@ def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
                     )
 
             exile_items: List[Dict[str, Any]] = []
-            for s, fut in zip(EXILE_SOURCES, exile_futures):
+            for s, fut in zip(EXILE_SOURCES, exile_futures, strict=True):
                 try:
                     items = fut.result(timeout=20) or []
                     exile_items.extend(items)

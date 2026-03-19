@@ -2,8 +2,6 @@
 
 from collections import deque
 
-import pytest
-
 from api.state_helpers import (
     build_agent_status_from_result,
     push_agent_status,
@@ -13,7 +11,25 @@ from api.state_helpers import (
 
 
 def test_build_agent_status_from_result_empty():
-    assert build_agent_status_from_result({}) == {}
+    # Empty result yields default "ok" for all known agents
+    got = build_agent_status_from_result({})
+    assert isinstance(got, dict)
+    assert all(got[k]["status"] == "ok" for k in got)
+    assert set(got.keys()) == {
+        "finint",
+        "sigint",
+        "news",
+        "geoint",
+        "socmint",
+        "techint",
+        "cyber",
+        "energy",
+        "protest",
+        "diplo",
+        "proximity",
+        "narrative",
+        "chokepoint",
+    }
 
 
 def test_build_agent_status_from_result_not_dict():
