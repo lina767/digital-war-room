@@ -9,20 +9,22 @@ interface UpdatedBriefingProps {
   lastUpdated: Date | null;
   /** True while initial fetch of cached analysis is in progress (improves perceived load time). */
   isLoading?: boolean;
+  /** When true, render only content (no panel title). Use when already wrapped in a CollapsiblePanel with the same title. */
+  embedded?: boolean;
 }
 
-export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }: UpdatedBriefingProps) {
+function UpdatedBriefingContent({
+  data,
+  conflictLabel,
+  isLoading,
+}: Pick<UpdatedBriefingProps, "data" | "conflictLabel" | "isLoading">) {
   const summary = data?.summary ?? null;
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
   const hasContent = summary || scenarios.length > 0 || keyFindings.length > 0;
 
   return (
-    <IntelPanel
-      title="UPDATED BRIEFING"
-      headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
-      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["UPDATED BRIEFING"]}
-    >
+    <>
       {isLoading && !hasContent && (
           <p className="text-xs text-muted-foreground italic animate-pulse">Loading analysis…</p>
         )}
@@ -60,6 +62,26 @@ export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading }:
             </ul>
           </div>
         )}
+    </>
+  );
+}
+
+export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading, embedded }: UpdatedBriefingProps) {
+  const content = (
+    <UpdatedBriefingContent data={data} conflictLabel={conflictLabel} isLoading={isLoading} />
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <IntelPanel
+      title="UPDATED BRIEFING"
+      headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
+      tooltipContent={DASHBOARD_PANEL_TOOLTIPS["UPDATED BRIEFING"]}
+    >
+      {content}
     </IntelPanel>
   );
 }

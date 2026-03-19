@@ -174,7 +174,7 @@ export function DashboardRightPanel({
             title="UPDATED BRIEFING"
             headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
           >
-            <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+            <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} embedded />
           </CollapsiblePanel>
         );
       case "signal-framework":
