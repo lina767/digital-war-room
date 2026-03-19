@@ -566,6 +566,13 @@ export default function DailyIntelligenceBriefing() {
               the daily briefing.
             </p>
           )}
+
+          <p className="no-print mt-8 pt-6 border-t border-border text-sm text-muted-foreground">
+            Get the daily briefing by email —{" "}
+            <Link to="/newsletter" className="text-primary hover:underline">
+              Subscribe to daily briefing
+            </Link>
+          </p>
         </div>
       </div>
 

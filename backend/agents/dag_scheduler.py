@@ -142,7 +142,8 @@ class DAGScheduler:
             executors: mapping of node_id -> callable(store) -> result
             store: ResultStore to read deps from and write results into
         """
-        dep_graph = {nid: set(n.dependencies) for nid, n in self._nodes.items()}
+        # Include optional_deps in graph so execution order is deterministic; node still gets None if dep missing
+        dep_graph = {nid: set(n.dependencies) | set(n.optional_deps) for nid, n in self._nodes.items()}
         sorter = TopologicalSorter(dep_graph)
         sorter.prepare()
 
@@ -181,7 +182,8 @@ class DAGScheduler:
         Frontend receives only Tier-1 (Agent-Results) and Tier-4 (Division-Summaries),
         not intermediate enrichment steps.
         """
-        dep_graph = {nid: set(n.dependencies) for nid, n in self._nodes.items()}
+        # Include optional_deps in graph so execution order is deterministic
+        dep_graph = {nid: set(n.dependencies) | set(n.optional_deps) for nid, n in self._nodes.items()}
         sorter = TopologicalSorter(dep_graph)
         sorter.prepare()
 

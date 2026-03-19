@@ -13,6 +13,9 @@ const Methodology = lazy(() => import("./pages/Methodology"));
 const Impressum = lazy(() => import("./pages/Impressum"));
 const SourceDirectory = lazy(() => import("./pages/SourceDirectory"));
 const DailyIntelligenceBriefing = lazy(() => import("./pages/DailyIntelligenceBriefing"));
+const Newsletter = lazy(() => import("./pages/Newsletter"));
+const NewsletterConfirm = lazy(() => import("./pages/NewsletterConfirm"));
+const NewsletterUnsubscribe = lazy(() => import("./pages/NewsletterUnsubscribe"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Support = lazy(() => import("./pages/Support"));
 const Blog = lazy(() => import("./pages/Blog"));
@@ -35,6 +38,9 @@ const App = () => (
           <Route path="/methodology" element={<Methodology />} />
           <Route path="/sources" element={<SourceDirectory />} />
           <Route path="/daily-briefing" element={<DailyIntelligenceBriefing />} />
+          <Route path="/newsletter" element={<Newsletter />} />
+          <Route path="/newsletter/confirm" element={<NewsletterConfirm />} />
+          <Route path="/newsletter/unsubscribe" element={<NewsletterUnsubscribe />} />
           <Route path="/impressum" element={<Impressum />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/support" element={<Support />} />

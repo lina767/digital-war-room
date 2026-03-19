@@ -214,6 +214,20 @@ Vollständige Referenz (DOC/GEO, ToneChart, Events, GKG): [docs/GDELT-API-REFERE
 
 ---
 
+## Newsletter (Daily Briefing by email)
+
+| Key | Verwendung | Beschreibung |
+|-----|-------------|--------------|
+| **RESEND_API_KEY** | `backend/services/newsletter_sender.py` | [resend.com](https://resend.com) – API key for sending confirmation and daily briefing emails. |
+| **NEWSLETTER_FROM** | `backend/services/newsletter_sender.py` | Sender address. Prefer a **subdomain** (e.g. `briefing@notifications.yourdomain.com`) for deliverability and reputation isolation ([Resend: subdomain vs root domain](https://resend.com/docs/knowledge-base/is-it-better-to-send-emails-from-a-subdomain-or-the-root-domain)). Required with RESEND_API_KEY. |
+| **FRONTEND_URL** | `backend/services/newsletter_sender.py` | Base URL for confirm/unsubscribe links in emails (e.g. `https://digitalwarroom.com`). Fallback: `NEWSLETTER_BASE_URL` or hardcoded default. |
+| **NEWSLETTER_SEND_UTC_HOUR** | `backend/main.py` | Hour (UTC) at which to run the daily analysis and send emails (default: 6). In-process job runs at this time; optional external cron can call `POST /api/newsletter/send-daily` with `X-Newsletter-Secret` instead. |
+| **NEWSLETTER_CRON_SECRET** | `backend/api/routes_newsletter.py` | If set, `POST /api/newsletter/send-daily` requires header `X-Newsletter-Secret` to match. Use for external cron (e.g. Railway cron, GitHub Actions). |
+
+See [docs/NEWSLETTER-SPEC.md](NEWSLETTER-SPEC.md) for full behaviour (double opt-in, fixed-time send, Resend).
+
+---
+
 ## Observability (OpenTelemetry / Jaeger)
 
 | Key / Env | Verwendung im Code | Beschreibung |

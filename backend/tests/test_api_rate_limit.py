@@ -20,6 +20,7 @@ def test_analyze_rate_limit_returns_429_after_limit(client: TestClient):
         state = getattr(client.app.state, "state_service", None)
         if state is None:
             from services.state_service import StateService
+
             client.app.state.state_service = StateService()
             state = client.app.state.state_service
         state.set_cache(

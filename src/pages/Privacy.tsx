@@ -57,7 +57,16 @@ const Privacy = () => {
 
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-              3. Purpose and legal basis
+              3. Newsletter
+            </h2>
+            <p>
+              If you subscribe to the Daily Briefing newsletter, we store your email address and your chosen conflict (e.g. Iran) for the sole purpose of sending you the daily briefing email. We use double opt-in: you must confirm your subscription via the link in the confirmation email. You can unsubscribe at any time via the link in each newsletter. We do not share your email with third parties. The controller is the same as in section 1.
+            </p>
+          </section>
+
+          <section>
+            <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
+              4. Purpose and legal basis
             </h2>
             <p>
               Processing is carried out to operate the website, provide the analysis and dashboard features (including AI-assisted synthesis), and ensure security and stability. The legal basis is in particular Art. 6(1)(f) GDPR (legitimate interest in operating the platform).
@@ -66,7 +75,7 @@ const Privacy = () => {
 
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-              4. Storage period
+              5. Storage period
             </h2>
             <p>
               Personal data are retained only for as long as necessary for the purposes stated above or as required by law. Access and log data are generally deleted or anonymised after a short period.
@@ -75,7 +84,7 @@ const Privacy = () => {
 
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-              5. Your rights
+              6. Your rights
             </h2>
             <p>
               You have the right to access (Art. 15 GDPR), rectification (Art. 16 GDPR), erasure (Art. 17 GDPR), restriction of processing (Art. 18 GDPR), data portability (Art. 20 GDPR) and to object (Art. 21 GDPR). Where processing is based on consent, you may withdraw that consent at any time with effect for the future. You also have the right to lodge a complaint with a supervisory authority (Art. 77 GDPR).
@@ -84,7 +93,7 @@ const Privacy = () => {
 
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-              6. Cookies, AI and third-party services
+              7. Cookies, AI and third-party services
             </h2>
             <p>
               The platform may use technically necessary cookies or local storage (e.g. for preferences). For AI-assisted evaluation and synthesis of conflict analyses, third-party services (e.g. providers of language models) are used; the data processed there relates to the platform’s analysis data, not to your personal data. Hosting and analytics services (e.g. Vercel) may also be used. The respective privacy policies of those providers apply to data processed by them.
@@ -93,7 +102,7 @@ const Privacy = () => {
 
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-              7. Contact
+              8. Contact
             </h2>
             <p>
               For any questions regarding data protection, please contact:{" "}

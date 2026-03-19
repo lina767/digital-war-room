@@ -241,6 +241,34 @@ export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerR
   }
 }
 
+/** POST /api/newsletter/subscribe – subscribe to daily briefing (double opt-in). */
+export async function newsletterSubscribe(body: { email: string; conflict?: string }): Promise<{ message: string; conflict: string }> {
+  const res = await fetch(`${getApiBase()}/api/newsletter/subscribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: body.email, conflict: body.conflict ?? "Iran" }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { message?: string; conflict?: string; error?: string };
+  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+  return { message: data.message ?? "Subscribed.", conflict: data.conflict ?? "Iran" };
+}
+
+/** GET /api/newsletter/confirm?token=... – confirm subscription (double opt-in). */
+export async function newsletterConfirm(token: string): Promise<{ message: string }> {
+  const res = await fetch(`${getApiBase()}/api/newsletter/confirm?${new URLSearchParams({ token })}`);
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+  return { message: data.message ?? "Confirmed." };
+}
+
+/** GET /api/newsletter/unsubscribe?token=... – unsubscribe. */
+export async function newsletterUnsubscribe(token: string): Promise<{ message: string }> {
+  const res = await fetch(`${getApiBase()}/api/newsletter/unsubscribe?${new URLSearchParams({ token })}`);
+  const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+  return { message: data.message ?? "Unsubscribed." };
+}
+
 /** Normalize backend response: ensure top-level and nested shapes match frontend (e.g. articles with publishedAt). Exported for WebSocket use. */
 export function normalizeAnalysisResponse(raw: Record<string, unknown>): AnalyzeResponse {
   const out = { ...raw } as AnalyzeResponse;

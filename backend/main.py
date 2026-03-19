@@ -3,6 +3,7 @@ import os
 import asyncio
 import time
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -169,6 +170,35 @@ async def lifespan(app: FastAPI):
         greynoise_task = asyncio.create_task(run_greynoise_scheduler())
         greynoise_discovery_task = asyncio.create_task(run_greynoise_tag_discovery())
 
+    # Newsletter daily job: fixed time (e.g. 06:00 UTC), run analysis then send emails
+    newsletter_task = None
+    if (os.getenv("RESEND_API_KEY") or "").strip() and (os.getenv("NEWSLETTER_FROM") or "").strip():
+        send_hour = int(os.getenv("NEWSLETTER_SEND_UTC_HOUR", "6"))
+
+        def _seconds_until_next_send() -> float:
+            now = datetime.now(timezone.utc)
+            next_run = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
+            if next_run <= now:
+                next_run = next_run + timedelta(days=1)
+            return max(60, (next_run - now).total_seconds())
+
+        async def _newsletter_loop():
+            from api.routes_newsletter import run_daily_newsletter_job
+
+            while True:
+                delay = _seconds_until_next_send()
+                await asyncio.sleep(delay)
+                try:
+                    conflicts, sent = await run_daily_newsletter_job(app.state)
+                    if conflicts or sent:
+                        logger.info("Newsletter daily job: conflicts=%s sent=%d", conflicts, sent)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning("Newsletter daily job error: %s", e)
+
+        newsletter_task = asyncio.create_task(_newsletter_loop())
+
     # Ensure shared HTTP client is created early (so DNS pools etc. warm up)
     get_http_client()
 
@@ -179,6 +209,8 @@ async def lifespan(app: FastAPI):
         tasks_to_cancel.append(greynoise_task)
     if greynoise_discovery_task:
         tasks_to_cancel.append(greynoise_discovery_task)
+    if newsletter_task:
+        tasks_to_cancel.append(newsletter_task)
     for task in tasks_to_cancel:
         task.cancel()
         try:
