@@ -24,10 +24,10 @@ Monetization can come later; the foundation is **identity + scope + reliability 
 
 **Concrete:**
 
-- Add **Supabase Auth** (sign-up / sign-in) in the frontend.
+- Add **optional auth** (sign-up / sign-in) in the frontend (e.g. your own backend or a provider of your choice).
 - **Optional login:** Dashboard and briefing can stay usable without an account; offer “Sign in to save preferences / get API access” instead of hard gate.
-- Store in Supabase: `user_id`, optional `preferences` (e.g. default conflict, panel state), later `api_keys` if you add API access.
-- Backend: accept Supabase JWT only where it matters (e.g. “my preferences”, “my API key”); keep read-only analysis endpoints public if you want.
+- Store per user: `user_id`, optional `preferences` (e.g. default conflict, panel state), later `api_keys` if you add API access.
+- Backend: accept JWT only where it matters (e.g. “my preferences”, “my API key”); keep read-only analysis endpoints public if you want.
 
 **Result:** Digital War Room becomes “a product I use” not “a page I open”.
 
@@ -101,7 +101,7 @@ Each step makes DWR usable in more contexts (browser, scripts, alerts, email) = 
 
 1. **Scope and messaging** — Write the one-sentence product and a short “Features” or “What is DWR” (in app or docs). Low effort, high clarity.
 2. **Reliability and UX** — Consistent “last updated”, loading/error states, and a clear “Run analysis” behavior. No new features, just polish.
-3. **Optional auth (Supabase)** — Sign-up/sign-in; optional preferences and “my account”. Keeps the app usable without login.
+3. **Optional auth** — Sign-up/sign-in; optional preferences and “my account”. Keeps the app usable without login.
 4. **Onboarding** — One clear entry (e.g. “Start with the Briefing”), defaults, and glossary/tooltips where it helps.
 5. **API as a product feature** — API keys (or JWT), rate limits, and a Developer/API page. Then webhooks/alerts when you’re ready.
 

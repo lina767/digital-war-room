@@ -272,4 +272,23 @@ ACLED_PASSWORD=dein_myACLED_passwort
 
 **Etherscan Free Tier:** Max. 3 Requests/Sekunde (im Code durch Verzögerung zwischen Abfragen eingehalten), bis zu 100.000 Calls/Tag. **Attribution** ist vorgeschrieben – in der App z. B. „Data by Etherscan“ oder Link zu etherscan.io anzeigen. Die Antwort von `get_tracked_chain_wallets` enthält einen `_attribution`-Eintrag. Nur Community-Endpoints, ca. 90 % Multichain-Abdeckung.
 
+---
+
+## Degraded/Down Sources – typische Ursachen und Prüfschritte
+
+Wenn im Dashboard viele Quellen als **degraded** oder **down** angezeigt werden, liegt das fast immer an **externen Diensten** (Rate Limits, Auth, Ausfall), nicht an Code-Änderungen im Repo. Übersicht der häufig betroffenen Quellen:
+
+| Quelle | Agent | Typische Ursache | Was prüfen |
+|--------|--------|-------------------|------------|
+| **GDELT GEO** | GEOINT | GDELT DOC-API liefert 429 (Rate Limit) oder nicht-JSON; kein API-Key nötig | Log: `GDELT GEO fetch failed`. Weniger Analysen pro Tag; ggf. 6–10 s Pause zwischen Retries (ist im Code). |
+| **ACLED-Aggregated** | PROTEST | CSV-Download von acleddata.com (Cookie-Auth) – Session abgelaufen oder Seite geändert | `backend/data/acled/` – CSVs aktuell? Log: ACLED aggregated refresh/CSV not found. |
+| **ACLED-API** | PROTEST, GEOINT | OAuth-Token abgelaufen oder ungültig; Legacy-Key eingestellt | `ACLED_EMAIL` + `ACLED_PASSWORD` in `backend/.env`; Log: `ACLED OAuth token failed` / `401`. |
+| **GDELT** (Protest) | PROTEST | Wie GDELT GEO – DOC-API Rate Limit oder Timeout | Wie GDELT GEO; ein Request pro Lauf, 48H-Fenster. |
+| **Export control** | TECHINT | NewsAPI für Export-Control-News – **100 Requests/Tag** Free Tier; bei vielen Läufen 429 | `NEWS_API_KEY` gesetzt? Log: `TECHINT: NewsAPI rate limited`. Scheduler seltener laufen oder Paid Plan. |
+| **NewsAPI** | NEWS | Wie Export control – **100 Requests/Tag**; 429 = Too Many Requests | Weniger NEWS-Läufe pro Tag (z. B. &lt; 100); oder NewsData/GNews zusätzlich nutzen. |
+| **Twitter/Nitter** | SOCMINT | Nitter-Instanzen oft down oder blockieren Scraper; kein offizieller API-Key | Nitter ist Community-Infrastruktur; wechselnde Instanzen in `socmint_agent.py` oder auf andere Quellen (RSS, ReliefWeb) setzen. |
+| **ReliefWeb** | SOCMINT, GEOINT | **403** wenn `appname` nicht bei ReliefWeb registriert; oder temporärer Ausfall | `RELIEFWEB_APPNAME` in `.env` (Default: `digital-war-room`). [ReliefWeb API](https://reliefweb.int/help/api) – appname anmelden. Log: `403` / `ReliefWeb request failed`. |
+
+**Allgemein:** Backend-Logs (`logger.debug`/`logger.warning`) und `_meta.sources[].status` in den Agent-Responses zeigen, welche Quelle „ok“ vs „error“ geliefert hat. Rate Limits (429) und Auth-Fehler (401/403) kommen von den externen APIs, nicht vom Refactoring im Code.
+
 Alle Key-Namen findest du auch per Suche im Repo: `os.getenv("KEY_NAME")` bzw. in `backend/scripts/check_agents.py` und `docs/DEPLOYMENT.md`.

@@ -1,65 +1,51 @@
-# Architecture
+# Architecture & Layers
 
-High-level overview of the Digital War Room pipeline: agent pool, supervisor, caching, and periodic analysis.
-
----
-
-## Pipeline Overview
-
-1. **Conflict** — A string (e.g. `"Iran"`) identifies the theatre. All agents receive the same conflict and return a structured payload.
-2. **Agent pool** — 12 runnables in parallel: FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY, narrative (signal framework), and chokepoint. Plus ACLED reference fetches. Each has a 75s timeout; failures yield fallback dicts.
-3. **Supervisor** — Fuses all agent outputs (scores, summaries, lists) into one assessment via an LLM (Claude or GPT-4o). Produces escalation score, key findings, scenarios, and compliance-related fields.
-4. **Post-processing** — Narrative/signal framework, compliance layer (geofencing, AIS anomaly, supply-chain, OFAC/EU), predictive block (24h outlook). Optional NER enrichment and actor list for the conflict.
-5. **Cache** — Latest analysis per conflict is stored in memory (and optionally persisted). Dashboard and API serve from cache; background job refreshes on an interval (e.g. every 6h or 24h).
-6. **Frontend** — React dashboard: threat level, key findings, agent cards, map overlays (Theater Map, Daily Briefing, Predictive Outlook). Can consume streaming (`/api/analyze/stream`) or cached (`/api/analyze/latest`).
+This document defines the backend layers and dependency rules. See [ARCHITECTURE-ROADMAP.md](ARCHITECTURE-ROADMAP.md) for the improvement plan.
 
 ---
 
-## Key Components
+## Layer overview
 
-| Component | Role |
-|-----------|------|
-| **ThreadPoolExecutor** | Runs all agents in parallel (max 14 workers). No heavy agent framework; each agent is a function `run_*_agent(conflict: str) -> Dict`. |
-| **Supervisor LLM** | Single LLM call (or rule-based fallback) to synthesize scores and raw outputs into one BLUF-style assessment. |
-| **Analysis cache** | In-memory `analysis_cache[conflict]`; optional persistence. Frontend and `/api/analyze/latest` read from it. |
-| **Periodic analysis** | Background task (configurable interval, e.g. `AUTO_ANALYZE_INTERVAL_SEC`) runs full pipeline for `AUTO_ANALYZE_CONFLICT`, updates cache and timeline. |
-| **WebSocket** | Optional live updates: escalation timeline, agent status, run history pushed to connected clients. |
-
----
-
-## Design Decisions
-
-- **No heavy agent frameworks** — Pure Python, `ThreadPoolExecutor`, direct LLM SDK (Anthropic/OpenAI). Each agent returns a Dict with at least a score field and domain-specific lists.
-- **Graceful degradation** — Missing API keys → empty results, no crash. LLM failure → rule-based scoring. Per-agent timeout keeps one slow source from blocking the run.
-- **Dual-mode agents** — Env `USE_RULE_BASED_AGENTS`: when true, agents use fixed tool chains (no LLM in agents); when false, Haiku can drive tool selection. Supervisor can also be rule-only (`USE_RULE_BASED_SUPERVISOR`).
-- **Compliance built-in** — Geofencing, AIS anomaly detection, supply-chain screening, OFAC/EU cross-checks run after collection; results are part of the unified payload.
+| Layer | Responsibility | Allowed to use |
+|-------|----------------|----------------|
+| **API** | HTTP, WebSocket, request/response, auth | Orchestration, state service, models |
+| **Orchestration** | DAG, CEO, run lifecycle, streaming | Agents (registry), state service, models |
+| **Agents** | Domain logic, tools, external APIs | Config, shared context types, HTTP client |
+| **Services** | Cross-cutting: state (in-memory), job queue, HTTP client | Config; must not import agents |
+| **Data / external** | ACLED, OFAC, GreyNoise, etc. | Used by agents and services |
 
 ---
 
-## Data Flow
+## Dependency rules
 
-```
-Conflict (e.g. "Iran")
-    → ThreadPoolExecutor: run_finint_agent, run_sigint_agent, ... run_chokepoint_agent
-    → Per-agent Dict (scores, lists, summaries)
-    → Supervisor: LLM or rule-based fusion
-    → Post-process: narrative, compliance, predictive, actors
-    → Cache + optional WebSocket push
-    → Frontend / API consumers
-```
+- **Orchestration** does not import from `api/`.
+- **Agents** do not import from `ceo` or `supervisor` (they are invoked via registry).
+- **Services** do not import from `agents/` (state_service, job_queue, http_client are used by API and orchestration).
+- Shared types (e.g. `AnalysisResult`, `AgentContext`) live in `models/` or `agents/contracts.py` and are used by both orchestration and API.
 
 ---
 
-## Observability
+## Execution path
 
-- **OpenTelemetry** — When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, traces (analysis.collection, supervisor, etc.) are sent to an OTLP endpoint (e.g. Jaeger).
-- **Logging** — Standard Python logging; agent timeouts and errors are logged with agent name and conflict.
+1. **Entry:** `analyze_conflict(conflict)` and `run_analysis_streaming(conflict)` in `agents/supervisor.py` are the public entrypoints.
+2. **Pipeline:** Both delegate to `agents/ceo.analyze_conflict_dag` / `analyze_conflict_dag_streaming`. DAG order: WAVE1 agents (finint, sigint, news, diplo, techint, cyber) → `agent_context` (shared context) → WAVE2 agents (geoint, socmint, energy, protest, proximity, chokepoint, narrative) → division summaries → CEO synthesis.
+3. **Division summaries:** Pure functions (scores + anomalies + rule-based text). No LLM by default; set `USE_DIVISION_HAIKU=1` to enable optional Haiku per division.
+4. **State:** Cache, agent status, escalation timeline, and run history are stored via `StateService` (in-memory).
+5. **API:** Routes in `api/routes.py` read/write state through the state service and return typed `AnalysisResult` where applicable.
 
 ---
 
-## References
+## Key modules
 
-- [One-pager (diagram & agent table)](social-assets/one-pager.md)
-- [Agents (per-agent description)](AGENTS.md)
-- [API reference](API-REFERENCE.md)
-- [Deployment](DEPLOYMENT.md)
+| Module | Layer | Role |
+|--------|-------|------|
+| `api/routes.py` | API | REST and SSE for analyze, status, history, timeline |
+| `agents/supervisor.py` | Orchestration | Public API; delegates to CEO |
+| `agents/ceo.py` | Orchestration | DAG build, CEO synthesis, response shape |
+| `agents/dag_scheduler.py` | Orchestration | Topological execution of nodes |
+| `agents/division.py`, `agents/divisions/*.py` | Orchestration | Division aggregation and summaries |
+| `agents/registry.py` | Orchestration | Agent discovery and entry functions |
+| `agents/context.py` | Shared | `AgentContext`, `build_context_from_results` (WAVE1/WAVE2) |
+| `services/state_service.py` | Services | Cache and state (in-memory) |
+| `services/source_fetch.py` | Services | Per-run cache to deduplicate external API calls |
+| `models/analysis.py` | Shared | `AnalysisResult` for API/orchestration boundary |

@@ -105,4 +105,8 @@ So bleiben Refactorings (z. B. _meta-Hilfen, Config-Zentralisierung) sicher.
 - **Unit-Tests:** `tests/test_context.py` (build_context_from_results: leer, peer_summaries, focus_regions, bad coords, escalation_signals), `tests/test_contracts_fallback.py` (get_agent_fallback für alle Registry-Agents), `tests/test_domain_runner.py` (partielle Ergebnisse, Manager erhält error-Einträge).
 - **Typisierung:** Modul-Docstring in `contracts.py` beschreibt Result-Shape; `get_agent_fallback`-Docstring ergänzt.
 
-**Noch offen (optional):** Weitere Agents (techint, cyber, socmint, chokepoint, sigint, geoint, news) auf `build_agent_meta` umstellen; Ruff/Mypy im CI ausführen; Async-Migration mittelfristig.
+**CI:** `.github/workflows/ci.yml` – bei Push/PR: `ruff check`, `ruff format --check`, `pytest tests/`; Mypy-Basis für `api/routes_*.py` + `models/*.py` optional (`continue-on-error`) und zusätzlicher **strict**-Job für `api/routes_compliance.py`, `api/routes_analyze.py` + `models/analysis.py`. Installation nutzt `requirements-dev.txt` statt `pip install -e ".[dev]"` (robuster bei eingeschränktem Netzwerk).
+
+**Lokal:** `cd backend && pip install -r requirements-dev.txt && ruff check . && ruff format --check . && pytest tests/ -q`.
+
+**Ergänzung:** SIGINT, GEOINT, NEWS, TECHINT, CYBER, SOCMINT, CHOKEPOINT und FININT nutzen jetzt durchgängig `build_agent_meta` (bzw. optional `confidence=` bei FININT). Fehlerpfade: `get_agent_fallback` wo sinnvoll (sigint, news, socmint, chokepoint).

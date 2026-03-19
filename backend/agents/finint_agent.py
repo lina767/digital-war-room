@@ -25,8 +25,8 @@ from .config import DEFAULT_TIMEOUT
 from .llm import run_agent_with_fallback
 from .source_fetch import SourceFetch
 from .utils import (
-    AgentMetadata,
     ScoreConfidence,
+    build_agent_meta,
     compute_confidence_from_sources,
     run_async,
     safe_float,
@@ -1619,30 +1619,21 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
     )
     out = result.model_dump(mode="json")
     duration_ms = int((time.perf_counter() - start) * 1000)
-    ok_count = sum(1 for s in source_results if s.status == "ok")
-    data_freshness = (
-        "live"
-        if ok_count >= len(source_results) * 0.8
-        else "recent"
-        if ok_count >= len(source_results) * 0.5
-        else "stale"
-        if ok_count > 0
-        else "unavailable"
-    )
     error_summary = None
     if sources_missing:
         error_summary = f"{len(sources_missing)} source(s) failed or missing: {', '.join(sources_missing[:5])}{'...' if len(sources_missing) > 5 else ''}"
-    meta = AgentMetadata(
-        agent="finint",
-        fetched_at=fetched_at,
-        duration_ms=duration_ms,
-        sources=source_results,
-        confidence=score_confidence,
-        data_freshness=data_freshness,
-        fallback_used=False,
-        error_summary=error_summary,
+    has_finint_data = bool(
+        sources_ok or polymarket_list or metaculus_list or (isinstance(ofac, dict) and ofac.get("total_matches"))
     )
-    out["_meta"] = meta.model_dump(mode="json")
+    out["_meta"] = build_agent_meta(
+        "finint",
+        fetched_at,
+        duration_ms,
+        source_results,
+        error_summary=error_summary,
+        has_any_data=has_finint_data,
+        confidence=score_confidence,
+    )
     return out
 
 

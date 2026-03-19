@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-backend
+        name: ruff (backend)
+        entry: bash -c 'cd backend && ruff check .'
+        language: system
+        pass_filenames: false
+
+      - id: mypy-backend
+        name: mypy (backend)
+        entry: bash -c 'cd backend && mypy .'
+        language: system
+        pass_filenames: false
+
+      - id: prettier-frontend
+        name: prettier (frontend)
+        entry: npx prettier --check .
+        language: system
+        pass_filenames: false

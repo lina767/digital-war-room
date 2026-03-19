@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Stack
 - **Backend:** Python 3, FastAPI, Agents (FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT)
-- **Frontend:** React, TypeScript, Vite, Tailwind, Supabase (Auth)
+- **Frontend:** React, TypeScript, Vite, Tailwind
 - **API:** REST unter `/api/*`, optional WebSocket
 
 ## Struktur

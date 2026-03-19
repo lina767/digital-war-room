@@ -6,9 +6,6 @@
     "cloudflare": {
       "enabled": true
     },
-    "stripe": {
-      "enabled": true
-    },
     "grafana-assistant": {
       "enabled": true
     },

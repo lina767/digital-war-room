@@ -27,13 +27,13 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import USER_AGENT
+from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .utils import (
-    AgentMetadata,
     ScoreConfidence,
     SourceResult,
-    compute_confidence_from_sources,
+    build_agent_meta,
     parse_adsb_response,
     run_async,
     safe_float,
@@ -1040,54 +1040,34 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "sigint", sr)
-        confidence = compute_confidence_from_sources(source_results) if source_results else score_confidence
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = (
-            "live"
-            if ok_count >= len(source_results) * 0.8
-            else "recent"
-            if ok_count >= len(source_results) * 0.5
-            else "stale"
-            if ok_count > 0
-            else "unavailable"
-        )
         error_summary = f"{len(sources_missing)} source(s) missing" if sources_missing else None
-        meta = AgentMetadata(
-            agent="sigint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=source_results,
-            confidence=confidence,
-            data_freshness=data_freshness,
-            fallback_used=False,
+        has_data = bool(aircraft or ships or reports or notams)
+        out["_meta"] = build_agent_meta(
+            "sigint",
+            fetched_at,
+            duration_ms,
+            source_results,
             error_summary=error_summary,
+            has_any_data=has_data,
         )
-        out["_meta"] = meta.model_dump(mode="json")
         return out
     except Exception as e:
         logger.exception("SIGINT: rule-based pipeline failed for conflict '%s': %s", conflict, e)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(
-            agent="sigint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=[],
-            confidence=ScoreConfidence(level="low", sources_ok=[], sources_missing=["pipeline"]),
-            data_freshness="unavailable",
+        fb = get_agent_fallback("sigint")
+        fb["conflict"] = conflict
+        fb["sigint_score"] = 30.0
+        fb["summary"] = "SIGINT error: pipeline failed."
+        fb["_meta"] = build_agent_meta(
+            "sigint",
+            fetched_at,
+            duration_ms,
+            [],
             fallback_used=True,
             error_summary=str(e),
+            has_any_data=False,
         )
-        return {
-            "conflict": conflict,
-            "aircraft": [],
-            "ships": [],
-            "conflict_reports": [],
-            "notams": [],
-            "sigint_score": 30.0,
-            "alerts": [],
-            "summary": "SIGINT error: pipeline failed.",
-            "_meta": meta.model_dump(mode="json"),
-        }
+        return fb
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────

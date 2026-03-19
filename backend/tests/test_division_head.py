@@ -4,6 +4,7 @@ Tests for DivisionHead base: score computation, anomaly detection, summary build
 
 import pytest
 
+import agents.division as division_module
 from agents.dag_scheduler import ResultStore
 from agents.division import DivisionAnomaly
 from agents.divisions.financial_division import FinancialDivision
@@ -105,6 +106,11 @@ class TestDivisionDAGNodes:
 
 
 class TestHaikuStrategy:
+    @pytest.fixture(autouse=True)
+    def _enable_division_haiku(self, monkeypatch):
+        """These tests validate trigger logic; force-enable the feature gate."""
+        monkeypatch.setattr(division_module, "USE_DIVISION_HAIKU", True)
+
     def test_no_haiku_on_normal_scores(self):
         div = FinancialDivision()
         anomalies = []

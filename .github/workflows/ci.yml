@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-lint:
+    name: Backend lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+
+      - name: Ruff check
+        run: ruff check backend/
+
+      - name: Ruff format (check only)
+        run: ruff format --check backend/
+
+  backend-tests:
+    name: Backend tests (pytest + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt', 'backend/requirements-dev.txt', 'backend/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+          pip install pytest-cov
+
+      - name: Run backend tests with coverage
+        run: pytest backend/tests/ --cov=backend --cov-report=xml
+
+  frontend-tests:
+    name: Frontend tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend tests
+        run: npm run test
+
+  type-check:
+    name: Type checks (TypeScript + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-mypy-${{ hashFiles('backend/requirements.txt', 'backend/requirements-dev.txt', 'backend/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-mypy-
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Python type check
+        run: mypy backend/ --follow-imports=skip --config-file backend/pyproject.toml

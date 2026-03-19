@@ -9,11 +9,11 @@ assessment. Preserves the API response format for backwards compatibility.
 import json
 import logging
 import os
-import re
 import time
 from typing import Any, Dict, List, Tuple
 
 from .agent_state_store import get_agent_state_store
+from .context import WAVE1_AGENTS, WAVE2_AGENTS, AgentContext, build_context_from_results
 from .dag_scheduler import DAGNode, DAGScheduler, ResultStore, ResultStoreManager
 from .division import DivisionHead, DivisionResult
 from .divisions import (
@@ -36,6 +36,8 @@ CEO_WEIGHTS = {
     "political": 0.14,
     "technical": 0.16,
 }
+
+_MAX_PAYLOAD_CHARS = 250_000
 
 
 def _all_divisions() -> List[DivisionHead]:
@@ -83,6 +85,19 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
         all_nodes.extend(div_nodes)
         all_executors.update(div.get_executors())
 
+    # Context builder: runs after foundation agents; downstream agents use it for collaboration
+    all_nodes.append(
+        DAGNode(
+            id="agent_context",
+            dependencies=list(WAVE1_AGENTS),
+            node_type="enrichment",
+            timeout_s=5.0,
+        )
+    )
+    for node in all_nodes:
+        if node.id in WAVE2_AGENTS:
+            node.dependencies = list(node.dependencies) + ["agent_context"]
+
     # Summary node dependencies
     summary_ids = [f"{d.name}_summary" for d in divisions]
 
@@ -100,7 +115,7 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
 
 
 def _build_agent_executors(conflict: str, registry: AgentRegistry) -> Dict[str, Any]:
-    """Build executor callables for all Tier 1 agent nodes."""
+    """Build executor callables for all Tier 1 agent nodes. WAVE2 agents receive shared context."""
     executors = {}
     for desc in registry.all_agents():
         entry_func = registry.get_entry_func(desc.name)
@@ -108,7 +123,29 @@ def _build_agent_executors(conflict: str, registry: AgentRegistry) -> Dict[str, 
             continue
         agent_name = desc.name
         fn = entry_func
-        executors[agent_name] = lambda store, _fn=fn, _c=conflict: _fn(_c)
+        if agent_name in WAVE2_AGENTS:
+
+            def _make_context_aware_executor(_fn=fn, _c=conflict):
+                def executor(store):
+                    ctx = store.get("agent_context")
+                    if ctx is not None:
+                        if isinstance(ctx, dict):
+                            ctx = AgentContext.model_validate(ctx)
+                        try:
+                            return _fn(_c, ctx)
+                        except TypeError:
+                            return _fn(_c)
+                    return _fn(_c)
+
+                return executor
+
+            executors[agent_name] = _make_context_aware_executor()
+        else:
+
+            def _make_executor(_fn=fn, _c=conflict):
+                return lambda store: _fn(_c)
+
+            executors[agent_name] = _make_executor()
     return executors
 
 
@@ -125,6 +162,17 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning("ACLED reference fetch failed: %s", e)
             return []
+
+    def exec_agent_context(store):
+        """Build shared context from foundation agents for WAVE2 (context-aware) agents."""
+        try:
+            wave1_raw = {k: store.get(k) for k in WAVE1_AGENTS}
+            wave1_dict = {k: _as_dict(v) for k, v in wave1_raw.items()}
+            ctx = build_context_from_results(wave1_dict)
+            return ctx.model_dump(mode="json")
+        except Exception as e:
+            logger.warning("Agent context build failed: %s", e)
+            return AgentContext().model_dump(mode="json")
 
     def exec_compliance(store):
         try:
@@ -160,6 +208,7 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
             return {"compliance": {}, "alerts": []}
 
     executors["acled_refs"] = exec_acled
+    executors["agent_context"] = exec_agent_context
     executors["compliance_build"] = exec_compliance
     return executors
 
@@ -212,40 +261,180 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     key_findings = []
     key_findings_context = []
     scenarios = []
-    summary = f"Composite {composite:.0f}/100."
+    summary = _build_rule_based_ceo_summary(conflict, composite, threat_level, division_results)
+
+    agent_results = {
+        name: _as_dict(store.get(name))
+        for name in [
+            "finint",
+            "sigint",
+            "news",
+            "geoint",
+            "socmint",
+            "techint",
+            "cyber",
+            "energy",
+            "protest",
+            "diplo",
+            "proximity",
+            "narrative",
+            "chokepoint",
+        ]
+    }
+    acled_refs = store.get("acled_refs") or []
 
     if use_rule_based:
         for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
             if dr.anomalies:
                 for a in dr.anomalies:
                     key_findings.append(f"[{name}] {a.description}")
+        synthesis_meta = {"mode": "rule_based", "reason": "disabled_by_env"}
     else:
+        synthesis_meta = {"mode": "rule_based", "reason": "llm_not_attempted"}
         try:
             from .llm import call_llm, get_model_name, require_api_key
+            from .utils import parse_llm_json
 
             require_api_key()
-            prompt = _build_ceo_prompt(conflict, division_results, composite, store)
-            model = get_model_name("supervisor_routine")
-            raw = call_llm(
-                system=_CEO_SYSTEM_PROMPT,
-                user_content=prompt,
-                model=model,
-                temperature=0.1,
-            )
-            if raw:
-                raw = raw.strip()
-                if "```" in raw:
-                    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
-                    if m:
-                        raw = m.group(1).strip()
-                parsed = json.loads(raw)
+            finint_result = agent_results.get("finint") or {}
+            sigint_result = agent_results.get("sigint") or {}
+            news_result = agent_results.get("news") or {}
+            geoint_result = agent_results.get("geoint") or {}
+            socmint_result = agent_results.get("socmint") or {}
+            techint_result = agent_results.get("techint") or {}
+            cyber_result = agent_results.get("cyber") or {}
+            energy_result = agent_results.get("energy") or {}
+            protest_result = agent_results.get("protest") or {}
+            diplo_result = agent_results.get("diplo") or {}
+            proximity_result = agent_results.get("proximity") or {}
+            narrative_result = agent_results.get("narrative") or {}
+            chokepoint_result = agent_results.get("chokepoint") or {}
+
+            finint_score = float(finint_result.get("escalation_score", 0.0))
+            sigint_score = float(sigint_result.get("sigint_score", 0.0))
+            news_score = float(news_result.get("news_score", 0.0))
+            geoint_score = float(geoint_result.get("geoint_score", 0.0))
+            socmint_score = float(socmint_result.get("socmint_score", 0.0))
+            techint_score = float(techint_result.get("techint_score", 0.0))
+            cyber_score = float(cyber_result.get("cyber_score", 0.0))
+            energy_score = float(energy_result.get("energy_score", 0.0))
+            protest_score = float(protest_result.get("protest_score", 0.0))
+            diplo_score = float(diplo_result.get("diplo_score", 0.0))
+            proximity_score = float(proximity_result.get("proximity_score", 0.0))
+            chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
+
+            agent_scores_list = [
+                finint_score,
+                sigint_score,
+                news_score,
+                geoint_score,
+                socmint_score,
+                techint_score,
+                cyber_score,
+                energy_score,
+                protest_score,
+                diplo_score,
+                proximity_score,
+                chokepoint_score,
+            ]
+
+            use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
+            complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
+
+            user_payload = {
+                "conflict": conflict,
+                "composite_score": composite,
+                "threat_level": threat_level,
+                "division_scores": {name: dr.score for name, dr in division_results.items()},
+                "acled_reference_analyses": [
+                    {"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:1000]}
+                    for r in acled_refs[:3]
+                    if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))
+                ],
+                "agent_scores": {
+                    "finint": finint_score,
+                    "sigint": sigint_score,
+                    "news": news_score,
+                    "geoint": geoint_score,
+                    "socmint": socmint_score,
+                    "techint": techint_score,
+                    "cyber": cyber_score,
+                    "energy": energy_score,
+                    "protest": protest_score,
+                    "diplo": diplo_score,
+                    "proximity": proximity_score,
+                    "chokepoint": chokepoint_score,
+                },
+                "finint": _compact_for_llm("finint", finint_result),
+                "sigint": _compact_for_llm("sigint", sigint_result),
+                "news": _compact_for_llm("news", news_result),
+                "geoint": _compact_for_llm("geoint", geoint_result),
+                "socmint": _compact_for_llm("socmint", socmint_result),
+                "techint": _compact_for_llm("techint", techint_result),
+                "cyber": _compact_for_llm("cyber", cyber_result),
+                "energy": _compact_for_llm("energy", energy_result),
+                "protest": _compact_for_llm("protest", protest_result),
+                "diplo": _compact_for_llm("diplo", diplo_result),
+                "proximity": _compact_for_llm("proximity", proximity_result),
+                "narrative": _compact_for_llm("narrative", narrative_result),
+                "chokepoint": _compact_for_llm("chokepoint", chokepoint_result),
+            }
+            user_json = json.dumps(user_payload, default=str)
+            if len(user_json) > _MAX_PAYLOAD_CHARS:
+                user_json = user_json[:_MAX_PAYLOAD_CHARS]
+
+            tried_models: List[str] = []
+            parse_error: str | None = None
+            model_candidates = []
+            if complex_case:
+                model_candidates.append(get_model_name("supervisor_fallback"))
+                model_candidates.append(get_model_name("supervisor_routine"))
+            else:
+                model_candidates.append(get_model_name("supervisor_routine"))
+                model_candidates.append(get_model_name("supervisor_fallback"))
+
+            for model in model_candidates:
+                if not model or model in tried_models:
+                    continue
+                tried_models.append(model)
+                raw = None
+                llm_error: Exception | None = None
+                for _ in range(3):
+                    try:
+                        raw = call_llm(
+                            system=_CEO_SYSTEM_PROMPT,
+                            user_content=user_json,
+                            model=model,
+                            temperature=0.1,
+                        )
+                        llm_error = None
+                        break
+                    except Exception as e:  # pragma: no cover - retry path is integration/runtime dependent
+                        llm_error = e
+                if llm_error is not None:
+                    parse_error = f"llm_error:{type(llm_error).__name__}:{model}"
+                    continue
+                parsed = parse_llm_json(raw) if raw else None
+                if not isinstance(parsed, dict):
+                    parse_error = f"invalid_json_from_model:{model}"
+                    continue
+
                 key_findings = list(parsed.get("key_findings") or [])
                 key_findings_context = list(parsed.get("key_findings_context") or [])
                 scenarios = list(parsed.get("scenarios") or [])
                 summary = str(parsed.get("summary", summary))
                 if parsed.get("threat_level"):
-                    threat_level = parsed["threat_level"]
+                    threat_level = str(parsed["threat_level"])
+                synthesis_meta = {"mode": "llm", "model": model, "tried_models": tried_models}
+                break
+            else:
+                synthesis_meta = {
+                    "mode": "rule_based",
+                    "reason": parse_error or "empty_llm_response",
+                    "tried_models": tried_models,
+                }
         except Exception as e:
+            synthesis_meta = {"mode": "rule_based", "reason": f"llm_error:{type(e).__name__}"}
             logger.warning("CEO LLM synthesis failed: %s — using rule-based fallback", e)
 
     # Append agent findings
@@ -257,6 +446,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         key_findings = append_agent_findings(key_findings, all_agent_results, conflict, chokepoint_score)
     except Exception:
         pass
+
+    if len(key_findings_context) > len(key_findings):
+        key_findings_context = key_findings_context[: len(key_findings)]
 
     # Actors
     try:
@@ -293,6 +485,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "predictive": predictive,
         "compliance": compliance,
         "alerts": alerts,
+        "synthesis_meta": synthesis_meta,
     }
 
     # Include per-agent raw results for API compatibility
@@ -318,6 +511,135 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     response["divisions"] = {name: dr.model_dump(mode="json") for name, dr in division_results.items()}
 
     return response
+
+
+def _build_rule_based_ceo_summary(
+    conflict: str,
+    composite: float,
+    threat_level: str,
+    division_results: Dict[str, DivisionResult],
+) -> str:
+    """
+    Build a deterministic 2-3 sentence CEO recap when LLM synthesis is unavailable.
+    """
+    ordered = sorted(division_results.items(), key=lambda x: -x[1].score)
+    top_name, top_result = ordered[0] if ordered else ("overall", None)
+    second_name, second_result = ordered[1] if len(ordered) > 1 else (None, None)
+
+    sentence_1 = (
+        f"{conflict}: overall escalation is {composite:.0f}/100 ({threat_level}), "
+        f"driven primarily by {top_name} signals."
+    )
+
+    sentence_2 = ""
+    if second_name and second_result is not None:
+        sentence_2 = (
+            f"Secondary pressure comes from {second_name} indicators "
+            f"(score {second_result.score:.0f}) while {top_name} remains elevated "
+            f"(score {top_result.score:.0f})."
+        )
+    elif top_result is not None:
+        sentence_2 = f"{top_name.title()} indicators are currently the dominant risk driver."
+
+    anomaly_notes: List[str] = []
+    for name, dr in ordered:
+        if not dr.anomalies:
+            continue
+        # Keep only the first anomaly per division to avoid noisy recaps.
+        first = dr.anomalies[0]
+        anomaly_notes.append(f"{name}: {first.description}")
+        if len(anomaly_notes) >= 2:
+            break
+
+    if anomaly_notes:
+        sentence_3 = f"Watch items: {'; '.join(anomaly_notes)}."
+        return f"{sentence_1} {sentence_2} {sentence_3}".strip()
+
+    return f"{sentence_1} {sentence_2}".strip()
+
+
+def _agents_seem_contradictory(scores: List[float]) -> bool:
+    if len(scores) < 2:
+        return False
+    threshold = float(os.getenv("SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD", "50"))
+    return (max(scores) - min(scores)) >= threshold
+
+
+def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """Compact agent result payload for supervisor-style synthesis prompt."""
+    if agent_name == "narrative":
+        return {
+            "synthesis_text": (result.get("synthesis_text") or "")[:800],
+            "synthesis_probability": result.get("synthesis_probability", 0.0),
+            "signal_assessment": result.get("signal_assessment") or {},
+            "source_comparison_table": (result.get("source_comparison_table") or [])[:3],
+            "anomalies": (result.get("anomalies") or [])[:5],
+            "state_item_count": result.get("state_item_count", 0),
+            "exile_item_count": result.get("exile_item_count", 0),
+        }
+    score_keys = [k for k in result if k.endswith("_score") or k == "escalation_score"]
+    out: Dict[str, Any] = {k: result[k] for k in score_keys if k in result}
+    if "summary" in result:
+        s = result["summary"]
+        out["summary"] = s[:600] if isinstance(s, str) else str(s)[:600]
+    for key in (
+        "articles",
+        "top_signals",
+        "conflict_reports",
+        "threat_reports",
+        "protest_articles",
+        "un_icj_news",
+        "evidence",
+        "hotspots",
+        "tech_indicators",
+        "export_controls",
+        "ioda_events",
+        "protest_events",
+        "commodities",
+        "otx_pulses",
+    ):
+        items = result.get(key)
+        if isinstance(items, list) and items:
+            compact = []
+            for item in items[:3]:
+                if isinstance(item, dict):
+                    compact.append(
+                        {
+                            k: (str(v)[:120] if isinstance(v, str) and len(v) > 120 else v)
+                            for k, v in list(item.items())[:6]
+                        }
+                    )
+                elif isinstance(item, str):
+                    compact.append(item[:150])
+                else:
+                    compact.append(item)
+            out[key] = compact
+    for key in ("aircraft", "ships"):
+        items = result.get(key)
+        if isinstance(items, list):
+            out[f"{key}_count"] = len([i for i in items if isinstance(i, dict) and "error" not in i])
+    for key in (
+        "brent",
+        "polymarket",
+        "cisa_kev",
+        "ofac_sdn",
+        "eu_sanctions",
+        "agsi_storage",
+        "greynoise_scan_context",
+        "food_commodities",
+        "fao_fpi",
+        "fertilizer",
+        "food_security_risk",
+    ):
+        val = result.get(key)
+        if val is not None:
+            s = json.dumps(val, default=str)
+            if len(s) < 500:
+                out[key] = val
+    if agent_name == "chokepoint":
+        out["chokepoints"] = (result.get("chokepoints") or [])[:5]
+        out["chokepoint_score"] = result.get("chokepoint_score", 0.0)
+    return out
 
 
 def _build_ceo_prompt(
@@ -360,24 +682,32 @@ def _build_ceo_prompt(
     return "\n".join(parts)
 
 
-_CEO_SYSTEM_PROMPT = """You are the Chief Intelligence Officer (CEO) for a geopolitical monitoring system.
-You receive structured summaries from 5 intelligence divisions: Military, Financial, Information, Political, Technical.
-Each division has already analyzed and scored their domain. Your task is to synthesize across domains.
+_CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to 10 intelligence streams:
+- FININT: Financial markets and oil price indicators
+- SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)
+- NEWS: Open-source media sentiment analysis
+- GEOINT: Satellite thermal anomaly detection
+- SOCMINT: Social media signals from Telegram, Reddit, and RSS
+- TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
+- CYBER: CISA KEV, threat intel reports, OTX pulses (APT/exploit indicators)
+- ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI), food commodities (Wheat, Corn, Soy), FAO Food Price Index, fertilizer prices (Urea, DAP), food security risk
+- PROTEST: ACLED protests/riots, GDELT protest coverage (civil society unrest)
+- DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
+- PROXIMITY: Strike-civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
+- CHOKEPOINT: Maritime chokepoint monitoring (Strait of Hormuz, Bab el-Mandeb, Suez Canal) - tanker density, oil flow estimates, disruption risk scoring, data quality transparency
 
-Focus on:
-- Cross-domain correlations (e.g., military buildup + energy price spike + media escalation)
-- Anomalies flagged by divisions
-- Changes since last cycle (deltas)
-- Concrete, actionable findings
+When the payload includes "narrative", this is the Signal Framework: state vs exile/independent media comparison. Use synthesis_text, synthesis_probability, and source_comparison_table to inform key_findings and summary when relevant.
 
-Return ONLY valid JSON:
+When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary as substantive context.
+
+Analyze all streams holistically and return ONLY valid JSON with no markdown:
 {
-  "escalation_score": <0-100>,
+  "escalation_score": <number 0-100>,
   "threat_level": <"MINIMAL"|"LOW"|"ELEVATED"|"HIGH"|"CRITICAL">,
-  "key_findings": [<array of concise findings>],
-  "key_findings_context": [<array of 2-3 sentence context per finding>],
+  "key_findings": [<array of concise finding strings>],
+  "key_findings_context": [<optional: array of 2-3 sentence "why this matters" per finding, same order as key_findings>],
   "scenarios": [{"description": <string>, "probability": <0-1>}],
-  "summary": "<2-3 sentence BLUF>"
+  "summary": "<2-3 sentence BLUF summary>"
 }"""
 
 
@@ -391,6 +721,13 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
 
     Returns the same response format as the original supervisor.analyze_conflict().
     """
+    try:
+        from services.source_fetch import clear_run_cache
+
+        clear_run_cache()
+    except ImportError:
+        pass
+
     registry = get_agent_registry()
     divisions = _all_divisions()
 
@@ -436,6 +773,13 @@ def analyze_conflict_dag_streaming(conflict: str):
     Yields (node_id, result) for streamable nodes only.
     Final event is ("ceo_synthesis", full_result).
     """
+    try:
+        from services.source_fetch import clear_run_cache
+
+        clear_run_cache()
+    except ImportError:
+        pass
+
     registry = get_agent_registry()
     divisions = _all_divisions()
 

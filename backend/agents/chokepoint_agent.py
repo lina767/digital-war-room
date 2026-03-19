@@ -21,15 +21,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 from .airstream_client import collect_tankers_by_chokepoint
+from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    compute_confidence_from_sources,
-    run_async,
-    safe_float,
-    utc_now_iso,
-)
+from .utils import SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -885,44 +879,30 @@ def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "chokepoint", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = (
-            "live" if live_ais_count > 0 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+        has_data = bool(cps or (out.get("gdelt_disruption") or {}))
+        out["_meta"] = build_agent_meta(
+            "chokepoint",
+            fetched_at,
+            duration_ms,
+            source_results,
+            has_any_data=has_data,
         )
-        meta = AgentMetadata(
-            agent="chokepoint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=source_results,
-            confidence=confidence,
-            data_freshness=data_freshness,
-            fallback_used=False,
-            error_summary=None,
-        )
-        out["_meta"] = meta.model_dump(mode="json")
         return out
     except Exception as e:
         logger.exception("CHOKEPOINT agent error: %s", e)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(
-            agent="chokepoint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=[],
-            confidence=compute_confidence_from_sources([]),
-            data_freshness="unavailable",
+        fb = get_agent_fallback("chokepoint")
+        fb["summary"] = f"CHOKEPOINT error: {e}"
+        fb["_meta"] = build_agent_meta(
+            "chokepoint",
+            fetched_at,
+            duration_ms,
+            [],
             fallback_used=True,
             error_summary=str(e),
+            has_any_data=False,
         )
-        return {
-            "chokepoints": [],
-            "chokepoint_score": 0.0,
-            "summary": f"CHOKEPOINT error: {e}",
-            "gdelt_disruption": {},
-            "external_status": {},
-            "_meta": meta.model_dump(mode="json"),
-        }
+        return fb
 
 
 def enrich_chokepoints(

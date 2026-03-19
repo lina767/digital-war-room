@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: dwr-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dwr
+      POSTGRES_USER: dwr
+      POSTGRES_PASSWORD: dwr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dwr -d dwr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dwr-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://dwr:dwr@db:5432/dwr
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: node:20-alpine
+    container_name: dwr-frontend
+    restart: unless-stopped
+    working_dir: /workspace
+    command: sh -c "npm ci && npm run dev -- --host 0.0.0.0 --port 8080"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/workspace
+      - /workspace/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

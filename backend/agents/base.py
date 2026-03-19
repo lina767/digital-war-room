@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .utils import AgentMetadata, SourceResult, utc_now_iso
 
@@ -32,6 +32,8 @@ _AGENT_EXEC_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-s
 
 class BaseAgentResult(BaseModel):
     """Common base fields shared by every agent result contract."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", validate_assignment=True)
 
     schema_version: int = 1
     conflict: str = ""

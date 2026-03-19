@@ -17,13 +17,7 @@ from agents.otel_callbacks import traced
 from services.http_client import get_http_client
 
 from .health_registry import get_health_registry
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    compute_confidence_from_sources,
-    run_async,
-    utc_now_iso,
-)
+from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -820,41 +814,31 @@ def run_cyber_agent(conflict: str) -> Dict[str, Any]:
                 for sr in source_results:
                     reg.record_result(sr.name, "cyber", sr)
             duration_ms = int((time.perf_counter() - start) * 1000)
-            confidence = compute_confidence_from_sources(source_results)
-            ok_count = sum(1 for s in source_results if s.status == "ok")
-            data_freshness = (
-                "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
+            has_data = bool(result.cisa_kev.sample or result.threat_reports or result.otx_pulses)
+            out["_meta"] = build_agent_meta(
+                "cyber",
+                fetched_at,
+                duration_ms,
+                source_results,
+                has_any_data=has_data,
             )
-            meta = AgentMetadata(
-                agent="cyber",
-                fetched_at=fetched_at,
-                duration_ms=duration_ms,
-                sources=source_results,
-                confidence=confidence,
-                data_freshness=data_freshness,
-                fallback_used=False,
-                error_summary=None,
-            )
-            out["_meta"] = meta.model_dump(mode="json")
             return out
         except Exception as e:
             logger.exception("CYBER agent run failed")
             duration_ms = int((time.perf_counter() - start) * 1000)
-            meta = AgentMetadata(
-                agent="cyber",
-                fetched_at=fetched_at,
-                duration_ms=duration_ms,
-                sources=[],
-                confidence=compute_confidence_from_sources([]),
-                data_freshness="unavailable",
-                fallback_used=True,
-                error_summary=str(e),
-            )
             fallback = CyberAgentResult(
                 cyber_score=25.0,
                 cisa_kev=CisaKevResult(total=0, sample=[], error=str(e)),
                 summary=f"CYBER error: {e}",
             )
             out = fallback.model_dump(mode="json")
-            out["_meta"] = meta.model_dump(mode="json")
+            out["_meta"] = build_agent_meta(
+                "cyber",
+                fetched_at,
+                duration_ms,
+                [],
+                fallback_used=True,
+                error_summary=str(e),
+                has_any_data=False,
+            )
             return out

@@ -31,3 +31,13 @@ def mock_energy_result():
         food_security_risk=35.0,
         summary="Brent +1.2%, wheat stable.",
     )
+
+
+@pytest.fixture
+def mock_api_payload():
+    """Shared mock API payload for unit/integration tests."""
+    return {
+        "status": "ok",
+        "source": "mock",
+        "items": [{"id": "evt-1", "title": "Synthetic event"}],
+    }

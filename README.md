@@ -84,9 +84,7 @@ Digital War Room is a real-time geopolitical intelligence platform that deploys 
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui |
 | **Backend** | Python 3.12, FastAPI, Pydantic |
 | **AI Orchestration** | Claude Sonnet (single supervisor), rule-based agent routing |
-| **Database & Auth** | Supabase (PostgreSQL + Auth) |
 | **Hosting** | Vercel (frontend), Railway (backend) |
-| **Payments** | Stripe |
 | **Analytics** | Vercel Analytics |
 
 ---
@@ -103,7 +101,6 @@ DWR originally ran on a full LangGraph multi-agent graph. We migrated to a **hyb
 
 - Node.js 18+
 - Python 3.12+
-- Supabase account
 
 ### Frontend
 
@@ -120,6 +117,8 @@ npm run dev
 ```bash
 cd backend
 pip install -r requirements.txt
+# optional, for lint/tests/type checks
+pip install -r requirements-dev.txt
 uvicorn main:app --reload
 ```
 
@@ -128,10 +127,67 @@ uvicorn main:app --reload
 Create a `.env` file in the project root:
 
 ```env
-VITE_SUPABASE_URL=your_supabase_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 VITE_API_URL=your_backend_url
 ```
+
+---
+
+## 🔌 API Quick Reference
+
+Backend base URL: `http://localhost:8000`
+
+| Endpoint | Method | Purpose |
+|---------|--------|---------|
+| `/health` | GET | Liveness probe |
+| `/api/analyze/status?conflict=Iran` | GET | Cache/error status for a conflict |
+| `/api/analyze/latest?conflict=Iran` | GET | Latest cached analysis |
+| `/api/analyze/refresh?conflict=Iran` | GET | Trigger background refresh |
+| `/api/analyze/stream?conflict=Iran` | GET (SSE) | Stream per-agent + supervisor events |
+| `/api/agents/status` | GET | Last per-agent status snapshot |
+| `/api/agents/history` | GET | Recent run history |
+
+OpenAPI docs are available at `http://localhost:8000/docs` in local development.
+
+### Backend request flow
+
+```mermaid
+flowchart LR
+    A[Client] --> B[/FastAPI Routes/]
+    B --> C[Supervisor]
+    C --> D[Specialized Agents]
+    D --> E[(StateService Cache)]
+    E --> B
+```
+
+---
+
+## ✅ Code Quality & Testing
+
+Backend test layout:
+
+```text
+backend/tests/
+├── test_agents/        # Unit tests for agent contracts and behavior
+├── test_integration/   # Cross-module and orchestration contract tests
+├── test_api/           # FastAPI endpoint tests
+└── conftest.py         # Shared fixtures and mock payloads
+```
+
+Run backend quality checks:
+
+```bash
+cd backend
+pytest
+mypy .
+ruff check .
+```
+
+Coverage is enforced with `pytest-cov` and a minimum threshold of **60%**.
+
+Pre-commit hooks (`.pre-commit-config.yaml`) run:
+- `ruff` (backend)
+- `mypy` (backend)
+- `prettier --check` (frontend/repo)
 
 ---
 

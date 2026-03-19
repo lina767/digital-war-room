@@ -167,16 +167,21 @@ def build_agent_meta(
     fallback_used: bool = False,
     error_summary: Optional[str] = None,
     has_any_data: bool = True,
+    confidence: Optional[ScoreConfidence] = None,
 ) -> Dict[str, Any]:
-    """Build the _meta dict for an agent result (confidence + data_freshness from source_results)."""
-    confidence = compute_confidence_from_sources(source_results)
+    """Build the _meta dict for an agent result (confidence + data_freshness from source_results).
+
+    If *confidence* is set (e.g. FININT merges SourceResult health with per-key API status),
+    it is used instead of compute_confidence_from_sources(source_results).
+    """
+    confidence_used = confidence if confidence is not None else compute_confidence_from_sources(source_results)
     data_freshness = data_freshness_from_sources(source_results, has_any_data=has_any_data)
     meta = AgentMetadata(
         agent=agent,
         fetched_at=fetched_at,
         duration_ms=duration_ms,
         sources=source_results,
-        confidence=confidence,
+        confidence=confidence_used,
         data_freshness=data_freshness,
         fallback_used=fallback_used,
         error_summary=error_summary,

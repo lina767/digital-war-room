@@ -24,14 +24,7 @@ from services.acled_auth import get_acled_token_async, has_acled_oauth
 from .config import RELIEFWEB_APPNAME
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    compute_confidence_from_sources,
-    run_async,
-    safe_float,
-    utc_now_iso,
-)
+from .utils import SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1323,16 +1316,6 @@ def _compute_geoint_score(anomalies: List[Dict[str, Any]]) -> Tuple[float, int, 
 
 def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, Any]:
     fetched_at = utc_now_iso()
-    meta = AgentMetadata(
-        agent="geoint",
-        fetched_at=fetched_at,
-        duration_ms=0,
-        sources=[],
-        confidence=compute_confidence_from_sources([]),
-        data_freshness="unavailable",
-        fallback_used=True,
-        error_summary=error_summary or "No data",
-    )
     return {
         "conflict": conflict,
         "anomalies": [],
@@ -1346,7 +1329,15 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
         "eo_browser_links": {},
         "gdelt_geo_countries": [],
         "summary": "No thermal anomaly data available.",
-        "_meta": meta.model_dump(mode="json"),
+        "_meta": build_agent_meta(
+            "geoint",
+            fetched_at,
+            0,
+            [],
+            fallback_used=True,
+            error_summary=error_summary or "No data",
+            has_any_data=False,
+        ),
     }
 
 
@@ -1443,31 +1434,11 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "geoint", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = (
-            "live"
-            if ok_count >= 3
-            else "recent"
-            if ok_count >= 1
-            else "stale"
-            if (anomalies or reliefweb_reports)
-            else "unavailable"
-        )
         sources_missing = [s.name for s in source_results if s.status == "error"]
         error_summary = (
             f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
         )
-        meta = AgentMetadata(
-            agent="geoint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=source_results,
-            confidence=confidence,
-            data_freshness=data_freshness,
-            fallback_used=False,
-            error_summary=error_summary,
-        )
+        has_data = bool(anomalies or reliefweb_reports)
         handoff_note = ""
         if context and getattr(context, "focus_regions", None):
             n_focus = len(getattr(context, "focus_regions", []))
@@ -1485,7 +1456,14 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             "eo_browser_links": eo_links,
             "gdelt_geo_countries": gdelt_geo_countries,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included.{handoff_note} Score {score:.0f}.",
-            "_meta": meta.model_dump(mode="json"),
+            "_meta": build_agent_meta(
+                "geoint",
+                fetched_at,
+                duration_ms,
+                source_results,
+                error_summary=error_summary,
+                has_any_data=has_data,
+            ),
         }
     except Exception as e:
         logger.exception("GEOINT: rule-based pipeline failed for '%s': %s", conflict, e)

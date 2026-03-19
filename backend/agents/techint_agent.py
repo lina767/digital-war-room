@@ -915,7 +915,7 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
     import time
 
     from .health_registry import get_health_registry
-    from .utils import AgentMetadata, SourceResult, compute_confidence_from_sources, utc_now_iso
+    from .utils import SourceResult, build_agent_meta, utc_now_iso
 
     av_key = os.getenv("ALPHAVANTAGE_API_KEY")
     news_key = os.getenv("NEWS_API_KEY")
@@ -1027,41 +1027,22 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "techint", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = (
-            "live"
-            if ok_count >= 3
-            else "recent"
-            if ok_count >= 1
-            else "stale"
-            if out.get("techint_score", 0) > 0
-            else "unavailable"
+        has_data = bool(
+            out.get("tech_indicators")
+            or out.get("ioda_events")
+            or out.get("ioda_outages")
+            or out.get("export_controls")
         )
-        meta = AgentMetadata(
-            agent="techint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=source_results,
-            confidence=confidence,
-            data_freshness=data_freshness,
-            fallback_used=False,
-            error_summary=None,
+        out["_meta"] = build_agent_meta(
+            "techint",
+            fetched_at,
+            duration_ms,
+            source_results,
+            has_any_data=has_data,
         )
-        out["_meta"] = meta.model_dump(mode="json")
         return out
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(
-            agent="techint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=[],
-            confidence=compute_confidence_from_sources([]),
-            data_freshness="unavailable",
-            fallback_used=True,
-            error_summary=str(e),
-        )
         return {
             "tech_indicators": [],
             "export_controls": [{"error": str(e)}],
@@ -1078,5 +1059,13 @@ def run_techint_agent(conflict: str) -> Dict[str, Any]:
             "wigle": {},
             "techint_score": 30.0,
             "summary": f"TECHINT error: {e}",
-            "_meta": meta.model_dump(mode="json"),
+            "_meta": build_agent_meta(
+                "techint",
+                fetched_at,
+                duration_ms,
+                [],
+                fallback_used=True,
+                error_summary=str(e),
+                has_any_data=False,
+            ),
         }

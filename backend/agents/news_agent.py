@@ -24,16 +24,11 @@ import feedparser
 import httpx
 
 from .config import NEWS_MAX_PER_SOURCE, NEWS_TOP_K, USER_AGENT
+from .contracts import get_agent_fallback
 from .domain_runner import run_domain_with_analysts
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    compute_confidence_from_sources,
-    run_async,
-    utc_now_iso,
-)
+from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1049,22 +1044,17 @@ def _news_manager(
     if reg:
         for sr in source_results:
             reg.record_result(sr.name, "news", sr)
-    confidence = compute_confidence_from_sources(source_results)
-    ok_count = sum(1 for s in source_results if s.status == "ok")
-    data_freshness = "live" if ok_count >= 2 else "recent" if ok_count >= 1 else "stale" if articles else "unavailable"
-    error_summary = None
     sources_missing = [s.name for s in source_results if s.status == "error"]
-    if sources_missing:
-        error_summary = f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}"
-    meta = AgentMetadata(
-        agent="news",
-        fetched_at=fetched_at,
-        duration_ms=0,
-        sources=source_results,
-        confidence=confidence,
-        data_freshness=data_freshness,
-        fallback_used=False,
+    error_summary = (
+        f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
+    )
+    meta = build_agent_meta(
+        "news",
+        fetched_at,
+        0,
+        source_results,
         error_summary=error_summary,
+        has_any_data=bool(articles),
     )
     bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
     handoff_note = ""
@@ -1089,7 +1079,7 @@ def _news_manager(
         "escalation_headlines": escalation_meta.get("escalation_headlines", []),
         "escalation_score": esc_score,
         "entities": all_entities,
-        "_meta": meta.model_dump(mode="json"),
+        "_meta": meta,
     }
 
 
@@ -1117,34 +1107,39 @@ def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None
             analyst_timeout_s=35.0,
             max_workers=5,
         )
-        result["_meta"]["duration_ms"] = int((time.perf_counter() - start) * 1000)
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        meta_prev = result.get("_meta") or {}
+        sources_round = [SourceResult.model_validate(s) for s in meta_prev.get("sources", [])]
+        result["_meta"] = build_agent_meta(
+            "news",
+            meta_prev.get("fetched_at", fetched_at),
+            duration_ms,
+            sources_round,
+            error_summary=meta_prev.get("error_summary"),
+            has_any_data=bool(result.get("articles")),
+        )
         if not (result.get("articles") or []):
             logger.warning("NEWS: All %d source(s) returned 0 articles for conflict '%s'", len(analysts), conflict)
         return result
     except Exception as e:
         logger.exception("NEWS: domain pipeline failed for conflict '%s': %s", conflict, e)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(
-            agent="news",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=[],
-            confidence=compute_confidence_from_sources([]),
-            data_freshness="unavailable",
+        fb = get_agent_fallback("news")
+        fb["conflict"] = conflict
+        fb["news_score"] = 50.0
+        fb["summary"] = "NEWS data unavailable."
+        fb["sentiment_label"] = "NEUTRAL"
+        fb["source_breakdown"] = {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0}
+        fb["_meta"] = build_agent_meta(
+            "news",
+            fetched_at,
+            duration_ms,
+            [],
             fallback_used=True,
             error_summary=str(e),
+            has_any_data=False,
         )
-        return {
-            "conflict": conflict,
-            "articles": [],
-            "overall_sentiment": 0.0,
-            "sentiment_label": "NEUTRAL",
-            "top_sources": [],
-            "news_score": 50.0,
-            "summary": "NEWS data unavailable.",
-            "source_breakdown": {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0},
-            "_meta": meta.model_dump(mode="json"),
-        }
+        return fb
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────

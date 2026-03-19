@@ -1,14 +1,13 @@
 """
 DivisionHead – Base class for organizational groupings of agents.
 
-Division Heads own groups of DAG-Nodes and are responsible for:
-- Weighted score calculation across their agents
-- Anomaly detection
-- Rule-based summary (Haiku only on anomalies or periodic)
-- Division-Summary as a DAG-Node (Tier 4)
+Division summaries are pure functions of agent results: weighted score,
+anomaly detection, rule-based summary. No I/O, no LLM in the default path.
+Optional Haiku can be enabled via USE_DIVISION_HAIKU for division-level briefings.
 """
 
 import logging
+import os
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional
@@ -18,6 +17,9 @@ from pydantic import BaseModel, Field
 from .dag_scheduler import DAGNode, ResultStore
 
 logger = logging.getLogger(__name__)
+
+# When False (default), division summary is pure: scores + anomalies + rule-based text only.
+USE_DIVISION_HAIKU = os.getenv("USE_DIVISION_HAIKU", "").strip().lower() in ("1", "true", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +291,9 @@ class DivisionHead(ABC):
         return "\n".join(parts)
 
     def _should_trigger_haiku(self, anomalies: List[DivisionAnomaly]) -> bool:
-        """Decide whether to make a Haiku LLM call."""
+        """Decide whether to make a Haiku LLM call. Disabled by default (pure division summary)."""
+        if not USE_DIVISION_HAIKU:
+            return False
         has_high_severity = any(a.severity == "high" for a in anomalies)
         periodic = self.haiku_periodic_cycles > 0 and self._cycle_count % self.haiku_periodic_cycles == 0
         return has_high_severity or periodic

@@ -6,7 +6,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 
 [project.optional-dependencies]
-dev = ["ruff>=0.8.0"]
+dev = [
+    "ruff>=0.8.0",
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "mypy>=1.0.0",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -32,9 +37,23 @@ ignore = ["E501"]  # line length handled by formatter
 [tool.ruff.format]
 quote-style = "double"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --tb=short --cov=agents --cov=api --cov=models --cov-report=term-missing --cov-fail-under=60"
+filterwarnings = ["ignore::DeprecationWarning"]
+
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
-disallow_untyped_defs = false
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true
 ignore_missing_imports = true
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false

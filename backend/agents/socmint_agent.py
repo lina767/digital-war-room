@@ -20,15 +20,10 @@ import feedparser
 import httpx
 
 from .config import RELIEFWEB_APPNAME
+from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
 from .llm import run_tool_agent
-from .utils import (
-    AgentMetadata,
-    SourceResult,
-    compute_confidence_from_sources,
-    run_async,
-    utc_now_iso,
-)
+from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -945,21 +940,6 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "socmint", sr)
-        confidence = compute_confidence_from_sources(source_results)
-        ok_count = sum(1 for s in source_results if s.status == "ok")
-        data_freshness = (
-            "live" if ok_count >= 4 else "recent" if ok_count >= 2 else "stale" if ok_count >= 1 else "unavailable"
-        )
-        meta = AgentMetadata(
-            agent="socmint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=source_results,
-            confidence=confidence,
-            data_freshness=data_freshness,
-            fallback_used=False,
-            error_summary=None,
-        )
         return {
             "conflict": conflict,
             "telegram_posts": telegram,
@@ -975,36 +955,31 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             "top_signals": top_signals,
             "entities": entities,
             "summary": f"SOCMINT (rule-based): {len(all_posts)} signals ({escalatory} escalatory, {de_esc} de-escalatory). Score {score:.0f}.",
-            "_meta": meta.model_dump(mode="json"),
+            "_meta": build_agent_meta(
+                "socmint",
+                fetched_at,
+                duration_ms,
+                source_results,
+                has_any_data=bool(all_posts),
+            ),
         }
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)
-        meta = AgentMetadata(
-            agent="socmint",
-            fetched_at=fetched_at,
-            duration_ms=duration_ms,
-            sources=[],
-            confidence=compute_confidence_from_sources([]),
-            data_freshness="unavailable",
+        fb = get_agent_fallback("socmint")
+        fb["conflict"] = conflict
+        fb["socmint_score"] = 30.0
+        fb["summary"] = "SOCMINT data unavailable."
+        fb["overall_sentiment"] = 0.0
+        fb["_meta"] = build_agent_meta(
+            "socmint",
+            fetched_at,
+            duration_ms,
+            [],
             fallback_used=True,
             error_summary=str(e),
+            has_any_data=False,
         )
-    return {
-        "conflict": conflict,
-        "telegram_posts": [],
-        "twitter_posts": [],
-        "reddit_posts": [],
-        "rss_articles": [],
-        "reliefweb_reports": [],
-        "total_signals": 0,
-        "escalatory_count": 0,
-        "de_escalatory_count": 0,
-        "overall_sentiment": 0.0,
-        "socmint_score": 30.0,
-        "top_signals": [],
-        "summary": "SOCMINT data unavailable.",
-        "_meta": meta.model_dump(mode="json"),
-    }
+        return fb
 
 
 # ── Agent ──────────────────────────────────────────────────────────────────

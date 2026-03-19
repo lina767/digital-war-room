@@ -3,7 +3,7 @@
 --   psql $DATABASE_URL -f backend/migrations/001_pgvector_setup.sql
 --
 -- Prerequisites: PostgreSQL 15+ with pgvector extension available
--- (Railway Postgres and Supabase both include pgvector by default)
+-- (Railway Postgres includes pgvector by default)
 
 CREATE EXTENSION IF NOT EXISTS vector;
 

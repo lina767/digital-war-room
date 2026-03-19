@@ -24,6 +24,7 @@ from agents.config import CORS_ORIGINS, GREYNOISE_API_KEY, GREYNOISE_SCHEDULER_I
 from agents.otel_callbacks import init_otel
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
+from services.state_service import StateService
 
 # Konflikt, der periodisch automatisch analysiert wird (unabhängig von Aufrufen)
 from agents.config import DEFAULT_CONFLICT
@@ -58,11 +59,13 @@ class ConnectionManager:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_otel()  # OpenTelemetry TracerProvider + OTLP exporter when OTEL_EXPORTER_OTLP_ENDPOINT set
-    app.state.analysis_cache = {}  # conflict -> {"result": {...}, "at": unix_ts}
-    app.state.analysis_last_error = {}  # conflict -> error message when background run failed
-    app.state.escalation_timeline_history = {}  # conflict -> [{"at": unix_ts, "escalation_score": float}, ...]
-    app.state.agent_status_last = {}  # agent_key -> rich status dict (or {"status": "ok"|"error"})
-    app.state.analysis_run_history = deque(maxlen=50)  # last N run summaries for /api/agents/history
+    app.state.state_service = StateService()
+    # Legacy in-memory fallback when routes don't use state_service (e.g. tests)
+    app.state.analysis_cache = {}
+    app.state.analysis_last_error = {}
+    app.state.escalation_timeline_history = {}
+    app.state.agent_status_last = {}
+    app.state.analysis_run_history = deque(maxlen=50)
     app.state.job_queue = JobQueue()
     app.state.ws_manager = ConnectionManager()
 
@@ -97,8 +100,13 @@ async def lifespan(app: FastAPI):
 
                 result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
                 at_ts = time.time()
-                app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": at_ts}
-                app.state.analysis_last_error.pop(AUTO_ANALYZE_CONFLICT, None)
+                state = getattr(app.state, "state_service", None)
+                if state:
+                    state.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts)
+                    state.pop_last_error(AUTO_ANALYZE_CONFLICT)
+                else:
+                    app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": at_ts}
+                    app.state.analysis_last_error.pop(AUTO_ANALYZE_CONFLICT, None)
                 push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
                 push_agent_status(app.state, result)
                 push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
@@ -214,8 +222,8 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
     logger.info("WS client connected – conflict: %s", conflict)
     try:
         # Sofort gecachtes Ergebnis senden (von Auto-Run oder letztem POST)
-        cache = getattr(app.state, "analysis_cache", {})
-        entry = cache.get(conflict)
+        state = getattr(app.state, "state_service", None)
+        entry = state.get_cache(conflict) if state else getattr(app.state, "analysis_cache", {}).get(conflict)
         if entry:
             result = {**entry["result"], "status": "ok"}
             await websocket.send_json(result)
@@ -224,8 +232,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
 
         while True:
             await asyncio.sleep(60)
-            cache = getattr(app.state, "analysis_cache", {})
-            entry = cache.get(conflict)
+            entry = state.get_cache(conflict) if state else getattr(app.state, "analysis_cache", {}).get(conflict)
             if entry:
                 result = {**entry["result"], "status": "ok"}
                 await websocket.send_json(result)
