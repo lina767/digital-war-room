@@ -28,6 +28,11 @@ def _api_key() -> str:
     return (os.getenv("RESEND_API_KEY") or "").strip()
 
 
+def _audience_id() -> str:
+    """Audience ID is required for all contact operations."""
+    return (os.getenv("RESEND_AUDIENCE_ID") or "").strip()
+
+
 def contacts_sync_enabled() -> bool:
     """Sync to Resend Contacts when API key is set and feature is not disabled."""
     if not _api_key():
@@ -80,14 +85,17 @@ async def mark_contact_unsubscribed(email: str, conflict: str | None = None) -> 
 
 async def _upsert_contact(email: str, conflict: str, unsubscribed: bool) -> bool:
     """
-    Upsert contact and attach configured segment(s).
-    Returns True if sync ran successfully or was skipped (no API key).
+    Upsert contact into the configured audience.
     """
     if not contacts_sync_enabled():
         return True
 
+    audience_id = _audience_id()
+    if not audience_id:
+        logger.warning("Resend contacts sync skipped: RESEND_AUDIENCE_ID not set")
+        return True
+
     e = (email or "").strip().lower()
-    c = (conflict or "Iran").strip() or "Iran"
     if not e:
         return True
 
@@ -97,55 +105,29 @@ async def _upsert_contact(email: str, conflict: str, unsubscribed: bool) -> bool
     body: dict[str, Any] = {
         "email": e,
         "unsubscribed": unsubscribed,
-        "properties": {"conflict": c},
+        "first_name": conflict,  # Stores conflict as first_name.
     }
-    segment_ids = _newsletter_segment_ids()
-    if segment_ids:
-        body["segments"] = [{"id": sid} for sid in segment_ids]
 
     client = get_http_client()
-    path_suffix = _contact_path_suffix(e)
 
     try:
+        # Correct endpoint: /audiences/{audience_id}/contacts
         resp = await client.request(
             "POST",
-            f"{RESEND_API_BASE}/contacts",
+            f"{RESEND_API_BASE}/audiences/{audience_id}/contacts",
             headers=headers,
             json=body,
         )
-        if resp.status_code >= 200 and resp.status_code < 300:
-            logger.info("Resend contact upserted for %s (unsubscribed=%s)", e, unsubscribed)
-            await _ensure_segments(client, headers, path_suffix, segment_ids)
+        if 200 <= resp.status_code < 300:
+            logger.info("Resend contact created for %s", e)
             return True
 
-        # Treat duplicate as upsert via PATCH + segment adds
         if resp.status_code in (400, 409, 422):
-            logger.info(
-                "Resend contact create returned %s for %s; attempting PATCH upsert. body=%s",
-                resp.status_code,
-                e,
-                resp.text[:500],
-            )
-            patch_resp = await client.request(
-                "PATCH",
-                f"{RESEND_API_BASE}/contacts/{path_suffix}",
-                headers=headers,
-                json={
-                    "unsubscribed": unsubscribed,
-                    "properties": {"conflict": c},
-                },
-            )
-            if patch_resp.status_code < 200 or patch_resp.status_code >= 300:
-                logger.warning(
-                    "Resend contact PATCH failed status=%s body=%s",
-                    patch_resp.status_code,
-                    patch_resp.text,
-                )
-                return False
-            await _ensure_segments(client, headers, path_suffix, segment_ids)
+            # Contact already exists - treat as success.
+            logger.info("Resend contact exists for %s: %s", e, resp.text[:200])
             return True
 
-        logger.warning("Resend contact create failed status=%s body=%s", resp.status_code, resp.text)
+        logger.warning("Resend contact failed status=%s body=%s", resp.status_code, resp.text)
         return False
     except Exception as exc:
         logger.exception("Resend contact upsert failed: %s", exc)
