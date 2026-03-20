@@ -26,6 +26,7 @@ export function LiveTicker({ conflictData }: LiveTickerProps) {
     .map((a) => `● ${a.title || ""}`)
     .filter(Boolean);
   const tickerItems = fromData.length > 0 ? (fromData as string[]) : FALLBACK_ITEMS;
+  const articleCount = conflictData?.news?.articles?.length ?? 0;
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -51,7 +52,7 @@ export function LiveTicker({ conflictData }: LiveTickerProps) {
     };
     animId = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animId);
-  }, [conflictData?.news?.articles?.length ?? 0, prefersReducedMotion]);
+  }, [articleCount, prefersReducedMotion]);
 
   const content = tickerItems.join("     ");
 
