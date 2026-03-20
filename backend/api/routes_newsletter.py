@@ -66,13 +66,8 @@ async def newsletter_subscribe(request: Request, body: SubscribeBody) -> JSONRes
         )
     pending_synced = await upsert_pending_contact(email, conflict)
     if not pending_synced:
-        remove_unconfirmed_subscriber(email, confirm_token)
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": "Could not prepare confirmation contact right now. Please try again in a moment.",
-            },
-        )
+        # Best-effort: don't block confirmation email flow if Resend Contacts sync fails.
+        pass
     sent = await send_confirmation_email(email, conflict, confirm_token)
     if not sent:
         # Avoid trapping users in a pending state when email delivery fails.
@@ -192,3 +187,42 @@ async def newsletter_send_daily(
         status_code=200,
         content={"message": "Daily run complete.", "conflicts": conflicts, "sent": sent_total},
     )
+
+
+@router.get("/newsletter/test-resend")
+async def test_resend(request: Request) -> JSONResponse:
+    """Temporärer Debug-Endpoint – nach Test wieder entfernen!"""
+    from services.http_client import get_http_client
+
+    key = os.getenv("RESEND_API_KEY", "")[:10] + "..."  # Nur Anfang zeigen
+    from_addr = os.getenv("NEWSLETTER_FROM", "NOT SET")
+
+    # Teste HTTP-Client
+    client = get_http_client()
+    try:
+        resp = await client.request(
+            "POST",
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {os.getenv('RESEND_API_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_addr,
+                "to": ["DEINE-EMAIL@example.com"],  # <- Ersetze mit deiner echten Email!
+                "subject": "DWR Resend Test",
+                "text": "Test from Digital War Room - if you see this, Resend works!",
+            },
+        )
+        return JSONResponse(
+            {
+                "status": resp.status_code,
+                "body": resp.text,
+                "config": {"key_preview": key, "from": from_addr},
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            {"error": str(e), "config": {"key_preview": key, "from": from_addr}},
+            status_code=500,
+        )
