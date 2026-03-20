@@ -78,6 +78,117 @@ const Documentation = () => {
       >
         <div className="space-y-10">
           <section className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-3">
+            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">Introduction</h2>
+            <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
+              Digital War Room is an AI-powered OSINT intelligence platform that fuses multi-domain signals into a single,
+              operationally useful conflict picture. It combines specialized agents, real-time ingestion, and structured
+              synthesis to help teams monitor escalation and act faster.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-3">
+            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">What you can do</h2>
+            <ul className="list-disc pl-5 space-y-1.5 text-sm sm:text-base text-muted-foreground">
+              <li>Track conflict escalation in near real time across geopolitical theaters.</li>
+              <li>Review fused outputs from intelligence domains such as GEOINT, SIGINT, SOCMINT, FININT, and CYBER.</li>
+              <li>Inspect operational signals, anomalies, and source-backed findings in a single dashboard workflow.</li>
+              <li>Use API endpoints for analysis, monitoring, compliance checks, document Q&amp;A, and exports.</li>
+              <li>Run daily intelligence briefings and newsletter workflows for recurring stakeholder updates.</li>
+              <li>Explore transparent source mappings, methodology, and deployment guidance for reproducible operations.</li>
+            </ul>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-3">
+            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">Quick links</h2>
+            <ul className="list-disc pl-5 space-y-1.5 text-sm sm:text-base text-muted-foreground">
+              <li>
+                <span className="font-semibold text-foreground">New here?</span>{" "}
+                Start with{" "}
+                <a
+                  href="https://github.com/lina767/digital-war-room#getting-started"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Getting Started
+                </a>{" "}
+                for installation and setup.
+              </li>
+              <li>
+                <span className="font-semibold text-foreground">Want to understand the system?</span>{" "}
+                Read{" "}
+                <a
+                  href={CANONICAL_DOC_LINKS.architecture}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Architecture
+                </a>{" "}
+                for how the pieces fit together.
+              </li>
+              <li>
+                <span className="font-semibold text-foreground">Looking for specific features?</span>{" "}
+                See{" "}
+                <Link to="/how-it-works" className="text-primary hover:underline">
+                  Features &amp; Interface
+                </Link>{" "}
+                for the full capability list.
+              </li>
+              <li>
+                <span className="font-semibold text-foreground">Interested in the data?</span>{" "}
+                Check{" "}
+                <Link to="/sources" className="text-primary hover:underline">
+                  Data Sources
+                </Link>{" "}
+                for collection methods and source coverage.
+              </li>
+              <li>
+                <span className="font-semibold text-foreground">Want to contribute?</span>{" "}
+                Read{" "}
+                <a
+                  href="https://github.com/lina767/digital-war-room/blob/main/CONTRIBUTING.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Contributing
+                </a>{" "}
+                for code style and PR process.
+              </li>
+              <li>
+                <span className="font-semibold text-foreground">Building on the API?</span>{" "}
+                Browse the{" "}
+                <a
+                  href={CANONICAL_DOC_LINKS.apiReference}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  API Reference
+                </a>{" "}
+                for implemented endpoints and payload guidance.
+              </li>
+            </ul>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-2">
+            <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">License</h2>
+            <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
+              Digital War Room is released under the{" "}
+              <a
+                href="https://github.com/lina767/digital-war-room/blob/main/LICENSE"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                MIT License
+              </a>
+              .
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card/40 p-5 sm:p-6 space-y-3">
             <h2 className="text-xl sm:text-2xl font-semibold tracking-tight">Built from your actual project setup</h2>
             <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
               This page is the curated entry point for Digital War Room documentation. It is aligned with the current codebase:

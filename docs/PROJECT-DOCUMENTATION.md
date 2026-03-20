@@ -22,6 +22,28 @@ Main user-facing capabilities:
 - daily briefing workflows (including newsletter sending)
 - transparency via source-oriented outputs and documentation pages
 
+### What you can do
+
+- Monitor escalation in near real time across active conflict theaters.
+- Review fused intelligence from GEOINT, SIGINT, SOCMINT, FININT, CYBER, and additional domain agents.
+- Track key findings, anomalies, and risk indicators in one operational dashboard.
+- Access backend APIs for analysis, monitoring, compliance workflows, document Q&A, and export use cases.
+- Run recurring briefing workflows, including daily intelligence summaries and newsletter delivery.
+- Audit source transparency via methodology and source-directory documentation.
+
+### Quick links
+
+- **Getting Started:** [README setup section](https://github.com/lina767/digital-war-room#getting-started)
+- **Architecture:** [docs/ARCHITECTURE.md](https://github.com/lina767/digital-war-room/blob/main/docs/ARCHITECTURE.md)
+- **Features & Interface:** [docs/how-it-works.md](https://github.com/lina767/digital-war-room/blob/main/docs/how-it-works.md)
+- **Data Sources:** [docs/source-directory.md](https://github.com/lina767/digital-war-room/blob/main/docs/source-directory.md)
+- **Contributing:** [CONTRIBUTING.md](https://github.com/lina767/digital-war-room/blob/main/CONTRIBUTING.md)
+- **API Reference:** [docs/API-REFERENCE.md](https://github.com/lina767/digital-war-room/blob/main/docs/API-REFERENCE.md)
+
+### License
+
+Digital War Room is released under the [MIT License](https://github.com/lina767/digital-war-room/blob/main/LICENSE).
+
 ---
 
 ## 2) Tech Stack
