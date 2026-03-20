@@ -1,6 +1,7 @@
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
 import { TITLE_METHODOLOGY, DESCRIPTION_METHODOLOGY } from "@/lib/seoCopy";
+import { CANONICAL_DOC_LINKS } from "@/lib/documentationSections";
 import {
   BarChart,
   Bar,
@@ -69,6 +70,19 @@ const Methodology = () => {
         maxWidth="5xl"
       >
       <div className="space-y-10 sm:space-y-12">
+        <section className="rounded-lg border border-border bg-card/40 p-4">
+          <p className="text-xs sm:text-[13px] text-muted-foreground">
+            Canonical markdown version:{" "}
+            <a
+              href={CANONICAL_DOC_LINKS.methodology}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              docs/methodology.md
+            </a>
+          </p>
+        </section>
         {/* Composite scoring */}
         <section className="space-y-4">
           <h2 className="text-lg sm:text-xl font-semibold tracking-tight">

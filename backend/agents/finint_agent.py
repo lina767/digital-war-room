@@ -78,29 +78,31 @@ TRACKED_POLYMARKET_SLUGS = [
     "israel-strikes-iran-by-march-31-2026",  # Israel–Iran strike timing (adjust slug if Polymarket changes)
 ]
 
-# Keywords for /events and /markets search: only geopolitics/conflict (avoids Oscars, Hungary PM, Warnock).
-POLYMARKET_KEYWORDS = [
-    "us forces",
-    "enter iran",
-    "strikes iran",
-    "military operations",
-    "military action",
-    "trump",
-    "iran",
-    "ceasefire",
-    "war powers",
-    "congress authorizes",
-    "visit china",
-    "trade with",
-    "cut off trade",
-    "tariff",
-    "sanctions",
-    "middle east",
-    "persian gulf",
-    "strait of hormuz",
-    "spain",
-    "military base",
-]
+# Prediction market filters (inclusive + explicit exclusions).
+POLYMARKET_INCLUSION_KEYWORDS = {
+    "conflicts": ["war", "military", "invasion", "ceasefire", "nato", "nuclear"],
+    "countries": ["russia", "china", "iran", "israel"],
+    "leaders": ["putin", "trump", "netanyahu"],
+    "economics": ["fed", "interest rate", "inflation", "recession", "tariffs", "sanctions"],
+    "global": ["un", "eu", "treaties", "summits", "coups"],
+}
+
+POLYMARKET_EXCLUSION_KEYWORDS = {
+    "sports": ["nba", "nfl", "fifa", "world cup", "championships", "playoffs"],
+    "entertainment": ["oscars", "movies", "celebrities", "tiktok", "streaming"],
+}
+
+POLYMARKET_INCLUDE_TERMS = tuple(
+    term.lower()
+    for terms in POLYMARKET_INCLUSION_KEYWORDS.values()
+    for term in terms
+)
+
+POLYMARKET_EXCLUDE_TERMS = tuple(
+    term.lower()
+    for terms in POLYMARKET_EXCLUSION_KEYWORDS.values()
+    for term in terms
+)
 
 # Metaculus API – Prognosemärkte (zweiter Markt neben Polymarket)
 METACULUS_API_BASE = "https://www.metaculus.com/api2/questions/"
@@ -277,6 +279,15 @@ def _extract_metaculus_prob(q: dict) -> float | None:
     if isinstance(prob, dict):
         return safe_float(prob.get("full") or prob.get("q2"))
     return safe_float(prob)
+
+
+def _matches_prediction_market_filters(text: str) -> bool:
+    lowered = (text or "").lower()
+    if not lowered:
+        return False
+    if any(excl in lowered for excl in POLYMARKET_EXCLUDE_TERMS):
+        return False
+    return any(incl in lowered for incl in POLYMARKET_INCLUDE_TERMS)
 
 
 def _format_pct(change: float | None) -> str:
@@ -506,7 +517,7 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
                 continue
             description = str(m.get("description") or "").lower()
             combined = f"{question.lower()} {description}"
-            if not any(kw in combined for kw in POLYMARKET_KEYWORDS):
+            if not _matches_prediction_market_filters(combined):
                 continue
             if question[:80] in tracked_questions:
                 continue
@@ -558,6 +569,8 @@ def get_metaculus_conflict_questions(conflict: str) -> List[Dict[str, Any]]:
                 continue
             title_lower = title.lower()
             if not any(kw in title_lower for kw in keywords):
+                continue
+            if not _matches_prediction_market_filters(title_lower):
                 continue
             prob = _extract_metaculus_prob(q)
             out.append(
@@ -979,7 +992,7 @@ async def _fetch_polymarket(client: Any, conflict: str) -> Dict[str, Any]:
                 if key in {r.get("question", "")[:60] for r in results}:
                     continue
                 combined = f"{(m.get('description') or '').lower()} {question.lower()}"
-                if not any(kw in combined for kw in POLYMARKET_KEYWORDS):
+                if not _matches_prediction_market_filters(combined):
                     continue
                 item = _normalize_polymarket_item(m)
                 if item and (item.get("probability") or 0) > 0:
@@ -1017,7 +1030,10 @@ async def _fetch_metaculus(client: Any, conflict: str) -> Dict[str, Any]:
         if not isinstance(q, dict):
             continue
         title = (q.get("title") or "").strip()
-        if not title or not any(kw in title.lower() for kw in keywords):
+        title_lower = title.lower()
+        if not title or not any(kw in title_lower for kw in keywords):
+            continue
+        if not _matches_prediction_market_filters(title_lower):
             continue
         prob = _extract_metaculus_prob(q)
         out.append(
@@ -1058,7 +1074,10 @@ async def _fetch_kalshi(client: Any, conflict: str) -> Dict[str, Any]:
         if not isinstance(ev, dict):
             continue
         title = (ev.get("title") or ev.get("event_ticker") or "").strip()
-        if not title or not any(kw in title.lower() for kw in keywords):
+        title_lower = title.lower()
+        if not title or not any(kw in title_lower for kw in keywords):
+            continue
+        if not _matches_prediction_market_filters(title_lower):
             continue
         # Kalshi yes_bid/yes_ask or last_price as probability proxy
         yes_bid = safe_float(ev.get("yes_bid"))

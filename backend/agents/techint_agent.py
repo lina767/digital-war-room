@@ -620,48 +620,118 @@ async def _fetch_tech_indicators(api_key: str) -> List[Dict[str, Any]]:
 async def _fetch_export_control_news(api_key: str, conflict: str) -> List[Dict[str, Any]]:
     """Search NewsAPI for export control / tech sanctions articles."""
     articles: List[Dict[str, Any]] = []
-    if api_key:
-        try:
-            from_date = datetime.now(timezone.utc) - timedelta(hours=72)
-            query = f"({EXPORT_CONTROL_QUERY})"
-            cl = (conflict or "").lower()
-            if "china" in cl or "iran" in cl or "russia" in cl:
-                query = f"{query} AND ({conflict})"
-            params = {
-                "q": query,
+    if not api_key:
+        return articles
+
+    def _extract_articles(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for art in data.get("articles", []):
+            title = (art.get("title") or "").strip()
+            if not title:
+                continue
+            source = (art.get("source") or {}).get("name") or ""
+            out.append(
+                {
+                    "title": title,
+                    "source": source,
+                    "url": art.get("url"),
+                    "published_at": art.get("publishedAt"),
+                    "description": (art.get("description") or "")[:200],
+                }
+            )
+        return out
+
+    cl = (conflict or "").lower()
+    conflict_filter = ""
+    if "china" in cl or "iran" in cl or "russia" in cl:
+        conflict_filter = f" AND ({conflict})"
+
+    # NewsAPI can easily return 0 for strict filtering.
+    # We progressively relax the query to avoid false "source broken" signals.
+    attempts = [
+        {
+            "name": "strict",
+            "params": {
+                "q": f"({EXPORT_CONTROL_QUERY}){conflict_filter}",
                 "language": "en",
                 "sortBy": "relevance",
-                "pageSize": 15,
-                "from": from_date.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "pageSize": 20,
+                "from": (datetime.now(timezone.utc) - timedelta(hours=72)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "domains": NEWS_DOMAINS,
                 "apiKey": api_key,
-            }
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(NEWS_API_URL, params=params)
+            },
+        },
+        {
+            "name": "no_domains",
+            "params": {
+                "q": f"({EXPORT_CONTROL_QUERY}){conflict_filter}",
+                "language": "en",
+                "sortBy": "publishedAt",
+                "pageSize": 20,
+                "from": (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "apiKey": api_key,
+            },
+        },
+        {
+            "name": "broad_topic",
+            "params": {
+                "q": EXPORT_CONTROL_QUERY,
+                "language": "en",
+                "sortBy": "publishedAt",
+                "pageSize": 20,
+                "from": (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "apiKey": api_key,
+            },
+        },
+    ]
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for attempt in attempts:
+                resp = await client.get(NEWS_API_URL, params=attempt["params"])
                 if resp.status_code == 429:
-                    logger.info("TECHINT: NewsAPI rate limited for export controls")
-                else:
-                    resp.raise_for_status()
-                    data = resp.json()
-                    if data.get("status") == "error" and "rateLimited" in (data.get("code") or ""):
-                        logger.info("TECHINT: NewsAPI rate limited for export controls")
+                    logger.info("TECHINT: NewsAPI rate limited for export controls (attempt=%s)", attempt["name"])
+                    continue
+                if resp.status_code != 200:
+                    logger.warning(
+                        "TECHINT: NewsAPI HTTP %s for export controls (attempt=%s)",
+                        resp.status_code,
+                        attempt["name"],
+                    )
+                    continue
+                data = resp.json()
+                if data.get("status") == "error":
+                    code = data.get("code") or "unknown"
+                    msg = data.get("message") or "unknown"
+                    if "rateLimited" in str(code):
+                        logger.info("TECHINT: NewsAPI rate limited for export controls (attempt=%s)", attempt["name"])
                     else:
-                        for art in data.get("articles", []):
-                            title = (art.get("title") or "").strip()
-                            if not title:
-                                continue
-                            source = (art.get("source") or {}).get("name") or ""
-                            articles.append(
-                                {
-                                    "title": title,
-                                    "source": source,
-                                    "url": art.get("url"),
-                                    "published_at": art.get("publishedAt"),
-                                    "description": (art.get("description") or "")[:200],
-                                }
-                            )
-        except Exception:
-            pass
+                        logger.warning(
+                            "TECHINT: NewsAPI error for export controls (attempt=%s, code=%s): %s",
+                            attempt["name"],
+                            code,
+                            msg,
+                        )
+                    continue
+
+                extracted = _extract_articles(data)
+                if extracted:
+                    articles = extracted
+                    break
+                logger.info("TECHINT: NewsAPI returned 0 export-control articles (attempt=%s)", attempt["name"])
+    except Exception as e:
+        logger.warning("TECHINT: export-control fetch failed: %s", e)
+
+    # Dedupe by URL/title and keep stable order.
+    deduped: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for a in articles:
+        key = (a.get("url") or "").strip() or (a.get("title") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(a)
+    articles = deduped[:20]
     return articles
 
 

@@ -4,6 +4,7 @@ Structured Pydantic output, per-source fetched_at, KEV cache (TTL), dateAdded tr
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -261,6 +262,23 @@ def _count_kev_added_in_days(vulns: List[Dict], days: int) -> int:
 
 async def _fetch_nvd_cvss(client: Any, cve_id: str, api_key: Optional[str]) -> Optional[Dict[str, Any]]:
     """Fetch NVD CVE and return cvssMetricV31/v2 score and severity."""
+
+    def _nvd_error_detail(resp: Any) -> str:
+        """Best-effort extraction of NVD error payload for observability."""
+        if resp is None:
+            return ""
+        try:
+            payload = resp.json()
+            if isinstance(payload, dict):
+                detail = payload.get("message") or payload.get("error") or payload.get("errors") or payload
+            else:
+                detail = payload
+            if isinstance(detail, (dict, list)):
+                return json.dumps(detail)[:240]
+            return str(detail)[:240]
+        except Exception:
+            return (getattr(resp, "text", "") or "")[:240]
+
     headers = {}
     if (api_key or "").strip():
         headers["apiKey"] = api_key.strip()
@@ -275,6 +293,7 @@ async def _fetch_nvd_cvss(client: Any, cve_id: str, api_key: Optional[str]) -> O
         data = resp.json()
         vulns = data.get("vulnerabilities") or []
         if not vulns:
+            logger.info("CYBER: NVD returned no vulnerabilities for %s (possible data gap).", cve_id)
             return None
         cve = vulns[0].get("cve") or {}
         metrics = cve.get("metrics") or {}
@@ -287,9 +306,37 @@ async def _fetch_nvd_cvss(client: Any, cve_id: str, api_key: Optional[str]) -> O
                     "score": float(m.get("baseScore", 0)),
                     "severity": (m.get("baseSeverity") or m.get("severity") or ""),
                 }
+        logger.info("CYBER: NVD returned %s without CVSS metrics.", cve_id)
         return None
     except Exception as e:
-        logger.debug("CYBER: NVD lookup %s failed: %s", cve_id, e)
+        resp = getattr(e, "response", None)
+        status = getattr(resp, "status_code", None)
+        detail = _nvd_error_detail(resp)
+        key_state = "set" if (api_key or "").strip() else "missing"
+        if status == 403:
+            logger.warning(
+                "CYBER: NVD 403 for %s (api_key=%s). Check key validity/activation. detail=%s",
+                cve_id,
+                key_state,
+                detail or "n/a",
+            )
+        elif status == 429:
+            logger.warning(
+                "CYBER: NVD 429 rate limit for %s (api_key=%s). detail=%s",
+                cve_id,
+                key_state,
+                detail or "n/a",
+            )
+        elif status is not None:
+            logger.warning(
+                "CYBER: NVD %s for %s (api_key=%s). detail=%s",
+                status,
+                cve_id,
+                key_state,
+                detail or "n/a",
+            )
+        else:
+            logger.debug("CYBER: NVD lookup %s failed: %s", cve_id, e)
         return None
 
 

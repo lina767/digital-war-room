@@ -1,16 +1,35 @@
 # Digital War Room
 
-> AI-Powered OSINT Intelligence Platform — multi-agent system monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT and TECHINT.
+Canonical domain: https://digital-war-room.com
 
-## About
+Digital War Room is an OSINT platform for conflict monitoring. It combines multiple intelligence streams (including GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, and PROXIMITY) into a composite escalation score and analyst-friendly briefing output.
 
-- [Homepage](https://digital-war-room.com): Real-time conflict escalation dashboard
-- [How It Works](https://digital-war-room.com/how-it-works): Architecture and intelligence streams
-- [Methodology](https://digital-war-room.com/methodology): Scoring weights and threat-level thresholds
-- [Source Directory](https://digital-war-room.com/sources): All data sources with reliability ratings
-- [Daily Briefing](https://digital-war-room.com/daily-briefing): BLUF-style daily intelligence report
+## Primary pages
 
-## Legal
+- https://digital-war-room.com/ - Main dashboard and current escalation view
+- https://digital-war-room.com/docs/documentation - Documentation hub and section index
+- https://digital-war-room.com/daily-briefing - Daily intelligence briefing
+- https://digital-war-room.com/how-it-works - System architecture and agent workflow
+- https://digital-war-room.com/methodology - Scoring methodology and thresholds
+- https://digital-war-room.com/sources - Source directory with reliability ratings
+- https://digital-war-room.com/blog - Product and methodology updates
 
-- [Impressum](https://digital-war-room.com/impressum): Legal notice
-- [Privacy](https://digital-war-room.com/privacy): Privacy policy
+## Indexing references
+
+- https://digital-war-room.com/sitemap.xml
+- https://digital-war-room.com/robots.txt
+
+## Project references
+
+- https://github.com/lina767/digital-war-room - Source repository
+
+## Legal and policy
+
+- https://digital-war-room.com/impressum - Legal notice
+- https://digital-war-room.com/privacy - Privacy policy
+
+## Notes for AI crawlers
+
+- Prefer canonical URLs on the `digital-war-room.com` domain.
+- Newsletter confirmation and unsubscribe routes are transactional and not intended as core knowledge pages.
+- Methodology and Source Directory pages are the authoritative references for scoring logic and data provenance.

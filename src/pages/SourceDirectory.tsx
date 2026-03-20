@@ -9,11 +9,19 @@ import {
   type DataSourceEntry,
   type ReliabilityTier,
 } from "@/lib/sourceDirectory";
+import { CANONICAL_DOC_LINKS } from "@/lib/documentationSections";
 import { AGENTS_WITH_SOURCES } from "@/components/dashboard/agentsConfig";
 import { SEO } from "@/components/SEO";
 import { TITLE_SOURCE_DIRECTORY, DESCRIPTION_SOURCE_DIRECTORY } from "@/lib/seoCopy";
 
 const RELIABILITY_ORDER: ReliabilityTier[] = ["official", "curated", "community", "supplementary"];
+const sourceDirectoryStructuredData = {
+  "@type": "CollectionPage",
+  "@id": "https://digital-war-room.com/sources#collection",
+  url: "https://digital-war-room.com/sources",
+  name: "Digital War Room Source Directory",
+  description: DESCRIPTION_SOURCE_DIRECTORY,
+};
 
 const SourceDirectory = () => {
   const [search, setSearch] = useState("");
@@ -40,6 +48,8 @@ const SourceDirectory = () => {
         title={TITLE_SOURCE_DIRECTORY}
         description={DESCRIPTION_SOURCE_DIRECTORY}
         path="/sources"
+        pageType="CollectionPage"
+        structuredData={sourceDirectoryStructuredData}
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },
           { name: "Source Directory", url: "https://digital-war-room.com/sources" },
@@ -52,6 +62,19 @@ const SourceDirectory = () => {
         icon={<Database className="h-5 w-5 text-muted-foreground" />}
         maxWidth="5xl"
       >
+      <div className="mb-4 rounded-lg border border-border bg-card/40 p-4">
+        <p className="text-xs sm:text-[13px] text-muted-foreground">
+          Canonical markdown version:{" "}
+          <a
+            href={CANONICAL_DOC_LINKS.sourceDirectory}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            docs/source-directory.md
+          </a>
+        </p>
+      </div>
       {/* Search and filters */}
         <div className="mb-8 space-y-4">
           <div className="relative">

@@ -7,7 +7,7 @@
     "dev": "vite",
     "generate-sitemap": "node scripts/generate-sitemap.js",
     "prebuild": "node scripts/generate-sitemap.js",
-    "build": "vite build",
+    "build": "ENABLE_PRERENDER=1 vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -17,7 +17,8 @@
     "test:watch": "vitest",
     "version:patch": "npm version patch",
     "version:minor": "npm version minor",
-    "version:major": "npm version major"
+    "version:major": "npm version major",
+    "check:seo": "node scripts/check-seo-discoverability.js"
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.1.11",

@@ -20,7 +20,15 @@ import {
   type SigintShip,
 } from "./mapConfig";
 import { MapLoadingSkeleton } from "@/components/ui/skeleton";
-import { SAM_RINGS, AIR_ROUTES, SEA_LANES, CHOKEPOINT_ZONES, circlePoints } from "./mapOverlaysData";
+import {
+  SAM_RINGS,
+  AIR_ROUTES,
+  SEA_LANES,
+  CHOKEPOINT_ZONES,
+  MILITARY_BASES,
+  NUCLEAR_FACILITIES,
+  circlePoints,
+} from "./mapOverlaysData";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -41,6 +49,8 @@ interface LayerVisibility {
   airRoutes: boolean;
   seaLanes: boolean;
   chokepoints: boolean;
+  militaryBases: boolean;
+  nuclearFacilities: boolean;
 }
 
 type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
@@ -54,6 +64,8 @@ const INITIAL_LAYERS: LayerVisibility = {
   airRoutes: true,
   seaLanes: true,
   chokepoints: true,
+  militaryBases: true,
+  nuclearFacilities: true,
 };
 
 function layerReducer(state: LayerVisibility, action: LayerAction): LayerVisibility {
@@ -313,6 +325,66 @@ interface GeointLayerProps {
   onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
   onTooltipHide: () => void;
 }
+
+interface StrategicSitesLayerProps {
+  sites: Array<{ id: string; name: string; country: string; coordinates: [number, number] }>;
+  color: string;
+  s: number;
+  markerType: "military" | "nuclear";
+  onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
+  onTooltipHide: () => void;
+}
+
+const StrategicSitesLayer = memo(function StrategicSitesLayer({
+  sites,
+  color,
+  s,
+  markerType,
+  onTooltipShow,
+  onTooltipHide,
+}: StrategicSitesLayerProps) {
+  return (
+    <>
+      {sites.map((site, i) => {
+        const [lon, lat] = site.coordinates;
+        const r = 2.8 * s;
+        const tooltipContent = `${site.name} · ${site.country}`;
+        return (
+          <Marker key={`${markerType}-${site.id}`} coordinates={[lon, lat]}>
+            <g
+              className="cursor-pointer"
+              onMouseEnter={(e) => onTooltipShow(tooltipContent, color, e)}
+              onMouseLeave={onTooltipHide}
+            >
+              <circle
+                r={r * 1.9}
+                fill="none"
+                stroke={color}
+                strokeWidth={0.3 * s}
+                opacity={0.45}
+                style={{ animationDelay: `${(i % 12) * 0.11}s` }}
+              />
+              {markerType === "military" ? (
+                <g fill={color} stroke={color} strokeWidth={0.2 * s}>
+                  <rect x={-r * 0.65} y={-r * 0.65} width={r * 1.3} height={r * 1.3} fill="none" />
+                  <line x1={-r * 0.55} y1={0} x2={r * 0.55} y2={0} />
+                  <line x1={0} y1={-r * 0.55} x2={0} y2={r * 0.55} />
+                </g>
+              ) : (
+                <g fill={color} stroke={color} strokeWidth={0.2 * s}>
+                  <circle r={r * 0.35} />
+                  <circle cx={0} cy={-r * 0.8} r={r * 0.28} fill="none" />
+                  <circle cx={r * 0.7} cy={r * 0.35} r={r * 0.28} fill="none" />
+                  <circle cx={-r * 0.7} cy={r * 0.35} r={r * 0.28} fill="none" />
+                </g>
+              )}
+            </g>
+          </Marker>
+        );
+      })}
+    </>
+  );
+});
 
 const GeointLayer = memo(function GeointLayer({
   anomalies,
@@ -851,6 +923,28 @@ function TheaterMapInner({
               );
             })}
 
+          {layers.militaryBases && hasOverlayDataForConflict(activeConflict) && (
+            <StrategicSitesLayer
+              sites={MILITARY_BASES}
+              color="hsl(210 90% 62%)"
+              s={s}
+              markerType="military"
+              onTooltipShow={handleTooltipShow}
+              onTooltipHide={handleTooltipHide}
+            />
+          )}
+
+          {layers.nuclearFacilities && hasOverlayDataForConflict(activeConflict) && (
+            <StrategicSitesLayer
+              sites={NUCLEAR_FACILITIES}
+              color="hsl(43 95% 56%)"
+              s={s}
+              markerType="nuclear"
+              onTooltipShow={handleTooltipShow}
+              onTooltipHide={handleTooltipHide}
+            />
+          )}
+
           {layers.heatmap && !heatmapLoading && (
             <HeatmapLayer
               events={heatmapEvents}
@@ -1228,6 +1322,40 @@ function TheaterMapInner({
             }
           />
           CHP
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleLayer("militaryBases")}
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+          title="Military base overlay"
+          aria-label={layers.militaryBases ? "Hide military base layer" : "Show military base layer"}
+        >
+          <span
+            className="w-2.5 h-2.5 border"
+            style={
+              layers.militaryBases
+                ? { borderColor: "hsl(210 90% 62%)", background: "hsl(210 90% 62% / 0.25)" }
+                : { borderColor: "hsl(var(--border))" }
+            }
+          />
+          MB
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleLayer("nuclearFacilities")}
+          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+          title="Nuclear facility overlay"
+          aria-label={layers.nuclearFacilities ? "Hide nuclear facility layer" : "Show nuclear facility layer"}
+        >
+          <span
+            className="w-2.5 h-2.5 rounded-full border"
+            style={
+              layers.nuclearFacilities
+                ? { borderColor: "hsl(43 95% 56%)", background: "hsl(43 95% 56% / 0.25)" }
+                : { borderColor: "hsl(var(--border))" }
+            }
+          />
+          NUC
         </button>
         {(layers.airRoutes || layers.seaLanes) && (
           <div className="flex items-center gap-2 flex-wrap">

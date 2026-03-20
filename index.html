@@ -49,15 +49,33 @@
           "@id": "https://digital-war-room.com/#organization",
           "name": "Digital War Room",
           "url": "https://digital-war-room.com",
-          "logo": "https://digital-war-room.com/favicon.png"
+          "logo": "https://digital-war-room.com/favicon.png",
+          "sameAs": [
+            "https://github.com/lina767/digital-war-room"
+          ]
         },
         {
           "@type": "SoftwareApplication",
+          "@id": "https://digital-war-room.com/#software",
           "name": "Digital War Room",
-          "applicationCategory": "BusinessApplication",
+          "applicationCategory": "AnalyticsApplication",
           "operatingSystem": "Web",
           "url": "https://digital-war-room.com",
-          "description": "OSINT-based situational awareness platform. Aggregates open-source signals from multiple intelligence streams, computes escalation scores, and surfaces BLUF-style briefings."
+          "description": "OSINT-based situational awareness platform. Aggregates open-source signals from multiple intelligence streams, computes escalation scores, and surfaces BLUF-style briefings.",
+          "publisher": {
+            "@id": "https://digital-war-room.com/#organization"
+          },
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          },
+          "featureList": [
+            "Multi-agent OSINT intelligence streams",
+            "Composite escalation scoring",
+            "Threat-level dashboard and daily briefing",
+            "Transparent source directory with reliability ratings"
+          ]
         }
       ]
     }

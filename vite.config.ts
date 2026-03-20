@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 import seoPrerender from "vite-plugin-seo-prerender";
+import { getPrerenderRoutes } from "./scripts/discoverability-routes.js";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -33,22 +34,11 @@ export default defineConfig(({ mode }) => ({
         ],
       },
     }),
-    // Prerender uses Puppeteer/Chrome; not available on Vercel (missing libs). Only run when explicitly enabled and not on Vercel.
-    ...(process.env.ENABLE_PRERENDER === "1" && process.env.VERCEL !== "1"
+    // Prerender public routes to emit route-specific HTML metadata for crawlers and social scrapers.
+    ...(process.env.ENABLE_PRERENDER === "1"
       ? [
           seoPrerender({
-            routes: [
-              "/",
-              "/how-it-works",
-              "/methodology",
-              "/sources",
-              "/daily-briefing",
-              "/impressum",
-              "/privacy",
-              "/support",
-              "/blog",
-              "/blog/welcome-to-the-blog",
-            ],
+            routes: getPrerenderRoutes(),
             puppeteer:
               process.env.CI === "true"
                 ? { args: ["--no-sandbox", "--disable-setuid-sandbox"] }

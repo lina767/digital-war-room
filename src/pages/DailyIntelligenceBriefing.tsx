@@ -96,8 +96,8 @@ export default function DailyIntelligenceBriefing() {
   const escalationForecasts = [escalation24h, escalation7d].filter(Boolean) as typeof escalationList;
 
   const dailyBriefingStructuredData = {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
+    "@type": "Report",
+    "@id": "https://digital-war-room.com/daily-briefing#report",
     name: SHARE_TITLE_DAILY_BRIEFING,
     url: "https://digital-war-room.com/daily-briefing",
     datePublished: formatDateOnly(now),

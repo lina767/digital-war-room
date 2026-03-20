@@ -427,7 +427,7 @@ def get_latest_snapshot(conflict: str) -> Optional[Dict[str, Any]]:
     conn = _ensure_db()
     try:
         row = conn.execute(
-            "SELECT data_json FROM greynoise_snapshots WHERE conflict = ? ORDER BY timestamp DESC LIMIT 1",
+            "SELECT data_json FROM greynoise_snapshots WHERE LOWER(conflict) = LOWER(?) ORDER BY timestamp DESC LIMIT 1",
             (conflict,),
         ).fetchone()
         if row:
@@ -442,7 +442,7 @@ def get_trend_data(conflict: str, days: int = 7) -> List[Dict[str, Any]]:
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
-            "SELECT timestamp, greynoise_score, absolute_score, total_events FROM greynoise_snapshots WHERE conflict = ? AND timestamp >= ? ORDER BY timestamp ASC",
+            "SELECT timestamp, greynoise_score, absolute_score, total_events FROM greynoise_snapshots WHERE LOWER(conflict) = LOWER(?) AND timestamp >= ? ORDER BY timestamp ASC",
             (conflict, cutoff),
         ).fetchall()
         return [
@@ -457,7 +457,7 @@ def _get_historical_avg(conflict: str, days: int = 7) -> Optional[float]:
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         row = conn.execute(
-            "SELECT AVG(total_events) FROM greynoise_snapshots WHERE conflict = ? AND timestamp >= ?",
+            "SELECT AVG(total_events) FROM greynoise_snapshots WHERE LOWER(conflict) = LOWER(?) AND timestamp >= ?",
             (conflict, cutoff),
         ).fetchone()
         if row and row[0] is not None:
@@ -659,7 +659,7 @@ def get_latest_ips(conflict: str, limit: int = 30) -> List[Dict[str, Any]]:
     conn = _ensure_db()
     try:
         row = conn.execute(
-            "SELECT snapshot_timestamp FROM greynoise_ips WHERE conflict = ? ORDER BY snapshot_timestamp DESC LIMIT 1",
+            "SELECT snapshot_timestamp FROM greynoise_ips WHERE LOWER(conflict) = LOWER(?) ORDER BY snapshot_timestamp DESC LIMIT 1",
             (conflict,),
         ).fetchone()
         if not row:
@@ -667,7 +667,7 @@ def get_latest_ips(conflict: str, limit: int = 30) -> List[Dict[str, Any]]:
         ts = row[0]
         rows = conn.execute(
             """SELECT ip, direction, classification, tags_json, metadata_json FROM greynoise_ips
-               WHERE conflict = ? AND snapshot_timestamp = ? ORDER BY id LIMIT ?""",
+               WHERE LOWER(conflict) = LOWER(?) AND snapshot_timestamp = ? ORDER BY id LIMIT ?""",
             (conflict, ts, limit),
         ).fetchall()
         result = []
@@ -1051,7 +1051,7 @@ def _save_pending_tags(tags: List[str], conflict: str) -> None:
         now = utc_now_iso()
         for tag in tags:
             exists = conn.execute(
-                "SELECT 1 FROM greynoise_pending_tags WHERE tag_name = ? AND conflict = ?",
+                "SELECT 1 FROM greynoise_pending_tags WHERE tag_name = ? AND LOWER(conflict) = LOWER(?)",
                 (tag, conflict),
             ).fetchone()
             if not exists:

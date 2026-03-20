@@ -220,6 +220,7 @@ function DashboardContent() {
           </div>
           <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} />
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            <Link to="/docs/documentation" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Documentation</Link>
             <Link to="/how-it-works" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>How it works</Link>
             <Link to="/blog" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Blog</Link>
             <Link to="/methodology" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Methodology</Link>
@@ -271,6 +272,13 @@ function DashboardContent() {
       {/* Footer: How it works, Support (prominent), Impressum & Privacy (subtle) */}
       <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2">
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
+          <Link
+            to="/docs/documentation"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          >
+            <BookOpen className="h-3.5 w-3.5" aria-hidden />
+            <span>Documentation</span>
+          </Link>
           <Link
             to="/how-it-works"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"

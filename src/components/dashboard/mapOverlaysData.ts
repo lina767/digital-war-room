@@ -19,6 +19,14 @@ export interface MapPolyline {
   coordinates: [number, number][];
 }
 
+export interface StrategicSite {
+  id: string;
+  name: string;
+  country: string;
+  /** Center [lon, lat] */
+  coordinates: [number, number];
+}
+
 /** SAM positions (illustrative; replace with OSINT/vordefinierte Daten). Iran/Gulf region. */
 export const SAM_RINGS: SamRing[] = [
   { id: "sam-tehran", name: "Tehran area", center: [51.4, 35.7], radius_km: 150 },
@@ -131,6 +139,28 @@ export const CHOKEPOINT_ZONES: ChokePointZone[] = [
       [32.6, 29.8], [32.2, 29.8],
     ],
   },
+];
+
+/** Major military bases (illustrative strategic overlay for TheaterMap). */
+export const MILITARY_BASES: StrategicSite[] = [
+  { id: "mb-al-udeid", name: "Al Udeid Air Base", country: "Qatar", coordinates: [51.313, 25.117] },
+  { id: "mb-al-dhafra", name: "Al Dhafra Air Base", country: "UAE", coordinates: [54.548, 24.248] },
+  { id: "mb-incirlik", name: "Incirlik Air Base", country: "Turkey", coordinates: [35.425, 37.002] },
+  { id: "mb-bah-rss", name: "NSA Bahrain", country: "Bahrain", coordinates: [50.606, 26.191] },
+  { id: "mb-camp-arifjan", name: "Camp Arifjan", country: "Kuwait", coordinates: [47.906, 28.848] },
+  { id: "mb-al-asad", name: "Al Asad Air Base", country: "Iraq", coordinates: [41.031, 33.785] },
+  { id: "mb-diego-garcia", name: "Diego Garcia", country: "BIOT", coordinates: [72.411, -7.313] },
+];
+
+/** Civilian and strategic nuclear facilities (illustrative strategic overlay). */
+export const NUCLEAR_FACILITIES: StrategicSite[] = [
+  { id: "nf-bushehr", name: "Bushehr Nuclear Plant", country: "Iran", coordinates: [50.887, 28.829] },
+  { id: "nf-natanz", name: "Natanz Fuel Enrichment Plant", country: "Iran", coordinates: [51.726, 33.725] },
+  { id: "nf-fordow", name: "Fordow Fuel Enrichment Plant", country: "Iran", coordinates: [50.992, 34.885] },
+  { id: "nf-isfahan", name: "Isfahan Nuclear Technology Center", country: "Iran", coordinates: [51.654, 32.648] },
+  { id: "nf-dimona", name: "Dimona Nuclear Research Center", country: "Israel", coordinates: [35.145, 31.001] },
+  { id: "nf-akkuyu", name: "Akkuyu Nuclear Power Plant", country: "Turkey", coordinates: [33.496, 36.146] },
+  { id: "nf-barakah", name: "Barakah Nuclear Power Plant", country: "UAE", coordinates: [52.322, 24.141] },
 ];
 
 /** Generate polygon points for a circle (WGS84 approx). Returns [lon, lat][] closed ring. */

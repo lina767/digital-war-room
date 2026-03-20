@@ -54,6 +54,7 @@ GDACS_EVENT_TYPE_LABEL = {
     "WF": "Wildfire",
     "DR": "Drought",
 }
+GDACS_EVENTS_URL = "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
 
 
 # For in-memory bbox filter (lat_min, lat_max, lon_min, lon_max) derived from REGION_BBOX
@@ -345,22 +346,57 @@ def _get_gdacs_events_for_region(region: str, limit: int = 25) -> List[Dict[str,
     Fetch latest disaster events from GDACS (gdacs-api) and filter by region bbox.
     Returns report-like dicts (title, date, body_excerpt, source, country) for merging with hotspot news.
     """
-    try:
-        from gdacs.api import GDACSAPIReader
-    except ImportError:
-        logger.debug("GDACS: gdacs-api not installed (pip install gdacs-api)")
+    def _raw_features() -> List[Dict[str, Any]]:
+        """
+        Get GDACS features either via gdacs-api package or direct public API fallback.
+        This keeps GEOINT working even if gdacs-api is not installed in runtime.
+        """
+        try:
+            from gdacs.api import GDACSAPIReader
+
+            client = GDACSAPIReader()
+            result = client.latest_events(limit=limit)
+            features = getattr(result, "features", None)
+            if features is None and isinstance(result, dict):
+                features = result.get("features", [])
+            if isinstance(features, list):
+                return [f for f in features if isinstance(f, dict)]
+        except ImportError:
+            logger.info("GDACS: gdacs-api not installed; using direct API fallback.")
+        except Exception as e:
+            logger.debug("GDACS: gdacs-api reader failed, using fallback: %s", e)
+
+        try:
+            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+                resp = client.get(GDACS_EVENTS_URL)
+                resp.raise_for_status()
+                data = resp.json()
+            features = data.get("features", []) if isinstance(data, dict) else []
+            if isinstance(features, list):
+                return [f for f in features if isinstance(f, dict)]
+        except Exception as e:
+            logger.debug("GDACS direct API fallback failed: %s", e)
         return []
-    bbox_str = REGION_BBOX.get(region, REGION_BBOX["middle_east"])
-    bbox = _bbox_to_region(bbox_str)
-    lat_min, lat_max = bbox["lat_min"], bbox["lat_max"]
-    lon_min, lon_max = bbox["lon_min"], bbox["lon_max"]
+
+    areas_to_filter = SUB_REGIONS_FOR_REGION.get(region, [region])
+    bboxes: List[Dict[str, float]] = []
+    for area in areas_to_filter:
+        bbox_str = REGION_BBOX.get(area)
+        if bbox_str:
+            bboxes.append(_bbox_to_region(bbox_str))
+    if not bboxes:
+        bboxes = [_bbox_to_region(REGION_BBOX["middle_east"])]
+
+    def _in_any_bbox(lat: float, lon: float) -> bool:
+        for b in bboxes:
+            if b["lat_min"] <= lat <= b["lat_max"] and b["lon_min"] <= lon <= b["lon_max"]:
+                return True
+        return False
+
     reports: List[Dict[str, Any]] = []
+    seen: set[str] = set()
     try:
-        client = GDACSAPIReader()
-        result = client.latest_events(limit=limit)
-        features = getattr(result, "features", None)
-        if features is None and isinstance(result, dict):
-            features = result.get("features", [])
+        features = _raw_features()
         if not isinstance(features, list):
             return []
         for f in features:
@@ -371,7 +407,7 @@ def _get_gdacs_events_for_region(region: str, limit: int = 25) -> List[Dict[str,
             if not isinstance(coords, (list, tuple)) or len(coords) < 2:
                 continue
             lon, lat = float(coords[0]), float(coords[1])
-            if not (lat_min <= lat <= lat_max and lon_min <= lon <= lon_max):
+            if not _in_any_bbox(lat, lon):
                 continue
             props = f.get("properties") or {}
             event_type = (props.get("eventtype") or "").strip().upper()
@@ -380,6 +416,10 @@ def _get_gdacs_events_for_region(region: str, limit: int = 25) -> List[Dict[str,
             from_date = props.get("fromdate") or props.get("pubdate") or props.get("date") or ""
             alert_level = (props.get("alertlevel") or "").strip()
             title = f"{label}: {name}" if name != label else f"{label} ({alert_level})".strip(" ()") or label
+            dedupe_key = f"{title}|{str(from_date)[:30]}|{round(lat, 2)}|{round(lon, 2)}"
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
             reports.append(
                 {
                     "title": title[:300],
@@ -391,7 +431,7 @@ def _get_gdacs_events_for_region(region: str, limit: int = 25) -> List[Dict[str,
             )
     except Exception as e:
         logger.debug("GDACS fetch failed: %s", e)
-    return reports[:15]
+    return reports[: min(15, max(1, int(limit)))]
 
 
 # HDX HAPI (https://hapi.humdata.org/docs) – humanitarian indicators by country (ISO3). Optional HAPI_APP_IDENTIFIER.
@@ -671,8 +711,13 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
         logger.warning("ReliefWeb/ACLED: ReliefWeb fetch failed: %s. Check network and api.reliefweb.int.", e)
         reports = [{"error": str(e)}]
 
+    # Keep ACLED/GDACS/HAPI independent from ReliefWeb transient failures.
+    if isinstance(reports, list) and any(isinstance(r, dict) and r.get("error") for r in reports):
+        logger.info("ReliefWeb/ACLED: ReliefWeb returned errors; continuing with ACLED/GDACS/HAPI sources.")
+        reports = []
+
     # GDACS: disaster events (earthquakes, cyclones, floods, etc.) in conflict region
-    if isinstance(reports, list) and not any(isinstance(r, dict) and r.get("error") for r in reports):
+    if isinstance(reports, list):
         try:
             region = get_conflict_region(conflict)
             gdacs_items = _get_gdacs_events_for_region(region)
@@ -685,7 +730,6 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     if (
         HAPI_APP_IDENTIFIER
         and isinstance(reports, list)
-        and not any(isinstance(r, dict) and r.get("error") for r in reports)
     ):
         try:
             iso3_list = next(
@@ -704,8 +748,7 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
             logger.debug("GEOINT HDX HAPI fetch failed: %s", e)
 
     acled_ok = has_acled_oauth() or os.getenv("ACLED_API_KEY")
-    reports_have_error = isinstance(reports, list) and any(isinstance(r, dict) and r.get("error") for r in reports)
-    if acled_ok and isinstance(reports, list) and not reports_have_error:
+    if acled_ok and isinstance(reports, list):
         try:
 
             async def _acled():
@@ -715,52 +758,63 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                         "ReliefWeb/ACLED: ACLED skipped (OAuth token missing). Set ACLED_EMAIL/ACLED_PASSWORD."
                     )
                     return
-                event_date_val, event_date_where = _acled_event_date_range(90)
-                params = {
-                    "_format": "json",
-                    "limit": 10,
-                    "country": acled_country,
-                    "event_date": event_date_val,
-                    "event_date_where": event_date_where,
-                }
+
                 if token:
                     url = ACLED_API_URL
                     headers = {"Authorization": f"Bearer {token}"}
                 else:
                     url = ACLED_LEGACY_URL
                     headers = {}
-                    params["key"] = os.getenv("ACLED_API_KEY", "")
-                    if os.getenv("ACLED_EMAIL"):
-                        params["email"] = os.getenv("ACLED_EMAIL", "")
                 async with httpx.AsyncClient(timeout=14.0) as client:
-                    resp = await client.get(url, params=params, headers=headers)
-                    if resp.status_code != 200:
-                        logger.warning(
-                            "ReliefWeb/ACLED: ACLED API returned HTTP %s for country=%s. OAuth/credentials see acled_auth logs.",
-                            resp.status_code,
+                    # ACLED research tier may be delayed; fall back from 90d to 540d.
+                    got_items = False
+                    for days in (90, 540):
+                        event_date_val, event_date_where = _acled_event_date_range(days)
+                        params = {
+                            "_format": "json",
+                            "limit": 10,
+                            "country": acled_country,
+                            "event_date": event_date_val,
+                            "event_date_where": event_date_where,
+                        }
+                        if not token:
+                            params["key"] = os.getenv("ACLED_API_KEY", "")
+                            if os.getenv("ACLED_EMAIL"):
+                                params["email"] = os.getenv("ACLED_EMAIL", "")
+                        resp = await client.get(url, params=params, headers=headers)
+                        if resp.status_code != 200:
+                            logger.warning(
+                                "ReliefWeb/ACLED: ACLED API returned HTTP %s for country=%s (range=%sd). OAuth/credentials see acled_auth logs.",
+                                resp.status_code,
+                                acled_country,
+                                days,
+                            )
+                            return
+                        data = resp.json()
+                        rows = data.get("data") or []
+                        for rec in rows[:10]:
+                            if isinstance(rec, dict):
+                                reports.append(
+                                    {
+                                        "title": (rec.get("event") or rec.get("title") or "")[:300],
+                                        "date": rec.get("event_date", ""),
+                                        "body_excerpt": (rec.get("notes") or "")[:200],
+                                        "source": "ACLED",
+                                        "country": rec.get("country", acled_country),
+                                    }
+                                )
+                        if rows:
+                            got_items = True
+                            break
+                    if not got_items:
+                        logger.info(
+                            "ReliefWeb/ACLED: ACLED returned no rows for %s in 90d and 540d windows.",
                             acled_country,
                         )
-                        return
-                    data = resp.json()
-                    for rec in (data.get("data") or [])[:10]:
-                        if isinstance(rec, dict):
-                            reports.append(
-                                {
-                                    "title": (rec.get("event") or rec.get("title") or "")[:300],
-                                    "date": rec.get("event_date", ""),
-                                    "body_excerpt": (rec.get("notes") or "")[:200],
-                                    "source": "ACLED",
-                                    "country": rec.get("country", acled_country),
-                                }
-                            )
 
             run_async(_acled())
         except Exception as e:
             logger.warning("ReliefWeb/ACLED: ACLED request failed: %s", e)
-    elif acled_ok and reports_have_error:
-        logger.info(
-            "ReliefWeb/ACLED: ACLED not requested because ReliefWeb failed. Fix ReliefWeb first (see logs above)."
-        )
     elif not acled_ok and not reports:
         logger.info(
             "ReliefWeb/ACLED: No data. ReliefWeb returned empty and ACLED credentials not set (ACLED_EMAIL + ACLED_PASSWORD in backend/.env)."
@@ -800,80 +854,89 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
             token = await get_acled_token_async() if use_oauth else None
             if use_oauth and not token:
                 return out
-            params = {
-                "_format": "json",
-                "limit": min(500, max(50, limit)),
-                "country": acled_country,
-                "event_date": event_date_val,
-                "event_date_where": event_date_where,
-            }
             if token:
                 url = ACLED_API_URL
                 headers = {"Authorization": f"Bearer {token}"}
             else:
                 url = ACLED_LEGACY_URL
                 headers = {}
-                params["key"] = os.getenv("ACLED_API_KEY", "")
-                if os.getenv("ACLED_EMAIL"):
-                    params["email"] = os.getenv("ACLED_EMAIL", "")
             async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(url, params=params, headers=headers)
-                if resp.status_code != 200:
-                    return out
-                data = resp.json()
-                for rec in (data.get("data") or [])[:limit]:
-                    if not isinstance(rec, dict):
+                got_rows = False
+                for days in (90, 540):
+                    event_date_val, event_date_where = _acled_event_date_range(days)
+                    params = {
+                        "_format": "json",
+                        "limit": min(500, max(50, limit)),
+                        "country": acled_country,
+                        "event_date": event_date_val,
+                        "event_date_where": event_date_where,
+                    }
+                    if not token:
+                        params["key"] = os.getenv("ACLED_API_KEY", "")
+                        if os.getenv("ACLED_EMAIL"):
+                            params["email"] = os.getenv("ACLED_EMAIL", "")
+                    resp = await client.get(url, params=params, headers=headers)
+                    if resp.status_code != 200:
                         continue
-                    lat_val = rec.get("latitude")
-                    lon_val = rec.get("longitude")
-                    if lat_val is None or lon_val is None:
-                        continue
-                    try:
-                        lat = float(lat_val)
-                        lon = float(lon_val)
-                    except (TypeError, ValueError):
-                        continue
-                    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                        continue
-                    fatalities = 0
-                    try:
-                        f = rec.get("fatalities")
-                        if f is not None:
-                            fatalities = int(f) if isinstance(f, (int, float)) else int(float(str(f).strip() or 0))
-                    except (ValueError, TypeError):
-                        pass
-                    event_type = (rec.get("event_type") or rec.get("sub_event_type") or "")[:80]
-                    # Intensity 0–1: base 0.3 + fatalities cap 0.5 + violence types
-                    intensity = 0.3
-                    if fatalities > 0:
-                        intensity = min(0.95, intensity + min(fatalities / 50, 0.5))
-                    if any(
-                        x in (event_type or "").lower()
-                        for x in ("battle", "violence", "explosion", "attack", "armed", "riot")
-                    ):
-                        intensity = min(0.95, intensity + 0.2)
-                    actor1 = (rec.get("actor1") or "").strip() or None
-                    actor2 = (rec.get("actor2") or "").strip() or None
-                    notes = (rec.get("notes") or "").strip() or None
-                    if notes and len(notes) > 500:
-                        notes = notes[:497] + "..."
-                    event_date = (rec.get("event_date") or rec.get("date") or "").strip() or None
-                    sub_event_type = (rec.get("sub_event_type") or "").strip() or None
-                    out.append(
-                        {
-                            "lat": round(lat, 5),
-                            "lon": round(lon, 5),
-                            "intensity": round(intensity, 2),
-                            "source": "ACLED",
-                            "event_type": event_type or None,
-                            "fatalities": fatalities,
-                            "actor1": actor1,
-                            "actor2": actor2,
-                            "notes": notes,
-                            "event_date": event_date,
-                            "sub_event_type": sub_event_type,
-                        }
-                    )
+                    data = resp.json()
+                    rows = data.get("data") or []
+                    for rec in rows[:limit]:
+                        if not isinstance(rec, dict):
+                            continue
+                        lat_val = rec.get("latitude")
+                        lon_val = rec.get("longitude")
+                        if lat_val is None or lon_val is None:
+                            continue
+                        try:
+                            lat = float(lat_val)
+                            lon = float(lon_val)
+                        except (TypeError, ValueError):
+                            continue
+                        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                            continue
+                        fatalities = 0
+                        try:
+                            f = rec.get("fatalities")
+                            if f is not None:
+                                fatalities = int(f) if isinstance(f, (int, float)) else int(float(str(f).strip() or 0))
+                        except (ValueError, TypeError):
+                            pass
+                        event_type = (rec.get("event_type") or rec.get("sub_event_type") or "")[:80]
+                        intensity = 0.3
+                        if fatalities > 0:
+                            intensity = min(0.95, intensity + min(fatalities / 50, 0.5))
+                        if any(
+                            x in (event_type or "").lower()
+                            for x in ("battle", "violence", "explosion", "attack", "armed", "riot")
+                        ):
+                            intensity = min(0.95, intensity + 0.2)
+                        actor1 = (rec.get("actor1") or "").strip() or None
+                        actor2 = (rec.get("actor2") or "").strip() or None
+                        notes = (rec.get("notes") or "").strip() or None
+                        if notes and len(notes) > 500:
+                            notes = notes[:497] + "..."
+                        event_date = (rec.get("event_date") or rec.get("date") or "").strip() or None
+                        sub_event_type = (rec.get("sub_event_type") or "").strip() or None
+                        out.append(
+                            {
+                                "lat": round(lat, 5),
+                                "lon": round(lon, 5),
+                                "intensity": round(intensity, 2),
+                                "source": "ACLED",
+                                "event_type": event_type or None,
+                                "fatalities": fatalities,
+                                "actor1": actor1,
+                                "actor2": actor2,
+                                "notes": notes,
+                                "event_date": event_date,
+                                "sub_event_type": sub_event_type,
+                            }
+                        )
+                    if rows:
+                        got_rows = True
+                        break
+                if not got_rows:
+                    logger.info("GEOINT heatmap ACLED: no rows for %s in 90d and 540d windows.", acled_country)
             return out
 
         events = run_async(_fetch())
@@ -1406,7 +1469,10 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
                 record_count=len(reliefweb_reports),
             ),
             SourceResult(
-                name="GDACS", status="ok" if gdacs_count else "error", fetched_at=fetched_at, record_count=gdacs_count
+                name="GDACS",
+                status="ok" if gdacs_count > 0 else "degraded",
+                fetched_at=fetched_at,
+                record_count=gdacs_count,
             ),
             SourceResult(
                 name="EO Browser",

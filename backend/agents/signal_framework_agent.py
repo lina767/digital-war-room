@@ -17,6 +17,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urljoin
 
 import feedparser
 import httpx
@@ -39,14 +40,14 @@ SIGNAL_FRAMEWORK_USE_FIRECRAWL = os.getenv("SIGNAL_FRAMEWORK_USE_FIRECRAWL", "")
 STATE_SOURCES: List[Dict[str, str]] = [
     {"name": "IRNA", "url": "https://www.irna.ir/en/rss.aspx?kind=-1"},
     {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss"},
-    {"name": "Fars News (alt)", "url": "https://www.farsnews.com/rss/politics"},  # fallback if .ir is blocked
+    {"name": "Fars News (alt)", "url": "https://www.farsnews.ir/en"},  # fallback when RSS is blocked/unavailable
     {"name": "Tasnim", "url": "https://www.tasnimnews.ir/en/rss"},
-    {"name": "Press TV", "url": "https://www.presstv.ir/rss/world.xml"},
+    {"name": "Press TV", "url": "https://www.presstv.ir/"},
 ]
 
 EXILE_SOURCES: List[Dict[str, str]] = [
-    {"name": "Iran International", "url": "https://iranintl.com/en/rss"},
-    {"name": "Radio Farda", "url": "https://www.radiofarda.com/api/zkqopekqqop_ztql"},  # RFE/RL Farda feed
+    {"name": "Iran International", "url": "https://www.iranintl.com/en"},
+    {"name": "Radio Farda", "url": "https://www.radiofarda.com/"},
     {"name": "BBC Persian", "url": "https://www.bbc.com/persian/index.xml"},
 ]
 
@@ -154,7 +155,7 @@ def _parse_feed_item_published(entry: Any) -> Optional[float]:
     return None
 
 
-def _fetch_state_via_firecrawl(url: str, source_name: str) -> List[Dict[str, Any]]:
+def _fetch_via_firecrawl(url: str, source_name: str) -> List[Dict[str, Any]]:
     """
     Fallback for state feeds: scrape URL via Firecrawl and extract headline-like lines from markdown.
     Returns list of items with title, link (if found), source_name, published_ts (now), text.
@@ -200,11 +201,46 @@ def _fetch_state_via_firecrawl(url: str, source_name: str) -> List[Dict[str, Any
             )
         if items:
             logger.info(
-                "SignalFramework: state source %s got %d items via Firecrawl fallback.", source_name, len(items)
+                "SignalFramework: source %s got %d items via Firecrawl fallback.", source_name, len(items)
             )
     except Exception as e:
         logger.debug("SignalFramework: Firecrawl fallback for %s failed: %s", source_name, e)
     return items[:25]
+
+
+def _extract_headlines_from_html(html: str, base_url: str, source_name: str) -> List[Dict[str, Any]]:
+    """Best-effort fallback: extract headline-like anchor texts from HTML pages."""
+    if not html:
+        return []
+    fallback_ts = time.time()
+    out: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    # <a href="...">headline text</a>
+    for href, txt in re.findall(r'<a[^>]+href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', html, flags=re.IGNORECASE | re.DOTALL):
+        text = re.sub(r"<[^>]+>", " ", txt or "")
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) < 25 or len(text) > 260:
+            continue
+        href = (href or "").strip()
+        if not href or href.startswith("#") or href.lower().startswith("javascript:"):
+            continue
+        link = urljoin(base_url, href)
+        key = f"{text.lower()}|{link}"
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "title": text[:500],
+                "link": link,
+                "published_ts": fallback_ts,
+                "source_name": source_name,
+                "text": text[:2000],
+            }
+        )
+        if len(out) >= 25:
+            break
+    return out
 
 
 def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
@@ -217,11 +253,15 @@ def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
 
     def _do_fetch() -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
+        raw_body = b""
+        content_type = ""
         try:
             with httpx.Client(timeout=timeout, follow_redirects=True) as client:
                 r = client.get(url, headers=headers)
                 r.raise_for_status()
-                parsed = feedparser.parse(r.content)
+                raw_body = r.content or b""
+                content_type = (r.headers.get("content-type") or "").lower()
+                parsed = feedparser.parse(raw_body)
         except Exception as e:
             logger.warning("SignalFramework: fetch failed for %s (%s): %s", source_name, url[:50], e)
             return out
@@ -244,6 +284,14 @@ def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
                     "text": text[:2000],
                 }
             )
+        # Fallback: some sources no longer expose RSS and return plain HTML.
+        if not out and raw_body:
+            try:
+                body_text = raw_body.decode("utf-8", errors="replace")
+                if "html" in content_type or body_text.lstrip().lower().startswith("<!doctype html"):
+                    out = _extract_headlines_from_html(body_text, url, source_name)
+            except Exception:
+                pass
         return out
 
     items = _do_fetch()
@@ -252,8 +300,8 @@ def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
         logger.debug("SignalFramework: retrying state source %s once.", source_name)
         time.sleep(0.5)
         items = _do_fetch()
-    if is_state and not items and SIGNAL_FRAMEWORK_USE_FIRECRAWL and os.getenv("FIRECRAWL_API_KEY"):
-        items = _fetch_state_via_firecrawl(url, source_name)
+    if not items and SIGNAL_FRAMEWORK_USE_FIRECRAWL and os.getenv("FIRECRAWL_API_KEY"):
+        items = _fetch_via_firecrawl(url, source_name)
     if not items and is_state:
         logger.warning("SignalFramework: state source %s returned 0 items (may be geo-restricted).", source_name)
     return items

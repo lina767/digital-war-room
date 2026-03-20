@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from .context import AgentContext
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 import feedparser
 import httpx
@@ -45,35 +45,128 @@ NEWS_DOMAINS = (
     "middleeasteye.net,thehill.com"
 )
 
-# Vielfältige Quellen: internationale & regionale Medien, Think-Tanks (FDD/LWJ, CSIS, Crisis Group, ECFR, ISW, Bellingcat)
-RSS_FEEDS = {
-    "iran": [
+# Category-based multi-source RSS aggregation.
+def _google_news_rss(query: str, hl: str = "en-US", gl: str = "US", ceid: str = "US:en") -> str:
+    encoded = quote_plus(query.strip())
+    return f"https://news.google.com/rss/search?q={encoded}&hl={hl}&gl={gl}&ceid={ceid}"
+
+
+RSS_CATEGORY_FEEDS: Dict[str, List[str]] = {
+    "world_geopolitical": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
+        "https://rss.apnews.com/apf-topnews",
+        "https://www.theguardian.com/world/rss",
+        "https://feeds.npr.org/1004/rss.xml",
+        "https://www.politico.com/rss/politicopicks.xml",
+        "https://thediplomat.com/feed/",
+    ],
+    "middle_east_mena": [
         "https://www.aljazeera.com/xml/rss/all.xml",
-        "https://rss.dw.com/rdf/rss-en-world",
+        "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml",
+        "https://www.theguardian.com/world/middleeast/rss",
+        "https://english.alarabiya.net/.mrss/en.xml",
+        "https://www.timesofisrael.com/feed/",
+    ],
+    "africa": [
+        "https://feeds.bbci.co.uk/news/world/africa/rss.xml",
+        "https://feeds.news24.com/articles/news24/Africa/rss",
+        _google_news_rss("Africa geopolitics OR Sahel security"),
+    ],
+    "latin_america": [
+        "https://feeds.bbci.co.uk/news/world/latin_america/rss.xml",
+        "https://www.theguardian.com/world/americas/rss",
+        _google_news_rss('"Latin America" geopolitics OR security'),
+    ],
+    "asia_pacific": [
+        "https://feeds.bbci.co.uk/news/world/asia/rss.xml",
+        "https://www.scmp.com/rss/91/feed",
+        _google_news_rss('"Asia Pacific" geopolitics OR security'),
+    ],
+    "energy_resources": [
+        _google_news_rss('"oil gas" OR nuclear OR mining OR "Reuters Energy"'),
+    ],
+    "technology": [
+        "https://news.ycombinator.com/rss",
+        "https://arstechnica.com/feed/",
+        "https://www.theverge.com/rss/index.xml",
+        "https://www.technologyreview.com/feed/",
+    ],
+    "ai_ml": [
+        "http://export.arxiv.org/rss/cs.AI",
+        "https://venturebeat.com/category/ai/feed/",
+        "https://www.theverge.com/ai-artificial-intelligence/rss/index.xml",
+        "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+    ],
+    "finance": [
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+        "https://feeds.marketwatch.com/marketwatch/topstories/",
+        "https://www.ft.com/rss/home",
+        "https://finance.yahoo.com/news/rssindex",
+    ],
+    "government": [
+        "https://www.whitehouse.gov/briefing-room/feed/",
+        "https://www.state.gov/feed/",
+        "https://www.defense.gov/News/RSS/",
+        "https://home.treasury.gov/news/press-releases/rss",
+        "https://www.federalreserve.gov/feeds/press_monetary.xml",
+        "https://www.sec.gov/news/pressreleases.rss",
+        "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+        "https://www.cisa.gov/news.xml",
+    ],
+    "intel_feed": [
+        "https://www.defenseone.com/rss/all/",
+        "https://breakingdefense.com/feed/",
+        "https://www.bellingcat.com/feed/",
+        "https://krebsonsecurity.com/feed/",
+        "https://www.janes.com/feeds/news",
+    ],
+    "think_tanks": [
+        "https://foreignpolicy.com/feed/",
+        "https://www.atlanticcouncil.org/feed/",
+        "https://www.foreignaffairs.com/rss.xml",
+        "https://www.csis.org/rss.xml",
+        "https://www.rand.org/content/rand/en/news/rss.xml",
+        "https://www.brookings.edu/feed/",
+        "https://carnegieendowment.org/rss/all.xml",
+    ],
+    "crisis_watch": [
+        "https://www.crisisgroup.org/rss",
+        "https://www.iaea.org/newscenter/news/rss.xml",
+        "https://www.who.int/feeds/entity/mediacentre/news/en/rss.xml",
+        "https://www.unhcr.org/rss.xml",
+    ],
+    "regional_sources": [
+        "https://www.globaltimes.cn/rss/outbrain.xml",
+        "https://tass.com/rss/v2.xml",
+        "https://kyivindependent.com/feed/",
+        "https://www.themoscowtimes.com/rss/news",
+    ],
+    "layoffs_tracker": [
+        "https://layoffs.fyi/feed.xml",
+        _google_news_rss('"tech layoffs" OR "job cuts"'),
+    ],
+}
+
+RSS_CONFLICT_FEEDS: Dict[str, List[str]] = {
+    "iran": [
         "https://iranintl.com/en/rss",
-        "https://www.rferl.org/api/zpqoyhrhkhrut",  # RFE/RL Iran (EN)
+        "https://www.rferl.org/api/zpqoyhrhkhrut",
         "https://www.middleeasteye.net/rss",
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
-        "https://understandingwar.org/rss.xml",  # ISW – Iran Update
-        "https://www.bellingcat.com/feed/",  # Bellingcat OSINT
-        "https://www.crisisgroup.org/rss/85",  # Crisis Group – Iran
-        "https://ecfr.eu/feed/",  # European Council on Foreign Relations
-        "https://www.csis.org/rss.xml",  # CSIS (Middle East / Iran analysis)
-        "https://www.fdd.org/feed/",  # FDD – Iran reports (if available)
-        # Farsi/Persian-language Iran-focused feeds
-        "https://iranintl.com/fa/rss",  # Iran International (FA)
-        "https://www.radiofarda.com/api/zkqopekqqop_ztql",  # RFE/RL Radio Farda (FA)
-        "https://www.bbc.com/persian/index.xml",  # BBC Persian
+        "https://understandingwar.org/rss.xml",
+        "https://www.crisisgroup.org/rss/85",
+        "https://ecfr.eu/feed/",
+        "https://www.csis.org/rss.xml",
+        "https://www.fdd.org/feed/",
+        "https://iranintl.com/fa/rss",
+        "https://www.radiofarda.com/api/zkqopekqqop_ztql",
+        "https://www.bbc.com/persian/index.xml",
     ],
     "ukraine": [
-        "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "https://www.aljazeera.com/xml/rss/all.xml",
-        "https://rss.dw.com/rdf/rss-en-world",
-        "https://www.rferl.org/api/ztqppqhrpmqio",  # RFE/RL Ukraine
+        "https://www.rferl.org/api/ztqppqhrpmqio",
         "https://www.kyivpost.com/rss",
-        "https://www.middleeasteye.net/rss",
         "https://understandingwar.org/rss.xml",
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
@@ -81,8 +174,6 @@ RSS_FEEDS = {
     "default": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
         "https://www.aljazeera.com/xml/rss/all.xml",
-        "https://rss.dw.com/rdf/rss-en-world",
-        "https://www.france24.com/en/rss",
         "https://www.theguardian.com/world/rss",
     ],
 }
@@ -583,10 +674,19 @@ def search_gnews_news(conflict: str) -> List[Dict[str, Any]]:
 def _rss_feeds_for_conflict(conflict: str) -> List[str]:
     cl = conflict.lower()
     if "iran" in cl:
-        return RSS_FEEDS["iran"]
-    if "ukraine" in cl or "russia" in cl:
-        return RSS_FEEDS["ukraine"]
-    return RSS_FEEDS["default"]
+        conflict_specific = RSS_CONFLICT_FEEDS["iran"]
+    elif "ukraine" in cl or "russia" in cl:
+        conflict_specific = RSS_CONFLICT_FEEDS["ukraine"]
+    else:
+        conflict_specific = RSS_CONFLICT_FEEDS["default"]
+
+    all_category_feeds: List[str] = []
+    for feeds in RSS_CATEGORY_FEEDS.values():
+        all_category_feeds.extend(feeds)
+
+    # Stable dedup while preserving category-first order.
+    merged = all_category_feeds + conflict_specific
+    return list(dict.fromkeys(merged))
 
 
 def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:

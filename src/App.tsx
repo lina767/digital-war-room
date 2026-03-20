@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PageSkeleton } from "@/components/ui/skeleton";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -13,6 +13,7 @@ const Methodology = lazy(() => import("./pages/Methodology"));
 const Impressum = lazy(() => import("./pages/Impressum"));
 const SourceDirectory = lazy(() => import("./pages/SourceDirectory"));
 const DailyIntelligenceBriefing = lazy(() => import("./pages/DailyIntelligenceBriefing"));
+const Documentation = lazy(() => import("./pages/Documentation"));
 const Newsletter = lazy(() => import("./pages/Newsletter"));
 const NewsletterConfirm = lazy(() => import("./pages/NewsletterConfirm"));
 const NewsletterUnsubscribe = lazy(() => import("./pages/NewsletterUnsubscribe"));
@@ -38,6 +39,8 @@ const App = () => (
           <Route path="/methodology" element={<Methodology />} />
           <Route path="/sources" element={<SourceDirectory />} />
           <Route path="/daily-briefing" element={<DailyIntelligenceBriefing />} />
+          <Route path="/docs/documentation" element={<Documentation />} />
+          <Route path="/docs" element={<Navigate to="/docs/documentation" replace />} />
           <Route path="/newsletter" element={<Newsletter />} />
           <Route path="/newsletter/confirm" element={<NewsletterConfirm />} />
           <Route path="/newsletter/unsubscribe" element={<NewsletterUnsubscribe />} />

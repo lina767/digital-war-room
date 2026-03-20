@@ -18,6 +18,32 @@ const BlogPost = () => {
     month: "long",
     year: "numeric",
   });
+  const blogPostStructuredData = {
+    "@type": "BlogPosting",
+    "@id": `https://digital-war-room.com/blog/${post.slug}#blogposting`,
+    url: `https://digital-war-room.com/blog/${post.slug}`,
+    mainEntityOfPage: `https://digital-war-room.com/blog/${post.slug}`,
+    headline: post.title,
+    description: post.excerpt,
+    datePublished: post.date,
+    dateModified: post.date,
+    inLanguage: "en",
+    image: "https://digital-war-room.com/og-image.png",
+    author: {
+      "@type": "Organization",
+      "@id": "https://digital-war-room.com/#organization",
+      name: "Digital War Room",
+    },
+    publisher: {
+      "@type": "Organization",
+      "@id": "https://digital-war-room.com/#organization",
+      name: "Digital War Room",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://digital-war-room.com/favicon.png",
+      },
+    },
+  };
 
   return (
     <>
@@ -25,6 +51,10 @@ const BlogPost = () => {
         title={`${post.title} — Digital War Room Blog`}
         description={post.excerpt}
         path={`/blog/${post.slug}`}
+        pageType="BlogPosting"
+        datePublished={post.date}
+        dateModified={post.date}
+        structuredData={blogPostStructuredData}
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },
           { name: "Blog", url: "https://digital-war-room.com/blog" },

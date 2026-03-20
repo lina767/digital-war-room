@@ -5,6 +5,24 @@ import { BLOG_POSTS } from "@/lib/blogPosts";
 import { TITLE_BLOG, DESCRIPTION_BLOG } from "@/lib/seoCopy";
 import { Calendar, ArrowRight } from "lucide-react";
 
+const blogStructuredData = {
+  "@type": "Blog",
+  "@id": "https://digital-war-room.com/blog#blog",
+  url: "https://digital-war-room.com/blog",
+  name: "Digital War Room Blog",
+  description: DESCRIPTION_BLOG,
+  inLanguage: "en",
+  blogPost: BLOG_POSTS.map((post) => ({
+    "@type": "BlogPosting",
+    "@id": `https://digital-war-room.com/blog/${post.slug}#blogposting`,
+    url: `https://digital-war-room.com/blog/${post.slug}`,
+    headline: post.title,
+    datePublished: post.date,
+    dateModified: post.date,
+    description: post.excerpt,
+  })),
+};
+
 const Blog = () => {
   return (
     <>
@@ -12,6 +30,8 @@ const Blog = () => {
         title={TITLE_BLOG}
         description={DESCRIPTION_BLOG}
         path="/blog"
+        pageType="Blog"
+        structuredData={blogStructuredData}
         breadcrumbs={[
           { name: "Home", url: "https://digital-war-room.com/" },
           { name: "Blog", url: "https://digital-war-room.com/blog" },
