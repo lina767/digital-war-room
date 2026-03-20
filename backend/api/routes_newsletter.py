@@ -11,7 +11,6 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 
-from agents.config import DEFAULT_CONFLICT
 from agents.supervisor import analyze_conflict
 from middleware.rate_limit import limiter
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
@@ -39,6 +38,7 @@ from .state_helpers import (
 router = APIRouter()
 
 ANALYZE_TIMEOUT_SEC = 300
+NEWSLETTER_DEFAULT_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Global").strip() or "Global"
 
 
 class SubscribeBody(BaseModel):
@@ -53,7 +53,7 @@ async def newsletter_subscribe(request: Request, body: SubscribeBody) -> JSONRes
     POST /api/newsletter/subscribe – create unconfirmed subscriber and send confirmation email.
     """
     email = (body.email or "").strip().lower()
-    conflict = (body.conflict or DEFAULT_CONFLICT or "Iran").strip() or "Iran"
+    conflict = (body.conflict or NEWSLETTER_DEFAULT_CONFLICT).strip() or NEWSLETTER_DEFAULT_CONFLICT
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:

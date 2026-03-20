@@ -22,6 +22,7 @@ from services.http_client import get_http_client
 logger = logging.getLogger(__name__)
 
 RESEND_API_BASE = "https://api.resend.com"
+DEFAULT_NEWSLETTER_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Global").strip() or "Global"
 
 
 def _api_key() -> str:
@@ -80,7 +81,11 @@ async def mark_contact_unsubscribed(email: str, conflict: str | None = None) -> 
     """
     Mark contact as unsubscribed on Resend (without deleting contact history).
     """
-    return await _upsert_contact(email=email, conflict=conflict or "Iran", unsubscribed=True)
+    return await _upsert_contact(
+        email=email,
+        conflict=(conflict or DEFAULT_NEWSLETTER_CONFLICT),
+        unsubscribed=True,
+    )
 
 
 async def _upsert_contact(email: str, conflict: str, unsubscribed: bool) -> bool:

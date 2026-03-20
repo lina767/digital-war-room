@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 DB_PATH = Path(os.getenv("NEWSLETTER_DB_PATH", Path(__file__).resolve().parent.parent / "data" / "newsletter.sqlite"))
+DEFAULT_NEWSLETTER_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Global").strip() or "Global"
 
 
 def _ensure_db() -> sqlite3.Connection:
@@ -21,7 +22,7 @@ def _ensure_db() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS newsletter_subscribers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT NOT NULL,
-            conflict TEXT NOT NULL DEFAULT 'Iran',
+            conflict TEXT NOT NULL DEFAULT 'Global',
             subscribed_at TEXT NOT NULL,
             unsubscribe_token TEXT NOT NULL UNIQUE,
             confirm_token TEXT NOT NULL UNIQUE,
@@ -35,14 +36,14 @@ def _ensure_db() -> sqlite3.Connection:
     return conn
 
 
-def add_subscriber(email: str, conflict: str = "Iran") -> Tuple[Optional[str], Optional[str]]:
+def add_subscriber(email: str, conflict: str = DEFAULT_NEWSLETTER_CONFLICT) -> Tuple[Optional[str], Optional[str]]:
     """
     Add a new subscriber (unconfirmed). Returns (confirm_token, unsubscribe_token) or (None, None) if email already exists.
     """
     email = (email or "").strip().lower()
     if not email:
         raise ValueError("email is required")
-    conflict = (conflict or "Iran").strip() or "Iran"
+    conflict = (conflict or DEFAULT_NEWSLETTER_CONFLICT).strip() or DEFAULT_NEWSLETTER_CONFLICT
     confirm_token = str(uuid.uuid4())
     unsubscribe_token = str(uuid.uuid4())
     from datetime import datetime, timezone
