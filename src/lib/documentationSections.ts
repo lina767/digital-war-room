@@ -1,16 +1,16 @@
-export interface DocumentationLinkItem {
-  label: string;
-  description?: string;
-  to?: string;
-  href?: string;
-  external?: boolean;
-}
-
-export interface DocumentationSection {
-  heading: string;
-  description?: string;
-  items: DocumentationLinkItem[];
-}
+import projectDocumentation from "../../docs/PROJECT-DOCUMENTATION.md?raw";
+import architecture from "../../docs/ARCHITECTURE.md?raw";
+import apiReference from "../../docs/API-REFERENCE.md?raw";
+import deployment from "../../docs/DEPLOYMENT.md?raw";
+import agents from "../../docs/AGENTS.md?raw";
+import agentToolChain from "../../docs/AGENT-TOOL-CHAIN.md?raw";
+import methodology from "../../docs/methodology.md?raw";
+import howItWorks from "../../docs/how-it-works.md?raw";
+import sourceDirectory from "../../docs/source-directory.md?raw";
+import observability from "../../docs/OBSERVABILITY.md?raw";
+import security from "../../docs/SECURITY.md?raw";
+import apiKeys from "../../docs/API-KEYS.md?raw";
+import newsletterSpec from "../../docs/NEWSLETTER-SPEC.md?raw";
 
 const REPO_DOCS_BASE = "https://github.com/lina767/digital-war-room/blob/main/docs";
 
@@ -22,142 +22,175 @@ export const CANONICAL_DOC_LINKS = {
   howItWorks: `${REPO_DOCS_BASE}/how-it-works.md`,
   methodology: `${REPO_DOCS_BASE}/methodology.md`,
   sourceDirectory: `${REPO_DOCS_BASE}/source-directory.md`,
+  security: `${REPO_DOCS_BASE}/SECURITY.md`,
+  observability: `${REPO_DOCS_BASE}/OBSERVABILITY.md`,
 } as const;
 
-export const DOCUMENTATION_SECTIONS: DocumentationSection[] = [
+export interface DocumentationManifestSection {
+  id: string;
+  title: string;
+  description: string;
+}
+
+export interface DocumentationManifestDoc {
+  id: string;
+  sectionId: string;
+  title: string;
+  description: string;
+  filePath: string;
+  githubUrl: string;
+  content: string;
+}
+
+export const DEFAULT_DOC_ID = "project-documentation";
+
+export const DOCUMENTATION_MANIFEST_SECTIONS: DocumentationManifestSection[] = [
   {
-    heading: "Platform Overview",
-    description: "Start here if you are new to the project or want a high-level understanding.",
-    items: [
-      {
-        label: "Complete Project Documentation",
-        description: "Single, end-to-end technical documentation for architecture, setup, API, and operations.",
-        href: CANONICAL_DOC_LINKS.projectDocumentation,
-        external: true,
-      },
-      {
-        label: "README",
-        description: "Product overview, architecture snapshot, and quick start instructions.",
-        href: "https://github.com/lina767/digital-war-room#readme",
-        external: true,
-      },
-      {
-        label: "How It Works",
-        description: "User-facing explanation of dashboard flow, intelligence fusion, and platform logic.",
-        to: "/how-it-works",
-      },
-    ],
+    id: "overview",
+    title: "Overview",
+    description: "Project orientation, product context, and the main technical entry points.",
   },
   {
-    heading: "Architecture and Agents",
-    description: "Understand backend layers, orchestration, and how specialized agents contribute.",
-    items: [
-      {
-        label: "Architecture",
-        description: "Backend layer model, dependency rules, and execution path.",
-        href: CANONICAL_DOC_LINKS.architecture,
-        external: true,
-      },
-      {
-        label: "Agent Catalog",
-        description: "Per-agent inputs, data sources, outputs, and usage context.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/docs/AGENTS.md",
-        external: true,
-      },
-      {
-        label: "Agent Tool Chain",
-        description: "Rule-based collection pipeline and model/tool coordination by agent.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/docs/AGENT-TOOL-CHAIN.md",
-        external: true,
-      },
-      {
-        label: "Methodology",
-        description: "Escalation scoring rationale, weighting logic, and analytical framework.",
-        to: "/methodology",
-      },
-    ],
+    id: "architecture",
+    title: "Architecture",
+    description: "Backend layers, orchestration model, and agent system design.",
   },
   {
-    heading: "API and Integrations",
-    description: "Backend endpoints, real-time channels, and external service integration points.",
-    items: [
-      {
-        label: "API Reference",
-        description: "REST endpoints for analysis, monitoring, compliance, documents, and newsletter.",
-        href: CANONICAL_DOC_LINKS.apiReference,
-        external: true,
-      },
-      {
-        label: "API Keys and Providers",
-        description: "Required and optional keys for LLMs, data providers, and enrichment features.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/docs/API-KEYS.md",
-        external: true,
-      },
-      {
-        label: "Source Directory",
-        description: "Transparent mapping of intelligence sources and reliability notes.",
-        to: "/sources",
-      },
-      {
-        label: "Agent Monitor",
-        description: "Operational view of latest per-agent status and health signals.",
-        to: "/app/monitoring",
-      },
-    ],
+    id: "api-and-data",
+    title: "API and Data",
+    description: "Endpoints, provider setup, and source transparency.",
   },
   {
-    heading: "Operations and Deployment",
-    description: "Runbook content for local development, production rollout, and maintenance.",
-    items: [
-      {
-        label: "Deployment Guide",
-        description: "Vercel and Railway setup with environment and go-live checklist.",
-        href: CANONICAL_DOC_LINKS.deployment,
-        external: true,
-      },
-      {
-        label: "Docker Development",
-        description: "Compose-based local stack with frontend, backend, and pgvector database.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/docs/DOCKER-DEV.md",
-        external: true,
-      },
-      {
-        label: "Observability",
-        description: "Sentry, OpenTelemetry, and operational logging guidance.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/docs/OBSERVABILITY.md",
-        external: true,
-      },
-      {
-        label: "Security",
-        description: "Production hardening recommendations and safe configuration guidance.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/docs/SECURITY.md",
-        external: true,
-      },
-      {
-        label: "Contributing",
-        description: "Contribution workflow, quality checks, and project conventions.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/CONTRIBUTING.md",
-        external: true,
-      },
-      {
-        label: "Daily Briefing",
-        description: "Briefing format and intelligence synthesis output used for daily updates.",
-        to: "/daily-briefing",
-      },
-    ],
-  },
-  {
-    heading: "Legal",
-    description: "Compliance and legal pages for public use of the platform.",
-    items: [
-      { label: "Legal Notice", description: "Provider identification and legal notice page.", to: "/impressum" },
-      { label: "Privacy Policy", description: "Privacy and data handling policy.", to: "/privacy" },
-      {
-        label: "License",
-        description: "Repository license terms.",
-        href: "https://github.com/lina767/digital-war-room/blob/main/LICENSE",
-        external: true,
-      },
-    ],
+    id: "operations",
+    title: "Operations",
+    description: "Deployment runbooks, observability, and production hardening.",
   },
 ];
+
+export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
+  {
+    id: "project-documentation",
+    sectionId: "overview",
+    title: "Project Documentation",
+    description: "Complete technical documentation for setup, architecture, API, and operations.",
+    filePath: "docs/PROJECT-DOCUMENTATION.md",
+    githubUrl: `${REPO_DOCS_BASE}/PROJECT-DOCUMENTATION.md`,
+    content: projectDocumentation,
+  },
+  {
+    id: "how-it-works",
+    sectionId: "overview",
+    title: "How It Works",
+    description: "Conceptual explanation of product behavior and analytical pipeline.",
+    filePath: "docs/how-it-works.md",
+    githubUrl: `${REPO_DOCS_BASE}/how-it-works.md`,
+    content: howItWorks,
+  },
+  {
+    id: "architecture",
+    sectionId: "architecture",
+    title: "Architecture",
+    description: "Layer boundaries, dependency rules, and execution path.",
+    filePath: "docs/ARCHITECTURE.md",
+    githubUrl: `${REPO_DOCS_BASE}/ARCHITECTURE.md`,
+    content: architecture,
+  },
+  {
+    id: "agents",
+    sectionId: "architecture",
+    title: "Agents",
+    description: "Agent-by-agent overview of inputs, sources, and output fields.",
+    filePath: "docs/AGENTS.md",
+    githubUrl: `${REPO_DOCS_BASE}/AGENTS.md`,
+    content: agents,
+  },
+  {
+    id: "agent-tool-chain",
+    sectionId: "architecture",
+    title: "Agent Tool Chain",
+    description: "Rule-based collection and model/tool usage across agent workflows.",
+    filePath: "docs/AGENT-TOOL-CHAIN.md",
+    githubUrl: `${REPO_DOCS_BASE}/AGENT-TOOL-CHAIN.md`,
+    content: agentToolChain,
+  },
+  {
+    id: "methodology",
+    sectionId: "architecture",
+    title: "Methodology",
+    description: "Scoring rationale and analytical method used for escalation assessments.",
+    filePath: "docs/methodology.md",
+    githubUrl: `${REPO_DOCS_BASE}/methodology.md`,
+    content: methodology,
+  },
+  {
+    id: "api-reference",
+    sectionId: "api-and-data",
+    title: "API Reference",
+    description: "REST, streaming, and websocket endpoints exposed by the backend.",
+    filePath: "docs/API-REFERENCE.md",
+    githubUrl: `${REPO_DOCS_BASE}/API-REFERENCE.md`,
+    content: apiReference,
+  },
+  {
+    id: "api-keys",
+    sectionId: "api-and-data",
+    title: "API Keys",
+    description: "Environment variable contract and external provider key setup.",
+    filePath: "docs/API-KEYS.md",
+    githubUrl: `${REPO_DOCS_BASE}/API-KEYS.md`,
+    content: apiKeys,
+  },
+  {
+    id: "source-directory",
+    sectionId: "api-and-data",
+    title: "Source Directory",
+    description: "Provider inventory and source transparency details.",
+    filePath: "docs/source-directory.md",
+    githubUrl: `${REPO_DOCS_BASE}/source-directory.md`,
+    content: sourceDirectory,
+  },
+  {
+    id: "deployment",
+    sectionId: "operations",
+    title: "Deployment",
+    description: "Production deployment guide for Railway + Vercel.",
+    filePath: "docs/DEPLOYMENT.md",
+    githubUrl: `${REPO_DOCS_BASE}/DEPLOYMENT.md`,
+    content: deployment,
+  },
+  {
+    id: "newsletter",
+    sectionId: "operations",
+    title: "Newsletter Spec",
+    description: "Daily briefing newsletter flow, endpoints, and integration details.",
+    filePath: "docs/NEWSLETTER-SPEC.md",
+    githubUrl: `${REPO_DOCS_BASE}/NEWSLETTER-SPEC.md`,
+    content: newsletterSpec,
+  },
+  {
+    id: "observability",
+    sectionId: "operations",
+    title: "Observability",
+    description: "Tracing, logs, monitoring setup, and diagnostics.",
+    filePath: "docs/OBSERVABILITY.md",
+    githubUrl: `${REPO_DOCS_BASE}/OBSERVABILITY.md`,
+    content: observability,
+  },
+  {
+    id: "security",
+    sectionId: "operations",
+    title: "Security",
+    description: "Security posture, controls, and operational safeguards.",
+    filePath: "docs/SECURITY.md",
+    githubUrl: `${REPO_DOCS_BASE}/SECURITY.md`,
+    content: security,
+  },
+];
+
+export function getDocumentationDocById(id: string): DocumentationManifestDoc | undefined {
+  return DOCUMENTATION_MANIFEST_DOCS.find((doc) => doc.id === id);
+}
+
+export function getDocumentationDocOrDefault(id: string | null | undefined): DocumentationManifestDoc {
+  return getDocumentationDocById(id ?? "") ?? getDocumentationDocById(DEFAULT_DOC_ID) ?? DOCUMENTATION_MANIFEST_DOCS[0];
+}
