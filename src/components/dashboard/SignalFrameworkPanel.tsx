@@ -7,9 +7,10 @@ interface SignalFrameworkPanelProps {
   data: ConflictData | null;
   /** Only show panel when this conflict is selected (e.g. Iran has narrative comparison). */
   activeConflict?: string | null;
+  embedded?: boolean;
 }
 
-export function SignalFrameworkPanel({ data, activeConflict }: SignalFrameworkPanelProps) {
+export function SignalFrameworkPanel({ data, activeConflict, embedded = false }: SignalFrameworkPanelProps) {
   const narrative = data?.narrative;
   const table = narrative?.source_comparison_table ?? [];
   const synthesisText = narrative?.synthesis_text ?? "";
@@ -24,6 +25,7 @@ export function SignalFrameworkPanel({ data, activeConflict }: SignalFrameworkPa
       title="SIGNAL FRAMEWORK"
       icon={<Scale className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
       tooltipContent={DASHBOARD_PANEL_TOOLTIPS["SIGNAL FRAMEWORK"]}
+      embedded={embedded}
     >
       {!hasData && (
         <p className="text-xs text-muted-foreground italic">

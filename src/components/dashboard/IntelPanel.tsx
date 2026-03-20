@@ -8,11 +8,17 @@ interface IntelPanelProps {
   headerRight?: React.ReactNode;
   /** Optional "What is this?" tooltip text; when set, an info icon is shown in the header. */
   tooltipContent?: string;
+  /** When true, render content only without panel frame/header (for nested usage). */
+  embedded?: boolean;
   children: React.ReactNode;
   className?: string;
 }
 
-export function IntelPanel({ title, icon, headerRight, tooltipContent, children, className }: IntelPanelProps) {
+export function IntelPanel({ title, icon, headerRight, tooltipContent, embedded, children, className }: IntelPanelProps) {
+  if (embedded) {
+    return <div className={cn("p-3 space-y-3 min-w-0", className)}>{children}</div>;
+  }
+
   return (
     <div className={cn("rounded-lg border border-border bg-card overflow-hidden transition-colors duration-200 hover:border-primary/20", className)}>
       <div className="px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between gap-2">

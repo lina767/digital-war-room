@@ -964,6 +964,7 @@ function DocumentQASection({ data }: { data: ConflictData | null }) {
 
 interface CompliancePanelProps {
   data: ConflictData | null;
+  embedded?: boolean;
 }
 
 function OFACEUSummary({ compliance }: { compliance: NonNullable<ConflictData["compliance"]> }) {
@@ -1020,7 +1021,7 @@ function OFACEUSummary({ compliance }: { compliance: NonNullable<ConflictData["c
   );
 }
 
-export function CompliancePanel({ data }: CompliancePanelProps) {
+export function CompliancePanel({ data, embedded = false }: CompliancePanelProps) {
   const compliance = data?.compliance;
   const alerts = compliance?.geofencing_alerts ?? [];
   const anomalies = compliance?.ais_anomalies ?? [];
@@ -1038,6 +1039,7 @@ export function CompliancePanel({ data }: CompliancePanelProps) {
       title="SANCTIONS COMPLIANCE"
       icon={<Shield className="h-3.5 w-3.5 text-muted-foreground" />}
       tooltipContent={DASHBOARD_PANEL_TOOLTIPS["SANCTIONS COMPLIANCE"]}
+      embedded={embedded}
     >
       <TooltipProvider>
         <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">

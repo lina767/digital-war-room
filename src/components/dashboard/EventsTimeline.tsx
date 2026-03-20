@@ -28,9 +28,10 @@ function categorizeFinding(f: string): TimelineFilter {
 
 interface EventsTimelineProps {
   data: ConflictData | null;
+  embedded?: boolean;
 }
 
-export function EventsTimeline({ data }: EventsTimelineProps) {
+export function EventsTimeline({ data, embedded = false }: EventsTimelineProps) {
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [showAll, setShowAll] = useState(false);
   const findings = data?.key_findings ?? [];
@@ -46,6 +47,7 @@ export function EventsTimeline({ data }: EventsTimelineProps) {
     <IntelPanel
       title="EVENTS TIMELINE"
       tooltipContent={DASHBOARD_PANEL_TOOLTIPS["EVENTS TIMELINE"]}
+      embedded={embedded}
       headerRight={
         <div className="flex flex-wrap gap-1">
           {(Object.keys(FILTER_LABELS) as TimelineFilter[]).map((key) => (

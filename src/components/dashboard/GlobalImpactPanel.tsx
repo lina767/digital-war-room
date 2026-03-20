@@ -8,6 +8,7 @@ const GLOBAL_IMPACT_PREFIX = "global impact";
 
 interface GlobalImpactPanelProps {
   data: ConflictData | null;
+  embedded?: boolean;
 }
 
 /** Filters key_findings that contain "Global impact" (e.g. oil/Hormuz/chokepoint). */
@@ -15,7 +16,7 @@ function getGlobalImpactFindings(keyFindings: string[]): string[] {
   return keyFindings.filter((f) => f.toLowerCase().includes(GLOBAL_IMPACT_PREFIX));
 }
 
-export function GlobalImpactPanel({ data }: GlobalImpactPanelProps) {
+export function GlobalImpactPanel({ data, embedded = false }: GlobalImpactPanelProps) {
   const note = data?.energy?.global_impact_note ?? null;
   const keyFindings = data?.key_findings ?? [];
   const globalFindings = getGlobalImpactFindings(keyFindings);
@@ -30,6 +31,7 @@ export function GlobalImpactPanel({ data }: GlobalImpactPanelProps) {
       title="GLOBAL IMPACT"
       icon={<Globe className="h-3.5 w-3.5 text-muted-foreground" />}
       tooltipContent={DASHBOARD_PANEL_TOOLTIPS["GLOBAL IMPACT"]}
+      embedded={embedded}
     >
       {hasNote && (
         <p className="text-xs leading-relaxed text-foreground">{note}</p>

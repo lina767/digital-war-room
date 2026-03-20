@@ -12,9 +12,10 @@ const MAX_VISIBLE = 15;
 interface LatestHeadlinesProps {
   data: ConflictData | null;
   maxItems?: number;
+  embedded?: boolean;
 }
 
-export function LatestHeadlines({ data, maxItems = DEFAULT_VISIBLE }: LatestHeadlinesProps) {
+export function LatestHeadlines({ data, maxItems = DEFAULT_VISIBLE, embedded = false }: LatestHeadlinesProps) {
   const articles = data?.news?.articles ?? [];
   const [showAll, setShowAll] = useState(false);
   const visibleCount = showAll ? Math.min(articles.length, MAX_VISIBLE) : Math.min(articles.length, maxItems);
@@ -26,6 +27,7 @@ export function LatestHeadlines({ data, maxItems = DEFAULT_VISIBLE }: LatestHead
       title="LATEST HEADLINES"
       headerRight={articles.length > 0 ? <span className="text-[11px] text-muted-foreground">{articles.length} stories</span> : undefined}
       tooltipContent={DASHBOARD_PANEL_TOOLTIPS["LATEST HEADLINES"]}
+      embedded={embedded}
     >
       <ul className="divide-y divide-border/60 max-h-64 overflow-y-auto">
         {display.length === 0 && (

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 interface ChokePointPanelProps {
   data: ConflictData | null;
+  embedded?: boolean;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -78,7 +79,7 @@ function CommodityRow({ symbol, price, change }: { symbol: string; price?: strin
   );
 }
 
-export function ChokePointPanel({ data }: ChokePointPanelProps) {
+export function ChokePointPanel({ data, embedded = false }: ChokePointPanelProps) {
   const cpData = data?.chokepoint;
   const chokepoints = cpData?.chokepoints ?? [];
   const score = cpData?.chokepoint_score ?? 0;
@@ -142,6 +143,7 @@ export function ChokePointPanel({ data }: ChokePointPanelProps) {
       title="CHOKEPOINT MONITOR"
       icon={<Anchor className="h-3.5 w-3.5 text-muted-foreground" />}
       tooltipContent={DASHBOARD_PANEL_TOOLTIPS["CHOKEPOINT MONITOR"]}
+      embedded={embedded}
     >
         {cpData?.summary && (
           <p className="text-xs text-muted-foreground leading-relaxed mb-2 pb-2 border-b border-border/60">

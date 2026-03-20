@@ -60,9 +60,10 @@ function getEscalationForecasts(block?: PredictiveBlock): EscalationForecast[] {
 
 interface PredictivePanelProps {
   data: ConflictData | null;
+  embedded?: boolean;
 }
 
-export function PredictivePanel({ data }: PredictivePanelProps) {
+export function PredictivePanel({ data, embedded = false }: PredictivePanelProps) {
   const predictive = data?.predictive;
   if (!predictive) return null;
 
@@ -86,6 +87,7 @@ export function PredictivePanel({ data }: PredictivePanelProps) {
         title="PREDICTIVE OUTLOOK"
         headerRight={headerRight}
         tooltipContent={DASHBOARD_PANEL_TOOLTIPS["PREDICTIVE OUTLOOK"]}
+        embedded={embedded}
       >
         <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
           <span>{PREDICTIVE_OUTLOOK_INTRO_SHORT}</span>

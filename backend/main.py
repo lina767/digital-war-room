@@ -30,6 +30,7 @@ from observability import init as init_observability
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 from services.state_service import StateService
+from agents.socmint_agent import scrape_twitter_nitter, scrape_telegram_channels, search_reddit
 
 # Konflikt, der periodisch automatisch analysiert wird (unabhängig von Aufrufen)
 from agents.config import DEFAULT_CONFLICT
@@ -321,3 +322,57 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
         except Exception:
             pass
         websocket.app.state.ws_manager.disconnect(websocket)
+
+
+@app.websocket("/ws/social/{conflict}")
+async def websocket_social_endpoint(websocket: WebSocket, conflict: str):
+    await websocket.accept()
+    logger.info("Social WS client connected – conflict: %s", conflict)
+    loop = asyncio.get_running_loop()
+
+    async def _collect_live_social() -> dict:
+        twitter_fut = loop.run_in_executor(None, lambda: scrape_twitter_nitter(conflict))
+        telegram_fut = loop.run_in_executor(None, lambda: scrape_telegram_channels(conflict))
+        reddit_fut = loop.run_in_executor(None, lambda: search_reddit(conflict, limit=12))
+        twitter_raw, telegram_raw, reddit_raw = await asyncio.gather(
+            twitter_fut, telegram_fut, reddit_fut, return_exceptions=True
+        )
+
+        def _sanitize(items):
+            if isinstance(items, list):
+                return [i for i in items if isinstance(i, dict) and "error" not in i]
+            return []
+
+        twitter_items = _sanitize(twitter_raw)
+        telegram_items = _sanitize(telegram_raw)
+        reddit_items = _sanitize(reddit_raw)
+
+        def _sort_by_signal(items: list[dict], key: str = "sentiment_score", limit: int = 8) -> list[dict]:
+            return sorted(items, key=lambda x: abs(float(x.get(key, 0) or 0)), reverse=True)[:limit]
+
+        return {
+            "status": "ok",
+            "conflict": conflict,
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "twitter": _sort_by_signal(twitter_items),
+            "telegram": _sort_by_signal(telegram_items),
+            "reddit": sorted(reddit_items, key=lambda x: int(x.get("upvotes", 0) or 0), reverse=True)[:8],
+        }
+
+    try:
+        while True:
+            payload = await _collect_live_social()
+            await websocket.send_json(payload)
+            await asyncio.sleep(45)
+    except WebSocketDisconnect:
+        logger.info("Social WS client disconnected – conflict: %s", conflict)
+    except Exception as e:
+        logger.exception("Social WS error: %s", e)
+        try:
+            await websocket.send_json({"status": "error", "message": str(e), "conflict": conflict})
+        except Exception:
+            pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass

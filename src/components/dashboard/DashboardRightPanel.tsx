@@ -15,6 +15,7 @@ import { PredictivePanel } from "@/components/dashboard/PredictivePanel";
 import { CompliancePanel } from "@/components/dashboard/CompliancePanel";
 import { WorldMap } from "@/components/dashboard/WorldMap";
 import { AgentsStatusBar } from "@/components/dashboard/AgentsStatusBar";
+import { LiveSocialMonitor } from "@/components/dashboard/LiveSocialMonitor";
 import { CollapsiblePanel } from "@/components/dashboard/CollapsiblePanel";
 import { CollapsibleDomainGroup } from "@/components/dashboard/CollapsibleDomainGroup";
 import { CorroboratedPatternsBlock } from "@/components/dashboard/CorroboratedPatternsBlock";
@@ -30,6 +31,7 @@ import { Link } from "react-router-dom";
 import { Target, X, Globe, LayoutGrid, List, Focus } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 import { formatTimeAgo } from "@/lib/utils";
+import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
 
 interface ProximityAnalyzerBlockProps {
   analysisLoading?: boolean;
@@ -140,6 +142,7 @@ export function DashboardRightPanel({
   proximityEvidence,
 }: DashboardRightPanelProps) {
   const [feedView, setFeedView] = useState<FeedViewMode>(loadFeedView);
+  const socialStream = useSocialWebSocket(activeConflict || displayConflictLabel || "Iran", true);
 
   useEffect(() => {
     saveFeedView(feedView);
@@ -180,31 +183,31 @@ export function DashboardRightPanel({
       case "signal-framework":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="SIGNAL FRAMEWORK">
-            <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} />
+            <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} embedded />
           </CollapsiblePanel>
         );
       case "predictive":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="PREDICTIVE OUTLOOK">
-            <PredictivePanel data={conflictData} />
+            <PredictivePanel data={conflictData} embedded />
           </CollapsiblePanel>
         );
       case "compliance":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="SANCTIONS COMPLIANCE">
-            <CompliancePanel data={conflictData} />
+            <CompliancePanel data={conflictData} embedded />
           </CollapsiblePanel>
         );
       case "chokepoint":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="CHOKEPOINT MONITOR">
-            <ChokePointPanel data={conflictData} />
+            <ChokePointPanel data={conflictData} embedded />
           </CollapsiblePanel>
         );
       case "global-impact":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="GLOBAL IMPACT">
-            <GlobalImpactPanel data={conflictData} />
+            <GlobalImpactPanel data={conflictData} embedded />
           </CollapsiblePanel>
         );
       case "headlines":
@@ -217,13 +220,13 @@ export function DashboardRightPanel({
               <span className="text-[11px] text-muted-foreground">{conflictData.news.articles.length} stories</span>
             ) : undefined}
           >
-            <LatestHeadlines data={conflictData} maxItems={5} />
+            <LatestHeadlines data={conflictData} maxItems={5} embedded />
           </CollapsiblePanel>
         );
       case "events-timeline":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="EVENTS TIMELINE">
-            <EventsTimeline data={conflictData} />
+            <EventsTimeline data={conflictData} embedded />
           </CollapsiblePanel>
         );
       case "proximity":
@@ -247,6 +250,14 @@ export function DashboardRightPanel({
               <InternetConnectivity />
               <FlightRadar sigint={conflictData?.sigint} />
               <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} polymarketHistory={conflictData?.finint?.polymarket_history} />
+              <LiveSocialMonitor
+                status={socialStream.status}
+                error={socialStream.error}
+                lastUpdated={socialStream.lastUpdated}
+                twitter={socialStream.twitter}
+                telegram={socialStream.telegram}
+                reddit={socialStream.reddit}
+              />
             </div>
           </CollapsiblePanel>
         );
