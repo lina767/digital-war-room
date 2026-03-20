@@ -86,18 +86,32 @@ class HttpClient:
 
 
 _client: Optional[HttpClient] = None
+_client_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 def get_http_client() -> HttpClient:
-    """Return process-wide shared HttpClient instance."""
-    global _client
+    """Return process-wide shared HttpClient instance, recreating if event loop changed."""
+    global _client, _client_loop
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    # Client exists but event loop changed -> recreate.
+    if _client is not None and _client_loop is not current_loop:
+        # Do not await old client close here (old loop may be gone).
+        _client = None
+        _client_loop = None
+
     if _client is None:
         _client = HttpClient()
+        _client_loop = current_loop
     return _client
 
 
 async def close_http_client() -> None:
-    global _client
+    global _client, _client_loop
     if _client is not None:
         await _client.aclose()
         _client = None
+        _client_loop = None
