@@ -44,6 +44,7 @@ interface LayerVisibility {
 }
 
 type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
+type ExplosionTimeRange = "6h" | "24h" | "48h" | "7d" | "all";
 
 const INITIAL_LAYERS: LayerVisibility = {
   geoint: true,
@@ -66,6 +67,34 @@ function layerReducer(state: LayerVisibility, action: LayerAction): LayerVisibil
 /** Logarithmic marker scale — visually consistent across zoom 2..8 */
 function markerScale(zoom: number): number {
   return Math.max(0.15, 1 / Math.sqrt(zoom));
+}
+
+function parseEventTimestamp(value?: string): number | null {
+  if (!value) return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const normalized = isDateOnly ? `${raw}T00:00:00Z` : raw;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function withinExplosionRange(evt: TheaterEvent, range: ExplosionTimeRange): boolean {
+  if (range === "all" || evt.event_type !== "explosion") return true;
+
+  const hoursByRange: Record<Exclude<ExplosionTimeRange, "all">, number> = {
+    "6h": 6,
+    "24h": 24,
+    "48h": 48,
+    "7d": 7 * 24,
+  };
+
+  const timestamp = parseEventTimestamp(evt.event_date ?? evt.date_start);
+  if (timestamp == null) return false;
+
+  const cutoff = Date.now() - hoursByRange[range] * 60 * 60 * 1000;
+  return timestamp >= cutoff;
 }
 
 /* ------------------------------------------------------------------ */
@@ -530,9 +559,10 @@ function TheaterMapInner({
   const [selectedSigint, setSelectedSigint] = useState<
     { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
   >(null);
+  const [explosionRange, setExplosionRange] = useState<ExplosionTimeRange>("7d");
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
-  const [zoom, setZoom] = useState(4);
-  const [center, setCenter] = useState<[number, number]>([53, 32]);
+  const [zoom, setZoom] = useState(4.73);
+  const [center, setCenter] = useState<[number, number]>([54.0836, 31.7419]);
 
   /* ---- async data + error states --------------------------------- */
   const [theaterEvents, setTheaterEvents] = useState<TheaterEvent[]>([]);
@@ -602,6 +632,10 @@ function TheaterMapInner({
     }
   }, [activeConflict]);
 
+  useEffect(() => {
+    setExplosionRange("7d");
+  }, [activeConflict]);
+
   /* ---- heatmap data ---------------------------------------------- */
   useEffect(() => {
     if (!layers.heatmap || !activeConflict) {
@@ -649,17 +683,29 @@ function TheaterMapInner({
     [],
   );
 
+  const filteredTheaterEvents = useMemo(
+    () => theaterEvents.filter((evt) => withinExplosionRange(evt, explosionRange)),
+    [theaterEvents, explosionRange],
+  );
+
+  useEffect(() => {
+    if (!selectedEvent) return;
+    if (!filteredTheaterEvents.includes(selectedEvent)) {
+      setSelectedEvent(null);
+    }
+  }, [selectedEvent, filteredTheaterEvents]);
+
   const eventLegendItems = useMemo(() => {
-    if (theaterLoading || theaterEvents.length === 0) return [];
+    if (theaterLoading || filteredTheaterEvents.length === 0) return [];
     return (Object.entries(THEATER_EVENT_STYLE) as [string, { label: string; fill: string }][])
       .map(([key, { label, fill }]) => ({
         key,
         label,
         fill,
-        count: theaterEvents.filter((e) => e.event_type === key).length,
+        count: filteredTheaterEvents.filter((e) => e.event_type === key).length,
       }))
       .filter((item) => item.count > 0);
-  }, [theaterEvents, theaterLoading]);
+  }, [filteredTheaterEvents, theaterLoading]);
 
   const airRouteLabels = useMemo(() => {
     if (!layers.airRoutes || !hasOverlayDataForConflict(activeConflict) || zoom < 4) return null;
@@ -816,7 +862,7 @@ function TheaterMapInner({
 
           {!theaterLoading && (
             <TheaterEventsLayer
-              events={theaterEvents}
+              events={filteredTheaterEvents}
               s={s}
               onTooltipShow={handleTooltipShow}
               onTooltipHide={handleTooltipHide}
@@ -1067,6 +1113,27 @@ function TheaterMapInner({
 
       {/* Layer toggle bar – horizontal scroll on small screens, wrap on md+ */}
       <div className="absolute bottom-12 left-2 right-2 md:right-auto max-w-full overflow-x-auto overflow-y-hidden flex gap-2 flex-nowrap pb-1 md:overflow-visible md:flex-wrap md:gap-3 md:pb-0 overflow-x-auto-touch">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-[11px] font-mono text-muted-foreground">EXP</span>
+          {(["6h", "24h", "48h", "7d", "all"] as ExplosionTimeRange[]).map((range) => {
+            const isActive = explosionRange === range;
+            return (
+              <button
+                key={range}
+                type="button"
+                onClick={() => setExplosionRange(range)}
+                className={`px-1.5 py-0.5 rounded border text-[10px] font-mono uppercase transition-colors touch-manipulation ${
+                  isActive
+                    ? "bg-destructive/20 border-destructive/60 text-foreground"
+                    : "bg-card/60 border-border/70 text-muted-foreground hover:text-foreground"
+                }`}
+                aria-label={`Show explosion events for ${range.toUpperCase()}`}
+              >
+                {range.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
         <button
           type="button"
           onClick={() => toggleLayer("geoint")}
@@ -1191,12 +1258,12 @@ function TheaterMapInner({
       </div>
 
       {/* Live feed indicator */}
-      {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0 || theaterEvents.length > 0) && (
+      {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0 || filteredTheaterEvents.length > 0) && (
         <div className="absolute top-2 left-2 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
           <span className="text-[11px] font-mono text-muted-foreground">
-            {theaterEvents.length > 0 && `${theaterEvents.length} STRIKES`}
-            {theaterEvents.length > 0 && (geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
+            {filteredTheaterEvents.length > 0 && `${filteredTheaterEvents.length} STRIKES`}
+            {filteredTheaterEvents.length > 0 && (geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
             {geointAnomalies.length > 0 && `${geointAnomalies.length} THERMAL`}
             {geointAnomalies.length > 0 && (sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
             {sigintAircraft.length > 0 && `${sigintAircraft.length} AC`}
