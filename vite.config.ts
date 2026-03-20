@@ -6,7 +6,12 @@ import seoPrerender from "vite-plugin-seo-prerender";
 import { getPrerenderRoutes } from "./scripts/discoverability-routes.js";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => {
+  const shouldPrerender =
+    process.env.ENABLE_PRERENDER === "1" &&
+    (process.env.VERCEL !== "1" || process.env.VERCEL_FORCE_PRERENDER === "1");
+
+  return {
   server: {
     host: "::",
     port: 8080,
@@ -34,8 +39,9 @@ export default defineConfig(({ mode }) => ({
         ],
       },
     }),
-    // Prerender public routes to emit route-specific HTML metadata for crawlers and social scrapers.
-    ...(process.env.ENABLE_PRERENDER === "1"
+    // Vercel build images do not provide Chrome for Puppeteer by default.
+    // Keep prerender opt-in there unless explicitly overridden.
+    ...(shouldPrerender
       ? [
           seoPrerender({
             routes: getPrerenderRoutes(),
@@ -52,4 +58,5 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-}));
+  };
+});
