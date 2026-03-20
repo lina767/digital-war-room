@@ -24,8 +24,8 @@ export function NewsletterSubscribeForm({ defaultConflict = "Iran", compact }: N
     }
     setLoading(true);
     try {
-      await newsletterSubscribe({ email: trimmed, conflict: defaultConflict || "Iran" });
-      toast.success("Please check your inbox to confirm your subscription.");
+      const res = await newsletterSubscribe({ email: trimmed, conflict: defaultConflict || "Iran" });
+      toast.success(`${res.message} If you don't see it, check Spam/Promotions.`);
       setEmail("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Subscription failed.");

@@ -18,7 +18,33 @@ RESEND_API_URL = "https://api.resend.com/emails"
 def _is_configured() -> bool:
     key = (os.getenv("RESEND_API_KEY") or "").strip()
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
-    return bool(key and from_addr)
+    return bool(key and _is_valid_from_address(from_addr))
+
+
+def _missing_config_reasons() -> list[str]:
+    reasons: list[str] = []
+    key = (os.getenv("RESEND_API_KEY") or "").strip()
+    from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
+    if not key:
+        reasons.append("RESEND_API_KEY missing")
+    if not from_addr:
+        reasons.append("NEWSLETTER_FROM missing")
+    elif not _is_valid_from_address(from_addr):
+        reasons.append("NEWSLETTER_FROM invalid format")
+    return reasons
+
+
+def _is_valid_from_address(from_addr: str) -> bool:
+    """
+    Lightweight sender validation for Resend payload.
+    Expected shape: local-part@domain.tld
+    """
+    if "@" not in from_addr:
+        return False
+    local, domain = from_addr.split("@", 1)
+    if not local or not domain:
+        return False
+    return "." in domain
 
 
 def _base_url() -> str:
@@ -47,7 +73,7 @@ async def send_confirmation_email(email: str, conflict: str, confirm_token: str)
     Returns True if sent successfully.
     """
     if not _is_configured():
-        logger.warning("Newsletter: RESEND_API_KEY or NEWSLETTER_FROM not set, skipping confirmation email")
+        logger.warning("Newsletter: confirmation email skipped (%s)", ", ".join(_missing_config_reasons()))
         return False
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
     link = _confirm_link(confirm_token)
@@ -59,7 +85,12 @@ async def send_confirmation_email(email: str, conflict: str, confirm_token: str)
     <p>If you did not request this, you can ignore this email.</p>
     <p style="color:#666;font-size:12px;">Digital War Room – Geopolitical intelligence briefings</p>
     """
-    return await _send(email, subject, html, from_addr)
+    text = (
+        f"You requested the Daily Briefing for {conflict}.\n\n"
+        f"Confirm your subscription: {link}\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    return await _send(email, subject, html, text, from_addr)
 
 
 async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str, Any], unsubscribe_token: str) -> bool:
@@ -67,7 +98,7 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
     Send daily briefing email. briefing_data: summary, key_findings (list), escalation_score, etc.
     """
     if not _is_configured():
-        logger.warning("Newsletter: RESEND_API_KEY or NEWSLETTER_FROM not set, skipping daily briefing")
+        logger.warning("Newsletter: daily briefing skipped (%s)", ", ".join(_missing_config_reasons()))
         return False
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -90,16 +121,28 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
       <a href="{unsub_link}">Unsubscribe</a>.
     </p>
     """
-    return await _send(email, subject, html, from_addr)
+    text_findings = "\n".join(f"- {str(f)}" for f in key_findings[:10]) or "- No key developments available."
+    text = (
+        f"Daily Briefing - {conflict} - {date_str}\n\n"
+        f"Executive Summary:\n{summary}\n\n"
+        f"Key developments:\n{text_findings}\n\n"
+        f"View full briefing online: {view_link}\n"
+        f"Unsubscribe: {unsub_link}"
+    )
+    return await _send(email, subject, html, text, from_addr)
 
 
 def _escape_html(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
-async def _send(to: str, subject: str, html: str, from_addr: str) -> bool:
+async def _send(to: str, subject: str, html: str, text: str, from_addr: str) -> bool:
     key = (os.getenv("RESEND_API_KEY") or "").strip()
     if not key:
+        logger.warning("Newsletter send skipped: RESEND_API_KEY missing")
+        return False
+    if not _is_valid_from_address(from_addr):
+        logger.warning("Invalid NEWSLETTER_FROM format: %s", from_addr)
         return False
     client = get_http_client()
     try:
@@ -110,12 +153,12 @@ async def _send(to: str, subject: str, html: str, from_addr: str) -> bool:
                 "Authorization": f"Bearer {key}",
                 "Content-Type": "application/json",
             },
-            json={"from": from_addr, "to": [to], "subject": subject, "html": html},
+            json={"from": from_addr, "to": [to], "subject": subject, "html": html, "text": text},
         )
         if resp.status_code >= 200 and resp.status_code < 300:
             logger.info("Newsletter email sent to %s", to)
             return True
-        logger.warning("Resend API error %s: %s", resp.status_code, resp.text)
+        logger.warning("Resend API error status=%s body=%s", resp.status_code, resp.text)
         return False
     except Exception as e:
         logger.exception("Failed to send newsletter email: %s", e)

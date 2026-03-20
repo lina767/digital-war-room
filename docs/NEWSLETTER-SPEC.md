@@ -42,9 +42,14 @@ Newsletter feature: subscribers receive a daily email with the current Daily Bri
 
 ## 3. Double opt-in flow
 
-1. User submits email (and optional conflict) → **POST /api/newsletter/subscribe**. Store row with `confirmed_at = NULL`, generate `confirm_token`.
+1. User submits email (and optional conflict) → **POST /api/newsletter/subscribe**. Store row with `confirmed_at = NULL`, generate `confirm_token`. In parallel, upsert Resend Contact with `unsubscribed=true` (pending state).
 2. Send **confirmation email** via Resend with link to frontend `/newsletter/confirm?token=...`. Frontend calls **GET /api/newsletter/confirm?token=...** (or POST); backend sets `confirmed_at = now()`.
-3. Only subscribers with `confirmed_at` set receive the daily briefing.
+3. On successful confirm, Resend Contact is updated to `unsubscribed=false`.
+4. Only subscribers with `confirmed_at` set receive the daily briefing.
+
+### Resend Contacts (Broadcasts / segments)
+
+The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts/{email}`) so contacts are available for **Broadcasts** and subscription state is mirrored (`unsubscribed=true` pending/unsubscribed, `false` confirmed). Optional env **`RESEND_NEWSLETTER_SEGMENT_ID`** (or comma-separated **`RESEND_NEWSLETTER_SEGMENT_IDS`**) attaches the contact to that **segment** (Resend replaced legacy “Audiences” with Contacts + Segments; see [Create Contact](https://resend.com/docs/api-reference/contacts/create-contact)). On unsubscribe, the app sets Resend Contact back to **`unsubscribed=true`** when sync is enabled. Set **`RESEND_CONTACTS_SYNC=false`** to disable Contact API calls only.
 
 ---
 
@@ -82,7 +87,7 @@ Newsletter feature: subscribers receive a daily email with the current Daily Bri
 
 ## 7. Env and docs
 
-- **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `NEWSLETTER_CRON_SECRET`, `NEWSLETTER_SEND_UTC_HOUR=6`, `NEWSLETTER_CONFIRM_ENABLED=1`.
+- **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL`, optional `RESEND_NEWSLETTER_SEGMENT_ID` / `RESEND_NEWSLETTER_SEGMENT_IDS`, `RESEND_CONTACTS_SYNC`, `NEWSLETTER_CRON_SECRET`, `NEWSLETTER_SEND_UTC_HOUR=6`.
 - **API-KEYS.md / DEPLOYMENT.md:** Resend setup; cron (if used) at 06:00 UTC calling `POST /api/newsletter/send-daily`.
 - **Privacy page:** Short “Newsletter” section (EN): what we store (email, conflict), purpose (daily briefing), unsubscribe, controller.
 

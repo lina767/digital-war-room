@@ -249,7 +249,15 @@ export async function newsletterSubscribe(body: { email: string; conflict?: stri
     body: JSON.stringify({ email: body.email, conflict: body.conflict ?? "Iran" }),
   });
   const data = (await res.json().catch(() => ({}))) as { message?: string; conflict?: string; error?: string };
-  if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 409) {
+      throw new Error("This email is already pending confirmation or subscribed. Please check your inbox and spam folder.");
+    }
+    if (res.status === 503) {
+      throw new Error("Confirmation email could not be sent right now. Please try again in a minute.");
+    }
+    throw new Error(data?.error ?? `HTTP ${res.status}`);
+  }
   return { message: data.message ?? "Subscribed.", conflict: data.conflict ?? "Iran" };
 }
 

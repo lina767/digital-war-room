@@ -11,6 +11,7 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **ANTHROPIC_API_KEY** oder **OPENAI_API_KEY** | `backend/agents/llm_factory.py` – Supervisor (LLM-Synthese) | **Anthropic:** [console.anthropic.com](https://console.anthropic.com/) → API Keys. **OpenAI:** [platform.openai.com/api-keys](https://platform.openai.com/api-keys). |
 | **NEWS_API_KEY** | `backend/agents/news_agent.py` | [newsapi.org/register](https://newsapi.org/register) – kostenloser Plan. **Free:** 100 Requests/Tag, keine Zusatz-Requests; Artikel haben **24h Verzögerung** (kein Echtzeit); Suche bis 1 Monat zurück; kein Uptime-SLA; Basic-Support; CORS für localhost. |
 | **NASA_FIRMS_KEY** | `backend/agents/geoint_agent.py` (NASA FIRMS) | [firms.modaps.eosdis.nasa.gov](https://firms.modaps.eosdis.nasa.gov/) → „Request Key“ (kostenlos). |
+| **SENTINELHUB_CLIENT_ID** + **SENTINELHUB_CLIENT_SECRET** | `backend/agents/satintel_agent.py`, `backend/services/sentinelhub_auth.py` – Sentinel Hub OAuth + Process API (Copernicus Sentinel imagery) | [Sentinel Hub Dashboard](https://apps.sentinel-hub.com/dashboard/#/account/settings) → OAuth Client anlegen. |
 | **ALPHAVANTAGE_API_KEY** | `backend/agents/finint_agent.py`, `energy_agent.py`, `techint_agent.py` | [alphavantage.co/support/#api-key](https://www.alphavantage.co/support/#api-key) – kostenloser Key. Wird für Öl (Brent, WTI) und Food-Commodities (Wheat, Corn, Soybean) genutzt. |
 
 ---
@@ -223,8 +224,18 @@ Vollständige Referenz (DOC/GEO, ToneChart, Events, GKG): [docs/GDELT-API-REFERE
 | **FRONTEND_URL** | `backend/services/newsletter_sender.py` | Base URL for confirm/unsubscribe links in emails (e.g. `https://digitalwarroom.com`). Fallback: `NEWSLETTER_BASE_URL` or hardcoded default. |
 | **NEWSLETTER_SEND_UTC_HOUR** | `backend/main.py` | Hour (UTC) at which to run the daily analysis and send emails (default: 6). In-process job runs at this time; optional external cron can call `POST /api/newsletter/send-daily` with `X-Newsletter-Secret` instead. |
 | **NEWSLETTER_CRON_SECRET** | `backend/api/routes_newsletter.py` | If set, `POST /api/newsletter/send-daily` requires header `X-Newsletter-Secret` to match. Use for external cron (e.g. Railway cron, GitHub Actions). |
+| **RESEND_NEWSLETTER_SEGMENT_ID** (or **RESEND_NEWSLETTER_SEGMENT_IDS**) | `backend/services/resend_contacts.py` | Optional. After confirm, subscriber is added as a [Resend Contact](https://resend.com/docs/api-reference/contacts/create-contact) and attached to this segment for Broadcasts. Resend “Audiences” are deprecated; create a **Segment** in the dashboard and paste its ID. |
+| **RESEND_CONTACTS_SYNC** | `backend/services/resend_contacts.py` | Default `true` when `RESEND_API_KEY` is set. Set `false` to skip Contact API sync (pending/confirm/unsubscribe status updates). |
 
 See [docs/NEWSLETTER-SPEC.md](NEWSLETTER-SPEC.md) for full behaviour (double opt-in, fixed-time send, Resend).
+
+**Resend quick checklist (confirmation + deliverability):**
+
+1. Domain/subdomain in Resend is **verified** (recommended: subdomain such as `notifications.yourdomain.com`).
+2. DNS records from Resend are present and propagated: **SPF + DKIM** (and preferably DMARC on root domain).
+3. `NEWSLETTER_FROM` uses exactly that verified domain/subdomain (e.g. `briefing@notifications.yourdomain.com`).
+4. `FRONTEND_URL` points to your live frontend so confirm/unsubscribe links work.
+5. Test with multiple inbox providers (Gmail/Outlook/Proton) and check Inbox/Promotions/Spam placement.
 
 ---
 

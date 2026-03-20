@@ -15,12 +15,18 @@ from agents.config import DEFAULT_CONFLICT
 from agents.supervisor import analyze_conflict
 from middleware.rate_limit import limiter
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
+from services.resend_contacts import (
+    mark_contact_unsubscribed,
+    upsert_pending_contact,
+    upsert_subscribed_contact,
+)
 from services.newsletter_store import (
     add_subscriber,
     confirm_subscription,
     get_conflicts_with_subscribers,
     list_confirmed_subscribers,
     remove_by_unsubscribe_token,
+    remove_unconfirmed_subscriber,
 )
 from utils.sanitize import sanitize_conflict
 
@@ -58,10 +64,25 @@ async def newsletter_subscribe(request: Request, body: SubscribeBody) -> JSONRes
             status_code=409,
             content={"error": "This email is already subscribed or pending confirmation."},
         )
+    pending_synced = await upsert_pending_contact(email, conflict)
+    if not pending_synced:
+        remove_unconfirmed_subscriber(email, confirm_token)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Could not prepare confirmation contact right now. Please try again in a moment.",
+            },
+        )
     sent = await send_confirmation_email(email, conflict, confirm_token)
     if not sent:
-        # Subscriber is stored; they can use confirm link from a retry or we log
-        pass
+        # Avoid trapping users in a pending state when email delivery fails.
+        remove_unconfirmed_subscriber(email, confirm_token)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Could not send confirmation email right now. Please try subscribing again in a moment.",
+            },
+        )
     return JSONResponse(
         status_code=200,
         content={
@@ -78,12 +99,16 @@ async def newsletter_confirm(request: Request, token: str = "") -> JSONResponse:
     """
     if not token.strip():
         return JSONResponse(status_code=400, content={"error": "token is required"})
-    ok = confirm_subscription(token)
-    if not ok:
+    confirmed = confirm_subscription(token)
+    if not confirmed:
         return JSONResponse(
             status_code=404,
             content={"error": "Invalid or expired confirmation link, or already confirmed."},
         )
+    synced = await upsert_subscribed_contact(confirmed["email"], confirmed["conflict"])
+    if not synced:
+        # Local subscription is valid; Resend Contacts sync failed (see logs).
+        pass
     return JSONResponse(
         status_code=200,
         content={"message": "You're subscribed. You'll receive the daily briefing by email."},
@@ -97,12 +122,14 @@ async def newsletter_unsubscribe(request: Request, token: str = "") -> JSONRespo
     """
     if not token.strip():
         return JSONResponse(status_code=400, content={"error": "token is required"})
-    ok = remove_by_unsubscribe_token(token)
+    ok, email_removed = remove_by_unsubscribe_token(token)
     if not ok:
         return JSONResponse(
             status_code=404,
             content={"error": "Invalid or expired unsubscribe link."},
         )
+    if email_removed:
+        await mark_contact_unsubscribed(email_removed)
     return JSONResponse(
         status_code=200,
         content={"message": "You have been unsubscribed."},

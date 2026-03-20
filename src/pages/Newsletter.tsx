@@ -13,7 +13,10 @@ export default function Newsletter() {
     >
       <div className="space-y-6 text-sm">
         <p className="text-muted-foreground leading-relaxed">
-          Get the latest situation report every day in your inbox. We run a fresh analysis and send you the executive summary and key developments. You can unsubscribe at any time via the link in each email.
+          Get the latest situation report every day in your inbox. After you subscribe, we send a confirmation email (double opt-in). Only confirmed addresses receive the daily briefing. You can unsubscribe at any time via the link in each email.
+        </p>
+        <p className="text-muted-foreground text-xs">
+          If the confirmation email does not arrive within a few minutes, check your Spam or Promotions folder.
         </p>
         <NewsletterSubscribeForm />
         <p className="text-muted-foreground text-xs">

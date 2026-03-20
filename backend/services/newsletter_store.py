@@ -66,34 +66,82 @@ def add_subscriber(email: str, conflict: str = "Iran") -> Tuple[Optional[str], O
         conn.close()
 
 
-def confirm_subscription(confirm_token: str) -> bool:
-    """Set confirmed_at for the subscriber with the given confirm_token. Returns True if updated."""
-    if not (confirm_token or "").strip():
+def remove_unconfirmed_subscriber(email: str, confirm_token: str) -> bool:
+    """
+    Remove a newly created unconfirmed subscriber row.
+    Used to roll back subscribe flow if confirmation email sending fails.
+    """
+    email = (email or "").strip().lower()
+    token = (confirm_token or "").strip()
+    if not email or not token:
         return False
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc).isoformat()
     conn = _ensure_db()
     try:
         cur = conn.execute(
-            "UPDATE newsletter_subscribers SET confirmed_at = ? WHERE confirm_token = ? AND confirmed_at IS NULL",
-            (now, confirm_token.strip()),
+            """
+            DELETE FROM newsletter_subscribers
+            WHERE email = ? AND confirm_token = ? AND confirmed_at IS NULL
+            """,
+            (email, token),
         )
         conn.commit()
+        if cur.rowcount > 0:
+            logger.info("Newsletter: rolled back pending subscriber for %s after failed confirmation send", email)
         return cur.rowcount > 0
     finally:
         conn.close()
 
 
-def remove_by_unsubscribe_token(token: str) -> bool:
-    """Remove subscriber by unsubscribe_token. Returns True if a row was deleted."""
-    if not (token or "").strip():
-        return False
+def confirm_subscription(confirm_token: str) -> dict | None:
+    """
+    Set confirmed_at for the subscriber with the given confirm_token.
+    Returns {"email": ..., "conflict": ...} if updated, else None.
+    """
+    if not (confirm_token or "").strip():
+        return None
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    tok = confirm_token.strip()
     conn = _ensure_db()
     try:
-        cur = conn.execute("DELETE FROM newsletter_subscribers WHERE unsubscribe_token = ?", (token.strip(),))
+        cur = conn.execute(
+            "SELECT email, conflict FROM newsletter_subscribers WHERE confirm_token = ? AND confirmed_at IS NULL",
+            (tok,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE newsletter_subscribers SET confirmed_at = ? WHERE confirm_token = ? AND confirmed_at IS NULL",
+            (now, tok),
+        )
         conn.commit()
-        return cur.rowcount > 0
+        return {"email": row[0], "conflict": row[1]}
+    finally:
+        conn.close()
+
+
+def remove_by_unsubscribe_token(token: str) -> tuple[bool, str | None]:
+    """
+    Remove subscriber by unsubscribe_token.
+    Returns (True, email) if a row was deleted, (False, None) otherwise.
+    """
+    if not (token or "").strip():
+        return (False, None)
+    conn = _ensure_db()
+    try:
+        cur = conn.execute(
+            "SELECT email FROM newsletter_subscribers WHERE unsubscribe_token = ?",
+            (token.strip(),),
+        )
+        row = cur.fetchone()
+        if not row:
+            return (False, None)
+        email = row[0]
+        del_cur = conn.execute("DELETE FROM newsletter_subscribers WHERE unsubscribe_token = ?", (token.strip(),))
+        conn.commit()
+        return (del_cur.rowcount > 0, email)
     finally:
         conn.close()
 
