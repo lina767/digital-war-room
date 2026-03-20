@@ -8,6 +8,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import urlencode
 
+from services.email_templates import (
+    confirmation_email_html,
+    confirmation_email_text,
+    daily_briefing_email_html,
+    daily_briefing_email_text,
+)
 from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
@@ -78,18 +84,8 @@ async def send_confirmation_email(email: str, conflict: str, confirm_token: str)
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
     link = _confirm_link(confirm_token)
     subject = "Confirm your Daily Briefing subscription"
-    html = f"""
-    <p>You requested the Daily Briefing for <strong>{conflict}</strong>.</p>
-    <p>Click the link below to confirm your subscription:</p>
-    <p><a href="{link}">Confirm subscription</a></p>
-    <p>If you did not request this, you can ignore this email.</p>
-    <p style="color:#666;font-size:12px;">Digital War Room – Geopolitical intelligence briefings</p>
-    """
-    text = (
-        f"You requested the Daily Briefing for {conflict}.\n\n"
-        f"Confirm your subscription: {link}\n\n"
-        "If you did not request this, you can ignore this email."
-    )
+    html = confirmation_email_html(conflict, link)
+    text = confirmation_email_text(conflict, link)
     return await _send(email, subject, html, text, from_addr)
 
 
@@ -105,35 +101,27 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
     subject = f"Daily Briefing – {conflict} – {date_str}"
     summary = (briefing_data.get("summary") or "").strip() or "No summary available."
     key_findings = briefing_data.get("key_findings") or []
-    findings_list = "\n".join(f"<li>{_escape_html(str(f))}</li>" for f in key_findings[:10])
     view_link = _briefing_link(conflict)
     unsub_link = _unsubscribe_link(unsubscribe_token)
-    html = f"""
-    <h2>Daily Briefing – {_escape_html(conflict)}</h2>
-    <p><strong>Executive Summary</strong></p>
-    <p>{_escape_html(summary)}</p>
-    <p><strong>Key developments</strong></p>
-    <ul>{findings_list}</ul>
-    <p><a href="{view_link}">View full briefing online</a></p>
-    <hr style="margin-top:24px;border:none;border-top:1px solid #eee;">
-    <p style="color:#666;font-size:12px;">
-      You received this because you subscribed to the Daily Briefing.
-      <a href="{unsub_link}">Unsubscribe</a>.
-    </p>
-    """
-    text_findings = "\n".join(f"- {str(f)}" for f in key_findings[:10]) or "- No key developments available."
-    text = (
-        f"Daily Briefing - {conflict} - {date_str}\n\n"
-        f"Executive Summary:\n{summary}\n\n"
-        f"Key developments:\n{text_findings}\n\n"
-        f"View full briefing online: {view_link}\n"
-        f"Unsubscribe: {unsub_link}"
+    html = daily_briefing_email_html(
+        conflict=conflict,
+        date_str=date_str,
+        summary=summary,
+        key_findings=key_findings,
+        escalation_score=briefing_data.get("escalation_score"),
+        view_link=view_link,
+        unsubscribe_link=unsub_link,
+    )
+    text = daily_briefing_email_text(
+        conflict=conflict,
+        date_str=date_str,
+        summary=summary,
+        key_findings=key_findings,
+        escalation_score=briefing_data.get("escalation_score"),
+        view_link=view_link,
+        unsubscribe_link=unsub_link,
     )
     return await _send(email, subject, html, text, from_addr)
-
-
-def _escape_html(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 async def _send(to: str, subject: str, html: str, text: str, from_addr: str) -> bool:
