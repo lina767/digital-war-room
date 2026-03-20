@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ChevronDown, ExternalLink, Files, BookOpen } from "lucide-react";
+import { ExternalLink, Files, BookOpen } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
 import { CANONICAL_DOC_LINKS, DOCUMENTATION_SECTIONS } from "@/lib/documentationSections";
@@ -67,13 +67,6 @@ const Documentation = () => {
         maxWidth="4xl"
       >
         <div className="space-y-10">
-          <div className="rounded-xl border border-border bg-card/40 p-4 sm:p-5">
-            <div className="flex items-center justify-between rounded-xl border border-border bg-background px-4 py-3">
-              <span className="text-[30px] sm:text-[32px] font-medium">Documentation</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </div>
-
           <div className="space-y-10 sm:space-y-12">
             {DOCUMENTATION_SECTIONS.map((section) => (
               <section key={section.heading} className="space-y-4">
