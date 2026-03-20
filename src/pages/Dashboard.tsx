@@ -6,7 +6,7 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList, Github, Newspaper } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList, Github, Newspaper, Mail } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -319,6 +319,13 @@ function DashboardContent() {
           >
             <Heart className="h-3.5 w-3.5" aria-hidden />
             <span>Support the Mission</span>
+          </Link>
+          <Link
+            to="/newsletter"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          >
+            <Mail className="h-3.5 w-3.5" aria-hidden />
+            <span>Subscribe</span>
           </Link>
         </div>
         <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-1.5 sm:mt-1">
