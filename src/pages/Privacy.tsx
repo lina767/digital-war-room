@@ -60,7 +60,10 @@ const Privacy = () => {
               3. Newsletter
             </h2>
             <p>
-              If you subscribe to the Daily Briefing newsletter, we store your email address and your chosen conflict (e.g. Iran) for the sole purpose of sending you the daily briefing email. We use double opt-in: you must confirm your subscription via the link in the confirmation email. You can unsubscribe at any time via the link in each newsletter. We do not share your email with third parties. The controller is the same as in section 1.
+              If you subscribe to the Daily Briefing newsletter, we store your email address for the sole purpose of
+              sending you the daily briefing email. We use double opt-in: you must confirm your subscription via the
+              link in the confirmation email. For delivery, we use Resend as email service provider (processor). You
+              can unsubscribe at any time via the link in each newsletter. We do not sell your email address.
             </p>
           </section>
 
@@ -69,7 +72,10 @@ const Privacy = () => {
               4. Purpose and legal basis
             </h2>
             <p>
-              Processing is carried out to operate the website, provide the analysis and dashboard features (including AI-assisted synthesis), and ensure security and stability. The legal basis is in particular Art. 6(1)(f) GDPR (legitimate interest in operating the platform).
+              Processing is carried out to operate the website, provide the analysis and dashboard features (including
+              AI-assisted synthesis), and ensure security and stability. The legal basis is in particular Art. 6(1)(f)
+              GDPR (legitimate interest in operating the platform). For newsletter delivery, the legal basis is your
+              consent under Art. 6(1)(a) GDPR, which you can withdraw at any time by unsubscribing.
             </p>
           </section>
 
@@ -78,7 +84,9 @@ const Privacy = () => {
               5. Storage period
             </h2>
             <p>
-              Personal data are retained only for as long as necessary for the purposes stated above or as required by law. Access and log data are generally deleted or anonymised after a short period.
+              Personal data are retained only for as long as necessary for the purposes stated above or as required by
+              law. Newsletter subscription data are kept until you unsubscribe. Access and log data are generally
+              deleted or anonymised after a short period.
             </p>
           </section>
 
