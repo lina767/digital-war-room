@@ -600,7 +600,7 @@ function MapTooltip({ tooltip }: { tooltip: TooltipData | null }) {
 
 export interface ChokePointStatus {
   name: string;
-  status: "OPEN" | "RESTRICTED" | "DISRUPTED";
+  status: "OPEN" | "RESTRICTED" | "DISRUPTED" | "HOSTILE";
   disruption_risk: number;
 }
 
@@ -610,6 +610,20 @@ export interface TheaterMapProps {
   sigintAircraft?: SigintAircraft[];
   sigintShips?: SigintShip[];
   chokepointStatuses?: ChokePointStatus[];
+}
+
+const DEFAULT_CHOKEPOINT_STATUSES: ChokePointStatus[] = [
+  { name: "Strait of Hormuz", status: "RESTRICTED", disruption_risk: 65 },
+  { name: "Bab-el-Mandeb", status: "HOSTILE", disruption_risk: 85 },
+  { name: "Suez", status: "OPEN", disruption_risk: 20 },
+];
+
+function normalizeChokepointName(name: string): string {
+  const normalized = name.toLowerCase().replace(/[\s-]+/g, "").replace(/[^a-z]/g, "");
+  if (normalized.includes("hormuz")) return "hormuz";
+  if (normalized.includes("babelmandeb")) return "babelmandeb";
+  if (normalized.includes("suez")) return "suez";
+  return normalized;
 }
 
 function TheaterMapInner({
@@ -889,8 +903,19 @@ function TheaterMapInner({
 
           {layers.chokepoints &&
             CHOKEPOINT_ZONES.map((zone) => {
-              const match = chokepointStatuses.find((cp) => cp.name === zone.name);
-              const risk = match?.disruption_risk ?? 0;
+              const zoneKey = normalizeChokepointName(zone.name);
+              const match =
+                chokepointStatuses.find((cp) => normalizeChokepointName(cp.name) === zoneKey) ??
+                DEFAULT_CHOKEPOINT_STATUSES.find((cp) => normalizeChokepointName(cp.name) === zoneKey);
+              const riskFromStatus =
+                match?.status === "HOSTILE"
+                  ? 90
+                  : match?.status === "DISRUPTED"
+                    ? 80
+                    : match?.status === "RESTRICTED"
+                      ? 60
+                      : 20;
+              const risk = Math.max(match?.disruption_risk ?? 0, riskFromStatus);
               const fillColor =
                 risk >= 70
                   ? "hsla(0, 70%, 50%, 0.18)"

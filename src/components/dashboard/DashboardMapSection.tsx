@@ -51,7 +51,7 @@ export function DashboardMapSection({
   const chokepointStatuses = (conflictData?.chokepoint?.chokepoints ?? []).map(
     (cp: { name: string; status: string; disruption_risk: number }) => ({
       name: cp.name,
-      status: cp.status as "OPEN" | "RESTRICTED" | "DISRUPTED",
+      status: cp.status as "OPEN" | "RESTRICTED" | "DISRUPTED" | "HOSTILE",
       disruption_risk: cp.disruption_risk,
     }),
   );

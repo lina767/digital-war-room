@@ -35,5 +35,6 @@ backend/.env.*
 
 # Backend runtime/cache (generierte History, GreyNoise-Snapshots etc.)
 backend/data/
+.firecrawl/
 
 **/__pycache__

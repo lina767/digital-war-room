@@ -125,7 +125,7 @@ export const CHOKEPOINT_ZONES: ChokePointZone[] = [
   },
   {
     id: "zone-bab-el-mandeb",
-    name: "Bab el-Mandeb",
+    name: "Bab-el-Mandeb",
     vertices: [
       [43.0, 12.4], [43.0, 12.8], [43.6, 12.8],
       [43.6, 12.4], [43.0, 12.4],
@@ -133,7 +133,7 @@ export const CHOKEPOINT_ZONES: ChokePointZone[] = [
   },
   {
     id: "zone-suez",
-    name: "Suez Canal",
+    name: "Suez",
     vertices: [
       [32.2, 29.8], [32.2, 31.3], [32.6, 31.3],
       [32.6, 29.8], [32.2, 29.8],
@@ -143,24 +143,24 @@ export const CHOKEPOINT_ZONES: ChokePointZone[] = [
 
 /** Major military bases (illustrative strategic overlay for TheaterMap). */
 export const MILITARY_BASES: StrategicSite[] = [
-  { id: "mb-al-udeid", name: "Al Udeid Air Base", country: "Qatar", coordinates: [51.313, 25.117] },
-  { id: "mb-al-dhafra", name: "Al Dhafra Air Base", country: "UAE", coordinates: [54.548, 24.248] },
-  { id: "mb-incirlik", name: "Incirlik Air Base", country: "Turkey", coordinates: [35.425, 37.002] },
-  { id: "mb-bah-rss", name: "NSA Bahrain", country: "Bahrain", coordinates: [50.606, 26.191] },
-  { id: "mb-camp-arifjan", name: "Camp Arifjan", country: "Kuwait", coordinates: [47.906, 28.848] },
-  { id: "mb-al-asad", name: "Al Asad Air Base", country: "Iraq", coordinates: [41.031, 33.785] },
-  { id: "mb-diego-garcia", name: "Diego Garcia", country: "BIOT", coordinates: [72.411, -7.313] },
+  { id: "mb-us-al-udeid", name: "US Air Base — Al Udeid", country: "Qatar", coordinates: [51.313, 25.117] },
+  { id: "mb-us-al-dhafra", name: "US Air Base — Al Dhafra", country: "UAE", coordinates: [54.548, 24.248] },
+  { id: "mb-us-nsa-bahrain", name: "US Naval Support Activity — Bahrain", country: "Bahrain", coordinates: [50.606, 26.191] },
+  { id: "mb-us-diego-garcia", name: "US Support Facility — Diego Garcia", country: "BIOT", coordinates: [72.411, -7.313] },
+  { id: "mb-us-camp-lemonnier", name: "US Base — Camp Lemonnier", country: "Djibouti", coordinates: [43.148, 11.547] },
+  { id: "mb-us-ain-al-asad", name: "US Air Base — Ain al-Asad", country: "Iraq", coordinates: [41.031, 33.785] },
+  { id: "mb-idf-nevatim", name: "IDF Base — Nevatim (F-35I)", country: "Israel", coordinates: [35.012, 31.208] },
+  { id: "mb-idf-hatzerim", name: "IDF Base — Hatzerim (F-16I)", country: "Israel", coordinates: [34.723, 31.233] },
+  { id: "mb-idf-ramat-david", name: "IDF Base — Ramat David (F-15I)", country: "Israel", coordinates: [35.179, 32.665] },
+  { id: "mb-idf-palmachim", name: "IDF Base — Palmachim (Arrow/Jericho)", country: "Israel", coordinates: [34.692, 31.931] },
 ];
 
 /** Civilian and strategic nuclear facilities (illustrative strategic overlay). */
 export const NUCLEAR_FACILITIES: StrategicSite[] = [
-  { id: "nf-bushehr", name: "Bushehr Nuclear Plant", country: "Iran", coordinates: [50.887, 28.829] },
-  { id: "nf-natanz", name: "Natanz Fuel Enrichment Plant", country: "Iran", coordinates: [51.726, 33.725] },
-  { id: "nf-fordow", name: "Fordow Fuel Enrichment Plant", country: "Iran", coordinates: [50.992, 34.885] },
-  { id: "nf-isfahan", name: "Isfahan Nuclear Technology Center", country: "Iran", coordinates: [51.654, 32.648] },
-  { id: "nf-dimona", name: "Dimona Nuclear Research Center", country: "Israel", coordinates: [35.145, 31.001] },
-  { id: "nf-akkuyu", name: "Akkuyu Nuclear Power Plant", country: "Turkey", coordinates: [33.496, 36.146] },
-  { id: "nf-barakah", name: "Barakah Nuclear Power Plant", country: "UAE", coordinates: [52.322, 24.141] },
+  { id: "nf-natanz", name: "Natanz (DAMAGED)", country: "Iran", coordinates: [51.726, 33.725] },
+  { id: "nf-fordow", name: "Fordow (DAMAGED)", country: "Iran", coordinates: [50.992, 34.885] },
+  { id: "nf-isfahan", name: "Isfahan", country: "Iran", coordinates: [51.654, 32.648] },
+  { id: "nf-bushehr", name: "Bushehr", country: "Iran", coordinates: [50.887, 28.829] },
 ];
 
 /** Generate polygon points for a circle (WGS84 approx). Returns [lon, lat][] closed ring. */
