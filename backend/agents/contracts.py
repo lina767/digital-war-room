@@ -110,6 +110,20 @@ class GeointResult(BaseAgentResult):
 
 
 # ---------------------------------------------------------------------------
+# SATINTEL
+# ---------------------------------------------------------------------------
+
+
+class SatintelResult(BaseAgentResult):
+    schema_version: int = 1
+    satintel_score: float = 0.0
+    imagery_signals: List[Dict[str, Any]] = Field(default_factory=list)
+    aoi: Dict[str, Any] = Field(default_factory=dict)
+    copernicus_products: List[Dict[str, Any]] = Field(default_factory=list)
+    source_status: Dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
 # SOCMINT
 # ---------------------------------------------------------------------------
 
@@ -252,6 +266,7 @@ AGENT_RESULT_TYPES: Dict[str, type] = {
     "news": NewsResult,
     "finint": FinintResult,
     "geoint": GeointResult,
+    "satintel": SatintelResult,
     "socmint": SocmintResult,
     "techint": TechintResult,
     "cyber": CyberResult,

@@ -44,6 +44,13 @@ DEFAULT_AGENTS: List[AgentDescriptor] = [
         score_field="geoint_score",
     ),
     AgentDescriptor(
+        name="satintel",
+        module="agents.satintel_agent",
+        entry_func="run_satintel_agent",
+        division="military",
+        score_field="satintel_score",
+    ),
+    AgentDescriptor(
         name="proximity",
         module="agents.proximity_agent",
         entry_func="run_proximity_agent",

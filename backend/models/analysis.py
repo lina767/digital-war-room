@@ -27,5 +27,6 @@ class AnalysisResult(BaseModel):
     predictive: Dict[str, Any] = Field(default_factory=dict)
     compliance: Dict[str, Any] = Field(default_factory=dict)
     alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    satintel: Dict[str, Any] = Field(default_factory=dict)
 
     # Per-agent results and divisions are stored via extra (finint, sigint, ..., divisions)

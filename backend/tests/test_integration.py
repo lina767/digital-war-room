@@ -32,6 +32,7 @@ EXPECTED_RESPONSE_KEYS = {
     "sigint",
     "news",
     "geoint",
+    "satintel",
     "socmint",
     "techint",
     "cyber",
@@ -55,6 +56,7 @@ def _mock_store():
     for name in [
         "sigint",
         "geoint",
+        "satintel",
         "proximity",
         "chokepoint",
         "finint",

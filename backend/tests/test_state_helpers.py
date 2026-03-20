@@ -20,6 +20,7 @@ def test_build_agent_status_from_result_empty():
         "sigint",
         "news",
         "geoint",
+        "satintel",
         "socmint",
         "techint",
         "cyber",

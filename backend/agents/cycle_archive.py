@@ -25,6 +25,7 @@ DEFAULT_MAX_ARCHIVES = int(os.getenv("CYCLE_ARCHIVE_MAX", "28"))  # ~7 days at 6
 TIER1_AGENT_NAMES = [
     "sigint",
     "geoint",
+    "satintel",
     "proximity",
     "chokepoint",
     "finint",

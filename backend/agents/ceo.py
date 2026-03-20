@@ -247,6 +247,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "sigint",
             "news",
             "geoint",
+            "satintel",
             "socmint",
             "techint",
             "cyber",
@@ -264,6 +265,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     sigint_result = agent_results.get("sigint") or {}
     news_result = agent_results.get("news") or {}
     geoint_result = agent_results.get("geoint") or {}
+    satintel_result = agent_results.get("satintel") or {}
     socmint_result = agent_results.get("socmint") or {}
     techint_result = agent_results.get("techint") or {}
     cyber_result = agent_results.get("cyber") or {}
@@ -278,6 +280,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     sigint_score = float(sigint_result.get("sigint_score", 0.0))
     news_score = float(news_result.get("news_score", 0.0))
     geoint_score = float(geoint_result.get("geoint_score", 0.0))
+    satintel_score = float(satintel_result.get("satintel_score", 0.0))
     socmint_score = float(socmint_result.get("socmint_score", 0.0))
     techint_score = float(techint_result.get("techint_score", 0.0))
     cyber_score = float(cyber_result.get("cyber_score", 0.0))
@@ -290,17 +293,18 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     # Legacy supervisor weighting (as requested) to preserve historical output behavior.
     legacy_combined = (
         finint_score * 0.09
-        + sigint_score * 0.12
+        + sigint_score * 0.11
         + news_score * 0.09
-        + geoint_score * 0.07
-        + socmint_score * 0.09
+        + geoint_score * 0.05
+        + satintel_score * 0.05
+        + socmint_score * 0.08
         + techint_score * 0.07
         + cyber_score * 0.07
         + energy_score * 0.07
         + protest_score * 0.07
         + diplo_score * 0.06
-        + proximity_score * 0.09
-        + chokepoint_score * 0.11
+        + proximity_score * 0.08
+        + chokepoint_score * 0.10
     )
     has_agent_scores = any(
         (
@@ -308,6 +312,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "sigint_score" in sigint_result,
             "news_score" in news_result,
             "geoint_score" in geoint_result,
+            "satintel_score" in satintel_result,
             "socmint_score" in socmint_result,
             "techint_score" in techint_result,
             "cyber_score" in cyber_result,
@@ -325,6 +330,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "sigint": sigint_score,
         "news": news_score,
         "geoint": geoint_score,
+        "satintel": satintel_score,
         "socmint": socmint_score,
         "techint": techint_score,
         "cyber": cyber_score,
@@ -400,6 +406,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                     "sigint": sigint_score,
                     "news": news_score,
                     "geoint": geoint_score,
+                    "satintel": satintel_score,
                     "socmint": socmint_score,
                     "techint": techint_score,
                     "cyber": cyber_score,
@@ -413,6 +420,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                 "sigint": _compact_for_llm("sigint", sigint_result),
                 "news": _compact_for_llm("news", news_result),
                 "geoint": _compact_for_llm("geoint", geoint_result),
+                "satintel": _compact_for_llm("satintel", satintel_result),
                 "socmint": _compact_for_llm("socmint", socmint_result),
                 "techint": _compact_for_llm("techint", techint_result),
                 "cyber": _compact_for_llm("cyber", cyber_result),
@@ -537,6 +545,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "sigint",
         "news",
         "geoint",
+        "satintel",
         "socmint",
         "techint",
         "cyber",
@@ -640,6 +649,7 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         "protest_events",
         "commodities",
         "otx_pulses",
+        "imagery_signals",
     ):
         items = result.get(key)
         if isinstance(items, list) and items:
@@ -730,6 +740,7 @@ _CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to 10 
 - SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)
 - NEWS: Open-source media sentiment analysis
 - GEOINT: Satellite thermal anomaly detection
+- SATINTEL: Sentinel Hub/Copernicus satellite imagery signal scoring
 - SOCMINT: Social media signals from Telegram, Reddit, and RSS
 - TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
 - CYBER: CISA KEV, threat intel reports, OTX pulses (APT/exploit indicators)

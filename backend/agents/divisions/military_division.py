@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 
 class MilitaryDivision(DivisionHead):
     name = "military"
-    agent_names = ["sigint", "geoint", "proximity", "chokepoint"]
+    agent_names = ["sigint", "geoint", "satintel", "proximity", "chokepoint"]
     enrichment_nodes = [
         "mil_sigint_chokepoint_enrich",
         "geoint_ner_enrich",
         "chokepoint_residual_enrich",
     ]
-    weight_map = {"sigint": 0.30, "geoint": 0.25, "chokepoint": 0.25, "proximity": 0.20}
+    weight_map = {"sigint": 0.26, "geoint": 0.20, "satintel": 0.14, "chokepoint": 0.22, "proximity": 0.18}
 
     def _get_enrichment_nodes(self) -> List[DAGNode]:
         return [
@@ -95,7 +95,15 @@ class MilitaryDivision(DivisionHead):
         try:
             from ..chokepoint_agent import enrich_chokepoints
 
-            enriched = enrich_chokepoints(cp_data, sigint_data)
+            # Tier-2 enrichment intentionally runs before cross-division data exists.
+            # Pass empty placeholders for newer args expected by enrich_chokepoints.
+            enriched = enrich_chokepoints(
+                cp_data,
+                sigint_data,
+                {},
+                {},
+                {},
+            )
             return {"sigint": sigint_data, "chokepoint_enriched": enriched}
         except Exception as e:
             logger.warning("mil_sigint_chokepoint_enrich failed: %s", e)

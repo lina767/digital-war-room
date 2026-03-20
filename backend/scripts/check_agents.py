@@ -28,6 +28,7 @@ AGENT_ENV = {
     "sigint": [],
     "news": ["NEWS_API_KEY"],
     "geoint": ["NASA_FIRMS_KEY"],
+    "satintel": [],  # Sentinel Hub creds optional; agent runs in degraded mode without them
     "socmint": [],
     "techint": [],  # Alpha Vantage, News, Cloudflare, Shodan are optional; agent runs without
     "cyber": [],  # CISA KEV no key; OTX optional
@@ -61,6 +62,8 @@ def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:
             return False, "Missing geoint_score", result
         if name == "socmint" and "socmint_score" not in result:
             return False, "Missing socmint_score", result
+        if name == "satintel" and "satintel_score" not in result:
+            return False, "Missing satintel_score", result
         if name == "techint" and "techint_score" not in result:
             return False, "Missing techint_score", result
         if name == "cyber" and "cyber_score" not in result:
@@ -77,6 +80,7 @@ def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:
             "news": "news_score",
             "geoint": "geoint_score",
             "socmint": "socmint_score",
+            "satintel": "satintel_score",
             "techint": "techint_score",
             "cyber": "cyber_score",
             "energy": "energy_score",
@@ -120,6 +124,11 @@ def data_hint(name: str, data: dict) -> str:
         hints.append(f"anomalies={len(data.get('anomalies') or [])}")
     elif name == "socmint":
         hints.append(f"signals={len(data.get('top_signals') or [])}")
+    elif name == "satintel":
+        hints.append(f"imagery_signals={len(data.get('imagery_signals') or [])}")
+        products = data.get("copernicus_products") or []
+        if products and isinstance(products[0], dict):
+            hints.append(f"copernicus_products={products[0].get('count', 0)}")
     elif name == "techint":
         hints.append(f"tech_indicators={len(data.get('tech_indicators') or [])}")
         hints.append(f"export_controls={len(data.get('export_controls') or [])}")
@@ -164,6 +173,7 @@ def main():
         ("sigint", "run_sigint_agent", AGENT_ENV["sigint"]),
         ("news", "run_news_agent", AGENT_ENV["news"]),
         ("geoint", "run_geoint_agent", AGENT_ENV["geoint"]),
+        ("satintel", "run_satintel_agent", AGENT_ENV["satintel"]),
         ("socmint", "run_socmint_agent", AGENT_ENV["socmint"]),
         ("techint", "run_techint_agent", AGENT_ENV["techint"]),
         ("cyber", "run_cyber_agent", AGENT_ENV["cyber"]),

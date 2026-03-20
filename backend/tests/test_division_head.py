@@ -40,6 +40,7 @@ class TestAnomalyDetection:
         store = ResultStore()
         store.set("sigint", {"sigint_score": 80})
         store.set("geoint", {"geoint_score": 10})
+        store.set("satintel", {"satintel_score": 35})
         store.set("proximity", {"proximity_score": 30})
         store.set("chokepoint", {"chokepoint_score": 40})
 
@@ -75,6 +76,7 @@ class TestDivisionDAGNodes:
         node_ids = {n.id for n in nodes}
         assert "sigint" in node_ids
         assert "geoint" in node_ids
+        assert "satintel" in node_ids
         assert "proximity" in node_ids
         assert "chokepoint" in node_ids
         assert "mil_sigint_chokepoint_enrich" in node_ids

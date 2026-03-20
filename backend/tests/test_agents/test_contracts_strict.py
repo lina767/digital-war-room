@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from agents.contracts import FinintResult, get_agent_fallback
+from agents.contracts import FinintResult, SatintelResult, get_agent_fallback
 
 
 def test_get_agent_fallback_finint_shape_is_stable():
@@ -24,3 +24,15 @@ def test_finint_result_accepts_typed_score():
     """Typed numeric values should still validate correctly."""
     result = FinintResult(conflict="Iran", escalation_score=42.1, summary="ok")
     assert result.escalation_score == 42.1
+
+
+def test_satintel_result_accepts_typed_score():
+    result = SatintelResult(conflict="Iran", satintel_score=51.0, summary="ok")
+    assert result.satintel_score == 51.0
+
+
+def test_get_agent_fallback_satintel_shape_is_stable():
+    fallback = get_agent_fallback("satintel")
+    assert isinstance(fallback, dict)
+    assert "satintel_score" in fallback
+    assert "imagery_signals" in fallback

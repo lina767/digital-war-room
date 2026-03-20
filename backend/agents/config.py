@@ -57,7 +57,7 @@ HIERARCHY_WEIGHTS = {
     "divisions": {
         "military": {
             "ceo_weight": 0.30,
-            "agents": {"sigint": 0.30, "geoint": 0.25, "chokepoint": 0.25, "proximity": 0.20},
+            "agents": {"sigint": 0.26, "geoint": 0.20, "satintel": 0.14, "chokepoint": 0.22, "proximity": 0.18},
         },
         "financial": {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
         "information": {"ceo_weight": 0.22, "agents": {"news": 0.40, "socmint": 0.35, "narrative": 0.25}},
@@ -93,6 +93,7 @@ AGENT_TTLS = {
     "chokepoint": 0,
     "finint": 0,
     "geoint": 0,
+    "satintel": 0,
     "cyber": 0,
     "protest": 0,
     "proximity": 0,

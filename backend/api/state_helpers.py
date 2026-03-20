@@ -19,6 +19,7 @@ AGENT_KEYS = (
     "sigint",
     "news",
     "geoint",
+    "satintel",
     "socmint",
     "techint",
     "cyber",

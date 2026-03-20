@@ -40,6 +40,15 @@ Per-agent description: inputs, data sources, main output fields, and typical use
 
 ---
 
+## SATINTEL
+
+- **Input:** `conflict`.
+- **Sources:** Sentinel Hub Process API (OAuth), Copernicus Data Space OData catalogue.
+- **Outputs:** `satintel_score`, `imagery_signals`, `aoi`, `copernicus_products`, `summary`.
+- **Use:** Top-level satellite imagery signal scoring from Sentinel/Copernicus products.
+
+---
+
 ## SOCMINT
 
 - **Input:** `conflict`.
