@@ -14,7 +14,6 @@ const STATIC_PUBLIC_ROUTES = [
   { path: "/docs/documentation", changefreq: "monthly", priority: "0.7", prerender: true, sitemap: true },
   { path: "/docs", changefreq: "monthly", priority: "0.4", prerender: true, sitemap: false },
   { path: "/daily-briefing", changefreq: "daily", priority: "0.9", prerender: true, sitemap: true },
-  { path: "/docs/documentation", changefreq: "monthly", priority: "0.7", prerender: true, sitemap: true },
   { path: "/newsletter", changefreq: "weekly", priority: "0.6", prerender: true, sitemap: true },
   // Token pages are publicly routable for UX, but intentionally not listed in sitemap.
   { path: "/newsletter/confirm", changefreq: "never", priority: "0.1", prerender: true, sitemap: false },
@@ -40,6 +39,17 @@ function getBlogPostSlugs() {
   return slugs;
 }
 
+function uniqueByPath(routes) {
+  const seen = new Set();
+  return routes.filter((route) => {
+    if (seen.has(route.path)) {
+      return false;
+    }
+    seen.add(route.path);
+    return true;
+  });
+}
+
 export function getDiscoverabilityRoutes() {
   const blogRoutes = getBlogPostSlugs().map((slug) => ({
     path: `/blog/${slug}`,
@@ -49,7 +59,7 @@ export function getDiscoverabilityRoutes() {
     sitemap: true,
   }));
 
-  return [...STATIC_PUBLIC_ROUTES, ...blogRoutes];
+  return uniqueByPath([...STATIC_PUBLIC_ROUTES, ...blogRoutes]);
 }
 
 export function getPrerenderRoutes() {
