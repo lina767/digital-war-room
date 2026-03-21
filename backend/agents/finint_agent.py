@@ -25,6 +25,7 @@ from .config import DEFAULT_TIMEOUT
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .source_fetch import SourceFetch
+from .quality_layer import build_quality_payload, fuse_numeric_observations
 from .utils import (
     ScoreConfidence,
     build_agent_meta,
@@ -731,39 +732,94 @@ async def _fetch_fred(client: Any, series_key: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def _fetch_oil_price(client: Any, function: str) -> Dict[str, Any]:
-    """Fetch Brent or WTI: Alpha Vantage → FRED fallback."""
-    fetched_at = utc_now_iso()
+async def _try_alpha_oil(client: Any, function: str) -> Optional[Dict[str, Any]]:
+    """Alpha Vantage daily series for BRENT/WTI. Returns None on skip/failure."""
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
-    if api_key:
-        try:
-            resp = await client.request(
-                "GET",
-                ALPHAVANTAGE_URL,
-                params={"function": function, "interval": "daily", "apikey": api_key},
-                timeout=DEFAULT_TIMEOUT,
-            )
-            data = resp.json()
-            if isinstance(data, dict) and (data.get("Information") or data.get("Note")):
-                logger.debug("FININT: Alpha Vantage rate limit (%s), trying FRED", function)
-            else:
-                series = data.get("data", [])
-                if len(series) >= 2:
-                    latest, prev = series[0], series[1]
-                    price, prev_price = safe_float(latest.get("value")), safe_float(prev.get("value"))
-                    change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
-                    return {
-                        "price": f"{price:.2f}" if price else None,
-                        "change_pct": _format_pct(change_pct),
-                        "as_of": latest.get("date", ""),
-                        "fetched_at": fetched_at,
-                    }
-        except Exception as e:
-            logger.debug("FININT: Alpha Vantage %s failed: %s, trying FRED", function, e)
-    fred_result = await _fetch_fred(client, function)
-    if fred_result:
-        return fred_result
-    return {"error": f"Both Alpha Vantage and FRED failed for {function}", "fetched_at": fetched_at}
+    if not api_key:
+        return None
+    fetched_at = utc_now_iso()
+    try:
+        resp = await client.request(
+            "GET",
+            ALPHAVANTAGE_URL,
+            params={"function": function, "interval": "daily", "apikey": api_key},
+            timeout=DEFAULT_TIMEOUT,
+        )
+        data = resp.json()
+        if isinstance(data, dict) and (data.get("Information") or data.get("Note")):
+            logger.debug("FININT: Alpha Vantage rate limit (%s)", function)
+            return None
+        series = data.get("data", []) if isinstance(data, dict) else []
+        if len(series) >= 2:
+            latest, prev = series[0], series[1]
+            price, prev_price = safe_float(latest.get("value")), safe_float(prev.get("value"))
+            change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+            return {
+                "price": f"{price:.2f}" if price else None,
+                "change_pct": _format_pct(change_pct),
+                "as_of": latest.get("date", ""),
+                "fetched_at": fetched_at,
+                "source": "alpha_vantage",
+            }
+    except Exception as e:
+        logger.debug("FININT: Alpha Vantage %s failed: %s", function, e)
+    return None
+
+
+async def _fetch_oil_price(client: Any, function: str) -> Dict[str, Any]:
+    """Fetch Brent or WTI: Alpha Vantage and FRED in parallel, fuse with quality_layer."""
+    fetched_at = utc_now_iso()
+    has_av = bool(os.getenv("ALPHAVANTAGE_API_KEY"))
+    has_fred = bool(os.getenv("FRED_API_KEY")) and function in FRED_SERIES
+
+    async def _alpha() -> Optional[Dict[str, Any]]:
+        if not has_av:
+            return None
+        return await _try_alpha_oil(client, function)
+
+    async def _fred() -> Optional[Dict[str, Any]]:
+        if not has_fred:
+            return None
+        return await _fetch_fred(client, function)
+
+    alpha_res, fred_res = await asyncio.gather(_alpha(), _fred())
+
+    observations: List[Dict[str, Any]] = []
+    for raw in (alpha_res, fred_res):
+        if not raw or not isinstance(raw, dict):
+            continue
+        if raw.get("error"):
+            continue
+        p = safe_float(raw.get("price"))
+        if p is None:
+            continue
+        tag = raw.get("source")
+        src = "fred" if tag == "FRED" else (str(tag) if tag else "unknown")
+        observations.append(
+            {
+                "value": p,
+                "source": src,
+                "fetched_at": raw.get("fetched_at") or fetched_at,
+                "change_pct": raw.get("change_pct") or "0.0%",
+                "as_of": raw.get("as_of") or "",
+            }
+        )
+
+    if not observations:
+        return {"error": f"Both Alpha Vantage and FRED failed for {function}", "fetched_at": fetched_at}
+
+    fusion = fuse_numeric_observations(observations)
+    quality = build_quality_payload(fusion, observations)
+    change_pct = str(quality.get("change_pct") or "0.0%")
+    as_of = str(quality.get("as_of") or "")
+    out = {
+        "price": fusion.fused_display,
+        "change_pct": change_pct,
+        "as_of": as_of,
+        "fetched_at": fetched_at,
+        "quality": quality,
+    }
+    return out
 
 
 async def _fetch_brent(client: Any) -> Dict[str, Any]:
