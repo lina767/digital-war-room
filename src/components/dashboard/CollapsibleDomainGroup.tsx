@@ -60,7 +60,7 @@ export function CollapsibleDomainGroup({
         onClick={toggle}
         aria-expanded={open}
         aria-controls={contentId}
-        className="flex items-center gap-1.5 w-full text-left py-1.5 px-0 rounded-md hover:bg-muted/50 transition-colors"
+        className="flex items-center gap-1.5 w-full text-left py-1.5 px-0 rounded-md hover:bg-muted/50 transition-colors max-lg:min-h-11 max-lg:py-2.5 touch-manipulation"
       >
         {open ? (
           <ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />

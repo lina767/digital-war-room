@@ -384,7 +384,7 @@ export function DashboardRightPanel({
             aria-pressed={feedView === "full"}
             title="Full view"
             onClick={() => setFeedView("full")}
-            className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
+            className={`min-h-8 min-w-8 max-lg:min-h-11 max-lg:min-w-11 flex items-center justify-center rounded-md transition-colors touch-manipulation ${
               feedView === "full" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
             }`}
           >
@@ -396,7 +396,7 @@ export function DashboardRightPanel({
             aria-pressed={feedView === "summary"}
             title="Summary view"
             onClick={() => setFeedView("summary")}
-            className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
+            className={`min-h-8 min-w-8 max-lg:min-h-11 max-lg:min-w-11 flex items-center justify-center rounded-md transition-colors touch-manipulation ${
               feedView === "summary" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
             }`}
           >
@@ -408,7 +408,7 @@ export function DashboardRightPanel({
             aria-pressed={feedView === "focus"}
             title="Focus view"
             onClick={() => setFeedView("focus")}
-            className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
+            className={`min-h-8 min-w-8 max-lg:min-h-11 max-lg:min-w-11 flex items-center justify-center rounded-md transition-colors touch-manipulation ${
               feedView === "focus" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
             }`}
           >

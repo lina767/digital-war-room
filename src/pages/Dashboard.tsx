@@ -140,6 +140,41 @@ function DashboardContent() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
+
+  const isMobileLayout = useIsMobileLayout();
+  const prevMenuOpen = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!isMobileLayout) {
+      prevMenuOpen.current = mobileMenuOpen;
+      return;
+    }
+    if (prevMenuOpen.current === null) {
+      prevMenuOpen.current = mobileMenuOpen;
+      return;
+    }
+    if (prevMenuOpen.current !== mobileMenuOpen) {
+      trackMobileNav(mobileMenuOpen ? "open" : "close");
+    }
+    prevMenuOpen.current = mobileMenuOpen;
+  }, [mobileMenuOpen, isMobileLayout]);
+
+  const prevLeftOpen = useRef(leftPanelOpen);
+  const prevRightOpen = useRef(rightPanelOpen);
+  useEffect(() => {
+    if (!isMobileLayout) return;
+    if (prevLeftOpen.current !== leftPanelOpen) {
+      trackMobilePanel("left", leftPanelOpen ? "open" : "close");
+      prevLeftOpen.current = leftPanelOpen;
+    }
+  }, [leftPanelOpen, isMobileLayout]);
+  useEffect(() => {
+    if (!isMobileLayout) return;
+    if (prevRightOpen.current !== rightPanelOpen) {
+      trackMobilePanel("right", rightPanelOpen ? "open" : "close");
+      prevRightOpen.current = rightPanelOpen;
+    }
+  }, [rightPanelOpen, isMobileLayout]);
+
   const formattedTime = utcTime.toISOString().slice(11, 19);
 
   // Live signal counter: real count from analysis (articles, aircraft, reports, findings, etc.)
@@ -383,7 +418,7 @@ function DashboardContent() {
 
       {/* Footer: docs hub (incl. How it works, Methodology, Source Directory), Support, legal */}
       <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2" role="contentinfo">
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4 max-lg:[&_a]:min-h-11 max-lg:[&_a]:inline-flex max-lg:[&_a]:items-center">
           <Link
             to="/docs/documentation"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
