@@ -14,6 +14,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from api.deps import StateServiceDep, WsManagerDep
 from agents.config import DEFAULT_CONFLICT
 from agents.supervisor import analyze_conflict, run_analysis_streaming
 from middleware.rate_limit import limiter
@@ -24,7 +25,6 @@ from .state_helpers import (
     get_cache,
     get_escalation_timeline,
     get_last_error,
-    get_state_service,
     push_agent_status,
     push_escalation_timeline,
     push_run_history,
@@ -100,17 +100,13 @@ async def analyze_stream(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
 
 
 @router.get("/agents/status")
-async def agents_status(request: Request) -> Any:
+async def agents_status(state: StateServiceDep) -> Any:
     """
     GET /api/agents/status
     Per-agent status from last completed analysis. Returns rich object per agent when _meta was present:
     status, fetched_at, duration_ms, confidence, data_freshness, sources, fallback_used, error_summary.
     """
-    state = get_state_service(request)
-    if state:
-        return state.get_agent_status()
-    status = getattr(request.app.state, "agent_status_last", None)
-    return dict(status) if status else {}
+    return state.get_agent_status()
 
 
 @router.get("/agents/health")
@@ -128,20 +124,12 @@ async def agents_health() -> Any:
 
 
 @router.get("/agents/history")
-async def agents_history(request: Request, limit: int = 20) -> Any:
+async def agents_history(state: StateServiceDep, limit: int = 20) -> Any:
     """
     GET /api/agents/history?limit=20
     Last N analysis run summaries: timestamp, conflict, per-agent duration, overall score, errors.
     """
-    state = get_state_service(request)
-    if state:
-        runs = state.get_run_history(limit=limit)
-        return {"runs": runs}
-    history = getattr(request.app.state, "analysis_run_history", None)
-    if history is None:
-        return {"runs": []}
-    runs = list(history)[-limit:]
-    runs.reverse()
+    runs = state.get_run_history(limit=limit)
     return {"runs": runs}
 
 
@@ -244,7 +232,13 @@ async def analyze(request: Request, body: AnalyzeRequest) -> Any:
 
 @router.get("/analyze/refresh")
 @limiter.limit("10/minute")
-async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, sync: bool = False) -> Any:
+async def refresh_analysis(
+    request: Request,
+    state: StateServiceDep,
+    ws_manager: WsManagerDep,
+    conflict: str = DEFAULT_CONFLICT,
+    sync: bool = False,
+) -> Any:
     """
     GET /analyze/refresh?conflict=Iran
     Kicks off a full analysis in the background and returns immediately.
@@ -256,13 +250,7 @@ async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, s
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
     app_state = request.app.state
-    state = get_state_service(request)
-    if state:
-        state.pop_last_error(conflict)
-    else:
-        le = getattr(app_state, "analysis_last_error", None)
-        if le is not None:
-            le.pop(conflict, None)
+    state.pop_last_error(conflict)
 
     if sync:
         try:
@@ -272,35 +260,20 @@ async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, s
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
             at_ts = time.time()
-            if state:
-                state.set_cache(conflict, result, at_ts)
-            else:
-                app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
+            state.set_cache(conflict, result, at_ts)
             push_escalation_timeline(app_state, conflict, at_ts, result)
             push_agent_status(app_state, result)
             push_run_history(app_state, conflict, at_ts, result)
-            ws_manager = getattr(app_state, "ws_manager", None)
-            if ws_manager:
-                await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+            await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
             return {"status": "ok", "conflict": conflict}
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
-            if state:
-                state.set_last_error(conflict, msg)
-            else:
-                le = getattr(app_state, "analysis_last_error", None)
-                if le is not None:
-                    le[conflict] = msg
+            state.set_last_error(conflict, msg)
             return JSONResponse(status_code=504, content={"error": msg, "conflict": conflict})
         except Exception as e:
             import traceback
 
-            if state:
-                state.set_last_error(conflict, str(e))
-            else:
-                le = getattr(app_state, "analysis_last_error", None)
-                if le is not None:
-                    le[conflict] = str(e)
+            state.set_last_error(conflict, str(e))
             return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
     async def _run_in_background() -> None:
@@ -311,37 +284,19 @@ async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, s
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
             at_ts = time.time()
-            if state:
-                state.set_cache(conflict, result, at_ts)
-            else:
-                app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
+            state.set_cache(conflict, result, at_ts)
             push_escalation_timeline(app_state, conflict, at_ts, result)
             push_agent_status(app_state, result)
             push_run_history(app_state, conflict, at_ts, result)
-            if state:
-                state.pop_last_error(conflict)
-            else:
-                getattr(app_state, "analysis_last_error", {}).pop(conflict, None)
-            ws_manager = getattr(app_state, "ws_manager", None)
-            if ws_manager:
-                await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+            state.pop_last_error(conflict)
+            await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
             print(f"[refresh] Analysis for {conflict} done and cached.")
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
-            if state:
-                state.set_last_error(conflict, msg)
-            else:
-                le = getattr(app_state, "analysis_last_error", None)
-                if le is not None:
-                    le[conflict] = msg
+            state.set_last_error(conflict, msg)
             print(f"[refresh] Analysis for {conflict} failed: {msg}")
         except Exception as e:
-            if state:
-                state.set_last_error(conflict, str(e))
-            else:
-                le = getattr(app_state, "analysis_last_error", None)
-                if le is not None:
-                    le[conflict] = str(e)
+            state.set_last_error(conflict, str(e))
             print(f"[refresh] Analysis for {conflict} failed: {e}")
 
     asyncio.create_task(_run_in_background())
@@ -356,10 +311,12 @@ async def refresh_analysis(request: Request, conflict: str = DEFAULT_CONFLICT, s
 @limiter.limit("5/minute")
 async def trigger_analysis(
     request: Request,
+    state: StateServiceDep,
+    ws_manager: WsManagerDep,
     conflict: str = DEFAULT_CONFLICT,
     x_trigger_secret: str | None = Header(default=None, alias="X-Trigger-Secret"),
 ) -> Any:
-    """
+   """
     Führt einmalig eine Analyse aus und füllt den Cache (z. B. nach Neustart oder Limit-Reset).
     Optional: ANALYZE_TRIGGER_SECRET in Railway setzen, dann Header X-Trigger-Secret mitschicken.
     """
@@ -379,17 +336,11 @@ async def trigger_analysis(
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
         at_ts = time.time()
-        state = get_state_service(request)
-        if state:
-            state.set_cache(conflict, result, at_ts)
-        else:
-            request.app.state.analysis_cache[conflict] = {"result": result, "at": at_ts}
+        state.set_cache(conflict, result, at_ts)
         push_escalation_timeline(request.app.state, conflict, at_ts, result)
         push_agent_status(request.app.state, result)
         push_run_history(request.app.state, conflict, at_ts, result)
-        ws_manager = getattr(request.app.state, "ws_manager", None)
-        if ws_manager:
-            await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+        await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
         return AnalysisResult.model_validate(result)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
