@@ -51,6 +51,11 @@ export const DOCUMENTATION_MANIFEST_SECTIONS: DocumentationManifestSection[] = [
     description: "Project orientation, product context, and the main technical entry points.",
   },
   {
+    id: "documentation",
+    title: "Documentation",
+    description: "How the platform works, analytical methodology, and source transparency.",
+  },
+  {
     id: "architecture",
     title: "Architecture",
     description: "Backend layers, orchestration model, and agent system design.",
@@ -79,7 +84,7 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
   },
   {
     id: "how-it-works",
-    sectionId: "overview",
+    sectionId: "documentation",
     title: "How It Works",
     description: "Conceptual explanation of product behavior and analytical pipeline.",
     filePath: "docs/how-it-works.md",
@@ -115,7 +120,7 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
   },
   {
     id: "methodology",
-    sectionId: "architecture",
+    sectionId: "documentation",
     title: "Methodology",
     description: "Scoring weights, threat thresholds, peak-weighted escalation, and Signal Framework notes.",
     filePath: "docs/methodology.md",
@@ -142,7 +147,7 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
   },
   {
     id: "source-directory",
-    sectionId: "api-and-data",
+    sectionId: "documentation",
     title: "Source Directory",
     description: "Provider inventory plus embedded searchable source list.",
     filePath: "docs/source-directory.md",

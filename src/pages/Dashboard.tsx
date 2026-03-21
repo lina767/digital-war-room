@@ -6,18 +6,12 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, Database, FileText, Activity, ClipboardList, Github, Newspaper, Mail } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
 import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
 import { SEO } from "@/components/SEO";
-import {
-  DOCS_HOW_IT_WORKS,
-  DOCS_METHODOLOGY,
-  DOCS_SOURCE_DIRECTORY,
-} from "@/lib/docLinks";
-
 const THREAT_BADGE_STYLES: Record<string, string> = {
   LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   ELEVATED: "bg-warning/20 text-warning border-warning/30",
@@ -226,11 +220,8 @@ function DashboardContent() {
           <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} />
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
             <Link to="/docs/documentation" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Documentation</Link>
-            <Link to={DOCS_HOW_IT_WORKS} className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>How it works</Link>
             <Link to="/blog" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Blog</Link>
-            <Link to={DOCS_METHODOLOGY} className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Methodology</Link>
             <Link to="/daily-briefing" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Daily Briefing</Link>
-            <Link to={DOCS_SOURCE_DIRECTORY} className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Source Directory</Link>
             <Link to="/support" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Support</Link>
           </div>
         </div>
@@ -274,7 +265,7 @@ function DashboardContent() {
         />
       </div>
 
-      {/* Footer: How it works, Support (prominent), Impressum & Privacy (subtle) */}
+      {/* Footer: Documentation hub (incl. How it works, Methodology, Source Directory), Support, legal */}
       <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2">
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
           <Link
@@ -285,13 +276,6 @@ function DashboardContent() {
             <span>Documentation</span>
           </Link>
           <Link
-            to={DOCS_HOW_IT_WORKS}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <BookOpen className="h-3.5 w-3.5" aria-hidden />
-            <span>How it works</span>
-          </Link>
-          <Link
             to="/blog"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
@@ -299,25 +283,11 @@ function DashboardContent() {
             <span>Blog</span>
           </Link>
           <Link
-            to={DOCS_METHODOLOGY}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <ClipboardList className="h-3.5 w-3.5" aria-hidden />
-            <span>Methodology</span>
-          </Link>
-          <Link
             to="/daily-briefing"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
           >
             <FileText className="h-3.5 w-3.5" aria-hidden />
             <span>Daily Briefing</span>
-          </Link>
-          <Link
-            to={DOCS_SOURCE_DIRECTORY}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <Database className="h-3.5 w-3.5" aria-hidden />
-            <span>Source Directory</span>
           </Link>
           <Link
             to="/app/monitoring"
