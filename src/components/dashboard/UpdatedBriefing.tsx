@@ -1,5 +1,6 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { RootCauseSuggestions } from "@/components/dashboard/RootCauseSuggestions";
 import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { TextSkeleton } from "@/components/ui/skeleton";
@@ -25,8 +26,9 @@ function UpdatedBriefingContent({
   const narrativeStory = data?.narrative_story ?? null;
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
+  const rootCauses = data?.root_cause_suggestions ?? [];
   const hasContent =
-    summary || narrativeStory || scenarios.length > 0 || keyFindings.length > 0;
+    summary || narrativeStory || scenarios.length > 0 || keyFindings.length > 0 || rootCauses.length > 0;
 
   return (
     <>
@@ -40,6 +42,7 @@ function UpdatedBriefingContent({
             <p className="text-sm leading-relaxed text-pretty">{summary}</p>
           </div>
         )}
+        <RootCauseSuggestions items={rootCauses} />
         {narrativeStory && (
           <div className="mb-3">
             <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">

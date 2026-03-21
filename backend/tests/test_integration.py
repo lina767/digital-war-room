@@ -28,6 +28,7 @@ EXPECTED_RESPONSE_KEYS = {
     "predictive",
     "compliance",
     "alerts",
+    "pattern_flags",
     "divisions",
     "finint",
     "sigint",

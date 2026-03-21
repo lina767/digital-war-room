@@ -14,6 +14,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from api.http_errors import conflict_bad_request
 from agents.supervisor import analyze_conflict
+from agents.pattern_anomalies import attach_pattern_flags
 from middleware.rate_limit import limiter
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
 from services.newsletter_store import (
@@ -194,6 +195,7 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
             continue
         at_ts = time.time()
         if state:
+            attach_pattern_flags(state, conflict, result)
             state.set_cache(conflict, result, at_ts)
         else:
             app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}

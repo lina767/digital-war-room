@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.deps import StateServiceDep, WsManagerDep
 from api.http_errors import conflict_bad_request
 from agents.config import DEFAULT_CONFLICT
+from agents.pattern_anomalies import attach_pattern_flags
 from agents.supervisor import analyze_conflict, run_analysis_streaming
 from middleware.rate_limit import limiter
 from models.analysis import AnalysisResult
@@ -45,6 +46,7 @@ async def _persist_analysis_result(
 ) -> None:
     """Write analysis to cache, timeline, agent status, run history; broadcast to WebSocket clients."""
     at_ts = time.time()
+    attach_pattern_flags(state, conflict, result)
     state.set_cache(conflict, result, at_ts)
     push_escalation_timeline(app_state, conflict, at_ts, result)
     push_agent_status(app_state, result)

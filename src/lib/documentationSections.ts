@@ -11,6 +11,7 @@ import observability from "../../docs/OBSERVABILITY.md?raw";
 import security from "../../docs/SECURITY.md?raw";
 import apiKeys from "../../docs/API-KEYS.md?raw";
 import newsletterSpec from "../../docs/NEWSLETTER-SPEC.md?raw";
+import glossary from "../../docs/GLOSSARY.md?raw";
 
 const REPO_DOCS_BASE = "https://github.com/lina767/digital-war-room/blob/main/docs";
 
@@ -165,6 +166,15 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
     filePath: "docs/source-directory.md",
     githubUrl: `${REPO_DOCS_BASE}/source-directory.md`,
     content: sourceDirectory,
+  },
+  {
+    id: "glossary",
+    sectionId: "documentation",
+    title: "Glossary",
+    description: "OSINT and conflict-monitoring vocabulary used across the platform.",
+    filePath: "docs/GLOSSARY.md",
+    githubUrl: `${REPO_DOCS_BASE}/GLOSSARY.md`,
+    content: glossary,
   },
   {
     id: "deployment",

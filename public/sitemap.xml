@@ -97,6 +97,12 @@
     <priority>0.65</priority>
   </url>
   <url>
+    <loc>https://digital-war-room.com/docs/documentation?doc=glossary</loc>
+    <lastmod>2026-03-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.65</priority>
+  </url>
+  <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=deployment</loc>
     <lastmod>2026-03-21</lastmod>
     <changefreq>monthly</changefreq>
@@ -119,6 +125,12 @@
     <lastmod>2026-03-21</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
+  </url>
+  <url>
+    <loc>https://digital-war-room.com/blog/weekly-insights-auto-generated-summaries</loc>
+    <lastmod>2026-03-21</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/blog/welcome-to-the-blog</loc>

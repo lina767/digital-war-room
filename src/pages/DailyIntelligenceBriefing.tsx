@@ -16,6 +16,7 @@ import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { RootCauseSuggestions } from "@/components/dashboard/RootCauseSuggestions";
 import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { SEO } from "@/components/SEO";
 import {
@@ -311,6 +312,9 @@ export default function DailyIntelligenceBriefing() {
                       <p className="text-muted-foreground italic">No executive summary available for this period.</p>
                     )}
                   </div>
+                  {(data.root_cause_suggestions?.length ?? 0) > 0 && (
+                    <RootCauseSuggestions items={data.root_cause_suggestions!} />
+                  )}
                   {data.narrative_story != null && String(data.narrative_story).trim() !== "" && (
                     <div className="rounded-lg border border-border bg-card/40 p-4">
                       <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">

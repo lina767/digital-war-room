@@ -1,7 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
-import { getPostBySlug } from "@/lib/blogPosts";
+import { getPostBySlug, BLOG_SERIES_LABELS } from "@/lib/blogPosts";
 import { Calendar, ArrowLeft } from "lucide-react";
 import NotFound from "@/pages/NotFound";
 
@@ -67,9 +67,16 @@ const BlogPost = () => {
         description={post.excerpt}
         maxWidth="3xl"
       >
-        <div className="mb-6 flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground font-mono tracking-wide">
-          <Calendar className="h-3.5 w-3.5" aria-hidden />
-          <time dateTime={post.date}>{formattedDate}</time>
+        <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-muted-foreground font-mono tracking-wide">
+          {post.series ? (
+            <span className="inline-flex rounded border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] font-sans font-medium tracking-normal text-primary">
+              {BLOG_SERIES_LABELS[post.series]}
+            </span>
+          ) : null}
+          <span className="inline-flex items-center gap-2">
+            <Calendar className="h-3.5 w-3.5" aria-hidden />
+            <time dateTime={post.date}>{formattedDate}</time>
+          </span>
         </div>
         <article className="space-y-4 text-foreground">
           {post.body}

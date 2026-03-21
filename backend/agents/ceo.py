@@ -57,6 +57,94 @@ def _align_key_findings_confidence(findings: List[str], conf: List[str]) -> List
     return out
 
 
+def _normalize_root_cause_suggestions(raw: Any) -> List[Dict[str, str]]:
+    """Parse CEO JSON root_cause_suggestions: list of objects or 'signal → cause' strings."""
+    out: List[Dict[str, str]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw[:8]:
+        if isinstance(item, str):
+            s = item.strip()
+            sep = "→" if "→" in s else ("->" if "->" in s else "")
+            if sep:
+                parts = s.split(sep, 1)
+                signal = parts[0].strip()
+                likely = parts[1].strip() if len(parts) > 1 else ""
+                if signal and likely:
+                    out.append({"signal": signal, "likely_cause": likely, "confidence": "medium"})
+            continue
+        if isinstance(item, dict):
+            sig = str(item.get("signal") or item.get("observation") or "").strip()
+            cause = str(item.get("likely_cause") or item.get("cause") or item.get("driver") or "").strip()
+            conf = str(item.get("confidence") or "medium").strip().lower()
+            if conf not in ("high", "medium", "low"):
+                conf = "medium"
+            if sig and cause:
+                out.append({"signal": sig, "likely_cause": cause, "confidence": conf})
+    return out[:6]
+
+
+def _heuristic_root_causes(
+    energy_result: Dict[str, Any],
+    chokepoint_result: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Deterministic hypotheses when the LLM omits root_cause_suggestions."""
+    out: List[Dict[str, str]] = []
+    seen_sig: set[str] = set()
+
+    def add(signal: str, likely_cause: str, confidence: str) -> None:
+        if signal in seen_sig:
+            return
+        seen_sig.add(signal)
+        out.append({"signal": signal, "likely_cause": likely_cause, "confidence": confidence})
+
+    note = energy_result.get("global_impact_note")
+    if isinstance(note, str) and note.strip():
+        lower = note.lower()
+        if any(x in lower for x in ("hormuz", "chokepoint", "brent", "wti", "strait")):
+            add("Elevated oil / energy risk premium", note.strip()[:220], "medium")
+
+    cps = chokepoint_result.get("chokepoints") or []
+    if isinstance(cps, list):
+        for cp in cps:
+            if not isinstance(cp, dict):
+                continue
+            name = str(cp.get("name") or "")
+            risk = cp.get("disruption_risk")
+            if "hormuz" in name.lower() and isinstance(risk, (int, float)) and risk >= 35:
+                add(
+                    f"{name} disruption risk {risk:.0f}/100",
+                    "Tanker traffic density, incident reporting, or closure rhetoric in coverage — see chokepoint panel",
+                    "high" if risk >= 65 else "medium",
+                )
+                break
+
+    commodities = energy_result.get("commodities") or []
+    if isinstance(commodities, list) and not any("move" in x.get("signal", "").lower() for x in out):
+        for c in commodities:
+            if not isinstance(c, dict):
+                continue
+            sym = str(c.get("symbol") or "").upper()
+            raw_ch = c.get("change_pct_raw")
+            if sym in ("BRENT", "WTI", "CL", "BZ") and isinstance(raw_ch, (int, float)) and abs(raw_ch) >= 1.5:
+                add(
+                    f"{sym} {raw_ch:+.1f}% (session)",
+                    "Geopolitical risk premium — cross-check with Hormuz/Bab el-Mandeb and FININT",
+                    "medium",
+                )
+                break
+
+    fsr = energy_result.get("food_security_risk")
+    if isinstance(fsr, (int, float)) and fsr >= 55:
+        add(
+            f"Food security stress {fsr:.0f}/100",
+            "Grain/fertilizer prices and route exposure (incl. chokepoints affecting flows)",
+            "low" if fsr < 70 else "medium",
+        )
+
+    return out[:5]
+
+
 def _all_divisions() -> List[DivisionHead]:
     """Instantiate all five divisions."""
     return [
@@ -374,6 +462,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     key_findings = []
     key_findings_context = []
     key_findings_confidence: List[str] = []
+    root_cause_suggestions: List[Dict[str, str]] = []
     scenarios = []
     summary = _build_rule_based_ceo_summary(conflict, synthesis_score, threat_level, division_results)
 
@@ -480,6 +569,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                     key_findings_confidence = [_normalize_finding_confidence(x) for x in raw_conf]
                 else:
                     key_findings_confidence = []
+                root_cause_suggestions = _normalize_root_cause_suggestions(parsed.get("root_cause_suggestions"))
                 scenarios = list(parsed.get("scenarios") or [])
                 summary = str(parsed.get("summary", summary))
                 if parsed.get("threat_level"):
@@ -517,6 +607,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
 
     if len(key_findings_context) > len(key_findings):
         key_findings_context = key_findings_context[: len(key_findings)]
+
+    if not root_cause_suggestions:
+        root_cause_suggestions = _heuristic_root_causes(energy_result, chokepoint_result)
 
     # Actors
     try:
@@ -562,6 +655,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "predictive": predictive,
         "compliance": compliance,
         "alerts": alerts,
+        "pattern_flags": [],
         "synthesis_meta": synthesis_meta,
     }
 
@@ -835,7 +929,8 @@ def _build_ceo_prompt(
     parts.append("\nTASK: Produce a holistic assessment. Focus on cross-division patterns and changes.")
     parts.append(
         'OUTPUT: JSON: { "escalation_score": ..., "threat_level": ..., "key_findings": [...], '
-        '"key_findings_context": [...], "key_findings_confidence": [...], "scenarios": [...], "summary": "..." }'
+        '"key_findings_context": [...], "key_findings_confidence": [...], '
+        '"root_cause_suggestions": [...], "scenarios": [...], "summary": "..." }'
     )
 
     return "\n".join(parts)
@@ -867,6 +962,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
   "key_findings": [<array of concise finding strings>],
   "key_findings_context": [<optional: array of 2-3 sentence "why this matters" per finding, same order as key_findings>],
   "key_findings_confidence": [<required: same length as key_findings; each value "high", "medium", or "low" — assessment confidence in that finding>],
+  "root_cause_suggestions": [<up to 5 objects: plausible links between an observable signal and a driver, e.g. {"signal": "Brent +3%", "likely_cause": "Strait of Hormuz risk premium from tanker/incident coverage", "confidence": "medium"} — hypotheses not facts>],
   "scenarios": [{"description": <string>, "probability": <0-1>}],
   "summary": "<2-3 sentence BLUF summary>"
 }"""
@@ -924,6 +1020,7 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
         "threat_level": "MINIMAL",
         "key_findings": [],
         "key_findings_confidence": [],
+        "root_cause_suggestions": [],
         "scenarios": [],
         "summary": "Analysis failed.",
     }

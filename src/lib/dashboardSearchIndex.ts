@@ -72,6 +72,18 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     }
   });
 
+  (data.root_cause_suggestions ?? []).forEach((rc, i) => {
+    if (hits.length >= MAX_BUILT) return;
+    const line = `${rc.signal} → ${rc.likely_cause}`;
+    hits.push({
+      id: `root-cause-${i}`,
+      category: "finding",
+      title: clip(rc.signal, 80),
+      snippet: clip(line),
+      meta: rc.confidence ? `Likely driver (${rc.confidence})` : "Likely driver",
+    });
+  });
+
   pushAgent(hits, "summary", "Overview", data.summary, "BLUF / summary");
   pushAgent(hits, "narrative_story", "Narrative", data.narrative_story ?? undefined, "Cross-stream story");
 

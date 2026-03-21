@@ -80,6 +80,7 @@ export interface AnalyzeResponse {
   key_findings?: string[];
   key_findings_context?: string[];
   key_findings_confidence?: string[];
+  root_cause_suggestions?: Array<{ signal: string; likely_cause: string; confidence?: string }>;
   corroborated_patterns?: Array<{
     pattern_id?: string;
     summary?: string;
@@ -391,6 +392,24 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
       typeof c === "string" ? c : String(c ?? "medium"),
     );
   }
+  if (Array.isArray(raw.root_cause_suggestions)) {
+    const mapped = raw.root_cause_suggestions
+      .map((x: unknown) => {
+        if (!x || typeof x !== "object") return null;
+        const o = x as Record<string, unknown>;
+        const signal = typeof o.signal === "string" ? o.signal.trim() : "";
+        const likely_cause = typeof o.likely_cause === "string" ? o.likely_cause.trim() : "";
+        if (!signal || !likely_cause) return null;
+        const confidence = typeof o.confidence === "string" ? o.confidence.trim().toLowerCase() : undefined;
+        return {
+          signal,
+          likely_cause,
+          ...(confidence && ["high", "medium", "low"].includes(confidence) ? { confidence } : {}),
+        };
+      })
+      .filter(Boolean) as Array<{ signal: string; likely_cause: string; confidence?: string }>;
+    (out as Record<string, unknown>).root_cause_suggestions = mapped;
+  }
   if (Array.isArray(raw.scenarios)) {
     out.scenarios = raw.scenarios.map((s: unknown) => {
       const o = s as Record<string, unknown>;
@@ -402,6 +421,9 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   }
   if (typeof raw.summary === "string") out.summary = raw.summary;
   if (typeof raw.narrative_story === "string") out.narrative_story = raw.narrative_story;
+  if (Array.isArray(raw.pattern_flags)) {
+    (out as Record<string, unknown>).pattern_flags = raw.pattern_flags;
+  }
   return out;
 }
 

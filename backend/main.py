@@ -25,6 +25,7 @@ from api.routes import router as api_router, push_escalation_timeline, push_agen
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
 from agents.supervisor import analyze_conflict
+from agents.pattern_anomalies import attach_pattern_flags
 from agents.config import CORS_ORIGINS, GREYNOISE_API_KEY, GREYNOISE_SCHEDULER_INTERVAL_SEC
 from observability import init as init_observability
 from services.job_queue import JobQueue
@@ -112,6 +113,7 @@ async def lifespan(app: FastAPI):
 
                 result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
                 at_ts = time.time()
+                attach_pattern_flags(app.state.state_service, AUTO_ANALYZE_CONFLICT, result)
                 app.state.state_service.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts)
                 app.state.state_service.pop_last_error(AUTO_ANALYZE_CONFLICT)
                 push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)

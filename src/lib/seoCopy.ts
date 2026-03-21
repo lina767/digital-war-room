@@ -52,7 +52,7 @@ export const DESCRIPTION_PRIVACY = "Privacy policy for Digital War Room: data ha
 // Blog
 export const TITLE_BLOG = "Blog — Digital War Room";
 export const DESCRIPTION_BLOG =
-  "Updates, methodology notes, and context on how the Digital War Room platform is built and run.";
+  "Weekly insights (auto-generated analysis summaries), platform updates, methodology notes, and how the Digital War Room is built and run.";
 
 // 404
 export const TITLE_404 = "Page Not Found — Digital War Room";

@@ -54,11 +54,20 @@ export interface PredictiveBlock {
   market_benchmark?: MarketForecast[];
 }
 
+/** CEO synthesis: observable signal → plausible driver (hypothesis, not fact). */
+export interface RootCauseSuggestion {
+  signal: string;
+  likely_cause: string;
+  confidence?: string;
+}
+
 export interface ConflictData {
   conflict: string;
   escalation_score: number | null;
   threat_level: string | null;
   key_findings: string[];
+  /** Observable → likely cause pairs from CEO (and heuristics when LLM omits them). */
+  root_cause_suggestions?: RootCauseSuggestion[];
   /** Optional 2–3 sentence "why this matters" per finding (same order as key_findings). */
   key_findings_context?: string[];
   /** Optional per-finding confidence tier from CEO / heuristics (same order as key_findings). */
@@ -204,6 +213,15 @@ export interface ConflictData {
     summary?: string;
     _meta?: AgentMeta;
   };
+  /** Heuristic anomaly flags vs previous cached run (e.g. military chatter spike). */
+  pattern_flags?: Array<{
+    id?: string;
+    severity?: string;
+    category?: string;
+    title?: string;
+    detail?: string;
+    metrics?: Record<string, unknown>;
+  }>;
   /** Centralised alerts from SIGINT, geofencing, AIS anomaly, GreyNoise. */
   alerts?: Array<{ source: string; severity: string; text: string }>;
   /** Iran conflict: actors with activity and optional intelligence (official position, verified actions, signals, military profile). */

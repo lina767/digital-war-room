@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
-import { BLOG_POSTS } from "@/lib/blogPosts";
+import { BLOG_POSTS, BLOG_SERIES_LABELS } from "@/lib/blogPosts";
 import { TITLE_BLOG, DESCRIPTION_BLOG } from "@/lib/seoCopy";
 import { Calendar, ArrowRight } from "lucide-react";
 
@@ -50,15 +50,22 @@ const Blog = () => {
                 to={`/blog/${post.slug}`}
                 className="group block rounded-lg border border-border bg-card/40 p-4 sm:p-5 hover:border-primary/40 hover:bg-card/60 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
               >
-                <div className="flex items-center gap-2 text-[11px] sm:text-xs text-muted-foreground font-mono tracking-wide mb-2">
-                  <Calendar className="h-3.5 w-3.5" aria-hidden />
-                  <time dateTime={post.date}>
-                    {new Date(post.date + "T12:00:00").toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </time>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-muted-foreground font-mono tracking-wide mb-2">
+                  {post.series ? (
+                    <span className="inline-flex rounded border border-primary/35 bg-primary/10 px-2 py-0.5 text-[10px] font-sans font-medium tracking-normal text-primary">
+                      {BLOG_SERIES_LABELS[post.series]}
+                    </span>
+                  ) : null}
+                  <span className="inline-flex items-center gap-2">
+                    <Calendar className="h-3.5 w-3.5" aria-hidden />
+                    <time dateTime={post.date}>
+                      {new Date(post.date + "T12:00:00").toLocaleDateString("en-GB", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </time>
+                  </span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-semibold tracking-tight mb-2 group-hover:text-primary transition-colors">
                   {post.title}
