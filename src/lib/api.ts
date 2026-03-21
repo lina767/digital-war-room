@@ -104,6 +104,8 @@ export interface AnalyzeResponse {
   proximity?: Record<string, unknown>;
   predictive?: Record<string, unknown>;
   compliance?: Record<string, unknown>;
+  /** Heuristic anomaly flags (vs previous run): military chatter spike, volume spikes, escalation jump. */
+  pattern_flags?: Array<Record<string, unknown>>;
   [key: string]: unknown;
 }
 
