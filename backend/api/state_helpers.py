@@ -34,44 +34,47 @@ AGENT_KEYS = (
 ANALYSIS_RUN_HISTORY_MAX = 50
 
 
-def _get_state_service(request: Request) -> Optional[StateService]:
-    return getattr(request.app.state, "state_service", None)
+def _state_from_request(request: Request) -> Optional[StateService]:
+    if hasattr(request.app.state, "state_service"):
+        return request.app.state.state_service
+    return None
 
 
 def get_state_service(request: Request) -> Optional[StateService]:
-    """Return StateService from app state, or None (legacy in-memory fallback)."""
-    return _get_state_service(request)
+    """Return StateService from app state, or None (minimal test apps without state_service)."""
+    return _state_from_request(request)
 
 
 def get_cache(request: Request, conflict: Optional[str] = None) -> Any:
     """Return cache entry for conflict, or full cache dict if conflict is None."""
-    state = _get_state_service(request)
+    state = _state_from_request(request)
     if state:
         if conflict is not None:
             return state.get_cache(conflict)
         return state.get_cache_all()
+    cache = request.app.state.analysis_cache
     if conflict is not None:
-        return getattr(request.app.state, "analysis_cache", {}).get(conflict)
-    return getattr(request.app.state, "analysis_cache", {})
+        return cache.get(conflict)
+    return cache
 
 
 def get_last_error(request: Request, conflict: Optional[str] = None) -> Any:
-    state = _get_state_service(request)
+    state = _state_from_request(request)
     if state:
         if conflict is not None:
             return state.get_last_error(conflict)
         return state.get_last_error_all()
-    d = getattr(request.app.state, "analysis_last_error", {})
+    d = request.app.state.analysis_last_error
     return d.get(conflict) if conflict is not None else d
 
 
 def get_escalation_timeline(request: Request, conflict: Optional[str] = None) -> Any:
-    state = _get_state_service(request)
+    state = _state_from_request(request)
     if state:
         if conflict is not None:
             return state.get_escalation_timeline(conflict)
         return state.get_escalation_timeline_all()
-    d = getattr(request.app.state, "escalation_timeline_history", {})
+    d = request.app.state.escalation_timeline_history
     return d.get(conflict, []) if conflict is not None else d
 
 
@@ -114,11 +117,12 @@ def build_agent_status_from_result(result: dict) -> Dict[str, Dict[str, Any]]:
 
 def push_agent_status(app_state, result: dict) -> None:
     """Record per-agent status from last analysis. Uses StateService when available."""
-    state = getattr(app_state, "state_service", None)
-    if state:
-        state.set_agent_status_full(build_agent_status_from_result(result))
+    if hasattr(app_state, "state_service") and app_state.state_service:
+        app_state.state_service.set_agent_status_full(build_agent_status_from_result(result))
         return
-    status = getattr(app_state, "agent_status_last", None)
+    if not hasattr(app_state, "agent_status_last"):
+        return
+    status = app_state.agent_status_last
     if status is None:
         return
     for k, v in build_agent_status_from_result(result).items():
@@ -146,13 +150,11 @@ def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> No
         "error": result.get("error")
         or (result.get("_run_error") if isinstance(result.get("_run_error"), str) else None),
     }
-    state = getattr(app_state, "state_service", None)
-    if state:
-        state.push_run_history_entry(entry)
+    if hasattr(app_state, "state_service") and app_state.state_service:
+        app_state.state_service.push_run_history_entry(entry)
         return
-    history = getattr(app_state, "analysis_run_history", None)
-    if history is not None:
-        history.append(entry)
+    if hasattr(app_state, "analysis_run_history") and app_state.analysis_run_history is not None:
+        app_state.analysis_run_history.append(entry)
 
 
 def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dict) -> None:
@@ -166,13 +168,12 @@ def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dic
         score = float(score)
     except (TypeError, ValueError):
         return
-    state = getattr(app_state, "state_service", None)
-    if state:
-        state.append_escalation_timeline(conflict, at_ts, score)
+    if hasattr(app_state, "state_service") and app_state.state_service:
+        app_state.state_service.append_escalation_timeline(conflict, at_ts, score)
         return
-    history = getattr(app_state, "escalation_timeline_history", None)
-    if history is None:
+    if not hasattr(app_state, "escalation_timeline_history"):
         return
+    history = app_state.escalation_timeline_history
     if conflict not in history:
         history[conflict] = []
     history[conflict].append({"at": at_ts, "escalation_score": round(score, 1)})

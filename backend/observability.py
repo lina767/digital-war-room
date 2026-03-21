@@ -2,12 +2,15 @@
 Observability stack: structured logging (structlog), tracing (OpenTelemetry), error tracking (Sentry).
 
 Usage:
-    from observability import get_logger, run_agent_traced, run_node_traced, init
+    from observability import get_logger, logging_context, run_agent_traced, run_node_traced, init
 
     init()  # call once at app startup (e.g. in main.py lifespan)
 
     logger = get_logger()
     logger.info("event_name", key=value, ...)
+
+    with logging_context(conflict="Iran", agent_name="finint"):
+        logger.info("step_done", extra_field=1)  # includes conflict, agent_name
 
     result = run_agent_traced("finint", conflict, lambda: run_finint_agent(conflict))
 
@@ -99,6 +102,34 @@ def get_logger(name: str = "") -> Any:
     return structlog.get_logger()
 
 
+@contextmanager
+def logging_context(
+    *,
+    conflict: str | None = None,
+    agent_name: str | None = None,
+) -> Generator[None, None, None]:
+    """
+    Bind optional ``conflict`` and/or ``agent_name`` for structlog and stdlib logs in this block.
+
+    Unbinds only the keys set here on exit (safe for nesting different keys).
+    """
+    from structlog.contextvars import bind_contextvars, unbind_contextvars
+
+    kwargs: dict[str, str] = {}
+    if conflict is not None:
+        kwargs["conflict"] = conflict
+    if agent_name is not None:
+        kwargs["agent_name"] = agent_name
+    if not kwargs:
+        yield
+        return
+    bind_contextvars(**kwargs)
+    try:
+        yield
+    finally:
+        unbind_contextvars(*kwargs.keys())
+
+
 # ---------------------------------------------------------------------------
 # Sentry
 # ---------------------------------------------------------------------------
@@ -146,24 +177,36 @@ def _get_traced() -> Any:
 # ---------------------------------------------------------------------------
 
 
-def run_agent_traced(agent_name: str, query: str, run_fn: Callable[[], T]) -> T:
+def run_agent_traced(agent_name: str, conflict: str, run_fn: Callable[[], T]) -> T:
     """
     Run agent logic inside an OTEL span and structured logs (agent_start, agent_complete).
 
-    query: typically the conflict name; used for span attribute and query_length in logs.
+    Binds structlog contextvars ``conflict`` and ``agent_name`` for the duration of the run.
     run_fn: callable that returns the agent result; may include tokens_used or usage.total_tokens.
     """
     traced = _get_traced()
     log = get_logger(__name__)
-    log.info("agent_start", agent=agent_name, query_length=len(query) if query else 0)
-    with traced(f"agent.{agent_name}", {"conflict": query or None}):
-        result = run_fn()
-    tokens_used = None
-    if isinstance(result, dict):
-        tokens_used = result.get("tokens_used")
-        if tokens_used is None and isinstance(result.get("usage"), dict):
-            tokens_used = result.get("usage", {}).get("total_tokens")
-    log.info("agent_complete", agent=agent_name, tokens_used=tokens_used)
+    c = conflict or ""
+    with logging_context(conflict=c, agent_name=agent_name):
+        log.info(
+            "agent_start",
+            conflict=c,
+            agent_name=agent_name,
+            query_length=len(conflict) if conflict else 0,
+        )
+        with traced(f"agent.{agent_name}", {"conflict": c or None}):
+            result = run_fn()
+        tokens_used = None
+        if isinstance(result, dict):
+            tokens_used = result.get("tokens_used")
+            if tokens_used is None and isinstance(result.get("usage"), dict):
+                tokens_used = result.get("usage", {}).get("total_tokens")
+        log.info(
+            "agent_complete",
+            conflict=c,
+            agent_name=agent_name,
+            tokens_used=tokens_used,
+        )
     return result
 
 
@@ -175,14 +218,29 @@ def run_node_traced(
 ) -> T:
     """
     Run a DAG node inside an OTEL span and structured logs (node_start, node_complete).
-    Use in DAG scheduler when executing a node.
+
+    Binds structlog contextvars ``conflict`` and ``agent_name`` (``agent_name`` is the node id).
     """
     traced = _get_traced()
     log = get_logger(__name__)
-    log.info("node_start", node_id=node_id, node_type=node_type, conflict=conflict)
-    with traced(f"dag.node.{node_id}", {"conflict": conflict, "node_type": node_type}):
-        result = run_fn()
-    log.info("node_complete", node_id=node_id, node_type=node_type, conflict=conflict)
+    c = conflict or ""
+    with logging_context(conflict=c, agent_name=node_id):
+        log.info(
+            "node_start",
+            conflict=c,
+            agent_name=node_id,
+            node_id=node_id,
+            node_type=node_type,
+        )
+        with traced(f"dag.node.{node_id}", {"conflict": c or None, "node_type": node_type}):
+            result = run_fn()
+        log.info(
+            "node_complete",
+            conflict=c,
+            agent_name=node_id,
+            node_id=node_id,
+            node_type=node_type,
+        )
     return result
 
 
