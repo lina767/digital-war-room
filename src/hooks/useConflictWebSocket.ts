@@ -70,6 +70,8 @@ export interface ConflictData {
   }>;
   scenarios: { description: string; probability: number }[];
   summary: string | null;
+  /** Cross-stream causal story from narrative synthesis (not the Signal Framework agent). */
+  narrative_story?: string | null;
   news?: {
     articles?: NewsArticle[];
     news_score?: number;

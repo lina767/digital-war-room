@@ -20,15 +20,25 @@ function UpdatedBriefingContent({
   isLoading,
 }: Pick<UpdatedBriefingProps, "data" | "conflictLabel" | "isLoading">) {
   const summary = data?.summary ?? null;
+  const narrativeStory = data?.narrative_story ?? null;
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
-  const hasContent = summary || scenarios.length > 0 || keyFindings.length > 0;
+  const hasContent =
+    summary || narrativeStory || scenarios.length > 0 || keyFindings.length > 0;
 
   return (
     <>
       {isLoading && !hasContent && <TextSkeleton lines={3} className="text-xs" />}
         {!hasContent && !isLoading && (
           <p className="text-xs text-muted-foreground italic">Run analysis for {conflictLabel} to see the briefing.</p>
+        )}
+        {narrativeStory && (
+          <div className="mb-3">
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+              Cross-stream narrative
+            </p>
+            <p className="text-sm leading-relaxed whitespace-pre-wrap">{narrativeStory}</p>
+          </div>
         )}
         {summary && (
           <div>

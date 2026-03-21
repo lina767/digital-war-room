@@ -58,6 +58,8 @@ export interface AnalyzeResponse {
   }>;
   scenarios?: { description: string; probability: number }[];
   summary?: string;
+  /** LLM-written cross-stream causal narrative (replaces score-by-score reading). */
+  narrative_story?: string;
   finint?: Record<string, unknown>;
   sigint?: Record<string, unknown>;
   news?: Record<string, unknown>;
@@ -312,6 +314,7 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
     });
   }
   if (typeof raw.summary === "string") out.summary = raw.summary;
+  if (typeof raw.narrative_story === "string") out.narrative_story = raw.narrative_story;
   return out;
 }
 

@@ -59,6 +59,8 @@ class TestCEOSynthesis:
         assert "key_findings" in result
         assert "scenarios" in result
         assert "summary" in result
+        assert "narrative_story" in result
+        assert isinstance(result["narrative_story"], str)
         assert "compliance" in result
         assert "alerts" in result
         assert result["conflict"] == "Iran"

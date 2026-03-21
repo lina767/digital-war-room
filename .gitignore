@@ -38,3 +38,4 @@ backend/data/
 .firecrawl/
 
 **/__pycache__
+.coverage

@@ -359,6 +359,29 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     scenarios = []
     summary = _build_rule_based_ceo_summary(conflict, synthesis_score, threat_level, division_results)
 
+    supervisor_payload = _build_supervisor_user_payload(
+        conflict,
+        synthesis_score,
+        threat_level,
+        division_composite,
+        division_results,
+        acled_refs,
+        finint_result,
+        sigint_result,
+        news_result,
+        geoint_result,
+        satintel_result,
+        socmint_result,
+        techint_result,
+        cyber_result,
+        energy_result,
+        protest_result,
+        diplo_result,
+        proximity_result,
+        narrative_result,
+        chokepoint_result,
+    )
+
     if use_rule_based:
         for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
             if dr.anomalies:
@@ -390,47 +413,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
             complex_case = use_fallback and _agents_seem_contradictory(agent_scores_list)
 
-            user_payload = {
-                "conflict": conflict,
-                "composite_score": synthesis_score,
-                "threat_level": threat_level,
-                "division_composite_score": division_composite,
-                "division_scores": {name: dr.score for name, dr in division_results.items()},
-                "acled_reference_analyses": [
-                    {"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:1000]}
-                    for r in acled_refs[:3]
-                    if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))
-                ],
-                "agent_scores": {
-                    "finint": finint_score,
-                    "sigint": sigint_score,
-                    "news": news_score,
-                    "geoint": geoint_score,
-                    "satintel": satintel_score,
-                    "socmint": socmint_score,
-                    "techint": techint_score,
-                    "cyber": cyber_score,
-                    "energy": energy_score,
-                    "protest": protest_score,
-                    "diplo": diplo_score,
-                    "proximity": proximity_score,
-                    "chokepoint": chokepoint_score,
-                },
-                "finint": _compact_for_llm("finint", finint_result),
-                "sigint": _compact_for_llm("sigint", sigint_result),
-                "news": _compact_for_llm("news", news_result),
-                "geoint": _compact_for_llm("geoint", geoint_result),
-                "satintel": _compact_for_llm("satintel", satintel_result),
-                "socmint": _compact_for_llm("socmint", socmint_result),
-                "techint": _compact_for_llm("techint", techint_result),
-                "cyber": _compact_for_llm("cyber", cyber_result),
-                "energy": _compact_for_llm("energy", energy_result),
-                "protest": _compact_for_llm("protest", protest_result),
-                "diplo": _compact_for_llm("diplo", diplo_result),
-                "proximity": _compact_for_llm("proximity", proximity_result),
-                "narrative": _compact_for_llm("narrative", narrative_result),
-                "chokepoint": _compact_for_llm("chokepoint", chokepoint_result),
-            }
+            user_payload = supervisor_payload
             user_json = json.dumps(user_payload, default=str)
             if len(user_json) > _MAX_PAYLOAD_CHARS:
                 user_json = user_json[:_MAX_PAYLOAD_CHARS]
@@ -522,6 +505,13 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     compliance = comp_result.get("compliance", {}) if isinstance(comp_result, dict) else {}
     alerts = comp_result.get("alerts", []) if isinstance(comp_result, dict) else []
 
+    try:
+        from .narrative_synthesis import synthesize_narrative
+
+        narrative_story = synthesize_narrative(supervisor_payload)
+    except Exception:
+        narrative_story = ""
+
     # Build backwards-compatible response
     response = {
         "conflict": conflict,
@@ -532,6 +522,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "corroborated_patterns": [],
         "scenarios": scenarios,
         "summary": summary,
+        "narrative_story": narrative_story,
         "actors": actors,
         "predictive": predictive,
         "compliance": compliance,
@@ -693,6 +684,86 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         out["chokepoints"] = (result.get("chokepoints") or [])[:5]
         out["chokepoint_score"] = result.get("chokepoint_score", 0.0)
     return out
+
+
+def _build_supervisor_user_payload(
+    conflict: str,
+    synthesis_score: float,
+    threat_level: str,
+    division_composite: float,
+    division_results: Dict[str, DivisionResult],
+    acled_refs: Any,
+    finint_result: Dict[str, Any],
+    sigint_result: Dict[str, Any],
+    news_result: Dict[str, Any],
+    geoint_result: Dict[str, Any],
+    satintel_result: Dict[str, Any],
+    socmint_result: Dict[str, Any],
+    techint_result: Dict[str, Any],
+    cyber_result: Dict[str, Any],
+    energy_result: Dict[str, Any],
+    protest_result: Dict[str, Any],
+    diplo_result: Dict[str, Any],
+    proximity_result: Dict[str, Any],
+    narrative_result: Dict[str, Any],
+    chokepoint_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Shared compact payload for CEO LLM supervisor and cross-stream narrative synthesis."""
+    finint_score = float(finint_result.get("escalation_score", 0.0))
+    sigint_score = float(sigint_result.get("sigint_score", 0.0))
+    news_score = float(news_result.get("news_score", 0.0))
+    geoint_score = float(geoint_result.get("geoint_score", 0.0))
+    satintel_score = float(satintel_result.get("satintel_score", 0.0))
+    socmint_score = float(socmint_result.get("socmint_score", 0.0))
+    techint_score = float(techint_result.get("techint_score", 0.0))
+    cyber_score = float(cyber_result.get("cyber_score", 0.0))
+    energy_score = float(energy_result.get("energy_score", 0.0))
+    protest_score = float(protest_result.get("protest_score", 0.0))
+    diplo_score = float(diplo_result.get("diplo_score", 0.0))
+    proximity_score = float(proximity_result.get("proximity_score", 0.0))
+    chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
+
+    return {
+        "conflict": conflict,
+        "composite_score": synthesis_score,
+        "threat_level": threat_level,
+        "division_composite_score": division_composite,
+        "division_scores": {name: dr.score for name, dr in division_results.items()},
+        "acled_reference_analyses": [
+            {"url": r.get("url"), "title": r.get("title"), "excerpt": (r.get("excerpt") or "")[:1000]}
+            for r in (acled_refs or [])[:3]
+            if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))
+        ],
+        "agent_scores": {
+            "finint": finint_score,
+            "sigint": sigint_score,
+            "news": news_score,
+            "geoint": geoint_score,
+            "satintel": satintel_score,
+            "socmint": socmint_score,
+            "techint": techint_score,
+            "cyber": cyber_score,
+            "energy": energy_score,
+            "protest": protest_score,
+            "diplo": diplo_score,
+            "proximity": proximity_score,
+            "chokepoint": chokepoint_score,
+        },
+        "finint": _compact_for_llm("finint", finint_result),
+        "sigint": _compact_for_llm("sigint", sigint_result),
+        "news": _compact_for_llm("news", news_result),
+        "geoint": _compact_for_llm("geoint", geoint_result),
+        "satintel": _compact_for_llm("satintel", satintel_result),
+        "socmint": _compact_for_llm("socmint", socmint_result),
+        "techint": _compact_for_llm("techint", techint_result),
+        "cyber": _compact_for_llm("cyber", cyber_result),
+        "energy": _compact_for_llm("energy", energy_result),
+        "protest": _compact_for_llm("protest", protest_result),
+        "diplo": _compact_for_llm("diplo", diplo_result),
+        "proximity": _compact_for_llm("proximity", proximity_result),
+        "narrative": _compact_for_llm("narrative", narrative_result),
+        "chokepoint": _compact_for_llm("chokepoint", chokepoint_result),
+    }
 
 
 def _build_ceo_prompt(
