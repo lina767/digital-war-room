@@ -20,6 +20,7 @@ EXPECTED_RESPONSE_KEYS = {
     "threat_level",
     "key_findings",
     "key_findings_context",
+    "key_findings_confidence",
     "corroborated_patterns",
     "scenarios",
     "summary",

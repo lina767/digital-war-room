@@ -3,6 +3,7 @@ import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import { WhyThisMattersBlock } from "@/components/dashboard/WhyThisMattersBlock";
+import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
 
 type TimelineFilter = "all" | "conflict" | "diplomacy" | "economy" | "tech";
 
@@ -35,10 +36,11 @@ export function EventsTimeline({ data, embedded = false }: EventsTimelineProps) 
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [showAll, setShowAll] = useState(false);
   const findings = data?.key_findings ?? [];
+  const indexed = findings.map((f, i) => ({ f, i }));
   const filtered =
     filter === "all"
-      ? findings
-      : findings.filter((f) => categorizeFinding(f) === filter);
+      ? indexed
+      : indexed.filter(({ f }) => categorizeFinding(f) === filter);
   const visibleCount = showAll ? Math.min(filtered.length, MAX_VISIBLE) : Math.min(filtered.length, DEFAULT_VISIBLE);
   const display = filtered.slice(0, visibleCount);
   const hasMore = filtered.length > visibleCount;
@@ -73,21 +75,18 @@ export function EventsTimeline({ data, embedded = false }: EventsTimelineProps) 
             {findings.length === 0 ? "Run analysis for events." : `No events in category "${FILTER_LABELS[filter]}".`}
           </li>
         )}
-        {display.map((f, i) => (
+        {display.map(({ f, i }) => (
           <li key={`${filter}-${i}-${f.slice(0, 40)}`} className="py-2 text-xs leading-relaxed">
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-start">
+              <FindingConfidenceBadge level={normalizeFindingConfidence(data?.key_findings_confidence?.[i])} />
               <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
-              <span>{f}</span>
+              <span className="min-w-0">{f}</span>
             </div>
-            {data?.key_findings_context && (() => {
-              const idx = data.key_findings?.indexOf(f) ?? -1;
-              const ctx = idx >= 0 ? data.key_findings_context[idx] : undefined;
-              return ctx ? (
-                <div className="mt-1.5 ml-3.5">
-                  <WhyThisMattersBlock text={ctx} />
-                </div>
-              ) : null;
-            })()}
+            {data?.key_findings_context?.[i] != null && String(data.key_findings_context[i]).trim() !== "" && (
+              <div className="mt-1.5 ml-3.5 pl-1">
+                <WhyThisMattersBlock text={data.key_findings_context[i]!} />
+              </div>
+            )}
           </li>
         ))}
       </ul>

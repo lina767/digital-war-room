@@ -1,9 +1,10 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
+import { MobileAnalyticsBoot } from "@/components/MobileAnalyticsBoot";
 
 const DOCS_HUB = "/docs/documentation";
 
@@ -25,10 +26,16 @@ function PageFallback() {
   return <PageSkeleton />;
 }
 
-const App = () => (
+const App = () => {
+  useEffect(() => {
+    void import("./pwa-register").then((m) => m.registerPwaServiceWorker());
+  }, []);
+
+  return (
   <TooltipProvider>
     <Sonner />
     <BrowserRouter>
+      <MobileAnalyticsBoot />
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -54,6 +61,7 @@ const App = () => (
     </BrowserRouter>
     <Analytics />
   </TooltipProvider>
-);
+  );
+};
 
 export default App;

@@ -141,6 +141,7 @@ def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> No
             per_agent[key] = {
                 "duration_ms": meta.get("duration_ms"),
                 "status": "error" if agent_result.get("timeout_or_error") else "ok",
+                "fallback_used": bool(meta.get("fallback_used")),
             }
     entry = {
         "at": at_ts,
@@ -150,6 +151,12 @@ def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> No
         "error": result.get("error")
         or (result.get("_run_error") if isinstance(result.get("_run_error"), str) else None),
     }
+    try:
+        from services.monitoring_store import record_from_analysis
+
+        record_from_analysis(conflict, result)
+    except Exception:
+        pass
     if hasattr(app_state, "state_service") and app_state.state_service:
         app_state.state_service.push_run_history_entry(entry)
         return

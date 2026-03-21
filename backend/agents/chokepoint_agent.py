@@ -685,7 +685,7 @@ async def _generate_haiku_summary_chokepoint(
             "(Hormuz, Bab el-Mandeb, Suez) in 2-3 sentences: status, disruption risk, oil flow. "
             "Focus on escalation or supply-chain implications. Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        out = await analyst_summary(system=system, data=data, max_tokens=256, usage_agent="chokepoint")
         return out.strip() if out else None
     except Exception:
         return None

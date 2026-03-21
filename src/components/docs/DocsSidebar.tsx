@@ -10,7 +10,7 @@ interface DocsSidebarProps {
 
 export function DocsSidebar({ sections, docs, activeDocId, onSelectDoc }: DocsSidebarProps) {
   return (
-    <nav className="rounded-xl border border-border bg-card/30 p-4 space-y-5">
+    <nav className="rounded-xl border border-border bg-card/30 p-4 space-y-5" aria-label="Documentation">
       {sections.map((section) => {
         const docsInSection = docs.filter((doc) => doc.sectionId === section.id);
         if (docsInSection.length === 0) return null;
@@ -29,6 +29,7 @@ export function DocsSidebar({ sections, docs, activeDocId, onSelectDoc }: DocsSi
                     <Button
                       type="button"
                       variant="ghost"
+                      aria-current={active ? "page" : undefined}
                       className={`w-full justify-start h-auto px-2.5 py-2 rounded-md text-left ${
                         active ? "bg-primary/10 text-primary hover:bg-primary/15" : "text-foreground/90 hover:bg-muted/60"
                       }`}

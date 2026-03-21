@@ -20,6 +20,7 @@ class AnalysisResult(BaseModel):
     threat_level: str = "MINIMAL"
     key_findings: List[str] = Field(default_factory=list)
     key_findings_context: List[str] = Field(default_factory=list)
+    key_findings_confidence: List[str] = Field(default_factory=list)
     corroborated_patterns: List[Dict[str, Any]] = Field(default_factory=list)
     scenarios: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str = ""

@@ -7,18 +7,36 @@ import {
   getAgentsStatus,
   getAgentsHealth,
   getAgentsHistory,
+  getAgentsMonitoring,
   getAnalyzeStatus,
   triggerRefreshAnalysis,
   type AgentsHealthResponse,
+  type AgentsMonitoringResponse,
   type AnalysisRunSummary,
+  type MonitoringErrorEntry,
 } from "@/lib/api";
 import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { toast } from "sonner";
-import { ArrowLeft, AlertTriangle, Activity, Clock, Database, History, Play, RefreshCw } from "lucide-react";
+import {
+  ArrowLeft,
+  AlertTriangle,
+  Activity,
+  Clock,
+  Database,
+  History,
+  Play,
+  RefreshCw,
+  ChevronDown,
+  DollarSign,
+  Layers,
+  ScrollText,
+} from "lucide-react";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -26,6 +44,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/SEO";
 import { TITLE_AGENT_MONITOR, DESCRIPTION_AGENT_MONITOR } from "@/lib/seoCopy";
@@ -40,6 +59,14 @@ type AgentStatusEntry = {
   fallback_used?: boolean;
   error_summary?: string | null;
 };
+
+function formatErrorTime(ts: number): string {
+  try {
+    return new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
+  } catch {
+    return "—";
+  }
+}
 
 function formatRelativeTime(iso?: string): string {
   if (!iso) return "—";
@@ -77,6 +104,7 @@ function AgentMonitorContent() {
   const [status, setStatus] = useState<Record<string, AgentStatusEntry> | null>(null);
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [history, setHistory] = useState<AnalysisRunSummary[]>([]);
+  const [monitoring, setMonitoring] = useState<AgentsMonitoringResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runAgainLoading, setRunAgainLoading] = useState(false);
@@ -85,14 +113,16 @@ function AgentMonitorContent() {
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
-      const [statusRes, healthRes, historyRes] = await Promise.all([
+      const [statusRes, healthRes, historyRes, monRes] = await Promise.all([
         getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
+        getAgentsMonitoring(),
       ]);
       if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
       if (healthRes) setHealth(healthRes);
       if (historyRes?.runs) setHistory(historyRes.runs);
+      if (monRes) setMonitoring(monRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load monitoring data");
     } finally {
@@ -168,14 +198,16 @@ function AgentMonitorContent() {
           break;
         }
       }
-      const [statusRes, healthRes, historyRes] = await Promise.all([
+      const [statusRes, healthRes, historyRes, monRes] = await Promise.all([
         getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
+        getAgentsMonitoring(),
       ]);
       if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
       if (healthRes) setHealth(healthRes);
       if (historyRes?.runs) setHistory(historyRes.runs);
+      if (monRes) setMonitoring(monRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to refresh");
       toast.error("Refresh failed", { description: e instanceof Error ? e.message : "Unknown error" });
@@ -209,6 +241,29 @@ function AgentMonitorContent() {
   const degradedSources = health?.sources?.filter((s) => s.status === "degraded" || s.status === "down") ?? [];
   const fallbackAgents = statusEntries.filter((e) => e.entry?.fallback_used);
 
+  const fallbackRollup = useMemo(() => {
+    const entries = Object.entries(monitoring?.fallback?.by_agent ?? {});
+    return entries.sort((a, b) => b[1] - a[1]);
+  }, [monitoring]);
+
+  const dailySpendChart = useMemo(() => {
+    const d = monitoring?.cost?.daily ?? [];
+    return [...d].slice(0, 14).reverse().map((row) => ({
+      label: row.day.length >= 10 ? row.day.slice(5) : row.day,
+      spend: row.spend_usd,
+    }));
+  }, [monitoring]);
+
+  const lastRunByAgent = useMemo(() => {
+    const b = monitoring?.cost?.last_run?.by_agent ?? {};
+    return Object.entries(b).sort((a, b) => b[1].in + b[1].out - (a[1].in + a[1].out));
+  }, [monitoring]);
+
+  const monthByAgent = useMemo(() => {
+    const b = monitoring?.cost?.month_by_agent ?? {};
+    return Object.entries(b).sort((a, b) => b[1].in + b[1].out - (a[1].in + a[1].out));
+  }, [monitoring]);
+
   if (loading && !status) {
     return (
       <div className="min-h-screen bg-background text-foreground p-6">
@@ -226,7 +281,7 @@ function AgentMonitorContent() {
           <div className="flex items-center gap-3">
             <Link to="/app/dashboard">
               <Button variant="ghost" size="icon" aria-label="Back to dashboard">
-                <ArrowLeft className="h-4 w-4" />
+                <ArrowLeft className="h-4 w-4" aria-hidden />
               </Button>
             </Link>
             <div>
@@ -248,7 +303,7 @@ function AgentMonitorContent() {
                 disabled={runAgainLoading || refreshing}
                 className="gap-1.5"
               >
-                <Play className="h-3.5 w-3.5" />
+                <Play className="h-3.5 w-3.5" aria-hidden />
                 {runAgainLoading ? "Running…" : "Run analysis again"}
               </Button>
               <Button
@@ -258,7 +313,7 @@ function AgentMonitorContent() {
                 disabled={refreshing || runAgainLoading}
                 className="gap-1.5"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
                 {refreshing ? "Refreshing…" : "Refresh"}
               </Button>
             </div>
@@ -297,6 +352,239 @@ function AgentMonitorContent() {
             </CardContent>
           </Card>
         )}
+
+        {/* Fallback usage (backup sources / degraded paths) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <Layers className="h-4 w-4" />
+              Fallback usage (process lifetime)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Counts when an agent marked <code className="text-[10px]">fallback_used</code> in telemetry (backup sources or rule-based fallbacks). Resets on server restart.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {monitoring?.fallback ? (
+              <>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-xs font-mono">Total events</span>
+                    <p className="text-lg font-mono tabular-nums">{monitoring.fallback.total_events}</p>
+                  </div>
+                  {monitoring.fallback.last_run && (
+                    <div>
+                      <span className="text-muted-foreground text-xs font-mono">Last run</span>
+                      <p className="text-xs">
+                        {monitoring.fallback.last_run.conflict}: {monitoring.fallback.last_run.count} agent(s) —{" "}
+                        {monitoring.fallback.last_run.agents.join(", ") || "—"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {fallbackRollup.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-border text-left">
+                          <th className="py-1.5 font-mono text-xs">Agent</th>
+                          <th className="py-1.5 font-mono text-xs text-right">Fallback events</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fallbackRollup.map(([agent, n]) => (
+                          <tr key={agent} className="border-b border-border/40">
+                            <td className="py-1 font-mono text-xs">{agent}</td>
+                            <td className="py-1 text-right tabular-nums">{n}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No fallback events recorded yet.</p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Load monitoring data (refresh) to see fallback stats.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Haiku cost & tokens */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Cost tracker (Claude Haiku)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Token usage attributed by pipeline (news, cyber, diplo, etc.). Monthly budget from{" "}
+              <code className="text-[10px]">HAIKU_MONTHLY_BUDGET</code>. Daily bars accumulate per analysis run.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {monitoring?.cost?.month_budget_usd != null ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Month spend</span>
+                    <p className="font-mono tabular-nums">
+                      ${(monitoring.cost.month_spent_usd ?? 0).toFixed(4)} / ${monitoring.cost.month_budget_usd?.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Month tokens</span>
+                    <p className="font-mono text-xs tabular-nums">
+                      in {(monitoring.cost.month_input_tokens ?? 0).toLocaleString()} · out{" "}
+                      {(monitoring.cost.month_output_tokens ?? 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Last run est.</span>
+                    <p className="font-mono tabular-nums">
+                      ${(monitoring.cost.last_run?.estimated_cost_usd ?? 0).toFixed(6)}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Today (UTC)</span>
+                    <p className="font-mono tabular-nums">
+                      ${(monitoring.cost.today?.spend_usd ?? 0).toFixed(6)}
+                    </p>
+                  </div>
+                </div>
+                {lastRunByAgent.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-mono text-muted-foreground mb-1">Last run — tokens by tag</p>
+                    <div className="overflow-x-auto max-h-40 overflow-y-auto rounded border border-border/60">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/30">
+                            <th className="text-left py-1 px-2 font-mono">Tag</th>
+                            <th className="text-right py-1 px-2 font-mono">In</th>
+                            <th className="text-right py-1 px-2 font-mono">Out</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lastRunByAgent.map(([tag, io]) => (
+                            <tr key={tag} className="border-b border-border/40">
+                              <td className="py-1 px-2 font-mono">{tag}</td>
+                              <td className="py-1 px-2 text-right tabular-nums">{io.in.toLocaleString()}</td>
+                              <td className="py-1 px-2 text-right tabular-nums">{io.out.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {monthByAgent.length > 0 && (
+                  <div>
+                    <p className="text-[11px] font-mono text-muted-foreground mb-1">Month — tokens by tag</p>
+                    <div className="overflow-x-auto max-h-36 overflow-y-auto rounded border border-border/60">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/30">
+                            <th className="text-left py-1 px-2 font-mono">Tag</th>
+                            <th className="text-right py-1 px-2 font-mono">In</th>
+                            <th className="text-right py-1 px-2 font-mono">Out</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {monthByAgent.map(([tag, io]) => (
+                            <tr key={tag} className="border-b border-border/40">
+                              <td className="py-1 px-2 font-mono">{tag}</td>
+                              <td className="py-1 px-2 text-right tabular-nums">{io.in.toLocaleString()}</td>
+                              <td className="py-1 px-2 text-right tabular-nums">{io.out.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {dailySpendChart.length > 0 ? (
+                  <div className="h-[200px] w-full pt-2">
+                    <p className="text-[11px] font-mono text-muted-foreground mb-2">Daily Haiku spend (UTC, recent)</p>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={dailySpendChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} width={40} />
+                        <Tooltip
+                          formatter={(v: number) => [`$${v.toFixed(6)}`, "Spend"]}
+                          labelFormatter={(l) => `Day ${l}`}
+                        />
+                        <Bar dataKey="spend" fill="hsl(var(--primary))" name="USD" radius={[2, 2, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Daily spend appears after completed analysis runs.</p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">Cost metrics unavailable (backend offline or endpoint missing).</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Error log */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <ScrollText className="h-4 w-4" />
+              Error log
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Supervisor and agent-level errors from recent runs. Expand a row for full detail when available.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {monitoring?.errors && monitoring.errors.length > 0 ? (
+              <ul className="divide-y divide-border/60 max-h-[420px] overflow-y-auto">
+                {monitoring.errors.map((err: MonitoringErrorEntry) => (
+                  <li key={err.id} className="py-2 first:pt-0">
+                    <Collapsible>
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground font-mono">
+                            <span>{formatErrorTime(err.ts)}</span>
+                            {err.conflict && <span>· {err.conflict}</span>}
+                            {err.agent && (
+                              <Badge variant="secondary" className="text-[10px]">
+                                {err.agent}
+                              </Badge>
+                            )}
+                            {err.source && (
+                              <span className="text-[10px] truncate max-w-[120px]" title={err.source}>
+                                {err.source}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm leading-snug break-words">{err.message}</p>
+                        </div>
+                        <CollapsibleTrigger asChild>
+                          <Button variant="outline" size="sm" className="h-8 gap-1 shrink-0 text-xs font-mono">
+                            Detail
+                            <ChevronDown className="h-3 w-3" />
+                          </Button>
+                        </CollapsibleTrigger>
+                      </div>
+                      <CollapsibleContent className="mt-2">
+                        <pre className="text-[11px] leading-relaxed whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 font-mono max-h-64 overflow-y-auto">
+                          {err.detail?.trim() || "No additional detail stored."}
+                        </pre>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted-foreground">No errors recorded, or monitoring data not loaded.</p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Agent status grid */}
         <Card>

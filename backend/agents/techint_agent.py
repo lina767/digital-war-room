@@ -974,7 +974,7 @@ async def _generate_haiku_summary_techint(
             "TECHINT data in 2-3 sentences: tech ETFs, export control news, IODA outages, OONI blocks, "
             "Cloudflare Radar, Shodan. Focus on escalation signals. Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        out = await analyst_summary(system=system, data=data, max_tokens=256, usage_agent="techint")
         return out.strip() if out else None
     except Exception:
         return None

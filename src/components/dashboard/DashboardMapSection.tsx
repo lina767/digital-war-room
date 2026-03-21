@@ -57,7 +57,7 @@ export function DashboardMapSection({
   );
 
   return (
-    <main className="flex-[0_1_50%] min-h-0 min-w-0 relative overflow-hidden flex flex-col">
+    <main className="flex-[0_1_50%] min-h-0 min-w-0 relative overflow-hidden flex flex-col" aria-label="Theater map and escalation timeline">
       <div className="absolute inset-0 grid-overlay opacity-30 pointer-events-none" />
       {/* Theater map only – full width for clearer overview */}
       <div className="flex-1 min-w-[280px] relative">
@@ -81,7 +81,7 @@ export function DashboardMapSection({
           }}
           className="flex items-center justify-center gap-1.5 min-h-11 min-w-11 sm:min-w-0 sm:px-3 rounded-md border border-border bg-background/95 backdrop-blur-sm text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-background active:bg-muted/50 transition-colors touch-manipulation shadow-sm"
         >
-          <Radio className="h-4 w-4 flex-shrink-0" />
+          <Radio className="h-4 w-4 flex-shrink-0" aria-hidden />
           <span className="hidden sm:inline">Agents</span>
         </button>
       </div>
@@ -95,7 +95,7 @@ export function DashboardMapSection({
           }}
           className="flex items-center justify-center gap-1.5 min-h-11 min-w-11 sm:min-w-0 sm:px-3 rounded-md border border-border bg-background/95 backdrop-blur-sm text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-background active:bg-muted/50 transition-colors touch-manipulation shadow-sm"
         >
-          <Rss className="h-4 w-4 flex-shrink-0" />
+          <Rss className="h-4 w-4 flex-shrink-0" aria-hidden />
           <span className="hidden sm:inline">Feed</span>
         </button>
       </div>

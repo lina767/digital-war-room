@@ -13,18 +13,23 @@ logger = logging.getLogger(__name__)
 
 _MAX_NARRATIVE_PAYLOAD_CHARS = 120_000
 
-_NARRATIVE_SYSTEM = """You are an intelligence analyst writing a single cohesive operational narrative.
+_NARRATIVE_SYSTEM = """You are an intelligence analyst writing one cohesive operational narrative for decision-makers.
 
-Task: Explain how the intelligence streams CONNECT — not a list of 13 separate scores. Use causal language
-(therefore, meanwhile, which suggests, reinforcing, at the same time). You may use arrows "→" between clauses
-when it improves clarity.
+Structure (follow this flow):
+1) Open with the current situation in one or two sentences (what is happening in the theater).
+2) Explain how the main streams reinforce or qualify each other — not a list of separate scores. Use causal
+   language: therefore, meanwhile, which suggests, in parallel, reinforcing, offsetting. Arrows "→" between
+   clauses are fine when they aid scanning.
+3) Close with implications or what to watch next (one sentence), tied to the conflict.
 
-Rules:
+Formatting:
 - Write in English only (no German or other languages).
-- 4–8 short sentences OR 2–3 short paragraphs; plain text only (no JSON, no markdown headings).
-- Name streams when relevant: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST,
-  DIPLO, PROXIMITY, CHOKEPOINT, and Signal Framework (payload key "narrative") when present.
-- Tie highest-impact signals to the conflict context; mention obvious contradictions briefly if data supports it."""
+- Use 2–4 short paragraphs separated by a blank line between paragraphs (double newline in plain text).
+- Each paragraph: 2–4 sentences. No bullet lists, no markdown headings, no JSON.
+- Name streams when useful: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST,
+  DIPLO, PROXIMITY, CHOKEPOINT, Signal Framework (payload key "narrative") when present.
+- If two signals contradict, say so briefly and which stream is softer evidence.
+- Stay under ~450 words."""
 
 _AGENT_ORDER = (
     "finint",
@@ -58,15 +63,20 @@ def _fallback_narrative(agent_outputs: Dict[str, Any]) -> str:
     if not ranked:
         return f"{conflict}: Insufficient scored streams to build a cross-stream story."
 
-    parts = [f"{conflict}: strongest signals - " + ", ".join(f"{k} ({v:.0f})" for k, v in ranked[:3])]
+    parts = [
+        f"{conflict}: the strongest scored streams right now are "
+        + ", ".join(f"{k} ({v:.0f})" for k, v in ranked[:3])
+        + "."
+    ]
     for name in ("finint", "sigint", "chokepoint", "energy"):
         blob = agent_outputs.get(name)
         if isinstance(blob, dict):
             s = blob.get("summary")
             if isinstance(s, str) and s.strip():
-                parts.append(f"{name.upper()}: {s.strip()[:220]}{'…' if len(s) > 220 else ''}")
+                excerpt = s.strip()[:220] + ("…" if len(s) > 220 else "")
+                parts.append(f"From {name.upper()}, the picture is: {excerpt}")
                 break
-    return " ".join(parts)
+    return "\n\n".join(parts)
 
 
 def synthesize_narrative(agent_outputs: Dict[str, Any]) -> str:

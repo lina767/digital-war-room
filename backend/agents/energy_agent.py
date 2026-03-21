@@ -424,7 +424,7 @@ async def _generate_haiku_summary_energy(
             "food security risk, and optional World Bank country macro (GDP growth, inflation, electricity access). "
             "Focus on escalation or chokepoint implications. Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        out = await analyst_summary(system=system, data=data, max_tokens=256, usage_agent="energy")
         return out.strip() if out else None
     except Exception:
         return None

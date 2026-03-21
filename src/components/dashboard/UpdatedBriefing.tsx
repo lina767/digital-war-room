@@ -1,4 +1,6 @@
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { TextSkeleton } from "@/components/ui/skeleton";
 import { formatTimeAgo } from "@/lib/utils";
@@ -32,18 +34,21 @@ function UpdatedBriefingContent({
         {!hasContent && !isLoading && (
           <p className="text-xs text-muted-foreground italic">Run analysis for {conflictLabel} to see the briefing.</p>
         )}
+        {summary && (
+          <div className="mb-3">
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">Recap</p>
+            <p className="text-sm leading-relaxed text-pretty">{summary}</p>
+          </div>
+        )}
         {narrativeStory && (
           <div className="mb-3">
             <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
               Cross-stream narrative
             </p>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{narrativeStory}</p>
-          </div>
-        )}
-        {summary && (
-          <div>
-            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">Recap</p>
-            <p className="text-sm leading-relaxed">{summary}</p>
+            <p className="text-[10px] text-muted-foreground/90 mb-2 leading-snug">
+              How FININT, SIGINT, GEOINT, and related streams reinforce or qualify each other — read after the recap.
+            </p>
+            <NarrativeBody text={narrativeStory} />
           </div>
         )}
         {scenarios.length > 0 && (
@@ -64,9 +69,12 @@ function UpdatedBriefingContent({
         {hasContent && !summary && scenarios.length === 0 && keyFindings.length > 0 && (
           <div>
             <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Key findings</p>
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {keyFindings.slice(0, 6).map((f, i) => (
-                <li key={i} className="text-xs leading-relaxed">• {f}</li>
+                <li key={i} className="text-xs leading-relaxed flex gap-2 items-start">
+                  <FindingConfidenceBadge level={normalizeFindingConfidence(data?.key_findings_confidence?.[i])} />
+                  <span className="min-w-0">• {f}</span>
+                </li>
               ))}
             </ul>
           </div>

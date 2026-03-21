@@ -50,3 +50,14 @@ def test_analyze_latest_returns_cached_result(client: TestClient):
     assert body["conflict"] == "Iran"
     assert body["escalation_score"] == 62.5
     assert body["summary"] == "cached"
+
+
+def test_agents_monitoring_returns_shape(client: TestClient):
+    response = client.get("/api/agents/monitoring")
+    assert response.status_code == 200
+    body = response.json()
+    assert "fallback" in body
+    assert "errors" in body
+    assert "cost" in body
+    assert "month_budget_usd" in body["cost"]
+    assert "daily" in body["cost"]

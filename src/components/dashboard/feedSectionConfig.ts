@@ -4,6 +4,8 @@
  */
 
 export const FEED_SECTIONS_STORAGE_KEY = "dwr-feed-sections";
+/** Separate collapse prefs for small viewports (does not affect desktop `lg+`). */
+export const FEED_SECTIONS_MOBILE_STORAGE_KEY = "dwr-feed-sections-mobile";
 export const FEED_DOMAINS_STORAGE_KEY = "dwr-feed-domains";
 export const FEED_VIEW_STORAGE_KEY = "dwr-feed-view";
 
@@ -77,4 +79,12 @@ export function getSectionDomain(sectionId: FeedSectionId): FeedDomainId {
 
 export function getSectionDefaultOpen(sectionId: FeedSectionId): boolean {
   return FEED_SECTION_CONFIG[sectionId].defaultOpen;
+}
+
+/**
+ * Mobile feed defaults: only briefing expanded so the stack stays scannable; other sections start collapsed.
+ * Persisted separately from desktop (`FEED_SECTIONS_MOBILE_STORAGE_KEY`).
+ */
+export function getSectionDefaultOpenMobile(sectionId: FeedSectionId): boolean {
+  return sectionId === "briefing";
 }

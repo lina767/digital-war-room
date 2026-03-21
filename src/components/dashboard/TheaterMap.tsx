@@ -29,6 +29,11 @@ import {
   NUCLEAR_FACILITIES,
   circlePoints,
 } from "./mapOverlaysData";
+import {
+  buildTheaterDisplayItems,
+  CLUSTER_MIN_POINTS,
+  type TheaterDisplayItem,
+} from "./theaterMapCluster";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -42,6 +47,8 @@ interface TooltipData {
 }
 
 interface LayerVisibility {
+  /** Theater strike / FIRMS / ACLED points from getTheaterEvents */
+  theaterEvents: boolean;
   geoint: boolean;
   sigint: boolean;
   heatmap: boolean;
@@ -57,6 +64,7 @@ type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
 type ExplosionTimeRange = "6h" | "24h" | "48h" | "7d" | "all";
 
 const INITIAL_LAYERS: LayerVisibility = {
+  theaterEvents: true,
   geoint: true,
   sigint: true,
   heatmap: false,
@@ -248,72 +256,106 @@ const HeatmapLayer = memo(function HeatmapLayer({ events, s, onTooltipShow, onTo
 /* ---- TheaterEventsLayer ------------------------------------------ */
 
 interface TheaterEventsLayerProps {
-  events: TheaterEvent[];
+  items: TheaterDisplayItem[];
   s: number;
   onTooltipShow: (content: string, color: string, e: React.MouseEvent) => void;
   onTooltipHide: () => void;
   onEventSelect: (evt: TheaterEvent) => void;
+  onClusterZoomIn: (lat: number, lon: number) => void;
 }
 
 const TheaterEventsLayer = memo(function TheaterEventsLayer({
-  events,
+  items,
   s,
   onTooltipShow,
   onTooltipHide,
   onEventSelect,
+  onClusterZoomIn,
 }: TheaterEventsLayerProps) {
-  const valid = useMemo(
-    () => events.filter((e) => typeof e.lat === "number" && typeof e.lon === "number" && isFinite(e.lat) && isFinite(e.lon)),
-    [events],
-  );
-  const markers = useMemo(
-    () =>
-      valid.map((evt, i) => {
-        const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
-        const r = 3 * s;
-        const sw = 0.25 * s;
-        const shape = (EVENT_SHAPES[evt.event_type] ?? DEFAULT_SHAPE)(r, sw, style);
-        const baseLabel = evt.label ?? evt.event_type;
-        const locationPart = [evt.country, evt.admin1].filter(Boolean).join(", ");
-        const tooltipContent = locationPart ? `${baseLabel} · ${locationPart}` : baseLabel;
-
+  const markers = useMemo(() => {
+    return items.map((item, i) => {
+      if (item.type === "cluster") {
+        const { lat, lon, events: evs } = item;
+        const count = evs.length;
+        const r = 3.2 * s;
+        const tooltipContent = `${count} events · click to zoom in`;
         return (
-          <Marker
-            key={`theater-${evt.lat.toFixed(4)}-${evt.lon.toFixed(4)}-${evt.event_type}-${i}`}
-            coordinates={[evt.lon, evt.lat]}
-          >
+          <Marker key={`cluster-${lat.toFixed(3)}-${lon.toFixed(3)}-${i}`} coordinates={[lon, lat]}>
             <g
               className="cursor-pointer"
-              onClick={() => onEventSelect(evt)}
-              onMouseEnter={(e) => onTooltipShow(tooltipContent, style.stroke, e)}
+              onClick={() => onClusterZoomIn(lat, lon)}
+              onMouseEnter={(e) => onTooltipShow(tooltipContent, "hsl(var(--primary))", e)}
               onMouseLeave={onTooltipHide}
             >
               <circle
-                className="theater-pulse"
-                style={{ animationDelay: `${(i % 20) * 0.1}s` }}
-                r={r * 2}
-                fill="none"
-                stroke={style.stroke}
-                strokeWidth={0.3 * s}
+                r={r * 2.1}
+                fill="hsl(var(--primary) / 0.22)"
+                stroke="hsl(var(--primary))"
+                strokeWidth={0.45 * s}
               />
-              {shape}
-              {evt.country && (
-                <text
-                  y={r * 3.2}
-                  textAnchor="middle"
-                  fill="currentColor"
-                  className="fill-foreground/80"
-                  style={{ fontSize: `${Math.max(6, 8 * s)}px`, fontFamily: "system-ui, sans-serif", pointerEvents: "none" }}
-                >
-                  {evt.country}
-                </text>
-              )}
+              <text
+                textAnchor="middle"
+                dominantBaseline="central"
+                fill="hsl(var(--foreground))"
+                style={{
+                  fontSize: `${Math.max(7, 10 * s)}px`,
+                  fontFamily: "var(--font-mono), monospace",
+                  fontWeight: 700,
+                  pointerEvents: "none",
+                }}
+              >
+                {count > 99 ? "99+" : count}
+              </text>
             </g>
           </Marker>
         );
-      }),
-    [valid, s, onTooltipShow, onTooltipHide, onEventSelect],
-  );
+      }
+
+      const evt = item.event;
+      const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
+      const r = 3 * s;
+      const sw = 0.25 * s;
+      const shape = (EVENT_SHAPES[evt.event_type] ?? DEFAULT_SHAPE)(r, sw, style);
+      const baseLabel = evt.label ?? evt.event_type;
+      const locationPart = [evt.country, evt.admin1].filter(Boolean).join(", ");
+      const tooltipContent = locationPart ? `${baseLabel} · ${locationPart}` : baseLabel;
+
+      return (
+        <Marker
+          key={`theater-${evt.lat.toFixed(4)}-${evt.lon.toFixed(4)}-${evt.event_type}-${i}`}
+          coordinates={[evt.lon, evt.lat]}
+        >
+          <g
+            className="cursor-pointer"
+            onClick={() => onEventSelect(evt)}
+            onMouseEnter={(e) => onTooltipShow(tooltipContent, style.stroke, e)}
+            onMouseLeave={onTooltipHide}
+          >
+            <circle
+              className="theater-pulse"
+              style={{ animationDelay: `${(i % 20) * 0.1}s` }}
+              r={r * 2}
+              fill="none"
+              stroke={style.stroke}
+              strokeWidth={0.3 * s}
+            />
+            {shape}
+            {evt.country && (
+              <text
+                y={r * 3.2}
+                textAnchor="middle"
+                fill="currentColor"
+                className="fill-foreground/80"
+                style={{ fontSize: `${Math.max(6, 8 * s)}px`, fontFamily: "system-ui, sans-serif", pointerEvents: "none" }}
+              >
+                {evt.country}
+              </text>
+            )}
+          </g>
+        </Marker>
+      );
+    });
+  }, [items, s, onTooltipShow, onTooltipHide, onEventSelect, onClusterZoomIn]);
   return <>{markers}</>;
 });
 
@@ -646,6 +688,8 @@ function TheaterMapInner({
     { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
   >(null);
   const [explosionRange, setExplosionRange] = useState<ExplosionTimeRange>("7d");
+  /** Grid clustering for dense theater event datasets (see CLUSTER_MIN_POINTS). */
+  const [eventClustering, setEventClustering] = useState(true);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4.73);
   const [center, setCenter] = useState<[number, number]>([54.0836, 31.7419]);
@@ -702,6 +746,13 @@ function TheaterMapInner({
     setTooltip(null);
   }, []);
 
+  const handleClusterZoomIn = useCallback((lat: number, lon: number) => {
+    setCenter([lon, lat]);
+    setZoom((z) => Math.min(z * 1.4, 8));
+    setSelectedEvent(null);
+    setTooltip(null);
+  }, []);
+
   const handleMoveEnd = useCallback(({ coordinates, zoom: z }: { coordinates: [number, number]; zoom: number }) => {
     setCenter(coordinates);
     setZoom(z);
@@ -742,7 +793,7 @@ function TheaterMapInner({
 
   /* ---- theater events data --------------------------------------- */
   useEffect(() => {
-    if (!activeConflict) {
+    if (!activeConflict || !layers.theaterEvents) {
       setTheaterEvents([]);
       setSelectedEvent(null);
       setTheaterError(null);
@@ -757,7 +808,7 @@ function TheaterMapInner({
         setTheaterError(err?.message ?? "Failed to load theater events");
       })
       .finally(() => setTheaterLoading(false));
-  }, [activeConflict]);
+  }, [activeConflict, layers.theaterEvents]);
 
   /* ---- memoized overlay data ------------------------------------- */
   const samRingLines = useMemo(
@@ -772,6 +823,14 @@ function TheaterMapInner({
   const filteredTheaterEvents = useMemo(
     () => theaterEvents.filter((evt) => withinExplosionRange(evt, explosionRange)),
     [theaterEvents, explosionRange],
+  );
+
+  const theaterDisplayItems = useMemo(
+    () =>
+      layers.theaterEvents
+        ? buildTheaterDisplayItems(filteredTheaterEvents, zoom, eventClustering)
+        : [],
+    [filteredTheaterEvents, zoom, eventClustering, layers.theaterEvents],
   );
 
   useEffect(() => {
@@ -979,13 +1038,14 @@ function TheaterMapInner({
             />
           )}
 
-          {!theaterLoading && (
+          {!theaterLoading && layers.theaterEvents && (
             <TheaterEventsLayer
-              events={filteredTheaterEvents}
+              items={theaterDisplayItems}
               s={s}
               onTooltipShow={handleTooltipShow}
               onTooltipHide={handleTooltipHide}
               onEventSelect={handleEventSelect}
+              onClusterZoomIn={handleClusterZoomIn}
             />
           )}
 
@@ -1231,9 +1291,52 @@ function TheaterMapInner({
       )}
 
       {/* Layer toggle bar – horizontal scroll on small screens, wrap on md+ */}
-      <div className="absolute bottom-12 left-2 right-2 md:right-auto max-w-full overflow-x-auto overflow-y-hidden flex gap-2 flex-nowrap pb-1 md:overflow-visible md:flex-wrap md:gap-3 md:pb-0 overflow-x-auto-touch">
+      <div className="absolute bottom-12 left-2 right-2 md:right-auto max-w-full overflow-x-auto overflow-y-hidden flex gap-2 flex-nowrap pb-1 md:overflow-visible md:flex-wrap md:gap-x-3 md:gap-y-2 md:pb-0 overflow-x-auto-touch items-center">
+        {/* Events: theater markers, ACLED heatmap, explosion time filter, optional clustering */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <span className="text-[11px] font-mono text-muted-foreground">EXP</span>
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground hidden sm:inline w-10">Events</span>
+          <button
+            type="button"
+            onClick={() => toggleLayer("theaterEvents")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Theater strike / FIRMS / ACLED event markers"
+            aria-label={layers.theaterEvents ? "Hide theater event markers" : "Show theater event markers"}
+          >
+            <span
+              className={`w-2.5 h-2.5 rounded-sm border ${layers.theaterEvents ? "bg-primary/40 border-primary" : "bg-muted/40 border-border"}`}
+            />
+            STRIKE
+            {theaterLoading && layers.theaterEvents && <span className="animate-pulse">…</span>}
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("heatmap")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Conflict intensity from ACLED"
+            aria-label={layers.heatmap ? "Hide heatmap layer" : "Show heatmap layer"}
+          >
+            <span
+              className={`w-2.5 h-2.5 rounded-full border ${layers.heatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
+            />
+            HEAT
+            {heatmapLoading && layers.heatmap && <span className="animate-pulse">…</span>}
+          </button>
+          {layers.theaterEvents && filteredTheaterEvents.length > CLUSTER_MIN_POINTS && (
+            <button
+              type="button"
+              onClick={() => setEventClustering((c) => !c)}
+              className={`px-1.5 py-0.5 rounded border text-[10px] font-mono uppercase touch-manipulation ${
+                eventClustering
+                  ? "bg-primary/15 border-primary/50 text-foreground"
+                  : "bg-card/60 border-border/70 text-muted-foreground hover:text-foreground"
+              }`}
+              title="Merge nearby markers when zoomed out (large datasets)"
+              aria-label={eventClustering ? "Disable marker clustering" : "Enable marker clustering"}
+            >
+              CLS
+            </button>
+          )}
+          <span className="text-[11px] font-mono text-muted-foreground ml-0.5">EXP</span>
           {(["6h", "24h", "48h", "7d", "all"] as ExplosionTimeRange[]).map((range) => {
             const isActive = explosionRange === range;
             return (
@@ -1253,135 +1356,137 @@ function TheaterMapInner({
             );
           })}
         </div>
-        <button
-          type="button"
-          onClick={() => toggleLayer("geoint")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          aria-label={layers.geoint ? "Hide GEOINT layer" : "Show GEOINT layer"}
-        >
-          <span style={{ color: layers.geoint ? "var(--map-geoint)" : undefined }}>△</span>
-          GEOINT
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("sigint")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Live tracks: Air / Sea"
-          aria-label={layers.sigint ? "Hide SIGINT layer (air and sea tracks)" : "Show SIGINT layer (air and sea tracks)"}
-        >
-          <svg width="12" height="10" viewBox="-1.2 -1 2.4 2" className="shrink-0" style={{ color: layers.sigint ? SIGINT_AIR_COLOR : undefined }}>
-            <polygon points="0,-1 0.65,0.35 0.45,1 0,0.55 -0.45,1 -1.2,0.35" fill="currentColor" stroke="currentColor" strokeWidth="0.15" />
-          </svg>
-          <svg width="12" height="10" viewBox="-1.2 -0.5 2.4 1.2" className="shrink-0" style={{ color: layers.sigint ? SIGINT_SEA_COLOR : undefined }}>
-            <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
-          </svg>
-          SIGINT
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("heatmap")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Conflict intensity from ACLED"
-          aria-label={layers.heatmap ? "Hide heatmap layer" : "Show heatmap layer"}
-        >
-          <span
-            className={`w-2.5 h-2.5 rounded-full border ${layers.heatmap ? "bg-red-500/60 border-red-500" : "bg-muted/40 border-border"}`}
-          />
-          HEATMAP
-          {heatmapLoading && layers.heatmap && <span className="animate-pulse">…</span>}
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("samRings")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="SAM engagement zones"
-          aria-label={layers.samRings ? "Hide SAM rings layer" : "Show SAM rings layer"}
-        >
-          <span
-            className={`w-2.5 h-2.5 rounded-full border ${layers.samRings ? "border-destructive" : "border-border"}`}
-            style={
-              layers.samRings
-                ? { borderColor: "hsl(var(--destructive))", background: "hsl(var(--destructive) / 0.2)" }
-                : {}
-            }
-          />
-          SAM
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("airRoutes")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Main air corridors"
-          aria-label={layers.airRoutes ? "Hide air corridors layer" : "Show air corridors layer"}
-        >
-          <svg width="12" height="10" viewBox="-1.2 -1 2.4 2" className="shrink-0" style={{ color: layers.airRoutes ? "hsl(210 80% 55%)" : undefined }}>
-            <polygon points="0,-1 0.65,0.35 0.45,1 0,0.55 -0.45,1 -1.2,0.35" fill="currentColor" stroke="currentColor" strokeWidth="0.15" />
-          </svg>
-          AIR
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("seaLanes")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Sea lanes"
-          aria-label={layers.seaLanes ? "Hide sea lanes layer" : "Show sea lanes layer"}
-        >
-          <svg width="12" height="10" viewBox="-1.2 -0.5 2.4 1.2" className="shrink-0" style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>
-            <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
-          </svg>
-          SEA
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("chokepoints")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Chokepoint zones"
-          aria-label={layers.chokepoints ? "Hide chokepoints layer" : "Show chokepoints layer"}
-        >
-          <span
-            className="w-2.5 h-2.5 rounded-sm border"
-            style={
-              layers.chokepoints
-                ? { borderColor: "hsl(200 70% 50%)", background: "hsl(200 70% 50% / 0.25)" }
-                : { borderColor: "hsl(var(--border))" }
-            }
-          />
-          CHP
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("militaryBases")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Military base overlay"
-          aria-label={layers.militaryBases ? "Hide military base layer" : "Show military base layer"}
-        >
-          <span
-            className="w-2.5 h-2.5 border"
-            style={
-              layers.militaryBases
-                ? { borderColor: "hsl(210 90% 62%)", background: "hsl(210 90% 62% / 0.25)" }
-                : { borderColor: "hsl(var(--border))" }
-            }
-          />
-          MB
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleLayer("nuclearFacilities")}
-          className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-          title="Nuclear facility overlay"
-          aria-label={layers.nuclearFacilities ? "Hide nuclear facility layer" : "Show nuclear facility layer"}
-        >
-          <span
-            className="w-2.5 h-2.5 rounded-full border"
-            style={
-              layers.nuclearFacilities
-                ? { borderColor: "hsl(43 95% 56%)", background: "hsl(43 95% 56% / 0.25)" }
-                : { borderColor: "hsl(var(--border))" }
-            }
-          />
-          NUC
-        </button>
+
+        {/* SAM zones + strategic sites */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 border-l border-border/50 pl-2">
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground hidden sm:inline w-8">SAM</span>
+          <button
+            type="button"
+            onClick={() => toggleLayer("samRings")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="SAM engagement zones"
+            aria-label={layers.samRings ? "Hide SAM rings layer" : "Show SAM rings layer"}
+          >
+            <span
+              className={`w-2.5 h-2.5 rounded-full border ${layers.samRings ? "border-destructive" : "border-border"}`}
+              style={
+                layers.samRings
+                  ? { borderColor: "hsl(var(--destructive))", background: "hsl(var(--destructive) / 0.2)" }
+                  : {}
+              }
+            />
+            ZONES
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("militaryBases")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Military base overlay"
+            aria-label={layers.militaryBases ? "Hide military base layer" : "Show military base layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 border"
+              style={
+                layers.militaryBases
+                  ? { borderColor: "hsl(210 90% 62%)", background: "hsl(210 90% 62% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            MB
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("nuclearFacilities")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Nuclear facility overlay"
+            aria-label={layers.nuclearFacilities ? "Hide nuclear facility layer" : "Show nuclear facility layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full border"
+              style={
+                layers.nuclearFacilities
+                  ? { borderColor: "hsl(43 95% 56%)", background: "hsl(43 95% 56% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            NUC
+          </button>
+        </div>
+
+        {/* Trade routes: air corridors, sea lanes, chokepoints */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 border-l border-border/50 pl-2">
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground hidden sm:inline">Trade</span>
+          <button
+            type="button"
+            onClick={() => toggleLayer("airRoutes")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Main air corridors"
+            aria-label={layers.airRoutes ? "Hide air corridors layer" : "Show air corridors layer"}
+          >
+            <svg width="12" height="10" viewBox="-1.2 -1 2.4 2" className="shrink-0" style={{ color: layers.airRoutes ? "hsl(210 80% 55%)" : undefined }}>
+              <polygon points="0,-1 0.65,0.35 0.45,1 0,0.55 -0.45,1 -1.2,0.35" fill="currentColor" stroke="currentColor" strokeWidth="0.15" />
+            </svg>
+            AIR
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("seaLanes")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Sea lanes"
+            aria-label={layers.seaLanes ? "Hide sea lanes layer" : "Show sea lanes layer"}
+          >
+            <svg width="12" height="10" viewBox="-1.2 -0.5 2.4 1.2" className="shrink-0" style={{ color: layers.seaLanes ? "hsl(160 70% 45%)" : undefined }}>
+              <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
+            </svg>
+            SEA
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("chokepoints")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Chokepoint zones"
+            aria-label={layers.chokepoints ? "Hide chokepoints layer" : "Show chokepoints layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-sm border"
+              style={
+                layers.chokepoints
+                  ? { borderColor: "hsl(200 70% 50%)", background: "hsl(200 70% 50% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            CHP
+          </button>
+        </div>
+
+        {/* Intel: live GEOINT / SIGINT */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 border-l border-border/50 pl-2">
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground hidden sm:inline w-8">Intel</span>
+          <button
+            type="button"
+            onClick={() => toggleLayer("geoint")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            aria-label={layers.geoint ? "Hide GEOINT layer" : "Show GEOINT layer"}
+          >
+            <span style={{ color: layers.geoint ? "var(--map-geoint)" : undefined }}>△</span>
+            GEOINT
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("sigint")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Live tracks: Air / Sea"
+            aria-label={layers.sigint ? "Hide SIGINT layer (air and sea tracks)" : "Show SIGINT layer (air and sea tracks)"}
+          >
+            <svg width="12" height="10" viewBox="-1.2 -1 2.4 2" className="shrink-0" style={{ color: layers.sigint ? SIGINT_AIR_COLOR : undefined }}>
+              <polygon points="0,-1 0.65,0.35 0.45,1 0,0.55 -0.45,1 -1.2,0.35" fill="currentColor" stroke="currentColor" strokeWidth="0.15" />
+            </svg>
+            <svg width="12" height="10" viewBox="-1.2 -0.5 2.4 1.2" className="shrink-0" style={{ color: layers.sigint ? SIGINT_SEA_COLOR : undefined }}>
+              <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
+            </svg>
+            SIGINT
+          </button>
+        </div>
         {(layers.airRoutes || layers.seaLanes) && (
           <div className="flex items-center gap-2 flex-wrap">
             {layers.airRoutes && (
@@ -1411,12 +1516,18 @@ function TheaterMapInner({
       </div>
 
       {/* Live feed indicator */}
-      {(geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0 || filteredTheaterEvents.length > 0) && (
+      {(geointAnomalies.length > 0 ||
+        sigintAircraft.length > 0 ||
+        sigintShips.length > 0 ||
+        (layers.theaterEvents && filteredTheaterEvents.length > 0)) && (
         <div className="absolute top-2 left-2 flex items-center gap-2 bg-card/80 border border-border/50 rounded px-2 py-1">
           <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
           <span className="text-[11px] font-mono text-muted-foreground">
-            {filteredTheaterEvents.length > 0 && `${filteredTheaterEvents.length} STRIKES`}
-            {filteredTheaterEvents.length > 0 && (geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
+            {layers.theaterEvents && filteredTheaterEvents.length > 0 && `${filteredTheaterEvents.length} STRIKES`}
+            {layers.theaterEvents &&
+              filteredTheaterEvents.length > 0 &&
+              (geointAnomalies.length > 0 || sigintAircraft.length > 0 || sigintShips.length > 0) &&
+              " · "}
             {geointAnomalies.length > 0 && `${geointAnomalies.length} THERMAL`}
             {geointAnomalies.length > 0 && (sigintAircraft.length > 0 || sigintShips.length > 0) && " · "}
             {sigintAircraft.length > 0 && `${sigintAircraft.length} AC`}

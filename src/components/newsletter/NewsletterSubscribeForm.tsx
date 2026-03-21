@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { newsletterSubscribe } from "@/lib/api";
+import { getErrorMessage } from "@/lib/utils";
 
 interface NewsletterSubscribeFormProps {
   /** Optional conflict preselected (e.g. from daily briefing page). */
@@ -28,7 +29,7 @@ export function NewsletterSubscribeForm({ defaultConflict = "Iran", compact }: N
       toast.success(`${res.message} If you don't see it, check Spam/Promotions.`);
       setEmail("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Subscription failed.");
+      toast.error(getErrorMessage(err, "Subscription failed."));
     } finally {
       setLoading(false);
     }
@@ -38,6 +39,7 @@ export function NewsletterSubscribeForm({ defaultConflict = "Iran", compact }: N
     return (
       <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
         <Input
+          id="newsletter-email-compact"
           type="email"
           placeholder="your@email.com"
           value={email}
@@ -45,6 +47,7 @@ export function NewsletterSubscribeForm({ defaultConflict = "Iran", compact }: N
           className="max-w-[220px]"
           disabled={loading}
           required
+          aria-label="Email address for daily briefing"
         />
         <Button type="submit" disabled={loading}>
           {loading ? "Subscribing…" : "Subscribe to daily briefing"}

@@ -28,13 +28,13 @@ export function OfflineStatusBadge({
           className="inline-flex items-center gap-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[11px] font-mono text-warning"
           title={`Offline mode. Last synced ${syncedText}.`}
         >
-          <WifiOff className="h-3.5 w-3.5" />
+          <WifiOff className="h-3.5 w-3.5" aria-hidden />
           <span>Offline</span>
           {!compact && <span className="text-muted-foreground">· last synced {syncedText}</span>}
         </div>
         {showCachedHint && (
           <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1" title="Data from local cache (IndexedDB).">
-            <Database className="h-3 w-3" />
+            <Database className="h-3 w-3" aria-hidden />
             Serving cached data
           </span>
         )}
@@ -49,13 +49,13 @@ export function OfflineStatusBadge({
           className="inline-flex items-center gap-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-mono text-emerald-400"
           title={lastUpdated ? `Online. Last synced ${syncedText}.` : "Online. Waiting for first sync."}
         >
-          <Wifi className="h-3.5 w-3.5" />
+          <Wifi className="h-3.5 w-3.5" aria-hidden />
           <span>Online</span>
           {!compact && <span className="text-muted-foreground">· last synced {syncedText}</span>}
         </div>
         {showCachedHint && (
           <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1" title="Data from local cache (IndexedDB).">
-            <Database className="h-3 w-3" />
+            <Database className="h-3 w-3" aria-hidden />
             Serving cached data
           </span>
         )}
@@ -69,13 +69,13 @@ export function OfflineStatusBadge({
         className="inline-flex items-center gap-1.5 rounded border border-border bg-card/40 px-2 py-1 text-[11px] font-mono text-muted-foreground"
         title={lastUpdated ? `Reconnecting. Last synced ${syncedText}.` : "Reconnecting."}
       >
-        <CloudOff className="h-3.5 w-3.5" />
+        <CloudOff className="h-3.5 w-3.5" aria-hidden />
         <span>Syncing…</span>
         {!compact && <span>· last synced {syncedText}</span>}
       </div>
       {showCachedHint && (
         <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1" title="Data from local cache (IndexedDB).">
-          <Database className="h-3 w-3" />
+          <Database className="h-3 w-3" aria-hidden />
           Serving cached data
         </span>
       )}

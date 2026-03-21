@@ -61,6 +61,8 @@ export interface ConflictData {
   key_findings: string[];
   /** Optional 2–3 sentence "why this matters" per finding (same order as key_findings). */
   key_findings_context?: string[];
+  /** Optional per-finding confidence tier from CEO / heuristics (same order as key_findings). */
+  key_findings_confidence?: string[];
   /** Optional cross-agent corroborated patterns: multiple agents detected the same event. */
   corroborated_patterns?: Array<{
     pattern_id?: string;

@@ -1,4 +1,8 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { useIsMobileLayout } from "@/hooks/useMediaQuery";
+import { trackMobileNav, trackMobilePanel } from "@/lib/mobileAnalytics";
+import { buildSearchHits } from "@/lib/dashboardSearchIndex";
+import { GlobalSearchDialog } from "@/components/dashboard/GlobalSearchDialog";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +10,7 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail } from "lucide-react";
+import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -43,6 +47,9 @@ function DashboardContent() {
   const conflictDropdownRef = useRef<HTMLDivElement>(null);
 
   const [selectedConflict, setSelectedConflict] = useState<string>(CONFLICT_OPTIONS[0]?.apiValue ?? "Iran");
+  const [headlineAllowedSources, setHeadlineAllowedSources] = useState<Set<string>>(() => new Set());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const skipHeadlinePersistRef = useRef(false);
 
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
@@ -54,6 +61,57 @@ function DashboardContent() {
   });
   const currentOption = CONFLICT_OPTIONS.find((o) => o.apiValue === selectedConflict);
   const displayConflictLabel = currentOption?.label ?? selectedConflict;
+
+  const searchHits = useMemo(() => buildSearchHits(conflictData), [conflictData]);
+
+  useEffect(() => {
+    skipHeadlinePersistRef.current = true;
+    const key = `dwr:headlineSources:${selectedConflict}`;
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) {
+        setHeadlineAllowedSources(new Set());
+        return;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
+        setHeadlineAllowedSources(new Set(parsed));
+      } else {
+        setHeadlineAllowedSources(new Set());
+      }
+    } catch {
+      setHeadlineAllowedSources(new Set());
+    }
+  }, [selectedConflict]);
+
+  useEffect(() => {
+    if (skipHeadlinePersistRef.current) {
+      skipHeadlinePersistRef.current = false;
+      return;
+    }
+    const key = `dwr:headlineSources:${selectedConflict}`;
+    try {
+      if (headlineAllowedSources.size === 0) {
+        sessionStorage.removeItem(key);
+      } else {
+        sessionStorage.setItem(key, JSON.stringify([...headlineAllowedSources]));
+      }
+    } catch {
+      // ignore
+    }
+  }, [selectedConflict, headlineAllowedSources]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key !== "k") return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest("input, textarea, [contenteditable=true]")) return;
+      e.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const onOutside = (e: MouseEvent) => {
@@ -116,16 +174,20 @@ function DashboardContent() {
   return (
     <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
       {/* Live ticker – Iran Monitor style: BREAKING headlines from analysis when available */}
-      <div className="flex items-center border-b border-border bg-card/50 min-h-9 sm:min-h-10">
+      <div
+        className="flex items-center border-b border-border bg-card/50 min-h-9 sm:min-h-10"
+        role="region"
+        aria-label="Live headline ticker"
+      >
         <div className="flex-shrink-0 px-3 py-2 sm:py-1.5 bg-destructive/20 text-destructive font-mono text-[11px] sm:text-[11px] font-bold tracking-wider border-r border-border">
           LIVE
         </div>
         <div className="flex-1 min-w-0 overflow-hidden">
-          <LiveTicker conflictData={conflictData} />
+          <LiveTicker conflictData={conflictData} headlineAllowedSources={headlineAllowedSources} />
         </div>
       </div>
       {/* Top Navbar – touch-friendly min 44px height on mobile */}
-      <header className="min-h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2 py-2 sm:py-0">
+      <header className="min-h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2 py-2 sm:py-0" role="banner">
         <div className="flex items-center gap-2 min-w-0">
           {/* Mobile hamburger – 44px tap target */}
           <button
@@ -134,7 +196,7 @@ function DashboardContent() {
             className="lg:hidden min-h-11 min-w-11 flex items-center justify-center -m-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 active:bg-muted transition-colors touch-manipulation"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           >
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
           </button>
           <h1 className="font-mono font-bold text-primary text-glow-intense text-xs sm:text-sm tracking-[0.25em] truncate m-0">
             DIGITAL WAR ROOM
@@ -153,25 +215,51 @@ function DashboardContent() {
             <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "—"}</span>
             <span>signals</span>
           </div>
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5 hover:bg-muted/50 hover:text-foreground transition-colors"
+            aria-label="Open search"
+            title="Search (⌘K / Ctrl+K)"
+          >
+            <Search className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden md:inline">Search</span>
+            <kbd className="hidden lg:inline pointer-events-none text-[10px] opacity-60 border border-border rounded px-1 py-0.5">⌘K</kbd>
+          </button>
           <div className="hidden lg:block">
             <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} compact />
           </div>
           <div className="relative" ref={conflictDropdownRef}>
             <button
               type="button"
+              id="conflict-theater-trigger"
+              aria-haspopup="listbox"
+              aria-expanded={conflictDropdownOpen}
+              aria-controls="conflict-theater-listbox"
+              aria-label="Select conflict theater"
               className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded-md px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-11 sm:min-h-0 hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors touch-manipulation"
               onClick={() => setConflictDropdownOpen((o) => !o)}
             >
               <span className="hidden sm:inline truncate max-w-[120px]">{displayConflictLabel}</span>
               <span className="sm:hidden truncate max-w-[80px]">{currentOption?.id ?? selectedConflict}</span>
-              <ChevronDown className={`h-3 w-3 flex-shrink-0 transition-transform ${conflictDropdownOpen ? "rotate-180" : ""}`} />
+              <ChevronDown
+                className={`h-3 w-3 flex-shrink-0 transition-transform ${conflictDropdownOpen ? "rotate-180" : ""}`}
+                aria-hidden
+              />
             </button>
             {conflictDropdownOpen && (
-              <div className="absolute top-full right-0 mt-1 w-52 sm:w-48 max-h-[70vh] overflow-y-auto rounded-md border border-border bg-background shadow-lg z-50 py-1">
+              <div
+                id="conflict-theater-listbox"
+                role="listbox"
+                aria-label="Conflict theaters"
+                className="absolute top-full right-0 mt-1 w-52 sm:w-48 max-h-[70vh] overflow-y-auto rounded-md border border-border bg-background shadow-lg z-50 py-1"
+              >
                 {CONFLICT_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
+                    role="option"
+                    aria-selected={selectedConflict === opt.apiValue}
                     className="w-full flex items-center gap-2 px-3 py-3 sm:py-2 text-left text-xs font-mono hover:bg-muted active:bg-muted min-h-11 sm:min-h-0 touch-manipulation"
                     onClick={() => {
                       setSelectedConflict(opt.apiValue);
@@ -193,37 +281,60 @@ function DashboardContent() {
       {/* Mobile menu dropdown – large tap targets */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-b border-border bg-card p-4 space-y-4 animate-fade-in-up">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground truncate">Digital War Room</span>
             <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:hidden`}>
               {conflictData?.threat_level ?? "ELEVATED"}
             </Badge>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-2">
             <Button
               variant={leftPanelOpen ? "default" : "outline"}
               size="sm"
-              className="flex-1 min-h-11 text-xs touch-manipulation"
+              className="w-full min-h-12 justify-center text-xs touch-manipulation"
               onClick={() => { setLeftPanelOpen(!leftPanelOpen); setRightPanelOpen(false); setMobileMenuOpen(false); }}
             >
-              <Radio className="h-4 w-4 mr-2" aria-hidden /> Agents
+              <Radio className="h-4 w-4 shrink-0" aria-hidden /> Agents
             </Button>
             <Button
               variant={rightPanelOpen ? "default" : "outline"}
               size="sm"
-              className="flex-1 min-h-11 text-xs touch-manipulation"
+              className="w-full min-h-12 justify-center text-xs touch-manipulation"
               onClick={() => { setRightPanelOpen(!rightPanelOpen); setLeftPanelOpen(false); setMobileMenuOpen(false); }}
             >
-              <Rss className="h-4 w-4 mr-2" aria-hidden /> Intel Feed
+              <Rss className="h-4 w-4 shrink-0" aria-hidden /> Intel Feed
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full min-h-12 justify-center text-xs touch-manipulation"
+              onClick={() => { setSearchOpen(true); setMobileMenuOpen(false); }}
+              aria-label="Open search"
+            >
+              <Search className="h-4 w-4 shrink-0" aria-hidden /> Search
+            </Button>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <Button variant="outline" size="sm" className="min-h-12 touch-manipulation" asChild>
+                <Link to="/app/monitoring" className="inline-flex items-center justify-center gap-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Activity className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="truncate">Monitor</span>
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" className="min-h-12 touch-manipulation" asChild>
+                <Link to="/newsletter" className="inline-flex items-center justify-center gap-2" onClick={() => setMobileMenuOpen(false)}>
+                  <Mail className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="truncate">Subscribe</span>
+                </Link>
+              </Button>
+            </div>
           </div>
           <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} />
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            <Link to="/docs/documentation" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Documentation</Link>
-            <Link to="/blog" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Blog</Link>
-            <Link to="/daily-briefing" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Daily Briefing</Link>
-            <Link to="/support" className="text-primary hover:underline touch-manipulation" onClick={() => setMobileMenuOpen(false)}>Support</Link>
-          </div>
+          <nav className="flex flex-col gap-1 text-xs" aria-label="Mobile shortcuts">
+            <Link to="/docs/documentation" className="text-primary hover:underline touch-manipulation min-h-11 inline-flex items-center py-1" onClick={() => setMobileMenuOpen(false)}>Documentation</Link>
+            <Link to="/blog" className="text-primary hover:underline touch-manipulation min-h-11 inline-flex items-center py-1" onClick={() => setMobileMenuOpen(false)}>Blog</Link>
+            <Link to="/daily-briefing" className="text-primary hover:underline touch-manipulation min-h-11 inline-flex items-center py-1" onClick={() => setMobileMenuOpen(false)}>Daily Briefing</Link>
+            <Link to="/support" className="text-primary hover:underline touch-manipulation min-h-11 inline-flex items-center py-1" onClick={() => setMobileMenuOpen(false)}>Support</Link>
+          </nav>
         </div>
       )}
 
@@ -240,6 +351,7 @@ function DashboardContent() {
         {(leftPanelOpen || rightPanelOpen) && (
           <div
             className="lg:hidden absolute inset-0 z-10 bg-background/60 backdrop-blur-sm"
+            aria-hidden="true"
             onClick={() => { setLeftPanelOpen(false); setRightPanelOpen(false); }}
           />
         )}
@@ -262,18 +374,23 @@ function DashboardContent() {
           activeConflict={selectedConflict}
           analysisLoading={initialLoadPending}
           proximityEvidence={proximityEvidence}
+          headlineAllowedSources={headlineAllowedSources}
+          onHeadlineAllowedSourcesChange={setHeadlineAllowedSources}
         />
       </div>
 
-      {/* Footer: Documentation hub (incl. How it works, Methodology, Source Directory), Support, legal */}
-      <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2">
+      <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} hits={searchHits} />
+
+      {/* Footer: docs hub (incl. How it works, Methodology, Source Directory), Support, legal */}
+      <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2" role="contentinfo">
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
           <Link
             to="/docs/documentation"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+            aria-label="Documentation"
           >
             <BookOpen className="h-3.5 w-3.5" aria-hidden />
-            <span>Documentation</span>
+            <span>docs</span>
           </Link>
           <Link
             to="/blog"

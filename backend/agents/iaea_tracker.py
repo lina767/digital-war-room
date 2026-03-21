@@ -851,7 +851,7 @@ async def _generate_haiku_summary_iaea(result: Dict[str, Any]) -> Optional[str]:
             "Telegram. Give a concise assessment (e.g. operational status, visibility constraints, recent coverage). "
             "Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=300)
+        out = await analyst_summary(system=system, data=data, max_tokens=300, usage_agent="techint")
         return out.strip() if out else None
     except Exception:
         return None

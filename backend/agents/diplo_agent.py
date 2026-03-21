@@ -339,7 +339,7 @@ async def _generate_haiku_summary_diplo(
             "in 2-3 sentences: OFAC SDN, EU sanctions, UN/ICJ news (and any categories like new_sanction, "
             "icj_ruling). Focus on escalation signals. Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        out = await analyst_summary(system=system, data=data, max_tokens=256, usage_agent="diplo")
         return out.strip() if out else None
     except Exception:
         return None

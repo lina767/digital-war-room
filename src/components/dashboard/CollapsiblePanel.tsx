@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { FeedSectionId } from "./feedSectionConfig";
-import { FEED_SECTIONS_STORAGE_KEY, getSectionDefaultOpen } from "./feedSectionConfig";
+import {
+  FEED_SECTIONS_STORAGE_KEY,
+  FEED_SECTIONS_MOBILE_STORAGE_KEY,
+  getSectionDefaultOpen,
+  getSectionDefaultOpenMobile,
+} from "./feedSectionConfig";
+import { useIsMobileLayout } from "@/hooks/useMediaQuery";
 
 interface CollapsiblePanelProps {
   sectionId: FeedSectionId;
@@ -14,9 +20,10 @@ interface CollapsiblePanelProps {
   className?: string;
 }
 
-function loadSectionState(): Record<string, boolean> {
+function loadSectionState(isMobile: boolean): Record<string, boolean> {
+  const key = isMobile ? FEED_SECTIONS_MOBILE_STORAGE_KEY : FEED_SECTIONS_STORAGE_KEY;
   try {
-    const raw = localStorage.getItem(FEED_SECTIONS_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw) as Record<string, boolean>;
       if (typeof parsed === "object" && parsed !== null) return parsed;
@@ -27,12 +34,23 @@ function loadSectionState(): Record<string, boolean> {
   return {};
 }
 
-function saveSectionState(state: Record<string, boolean>) {
+function saveSectionState(isMobile: boolean, state: Record<string, boolean>) {
+  const key = isMobile ? FEED_SECTIONS_MOBILE_STORAGE_KEY : FEED_SECTIONS_STORAGE_KEY;
   try {
-    localStorage.setItem(FEED_SECTIONS_STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(key, JSON.stringify(state));
   } catch {
     // ignore
   }
+}
+
+function initialOpenForSection(sectionId: FeedSectionId): boolean {
+  if (typeof window === "undefined") {
+    return getSectionDefaultOpen(sectionId);
+  }
+  const mq = window.matchMedia("(max-width: 1023px)").matches;
+  const stored = loadSectionState(mq)[sectionId];
+  if (typeof stored === "boolean") return stored;
+  return mq ? getSectionDefaultOpenMobile(sectionId) : getSectionDefaultOpen(sectionId);
 }
 
 export function CollapsiblePanel({
@@ -43,17 +61,20 @@ export function CollapsiblePanel({
   children,
   className,
 }: CollapsiblePanelProps) {
-  const defaultOpen = getSectionDefaultOpen(sectionId);
-  const [open, setOpen] = useState(() => {
-    const stored = loadSectionState()[sectionId];
-    return typeof stored === "boolean" ? stored : defaultOpen;
-  });
+  const isMobile = useIsMobileLayout();
+  const [open, setOpen] = useState(() => initialOpenForSection(sectionId));
 
   useEffect(() => {
-    const stored = loadSectionState();
+    const stored = loadSectionState(isMobile)[sectionId];
+    if (typeof stored === "boolean") setOpen(stored);
+    else setOpen(isMobile ? getSectionDefaultOpenMobile(sectionId) : getSectionDefaultOpen(sectionId));
+  }, [isMobile, sectionId]);
+
+  useEffect(() => {
+    const stored = loadSectionState(isMobile);
     const next = { ...stored, [sectionId]: open };
-    saveSectionState(next);
-  }, [sectionId, open]);
+    saveSectionState(isMobile, next);
+  }, [sectionId, open, isMobile]);
 
   const toggle = useCallback(() => setOpen((o) => !o), []);
 
@@ -66,7 +87,7 @@ export function CollapsiblePanel({
         onClick={toggle}
         aria-expanded={open}
         aria-controls={contentId}
-        className="w-full px-3 py-2 border-b border-border bg-muted/30 flex items-center justify-between gap-2 text-left hover:bg-muted/50 transition-colors min-w-0"
+        className="w-full px-3 py-2 max-lg:min-h-11 max-lg:py-3 border-b border-border bg-muted/30 flex items-center justify-between gap-2 text-left hover:bg-muted/50 transition-colors min-w-0 touch-manipulation"
       >
         <div className="flex items-center gap-1.5 min-w-0">
           {icon}

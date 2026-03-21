@@ -85,7 +85,7 @@ async def _generate_haiku_summary_proximity(
             "in 2-3 sentences: thermal anomalies correlated with schools/hospitals, human-shield or "
             "collateral risk. Be concise. Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        out = await analyst_summary(system=system, data=data, max_tokens=256, usage_agent="proximity")
         return out.strip() if out else None
     except Exception:
         return None

@@ -14,6 +14,35 @@ export function getWsUrl(path: string): string {
   return base.replace(/^http/, "ws") + path;
 }
 
+const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
+
+/** Absolute REST URL under `/api/…`. Omits `search` entries whose value is `undefined`. */
+export function apiUrl(path: string, search?: Record<string, string | number | undefined>): string {
+  const base = getApiBase();
+  const normalized = path.startsWith("/api/") ? path : `/api/${path.replace(/^\//, "")}`;
+  const url = new URL(normalized, base);
+  if (search) {
+    for (const [k, v] of Object.entries(search)) {
+      if (v !== undefined) url.searchParams.set(k, String(v));
+    }
+  }
+  return url.toString();
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: Omit<RequestInit, "signal"> & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, ...rest } = init;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...rest, signal: controller.signal });
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 /** Per-source fetch result (backend agents telemetry). */
 export interface SourceResult {
   name: string;
@@ -50,6 +79,7 @@ export interface AnalyzeResponse {
   threat_level?: string;
   key_findings?: string[];
   key_findings_context?: string[];
+  key_findings_confidence?: string[];
   corroborated_patterns?: Array<{
     pattern_id?: string;
     summary?: string;
@@ -82,23 +112,17 @@ export const ANALYSIS_TIMEOUT_MS = 180_000;
 /** Timeout for fetching cached analysis (e.g. cold start on Railway). */
 export const LATEST_ANALYSIS_TIMEOUT_MS = 22_000;
 
-const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
-
 /** GET /api/analyze/status – cached, at, and optional error from last failed run. */
 export async function getAnalyzeStatus(conflict: string): Promise<{ cached: boolean; at?: number; error?: string } | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/analyze/status?conflict=${encodeURIComponent(conflict)}`,
-      { method: "GET", signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(apiUrl("analyze/status", { conflict }), {
+      method: "GET",
+      timeoutMs: 10_000,
+    });
     if (!res.ok) return null;
     const raw = (await res.json()) as { cached?: boolean; at?: number; error?: string };
     return { cached: raw?.cached ?? false, at: raw?.at, error: raw?.error };
   } catch {
-    clearTimeout(timeoutId);
     return null;
   }
 }
@@ -133,9 +157,76 @@ export interface AnalysisRunSummary {
   at: number;
   conflict: string;
   escalation_score?: number;
-  agents?: Record<string, { duration_ms?: number; status: string }>;
+  agents?: Record<string, { duration_ms?: number; status: string; fallback_used?: boolean }>;
   error?: string;
 }
+
+/** Per-direction token counts (Haiku API: input + output). */
+export interface TokenInOut {
+  in: number;
+  out: number;
+}
+
+export interface MonitoringErrorEntry {
+  id: string;
+  ts: number;
+  severity: string;
+  agent?: string | null;
+  source?: string | null;
+  conflict?: string | null;
+  message: string;
+  detail?: string | null;
+}
+
+export interface AgentsMonitoringResponse {
+  fallback: {
+    total_events: number;
+    by_agent: Record<string, number>;
+    last_run: { conflict: string; at: number; agents: string[]; count: number } | null;
+  };
+  errors: MonitoringErrorEntry[];
+  cost: {
+    provider?: string;
+    model?: string;
+    month_budget_usd?: number;
+    month_spent_usd?: number;
+    month_input_tokens?: number;
+    month_output_tokens?: number;
+    month_by_agent?: Record<string, TokenInOut>;
+    last_run?: {
+      input_tokens: number;
+      output_tokens: number;
+      estimated_cost_usd: number;
+      by_agent: Record<string, TokenInOut>;
+    };
+    daily?: Array<{
+      day: string;
+      spend_usd: number;
+      input_tokens: number;
+      output_tokens: number;
+      by_agent: Record<string, TokenInOut>;
+    }>;
+    today?: {
+      day: string;
+      spend_usd: number;
+      input_tokens: number;
+      output_tokens: number;
+      by_agent: Record<string, TokenInOut>;
+    } | null;
+  };
+}
+
+/** GET /api/agents/monitoring — fallback stats, error log, Haiku cost/tokens (in-memory). */
+export async function getAgentsMonitoring(): Promise<AgentsMonitoringResponse | null> {
+  try {
+    const res = await fetchWithTimeout(apiUrl("agents/monitoring"), { method: "GET", timeoutMs: 15_000 });
+    if (!res.ok) return null;
+    return (await res.json()) as AgentsMonitoringResponse;
+  } catch {
+    return null;
+  }
+}
+
 export async function getAgentsHistory(limit = 20): Promise<{ runs: AnalysisRunSummary[] } | null> {
   try {
     const res = await fetch(`${getApiBase()}/api/agents/history?limit=${limit}`);
@@ -159,10 +250,9 @@ export interface EscalationTimelinePoint {
 
 export async function getEscalationTimeline(conflict: string): Promise<{ conflict: string; points: EscalationTimelinePoint[] } | null> {
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/analyze/timeline?conflict=${encodeURIComponent(conflict)}`,
-      { method: "GET" }
-    );
+    const res = await fetchWithTimeout(apiUrl("analyze/timeline", { conflict }), {
+      method: "GET",
+    });
     if (!res.ok) return null;
     const raw = (await res.json()) as { conflict?: string; points?: EscalationTimelinePoint[] };
     return { conflict: raw.conflict ?? conflict, points: raw.points ?? [] };
@@ -181,14 +271,11 @@ export interface LatestAnalysisResult {
 /** GET last cached analysis (from auto-run every 6 hours). No analysis is run. Uses IndexedDB when offline. */
 export async function getLatestAnalysis(conflict: string): Promise<LatestAnalysisResult> {
   const cacheKey = `${OFFLINE_CACHE_KEY_PREFIX}${conflict}`;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), LATEST_ANALYSIS_TIMEOUT_MS);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/analyze/latest?conflict=${encodeURIComponent(conflict)}`,
-      { method: "GET", signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(apiUrl("analyze/latest", { conflict }), {
+      method: "GET",
+      timeoutMs: LATEST_ANALYSIS_TIMEOUT_MS,
+    });
     if (res.status === 404 || res.status === 204) return { data: null, fromCache: false };
     if (!res.ok) return { data: null, fromCache: false };
     const raw = await res.json();
@@ -200,7 +287,6 @@ export async function getLatestAnalysis(conflict: string): Promise<LatestAnalysi
     }
     return { data, fromCache: false };
   } catch {
-    clearTimeout(timeoutId);
     if (typeof indexedDB !== "undefined") {
       const { getCached } = await import("@/lib/offlineCache");
       const cached = await getCached<AnalyzeResponse>(cacheKey);
@@ -219,14 +305,11 @@ export interface TriggerRefreshResponse {
 
 /** GET /api/analyze/refresh – trigger a background analysis. Returns body on success; throws on network error or non-2xx. */
 export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerRefreshResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/analyze/refresh?conflict=${encodeURIComponent(conflict)}`,
-      { method: "GET", signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(apiUrl("analyze/refresh", { conflict }), {
+      method: "GET",
+      timeoutMs: 15_000,
+    });
     const body = (await res.json().catch(() => ({}))) as TriggerRefreshResponse & { error?: string };
     if (!res.ok) {
       const msg = body?.error ?? `HTTP ${res.status}`;
@@ -237,7 +320,6 @@ export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerR
     }
     return body;
   } catch (e) {
-    clearTimeout(timeoutId);
     if (e instanceof Error) throw e;
     throw new Error("Request failed");
   }
@@ -304,6 +386,11 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   if (Array.isArray(raw.key_findings_context)) {
     out.key_findings_context = raw.key_findings_context.map((c: unknown) => (typeof c === "string" ? c : String(c ?? "")));
   }
+  if (Array.isArray(raw.key_findings_confidence)) {
+    out.key_findings_confidence = raw.key_findings_confidence.map((c: unknown) =>
+      typeof c === "string" ? c : String(c ?? "medium"),
+    );
+  }
   if (Array.isArray(raw.scenarios)) {
     out.scenarios = raw.scenarios.map((s: unknown) => {
       const o = s as Record<string, unknown>;
@@ -337,20 +424,16 @@ export async function getConflictEvents(
   conflict: string,
   limit = 200
 ): Promise<{ events: ConflictEventForHeatmap[]; conflict: string } | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/conflict-events?conflict=${encodeURIComponent(conflict)}&limit=${limit}`,
-      { method: "GET", signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(apiUrl("conflict-events", { conflict, limit }), {
+      method: "GET",
+      timeoutMs: 15_000,
+    });
     if (!res.ok) return null;
     const raw = (await res.json()) as { events?: ConflictEventForHeatmap[]; conflict?: string };
     const events = Array.isArray(raw?.events) ? raw.events : [];
     return { events, conflict: raw?.conflict ?? conflict };
   } catch {
-    clearTimeout(timeoutId);
     return null;
   }
 }
@@ -414,36 +497,28 @@ export interface GreynoiseTrendResponse {
 
 /** GET /api/greynoise/{conflict} – latest snapshot. */
 export async function fetchGreynoiseThreats(conflict: string): Promise<GreynoiseResult | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/greynoise/${encodeURIComponent(conflict)}`,
-      { method: "GET", signal: controller.signal },
-    );
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(apiUrl(`greynoise/${encodeURIComponent(conflict)}`), {
+      method: "GET",
+      timeoutMs: 15_000,
+    });
     if (!res.ok) return null;
     return (await res.json()) as GreynoiseResult;
   } catch {
-    clearTimeout(timeoutId);
     return null;
   }
 }
 
 /** GET /api/greynoise/{conflict}/trend?days=N – score time series. */
 export async function fetchGreynoiseTrend(conflict: string, days = 7): Promise<GreynoiseTrendResponse | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/greynoise/${encodeURIComponent(conflict)}/trend?days=${days}`,
-      { method: "GET", signal: controller.signal },
+    const res = await fetchWithTimeout(
+      apiUrl(`greynoise/${encodeURIComponent(conflict)}/trend`, { days }),
+      { method: "GET", timeoutMs: 10_000 },
     );
-    clearTimeout(timeoutId);
     if (!res.ok) return null;
     return (await res.json()) as GreynoiseTrendResponse;
   } catch {
-    clearTimeout(timeoutId);
     return null;
   }
 }
@@ -647,20 +722,16 @@ export async function getTheaterEvents(
   conflict: string,
   limit = 400
 ): Promise<{ events: TheaterEvent[]; conflict: string } | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20_000);
   try {
-    const res = await fetch(
-      `${getApiBase()}/api/theater-events?conflict=${encodeURIComponent(conflict)}&limit=${limit}`,
-      { method: "GET", signal: controller.signal }
-    );
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(apiUrl("theater-events", { conflict, limit }), {
+      method: "GET",
+      timeoutMs: 20_000,
+    });
     if (!res.ok) return null;
     const raw = (await res.json()) as { events?: TheaterEvent[]; conflict?: string };
     const events = Array.isArray(raw?.events) ? raw.events : [];
     return { events, conflict: raw?.conflict ?? conflict };
   } catch {
-    clearTimeout(timeoutId);
     return null;
   }
 }

@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import time
+import traceback
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.deps import StateServiceDep, WsManagerDep
+from api.http_errors import conflict_bad_request
 from agents.config import DEFAULT_CONFLICT
 from agents.supervisor import analyze_conflict, run_analysis_streaming
 from middleware.rate_limit import limiter
@@ -31,6 +33,23 @@ from .state_helpers import (
 )
 
 router = APIRouter()
+
+
+async def _persist_analysis_result(
+    *,
+    conflict: str,
+    result: dict[str, Any],
+    state: StateServiceDep,
+    app_state: Any,
+    ws_manager: WsManagerDep,
+) -> None:
+    """Write analysis to cache, timeline, agent status, run history; broadcast to WebSocket clients."""
+    at_ts = time.time()
+    state.set_cache(conflict, result, at_ts)
+    push_escalation_timeline(app_state, conflict, at_ts, result)
+    push_agent_status(app_state, result)
+    push_run_history(app_state, conflict, at_ts, result)
+    await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
 
 
 class AnalyzeRequest(BaseModel):
@@ -64,7 +83,7 @@ async def analyze_stream(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
 
     async def event_stream() -> AsyncGenerator[str, None]:
         loop = asyncio.get_running_loop()
@@ -123,6 +142,29 @@ async def agents_health() -> Any:
     return reg.get_health_report()
 
 
+@router.get("/agents/monitoring")
+async def agents_monitoring() -> Any:
+    """
+    GET /api/agents/monitoring
+    Fallback usage totals, recent error log (with optional detail), Haiku token/cost metrics,
+    and per-day spend rollups (in-memory, process lifetime).
+    """
+    from services.haiku_service import get_haiku_metrics_for_api
+    from services.monitoring_store import get_snapshot
+
+    snap = get_snapshot()
+    haiku = get_haiku_metrics_for_api()
+    return {
+        "fallback": snap["fallback"],
+        "errors": snap["errors"],
+        "cost": {
+            **haiku,
+            "daily": snap["daily_spend"],
+            "today": snap["today_spend"],
+        },
+    }
+
+
 @router.get("/agents/history")
 async def agents_history(state: StateServiceDep, limit: int = 20) -> Any:
     """
@@ -143,7 +185,7 @@ async def analyze_status(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
     entry = get_cache(request, conflict)
     last_err = get_last_error(request, conflict)
     out = {"cached": bool(entry), "conflict": conflict}
@@ -163,7 +205,7 @@ async def get_latest_analysis(request: Request, conflict: str = DEFAULT_CONFLICT
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
     entry = get_cache(request, conflict)
     if not entry:
         return JSONResponse(status_code=404, content={"error": "no_cached_analysis", "conflict": conflict})
@@ -180,7 +222,7 @@ async def get_escalation_timeline_route(request: Request, conflict: str = DEFAUL
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
     raw = list(get_escalation_timeline(request, conflict) or [])
     points = []
     for p in raw:
@@ -217,7 +259,7 @@ async def analyze(request: Request, body: AnalyzeRequest) -> Any:
     try:
         conflict = sanitize_conflict(body.conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
     entry = get_cache(request, conflict)
     if not entry:
         return JSONResponse(
@@ -248,7 +290,7 @@ async def refresh_analysis(
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
     app_state = request.app.state
     state.pop_last_error(conflict)
 
@@ -259,20 +301,19 @@ async def refresh_analysis(
                 loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
-            at_ts = time.time()
-            state.set_cache(conflict, result, at_ts)
-            push_escalation_timeline(app_state, conflict, at_ts, result)
-            push_agent_status(app_state, result)
-            push_run_history(app_state, conflict, at_ts, result)
-            await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+            await _persist_analysis_result(
+                conflict=conflict,
+                result=result,
+                state=state,
+                app_state=app_state,
+                ws_manager=ws_manager,
+            )
             return {"status": "ok", "conflict": conflict}
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
             state.set_last_error(conflict, msg)
             return JSONResponse(status_code=504, content={"error": msg, "conflict": conflict})
         except Exception as e:
-            import traceback
-
             state.set_last_error(conflict, str(e))
             return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
@@ -283,13 +324,14 @@ async def refresh_analysis(
                 loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
-            at_ts = time.time()
-            state.set_cache(conflict, result, at_ts)
-            push_escalation_timeline(app_state, conflict, at_ts, result)
-            push_agent_status(app_state, result)
-            push_run_history(app_state, conflict, at_ts, result)
             state.pop_last_error(conflict)
-            await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+            await _persist_analysis_result(
+                conflict=conflict,
+                result=result,
+                state=state,
+                app_state=app_state,
+                ws_manager=ws_manager,
+            )
             print(f"[refresh] Analysis for {conflict} done and cached.")
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
@@ -323,7 +365,7 @@ async def trigger_analysis(
     try:
         conflict = sanitize_conflict(conflict)
     except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": str(e), "field": "conflict"})
+        return conflict_bad_request(e)
     secret = os.getenv("ANALYZE_TRIGGER_SECRET", "").strip()
     if secret and x_trigger_secret != secret:
         return JSONResponse(
@@ -335,12 +377,13 @@ async def trigger_analysis(
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
-        at_ts = time.time()
-        state.set_cache(conflict, result, at_ts)
-        push_escalation_timeline(request.app.state, conflict, at_ts, result)
-        push_agent_status(request.app.state, result)
-        push_run_history(request.app.state, conflict, at_ts, result)
-        await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+        await _persist_analysis_result(
+            conflict=conflict,
+            result=result,
+            state=state,
+            app_state=request.app.state,
+            ws_manager=ws_manager,
+        )
         return AnalysisResult.model_validate(result)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

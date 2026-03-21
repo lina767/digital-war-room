@@ -1,11 +1,12 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowLeft, FileDown, Share2 } from "lucide-react";
+import { ArrowLeft, FileDown, RefreshCw, Share2, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getLatestAnalysis } from "@/lib/api";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
+import { cn } from "@/lib/utils";
 import {
   PREDICTIVE_OUTLOOK_DISCLAIMER,
   PREDICTIVE_OUTLOOK_INTRO_SHORT,
@@ -14,6 +15,8 @@ import { COMPLIANCE_DISCLAIMER, COMPLIANCE_INTRO_SHORT } from "@/lib/complianceC
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { SEO } from "@/components/SEO";
 import {
   TITLE_DAILY_BRIEFING,
@@ -33,24 +36,44 @@ function formatDateOnly(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+const BRIEFING_NAV = [
+  { href: "#briefing-summary", label: "Summary" },
+  { href: "#briefing-developments", label: "Developments" },
+  { href: "#briefing-predictive", label: "Outlook" },
+  { href: "#briefing-global", label: "Global" },
+  { href: "#briefing-watch", label: "Watch" },
+  { href: "#briefing-compliance", label: "Compliance" },
+  { href: "#briefing-sources", label: "Sources" },
+] as const;
+
 export default function DailyIntelligenceBriefing() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const conflictParam = searchParams.get("conflict") ?? CONFLICT_OPTIONS[0]?.apiValue ?? "Iran";
   const [data, setData] = useState<ConflictData | null>(null);
+  const [fromCache, setFromCache] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const loadBriefing = useCallback(() => {
     setLoading(true);
     setError(null);
     getLatestAnalysis(conflictParam)
       .then((result) => {
         setData(result.data as ConflictData | null);
+        setFromCache(result.fromCache);
       })
-      .catch(() => setError("Failed to load briefing data."))
+      .catch((err) => {
+        setData(null);
+        setFromCache(false);
+        setError(err instanceof Error ? err.message : "Failed to load briefing data.");
+      })
       .finally(() => setLoading(false));
   }, [conflictParam]);
+
+  useEffect(() => {
+    loadBriefing();
+  }, [loadBriefing]);
 
   const handleSavePdf = () => {
     window.print();
@@ -83,6 +106,10 @@ export default function DailyIntelligenceBriefing() {
   const now = new Date();
   const dayOfOps = Math.max(1, differenceInDays(now, OPERATIONS_START_DATE) + 1);
   const conflictLabel = CONFLICT_OPTIONS.find((o) => o.apiValue === conflictParam)?.label ?? conflictParam;
+
+  const handleConflictChange = (value: string) => {
+    setSearchParams({ conflict: value }, { replace: true });
+  };
 
   const globalImpactFindings = (data?.key_findings ?? []).filter((f) =>
     String(f).toLowerCase().includes("global impact")
@@ -118,17 +145,41 @@ export default function DailyIntelligenceBriefing() {
         structuredData={dailyBriefingStructuredData}
       />
       <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
         {/* Top bar: back link + actions (hidden when printing) */}
-        <div className="no-print mb-6 sm:mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div className="no-print mb-6 sm:mb-8 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <Link
             to="/"
-            className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>Back to dashboard</span>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
+              <span className="sr-only">Conflict focus</span>
+              <span aria-hidden className="hidden sm:inline">
+                Focus
+              </span>
+              <select
+                className={cn(
+                  "h-9 min-w-[140px] rounded-md border border-border bg-card/80 px-2.5 py-1 text-sm font-mono text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                )}
+                value={conflictParam}
+                onChange={(e) => handleConflictChange(e.target.value)}
+                aria-label="Conflict focus for this briefing"
+              >
+                {!CONFLICT_OPTIONS.some((o) => o.apiValue === conflictParam) && (
+                  <option value={conflictParam}>{conflictLabel}</option>
+                )}
+                {CONFLICT_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.apiValue}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Button
               variant="outline"
               size="sm"
@@ -136,7 +187,7 @@ export default function DailyIntelligenceBriefing() {
               onClick={handleSavePdf}
               aria-label="Save as PDF"
             >
-              <FileDown className="h-3.5 w-3.5" />
+              <FileDown className="h-3.5 w-3.5" aria-hidden />
               Save as PDF
             </Button>
             <Button
@@ -146,7 +197,7 @@ export default function DailyIntelligenceBriefing() {
               onClick={handleShare}
               aria-label="Share"
             >
-              <Share2 className="h-3.5 w-3.5" />
+              <Share2 className="h-3.5 w-3.5" aria-hidden />
               Share
             </Button>
           </div>
@@ -154,7 +205,7 @@ export default function DailyIntelligenceBriefing() {
 
         {/* Printable content */}
         <div ref={printRef} id="daily-briefing-print" className="space-y-8">
-          <header className="border-b border-border pb-6">
+          <header className="border-b border-border pb-6 print:border-neutral-300">
             <p className="font-mono text-[11px] sm:text-xs tracking-widest text-muted-foreground uppercase mb-2">
               DIGITAL WAR ROOM
             </p>
@@ -171,8 +222,33 @@ export default function DailyIntelligenceBriefing() {
             </p>
           </header>
 
+          {fromCache && !loading && data && (
+            <div
+              className="no-print flex items-center gap-2 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-200/90"
+              role="status"
+            >
+              <WifiOff className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+              <span>Showing cached analysis (offline or API unavailable). Reconnect and retry load for the latest.</span>
+            </div>
+          )}
+
+          <nav
+            className="no-print flex flex-wrap gap-1.5 border-b border-border/60 pb-4 -mb-2"
+            aria-label="Briefing sections"
+          >
+            {BRIEFING_NAV.map(({ href, label }) => (
+              <a
+                key={href}
+                href={href}
+                className="rounded-md border border-transparent px-2 py-1 text-[11px] font-mono text-muted-foreground hover:border-border hover:bg-card/60 hover:text-foreground transition-colors"
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
+
           {loading && (
-            <div className="space-y-4">
+            <div className="space-y-4" aria-busy="true" aria-live="polite">
               <Skeleton className="h-6 w-2/3" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-5/6" />
@@ -182,36 +258,97 @@ export default function DailyIntelligenceBriefing() {
             </div>
           )}
           {error && (
-            <p className="text-sm text-destructive">{error}</p>
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5 shrink-0 border-destructive/40"
+                onClick={() => loadBriefing()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                Retry
+              </Button>
+            </div>
           )}
           {!loading && !error && data && (
             <div className="space-y-8">
+              {(data.escalation_score != null || data.threat_level) && (
+                <div className="flex flex-wrap gap-3">
+                  {data.threat_level != null && data.threat_level !== "" && (
+                    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 min-w-[120px]">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">
+                        Threat level
+                      </p>
+                      <p className="text-sm font-semibold font-mono">{data.threat_level}</p>
+                    </div>
+                  )}
+                  {data.escalation_score != null && (
+                    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 min-w-[120px]">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">
+                        Escalation score
+                      </p>
+                      <p className="text-sm font-semibold font-mono tabular-nums">
+                        {Math.round(Number(data.escalation_score))}
+                        <span className="text-muted-foreground font-normal text-xs ml-1">/ 100</span>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* 1. Executive Summary */}
-              <section>
+              <section id="briefing-summary" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   1. Executive Summary
                 </h2>
-                <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed">
-                  {data.summary ? (
-                    <p>{data.summary}</p>
-                  ) : (
-                    <p className="text-muted-foreground italic">No executive summary available for this period.</p>
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-card/50 p-4 text-sm leading-relaxed">
+                    {data.summary ? (
+                      <p className="text-pretty">{data.summary}</p>
+                    ) : (
+                      <p className="text-muted-foreground italic">No executive summary available for this period.</p>
+                    )}
+                  </div>
+                  {data.narrative_story != null && String(data.narrative_story).trim() !== "" && (
+                    <div className="rounded-lg border border-border bg-card/40 p-4">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+                        Cross-stream narrative
+                      </p>
+                      <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                        Operational story: how the main intelligence lines connect, reinforce, or contradict — the beat
+                        after the executive summary.
+                      </p>
+                      <NarrativeBody text={String(data.narrative_story)} />
+                    </div>
                   )}
                 </div>
               </section>
 
               {/* 2. Key Developments of Day X */}
-              <section>
+              <section id="briefing-developments" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   2. Key Developments of Day {dayOfOps}
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4">
                   {(data.key_findings?.length ?? 0) > 0 ? (
-                    <ul className="space-y-2 text-sm">
+                    <ul className="space-y-3 text-sm">
                       {data.key_findings!.map((f, i) => (
-                        <li key={i} className="flex gap-2">
-                          <span className="text-primary shrink-0">•</span>
-                          <span>{f}</span>
+                        <li key={i} className="flex flex-col gap-1">
+                          <div className="flex gap-2 items-start">
+                            <FindingConfidenceBadge
+                              className="mt-0.5"
+                              level={normalizeFindingConfidence(data.key_findings_confidence?.[i])}
+                            />
+                            <span className="text-primary shrink-0 pt-0.5">•</span>
+                            <span className="text-pretty min-w-0">{f}</span>
+                          </div>
+                          {data.key_findings_context?.[i] != null && String(data.key_findings_context[i]).trim() !== "" && (
+                            <p className="pl-5 text-xs text-muted-foreground border-l-2 border-border/70 leading-relaxed">
+                              {data.key_findings_context[i]}
+                            </p>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -228,10 +365,33 @@ export default function DailyIntelligenceBriefing() {
                     <p className="text-sm text-muted-foreground italic">No key developments recorded for this day.</p>
                   )}
                 </div>
+                {(data.corroborated_patterns?.length ?? 0) > 0 && (
+                  <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4 space-y-2">
+                    <p className="text-[11px] font-mono text-primary/90 uppercase tracking-wider">
+                      Corroborated patterns
+                    </p>
+                    <ul className="space-y-2 text-sm">
+                      {data.corroborated_patterns!.slice(0, 6).map((p, i) => (
+                        <li key={p.pattern_id ?? i} className="text-pretty">
+                          {p.summary != null && p.summary !== "" ? (
+                            <span>{p.summary}</span>
+                          ) : (
+                            <span className="text-muted-foreground italic">Pattern {i + 1}</span>
+                          )}
+                          {Array.isArray(p.agent_ids) && p.agent_ids.length > 0 && (
+                            <span className="block text-[11px] text-muted-foreground mt-0.5 font-mono">
+                              Agents: {p.agent_ids.join(", ")}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </section>
 
               {/* 3. Predictive Outlook */}
-              <section>
+              <section id="briefing-predictive" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   3. Predictive Outlook
                 </h2>
@@ -338,7 +498,7 @@ export default function DailyIntelligenceBriefing() {
               </section>
 
               {/* 4. Global Impact */}
-              <section>
+              <section id="briefing-global" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   4. Global Impact
                 </h2>
@@ -360,7 +520,7 @@ export default function DailyIntelligenceBriefing() {
               </section>
 
               {/* 5. Things to Watch */}
-              <section>
+              <section id="briefing-watch" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   5. Things to Watch
                 </h2>
@@ -385,7 +545,7 @@ export default function DailyIntelligenceBriefing() {
               </section>
 
               {/* 6. Sanctions Compliance */}
-              <section>
+              <section id="briefing-compliance" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   6. Sanctions Compliance
                 </h2>
@@ -535,7 +695,7 @@ export default function DailyIntelligenceBriefing() {
               </section>
 
               {/* 7. Sources */}
-              <section>
+              <section id="briefing-sources" className="scroll-mt-24 print:break-inside-avoid">
                 <h2 className="font-mono text-xs text-muted-foreground tracking-wider uppercase mb-2">
                   7. Sources
                 </h2>
@@ -561,10 +721,15 @@ export default function DailyIntelligenceBriefing() {
           )}
 
           {!loading && !error && !data && (
-            <p className="text-sm text-muted-foreground">
-              No cached analysis available. Run an analysis from the dashboard for {conflictLabel}, then return here for
-              the daily briefing.
-            </p>
+            <div className="rounded-xl border border-border bg-card/40 p-6 text-center space-y-3">
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                No cached analysis for <span className="font-mono text-foreground">{conflictLabel}</span> yet. Run or
+                refresh an analysis from the dashboard, then open this page again.
+              </p>
+              <Button asChild variant="default" size="sm" className="font-mono text-xs">
+                <Link to="/">Open dashboard</Link>
+              </Button>
+            </div>
           )}
 
           <p className="no-print mt-8 pt-6 border-t border-border text-sm text-muted-foreground">
@@ -574,14 +739,16 @@ export default function DailyIntelligenceBriefing() {
             </Link>
           </p>
         </div>
-      </div>
+      </main>
 
       {/* Print styles: hide non-print elements */}
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          body { background: white; color: black; }
+          body { background: white !important; color: #111 !important; }
           #daily-briefing-print { max-width: 100%; }
+          #daily-briefing-print a { color: #0b57d0 !important; text-decoration: underline; }
+          #daily-briefing-print .rounded-lg, #daily-briefing-print .rounded-xl { border-color: #ccc !important; background: #fafafa !important; }
         }
       `}</style>
     </div>

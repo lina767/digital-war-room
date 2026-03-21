@@ -5,6 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Safe message from caught errors (API, forms, hooks). */
+export function getErrorMessage(err: unknown, fallback = "Something went wrong."): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
 /**
  * Format a date as relative time (e.g. "Just now", "5m ago", "2h ago", "3d ago").
  * @param date - Date object, ISO string, or null/undefined

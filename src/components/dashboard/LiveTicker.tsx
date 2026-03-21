@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { filterArticlesBySourceKeys } from "@/lib/headlineSources";
 
 const FALLBACK_ITEMS = [
   "● RC-135 Rivet Joint detected over Persian Gulf — 3rd pass in 6 hours",
@@ -15,18 +16,32 @@ const FALLBACK_ITEMS = [
 interface LiveTickerProps {
   /** When provided, headlines from latest analysis are shown in the ticker */
   conflictData?: ConflictData | null;
+  /** Same source filter as Latest Headlines; empty set = all sources */
+  headlineAllowedSources?: Set<string>;
 }
 
-export function LiveTicker({ conflictData }: LiveTickerProps) {
+export function LiveTicker({ conflictData, headlineAllowedSources }: LiveTickerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const fromData = (conflictData?.news?.articles ?? [])
+  const rawArticles = conflictData?.news?.articles ?? [];
+  const allowed = headlineAllowedSources ?? new Set<string>();
+  const filteredArticles = useMemo(
+    () => filterArticlesBySourceKeys(rawArticles, allowed),
+    [rawArticles, allowed],
+  );
+
+  const fromData = filteredArticles
     .slice(0, 12)
     .map((a) => `● ${a.title || ""}`)
     .filter(Boolean);
-  const tickerItems = fromData.length > 0 ? (fromData as string[]) : FALLBACK_ITEMS;
-  const articleCount = conflictData?.news?.articles?.length ?? 0;
+  const tickerItems =
+    fromData.length > 0
+      ? (fromData as string[])
+      : rawArticles.length === 0
+        ? FALLBACK_ITEMS
+        : ["● No headlines match the current source filter."];
+  const articleCount = filteredArticles.length;
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -57,7 +72,10 @@ export function LiveTicker({ conflictData }: LiveTickerProps) {
   const content = tickerItems.join("     ");
 
   return (
-    <div className="w-full bg-card border-b border-border overflow-hidden h-8 sm:h-7 flex items-center flex-shrink-0">
+    <div
+      className="w-full bg-card border-b border-border overflow-hidden h-8 sm:h-7 flex items-center flex-shrink-0"
+      aria-live="off"
+    >
       <div ref={scrollRef} className="whitespace-nowrap font-mono text-xs sm:text-[11px] text-primary">
         <span>{content}</span>
         <span className="ml-16">{content}</span>

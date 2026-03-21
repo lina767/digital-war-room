@@ -14,6 +14,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+
 logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -52,6 +53,10 @@ _run_analyst_summary_count = 0
 _run_input_tokens = 0
 _run_output_tokens = 0
 
+# Per-agent token attribution (Haiku calls only; keys e.g. news, cyber, diplo)
+_run_tokens_by_agent: Dict[str, Dict[str, int]] = {}
+_monthly_tokens_by_agent: Dict[str, Dict[str, int]] = {}
+
 # Tracks whether a Haiku error occurred in this run (for batch-fallback logic)
 _run_haiku_failed = False
 
@@ -69,9 +74,23 @@ def _ensure_month():
         _monthly_input_tokens = 0
         _monthly_output_tokens = 0
         _monthly_cost_usd = 0.0
+        global _monthly_tokens_by_agent
+        _monthly_tokens_by_agent = {}
 
 
-def _increment_usage(input_tokens: int, output_tokens: int):
+def _bump_agent_tokens(agent: str, input_tokens: int, output_tokens: int) -> None:
+    global _run_tokens_by_agent, _monthly_tokens_by_agent
+    if agent not in _run_tokens_by_agent:
+        _run_tokens_by_agent[agent] = {"in": 0, "out": 0}
+    _run_tokens_by_agent[agent]["in"] += input_tokens
+    _run_tokens_by_agent[agent]["out"] += output_tokens
+    if agent not in _monthly_tokens_by_agent:
+        _monthly_tokens_by_agent[agent] = {"in": 0, "out": 0}
+    _monthly_tokens_by_agent[agent]["in"] += input_tokens
+    _monthly_tokens_by_agent[agent]["out"] += output_tokens
+
+
+def _increment_usage(input_tokens: int, output_tokens: int, usage_agent: str = "other") -> None:
     """Track real token usage from the API response."""
     global _monthly_input_tokens, _monthly_output_tokens, _monthly_cost_usd
     global _run_call_count, _run_input_tokens, _run_output_tokens
@@ -83,6 +102,7 @@ def _increment_usage(input_tokens: int, output_tokens: int):
     _run_call_count += 1
     _run_input_tokens += input_tokens
     _run_output_tokens += output_tokens
+    _bump_agent_tokens(usage_agent or "other", input_tokens, output_tokens)
 
     if _monthly_cost_usd >= HAIKU_MONTHLY_BUDGET * 0.8:
         logger.warning(
@@ -103,7 +123,7 @@ def reset_run_counters():
     """Call at the start of each 6h analysis run."""
     global _run_call_count, _run_translation_count, _run_sentiment_count, _run_ner_count
     global _run_classify_count, _run_summarize_count, _run_docqa_count, _run_analyst_summary_count
-    global _run_input_tokens, _run_output_tokens, _run_haiku_failed
+    global _run_input_tokens, _run_output_tokens, _run_haiku_failed, _run_tokens_by_agent
     _run_call_count = 0
     _run_translation_count = 0
     _run_sentiment_count = 0
@@ -115,6 +135,7 @@ def reset_run_counters():
     _run_input_tokens = 0
     _run_output_tokens = 0
     _run_haiku_failed = False
+    _run_tokens_by_agent = {}
 
 
 def is_haiku_failed() -> bool:
@@ -137,6 +158,43 @@ def log_run_stats():
         _monthly_cost_usd,
         HAIKU_MONTHLY_BUDGET,
     )
+    try:
+        from services.monitoring_store import record_haiku_daily
+
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        by_agent = {k: dict(v) for k, v in _run_tokens_by_agent.items()}
+        record_haiku_daily(
+            day=day,
+            spend_usd=run_cost,
+            input_tokens=_run_input_tokens,
+            output_tokens=_run_output_tokens,
+            by_agent=by_agent,
+        )
+    except Exception:
+        pass
+
+
+def get_haiku_metrics_for_api() -> Dict[str, Any]:
+    """Token and spend snapshot for Agent Monitor (Haiku / Claude)."""
+    _ensure_month()
+    run_cost = (_run_input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + (
+        _run_output_tokens / 1_000_000
+    ) * _OUTPUT_COST_PER_MTOK
+    return {
+        "provider": "anthropic_haiku",
+        "model": HAIKU_MODEL,
+        "month_budget_usd": HAIKU_MONTHLY_BUDGET,
+        "month_spent_usd": round(_monthly_cost_usd, 6),
+        "month_input_tokens": _monthly_input_tokens,
+        "month_output_tokens": _monthly_output_tokens,
+        "month_by_agent": {k: dict(v) for k, v in _monthly_tokens_by_agent.items()},
+        "last_run": {
+            "input_tokens": _run_input_tokens,
+            "output_tokens": _run_output_tokens,
+            "estimated_cost_usd": round(run_cost, 8),
+            "by_agent": {k: dict(v) for k, v in _run_tokens_by_agent.items()},
+        },
+    }
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -160,7 +218,13 @@ def _get_client():
     return Anthropic()
 
 
-async def _call_haiku(system: str, user_content: str, max_tokens: int = 1024) -> Optional[str]:
+async def _call_haiku(
+    system: str,
+    user_content: str,
+    max_tokens: int = 1024,
+    *,
+    usage_agent: str = "other",
+) -> Optional[str]:
     """
     Low-level Haiku call with budget/limit checks and usage tracking.
     Returns the text response or None on any failure.
@@ -193,6 +257,7 @@ async def _call_haiku(system: str, user_content: str, max_tokens: int = 1024) ->
         _increment_usage(
             resp.usage.input_tokens,
             resp.usage.output_tokens,
+            usage_agent,
         )
         if resp.content:
             return resp.content[0].text
@@ -227,7 +292,7 @@ async def translate_fa_en(text: str) -> Optional[str]:
         logger.debug("[haiku] Translation limit reached (%d)", HAIKU_MAX_TRANSLATION_PER_RUN)
         return None
 
-    result = await _call_haiku(_TRANSLATE_SYSTEM, text.strip(), max_tokens=2048)
+    result = await _call_haiku(_TRANSLATE_SYSTEM, text.strip(), max_tokens=2048, usage_agent="news")
     if result:
         _run_translation_count += 1
     return result
@@ -259,7 +324,7 @@ async def sentiment(text: str, lang: str = "auto") -> Optional[Dict[str, Any]]:
         logger.debug("[haiku] Sentiment limit reached (%d)", HAIKU_MAX_SENTIMENT_PER_RUN)
         return None
 
-    raw = await _call_haiku(_SENTIMENT_SYSTEM, text.strip()[:2000], max_tokens=256)
+    raw = await _call_haiku(_SENTIMENT_SYSTEM, text.strip()[:2000], max_tokens=256, usage_agent="news")
     if not raw:
         return None
     try:
@@ -304,7 +369,7 @@ async def ner(text: str) -> Optional[List[Dict[str, str]]]:
         logger.debug("[haiku] NER limit reached (%d)", HAIKU_MAX_NER_PER_RUN)
         return None
 
-    raw = await _call_haiku(_NER_SYSTEM, text.strip()[:3000], max_tokens=1024)
+    raw = await _call_haiku(_NER_SYSTEM, text.strip()[:3000], max_tokens=1024, usage_agent="news")
     if not raw:
         return None
     try:
@@ -395,7 +460,7 @@ async def classify(text: str) -> Optional[Dict[str, Any]]:
         logger.debug("[haiku] Classify limit reached (%d)", HAIKU_MAX_CLASSIFY_PER_RUN)
         return None
 
-    raw = await _call_haiku(_CLASSIFY_SYSTEM, text.strip()[:2000], max_tokens=128)
+    raw = await _call_haiku(_CLASSIFY_SYSTEM, text.strip()[:2000], max_tokens=128, usage_agent="news")
     if not raw:
         return None
     try:
@@ -463,7 +528,7 @@ async def classify_diplo(text: str) -> Optional[Dict[str, Any]]:
         logger.debug("[haiku] Classify limit reached (%d)", HAIKU_MAX_CLASSIFY_PER_RUN)
         return None
 
-    raw = await _call_haiku(_CLASSIFY_DIPLO_SYSTEM, text.strip()[:2000], max_tokens=128)
+    raw = await _call_haiku(_CLASSIFY_DIPLO_SYSTEM, text.strip()[:2000], max_tokens=128, usage_agent="diplo")
     if not raw:
         return None
     try:
@@ -518,7 +583,7 @@ async def summarize(text: str, max_output_tokens: int = 256) -> Optional[str]:
         logger.debug("[haiku] Summarize limit reached (%d)", HAIKU_MAX_SUMMARIZE_PER_RUN)
         return None
 
-    result = await _call_haiku(_SUMMARIZE_SYSTEM, text.strip()[:4000], max_tokens=max_output_tokens)
+    result = await _call_haiku(_SUMMARIZE_SYSTEM, text.strip()[:4000], max_tokens=max_output_tokens, usage_agent="news")
     if result:
         _run_summarize_count += 1
     return result
@@ -543,6 +608,8 @@ async def analyst_summary(
     system: str,
     data: str,
     max_tokens: int = 256,
+    *,
+    usage_agent: str = "analyst",
 ) -> Optional[str]:
     """
     Generic analyst-style summary with custom system prompt. Use for GreyNoise, TECHINT,
@@ -557,7 +624,12 @@ async def analyst_summary(
         logger.debug("[haiku] Analyst summary limit reached (%d)", HAIKU_MAX_ANALYST_SUMMARY_PER_RUN)
         return None
 
-    result = await _call_haiku(system.strip(), data.strip()[:8000], max_tokens=max_tokens)
+    result = await _call_haiku(
+        system.strip(),
+        data.strip()[:8000],
+        max_tokens=max_tokens,
+        usage_agent=usage_agent,
+    )
     if result:
         _run_analyst_summary_count += 1
     return result
@@ -599,7 +671,7 @@ async def document_qa(
     context_parts = [f"[Chunk {i + 1}]\n{c}" for i, c in enumerate(selected)]
     user_content = "DOCUMENT CHUNKS:\n\n" + "\n\n".join(context_parts) + f"\n\nQUESTION: {question}"
 
-    raw = await _call_haiku(_DOCQA_SYSTEM, user_content[:8000], max_tokens=512)
+    raw = await _call_haiku(_DOCQA_SYSTEM, user_content[:8000], max_tokens=512, usage_agent="compliance")
     if not raw:
         return None
     try:

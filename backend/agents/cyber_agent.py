@@ -684,7 +684,7 @@ async def _generate_haiku_summary_cyber(
             "CYBER data in 2-3 sentences: CISA KEV, threat reports, OTX pulses, GreyNoise, InternetDB. "
             "Focus on the most critical signals. Write in English."
         )
-        out = await analyst_summary(system=system, data=data, max_tokens=256)
+        out = await analyst_summary(system=system, data=data, max_tokens=256, usage_agent="cyber")
         return out.strip() if out else None
     except Exception:
         return None

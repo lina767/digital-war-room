@@ -40,6 +40,23 @@ CEO_WEIGHTS = {
 _MAX_PAYLOAD_CHARS = 250_000
 
 
+def _normalize_finding_confidence(val: Any) -> str:
+    s = str(val).strip().lower()
+    if s in ("high", "h", "3"):
+        return "high"
+    if s in ("low", "l", "1"):
+        return "low"
+    return "medium"
+
+
+def _align_key_findings_confidence(findings: List[str], conf: List[str]) -> List[str]:
+    """Pad or trim confidence list to match key_findings length (default medium)."""
+    out = list(conf[: len(findings)])
+    while len(out) < len(findings):
+        out.append("medium")
+    return out
+
+
 def _all_divisions() -> List[DivisionHead]:
     """Instantiate all five divisions."""
     return [
@@ -356,6 +373,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
 
     key_findings = []
     key_findings_context = []
+    key_findings_confidence: List[str] = []
     scenarios = []
     summary = _build_rule_based_ceo_summary(conflict, synthesis_score, threat_level, division_results)
 
@@ -387,6 +405,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             if dr.anomalies:
                 for a in dr.anomalies:
                     key_findings.append(f"[{name}] {a.description}")
+                    key_findings_confidence.append("medium")
         synthesis_meta = {"mode": "rule_based", "reason": "disabled_by_env"}
     else:
         synthesis_meta = {"mode": "rule_based", "reason": "llm_not_attempted"}
@@ -456,6 +475,11 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
 
                 key_findings = list(parsed.get("key_findings") or [])
                 key_findings_context = list(parsed.get("key_findings_context") or [])
+                raw_conf = parsed.get("key_findings_confidence")
+                if isinstance(raw_conf, list):
+                    key_findings_confidence = [_normalize_finding_confidence(x) for x in raw_conf]
+                else:
+                    key_findings_confidence = []
                 scenarios = list(parsed.get("scenarios") or [])
                 summary = str(parsed.get("summary", summary))
                 if parsed.get("threat_level"):
@@ -472,14 +496,24 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             synthesis_meta = {"mode": "rule_based", "reason": f"llm_error:{type(e).__name__}"}
             logger.warning("CEO LLM synthesis failed: %s — using rule-based fallback", e)
 
+    key_findings_confidence = _align_key_findings_confidence(key_findings, key_findings_confidence)
+
     # Append agent findings
     try:
         from .findings_builder import append_agent_findings
 
         all_agent_results = {k: _as_dict(v) for k, v in store.all_results().items()}
-        key_findings = append_agent_findings(key_findings, all_agent_results, conflict, chokepoint_score)
+        key_findings = append_agent_findings(
+            key_findings,
+            all_agent_results,
+            conflict,
+            chokepoint_score,
+            key_findings_confidence,
+        )
     except Exception:
         pass
+
+    key_findings_confidence = _align_key_findings_confidence(key_findings, key_findings_confidence)
 
     if len(key_findings_context) > len(key_findings):
         key_findings_context = key_findings_context[: len(key_findings)]
@@ -519,6 +553,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "threat_level": threat_level,
         "key_findings": key_findings,
         "key_findings_context": key_findings_context,
+        "key_findings_confidence": key_findings_confidence,
         "corroborated_patterns": [],
         "scenarios": scenarios,
         "summary": summary,
@@ -800,7 +835,7 @@ def _build_ceo_prompt(
     parts.append("\nTASK: Produce a holistic assessment. Focus on cross-division patterns and changes.")
     parts.append(
         'OUTPUT: JSON: { "escalation_score": ..., "threat_level": ..., "key_findings": [...], '
-        '"key_findings_context": [...], "scenarios": [...], "summary": "..." }'
+        '"key_findings_context": [...], "key_findings_confidence": [...], "scenarios": [...], "summary": "..." }'
     )
 
     return "\n".join(parts)
@@ -831,6 +866,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
   "threat_level": <"MINIMAL"|"LOW"|"ELEVATED"|"HIGH"|"CRITICAL">,
   "key_findings": [<array of concise finding strings>],
   "key_findings_context": [<optional: array of 2-3 sentence "why this matters" per finding, same order as key_findings>],
+  "key_findings_confidence": [<required: same length as key_findings; each value "high", "medium", or "low" — assessment confidence in that finding>],
   "scenarios": [{"description": <string>, "probability": <0-1>}],
   "summary": "<2-3 sentence BLUF summary>"
 }"""
@@ -887,6 +923,7 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
         "escalation_score": 0,
         "threat_level": "MINIMAL",
         "key_findings": [],
+        "key_findings_confidence": [],
         "scenarios": [],
         "summary": "Analysis failed.",
     }

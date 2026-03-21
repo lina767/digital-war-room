@@ -938,7 +938,7 @@ async def _generate_llm_summary(conflict: str, result: GreynoiseResult) -> str:
             "signals and what they mean for the security situation. Be concise and analytical. "
             "Write in English."
         )
-        summary = await analyst_summary(system=system, data=prompt_data, max_tokens=300)
+        summary = await analyst_summary(system=system, data=prompt_data, max_tokens=300, usage_agent="cyber")
         return summary.strip() if summary else ""
     except Exception as e:
         logger.debug("GreyNoise LLM summary failed, using rule-based: %s", e)

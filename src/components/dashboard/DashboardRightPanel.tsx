@@ -27,10 +27,12 @@ import {
 } from "@/components/dashboard/feedSectionConfig";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { filterArticlesBySourceKeys } from "@/lib/headlineSources";
 import { Link } from "react-router-dom";
 import { DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE, DOCS_SOURCE_DIRECTORY } from "@/lib/docLinks";
 import { Target, X, Globe, LayoutGrid, List, Focus } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
+import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
 import { formatTimeAgo } from "@/lib/utils";
 import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
 
@@ -60,7 +62,7 @@ function ProximityAnalyzerBlock({
     <div className="pt-4 border-t border-border">
       <div className="flex items-center justify-between gap-2 mb-2">
         <h3 className="font-mono text-[11px] text-muted-foreground tracking-wider flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" />
+          <Target className="h-3.5 w-3.5" aria-hidden />
           PROXIMITY ANALYZER
         </h3>
         <span className="text-[10px] text-muted-foreground/80 font-mono">with analysis</span>
@@ -130,6 +132,9 @@ interface DashboardRightPanelProps {
   activeConflict?: string | null;
   analysisLoading?: boolean;
   proximityEvidence: ProximityEvidence[];
+  /** Empty = all headline sources. Shared with Live ticker. */
+  headlineAllowedSources: Set<string>;
+  onHeadlineAllowedSourcesChange: (next: Set<string>) => void;
 }
 
 export function DashboardRightPanel({
@@ -141,6 +146,8 @@ export function DashboardRightPanel({
   activeConflict = null,
   analysisLoading,
   proximityEvidence,
+  headlineAllowedSources,
+  onHeadlineAllowedSourcesChange,
 }: DashboardRightPanelProps) {
   const [feedView, setFeedView] = useState<FeedViewMode>(loadFeedView);
   const socialStream = useSocialWebSocket(activeConflict || displayConflictLabel || "Iran", true);
@@ -211,19 +218,30 @@ export function DashboardRightPanel({
             <GlobalImpactPanel data={conflictData} embedded />
           </CollapsiblePanel>
         );
-      case "headlines":
+      case "headlines": {
+        const raw = conflictData?.news?.articles ?? [];
+        const filtered = filterArticlesBySourceKeys(raw, headlineAllowedSources);
         return (
           <CollapsiblePanel
             key={sectionId}
             sectionId={sectionId}
             title="LATEST HEADLINES"
-            headerRight={conflictData?.news?.articles?.length ? (
-              <span className="text-[11px] text-muted-foreground">{conflictData.news.articles.length} stories</span>
+            headerRight={raw.length ? (
+              <span className="text-[11px] text-muted-foreground">
+                {filtered.length === raw.length ? `${raw.length} stories` : `${filtered.length}/${raw.length} stories`}
+              </span>
             ) : undefined}
           >
-            <LatestHeadlines data={conflictData} maxItems={5} embedded />
+            <LatestHeadlines
+              data={conflictData}
+              maxItems={5}
+              embedded
+              allowedSourceKeys={headlineAllowedSources}
+              onAllowedSourceKeysChange={onHeadlineAllowedSourcesChange}
+            />
           </CollapsiblePanel>
         );
+      }
       case "events-timeline":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="EVENTS TIMELINE">
@@ -297,9 +315,10 @@ export function DashboardRightPanel({
             <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">TOP FINDINGS</p>
             <ul className="space-y-1.5">
               {keyFindings.slice(0, 3).map((f, i) => (
-                <li key={i} className="text-xs leading-relaxed flex gap-2">
+                <li key={i} className="text-xs leading-relaxed flex gap-2 items-start">
+                  <FindingConfidenceBadge level={normalizeFindingConfidence(conflictData?.key_findings_confidence?.[i])} />
                   <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
-                  <span>{f}</span>
+                  <span className="min-w-0">{f}</span>
                 </li>
               ))}
             </ul>
@@ -332,9 +351,10 @@ export function DashboardRightPanel({
             <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">WHAT'S NEW</p>
             <ul className="space-y-1.5">
               {keyFindings.slice(0, 3).map((f, i) => (
-                <li key={i} className="text-xs leading-relaxed flex gap-2">
+                <li key={i} className="text-xs leading-relaxed flex gap-2 items-start">
+                  <FindingConfidenceBadge level={normalizeFindingConfidence(conflictData?.key_findings_confidence?.[i])} />
                   <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
-                  <span>{f}</span>
+                  <span className="min-w-0">{f}</span>
                 </li>
               ))}
             </ul>
@@ -353,42 +373,46 @@ export function DashboardRightPanel({
           absolute md:relative inset-y-0 right-0 z-20
           transition-transform duration-300 ease-in-out
         `}
+      aria-label="Intelligence feed"
     >
       <div className="flex items-center justify-between mb-3 gap-2">
         <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">INTELLIGENCE FEED</h2>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5" role="group" aria-label="Feed layout">
           <button
             type="button"
             aria-label="Full view"
+            aria-pressed={feedView === "full"}
             title="Full view"
             onClick={() => setFeedView("full")}
             className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
               feedView === "full" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
             }`}
           >
-            <List className="h-3.5 w-3.5" />
+            <List className="h-3.5 w-3.5" aria-hidden />
           </button>
           <button
             type="button"
             aria-label="Summary view"
+            aria-pressed={feedView === "summary"}
             title="Summary view"
             onClick={() => setFeedView("summary")}
             className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
               feedView === "summary" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
             }`}
           >
-            <LayoutGrid className="h-3.5 w-3.5" />
+            <LayoutGrid className="h-3.5 w-3.5" aria-hidden />
           </button>
           <button
             type="button"
             aria-label="Focus view"
+            aria-pressed={feedView === "focus"}
             title="Focus view"
             onClick={() => setFeedView("focus")}
             className={`min-h-8 min-w-8 flex items-center justify-center rounded-md transition-colors ${
               feedView === "focus" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
             }`}
           >
-            <Focus className="h-3.5 w-3.5" />
+            <Focus className="h-3.5 w-3.5" aria-hidden />
           </button>
         </div>
         <button
@@ -397,13 +421,13 @@ export function DashboardRightPanel({
           className="md:hidden min-h-11 min-w-11 flex items-center justify-center -m-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 active:bg-muted touch-manipulation"
           onClick={() => setRightPanelOpen(false)}
         >
-          <X className="h-4 w-4" />
+          <X className="h-4 w-4" aria-hidden />
         </button>
       </div>
 
       <div className="mb-4 rounded-lg border border-border overflow-hidden bg-card/30">
         <div className="px-2 py-1.5 border-b border-border flex items-center gap-1.5">
-          <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+          <Globe className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
           <span className="font-mono text-[11px] text-muted-foreground tracking-wider">WORLD OVERVIEW</span>
         </div>
         <div className="h-36 sm:h-40 md:h-44 relative">
