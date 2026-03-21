@@ -12,6 +12,7 @@ dev = [
     "pytest-cov>=5.0.0",
     "mypy>=1.0.0",
     "pydantic-to-typescript>=2",
+    "respx>=0.21.0",
 ]
 
 [tool.ruff]

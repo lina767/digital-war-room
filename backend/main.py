@@ -106,19 +106,12 @@ async def lifespan(app: FastAPI):
 
                 result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
                 at_ts = time.time()
-                state = getattr(app.state, "state_service", None)
-                if state:
-                    state.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts)
-                    state.pop_last_error(AUTO_ANALYZE_CONFLICT)
-                else:
-                    app.state.analysis_cache[AUTO_ANALYZE_CONFLICT] = {"result": result, "at": at_ts}
-                    app.state.analysis_last_error.pop(AUTO_ANALYZE_CONFLICT, None)
+                app.state.state_service.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts)
+                app.state.state_service.pop_last_error(AUTO_ANALYZE_CONFLICT)
                 push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
                 push_agent_status(app.state, result)
                 push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
-                wm = getattr(app.state, "ws_manager", None)
-                if wm:
-                    await wm.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})
+                await app.state.ws_manager.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})
 
                 # Log Haiku usage stats for this run
                 try:
@@ -291,8 +284,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
     logger.info("WS client connected – conflict: %s", conflict)
     try:
         # Sofort gecachtes Ergebnis senden (von Auto-Run oder letztem POST)
-        state = getattr(app.state, "state_service", None)
-        entry = state.get_cache(conflict) if state else getattr(app.state, "analysis_cache", {}).get(conflict)
+        entry = websocket.app.state.state_service.get_cache(conflict)
         if entry:
             result = {**entry["result"], "status": "ok"}
             await websocket.send_json(result)
@@ -301,7 +293,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
 
         while True:
             await asyncio.sleep(60)
-            entry = state.get_cache(conflict) if state else getattr(app.state, "analysis_cache", {}).get(conflict)
+            entry = websocket.app.state.state_service.get_cache(conflict)
             if entry:
                 result = {**entry["result"], "status": "ok"}
                 await websocket.send_json(result)

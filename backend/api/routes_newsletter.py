@@ -27,7 +27,7 @@ from services.newsletter_store import (
     remove_by_unsubscribe_token,
     remove_unconfirmed_subscriber,
 )
-from utils.sanitize import sanitize_conflict
+from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 from .state_helpers import (
     push_agent_status,
@@ -156,7 +156,7 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int]:
     conflicts = get_conflicts_with_subscribers()
     if not conflicts:
         return ([], 0)
-    state = getattr(app_state, "state_service", None)
+    state = app_state.state_service if hasattr(app_state, "state_service") else None
     loop = asyncio.get_running_loop()
     sent_total = 0
     for conflict in conflicts:

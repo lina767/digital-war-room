@@ -5,6 +5,8 @@ Shared pytest fixtures for the multi-agent hierarchy test suite.
 import pytest
 
 from agents.agent_state_store import AgentStateStore
+
+pytest_plugins = ("tests.fixtures_external_http",)
 from agents.contracts import EnergyResult
 
 

@@ -5,7 +5,7 @@ Proximity analyzer, chokepoint overrides, tunnel sites, and proximity webhook ro
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 from api.deps import JobQueueDep
 from fastapi.responses import JSONResponse

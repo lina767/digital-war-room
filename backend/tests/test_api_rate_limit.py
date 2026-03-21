@@ -17,12 +17,7 @@ def test_analyze_rate_limit_returns_429_after_limit(client: TestClient):
     """POST /api/analyze is limited to 10/minute; 11th request returns 429."""
     # Use context manager so lifespan runs and state_service is set
     with client:
-        state = getattr(client.app.state, "state_service", None)
-        if state is None:
-            from services.state_service import StateService
-
-            client.app.state.state_service = StateService()
-            state = client.app.state.state_service
+        state = client.app.state.state_service
         state.set_cache(
             "Iran",
             {"conflict": "Iran", "escalation_score": 50.0, "summary": "cached"},
