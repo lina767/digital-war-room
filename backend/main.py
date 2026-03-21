@@ -75,13 +75,19 @@ async def lifespan(app: FastAPI):
     app.state.job_queue = JobQueue()
     app.state.ws_manager = ConnectionManager()
 
-    try:
-        from services.acled_aggregated import refresh_acled_aggregated
+    # Defer ACLED download/parse to a background task so the ASGI server can bind and
+    # pass platform healthchecks (Railway, etc.) immediately. refresh_acled_aggregated()
+    # can block on network I/O for minutes when credentials are set and data is stale.
+    async def _acled_startup_refresh() -> None:
+        try:
+            from services.acled_aggregated import refresh_acled_aggregated
 
-        refresh_acled_aggregated()
-        logger.info("ACLED aggregated data checked/refreshed at startup")
-    except Exception as e:
-        logger.warning("ACLED aggregated startup refresh failed: %s", e)
+            await asyncio.to_thread(refresh_acled_aggregated)
+            logger.info("ACLED aggregated data checked/refreshed at startup")
+        except Exception as e:
+            logger.warning("ACLED aggregated startup refresh failed: %s", e)
+
+    acled_task = asyncio.create_task(_acled_startup_refresh())
 
     async def run_periodic_analysis():
         loop = asyncio.get_running_loop()
@@ -198,7 +204,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    tasks_to_cancel = [analysis_task, worker_task]
+    tasks_to_cancel = [analysis_task, worker_task, acled_task]
     if greynoise_task:
         tasks_to_cancel.append(greynoise_task)
     if greynoise_discovery_task:
