@@ -29,4 +29,4 @@ evidence.forEach((e) => {
 });
 ```
 
-Optional: pass `militarySites` (GeoJSON FeatureCollection of points) as third argument to enable PROBABLE_HUMAN_SHIELD. Rate-limiting: ~1 Overpass request per second to avoid 429.
+Optional: pass `militarySites` (GeoJSON FeatureCollection of points) as third argument to enable PROBABLE_HUMAN_SHIELD. Overpass: the backend uses **batched union queries** (multiple strike points per HTTP request where possible), **TTL caching** per rounded coordinate (`OVERPASS_CACHE_TTL_S`, default 3600), and short delays only between batch chunks (`OVERPASS_BATCH_SIZE`, default 10).

@@ -9,7 +9,7 @@ import time
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from agents.supervisor import analyze_conflict
 from middleware.rate_limit import limiter
@@ -42,8 +42,25 @@ NEWSLETTER_DEFAULT_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Glob
 
 
 class SubscribeBody(BaseModel):
-    email: EmailStr
-    conflict: str | None = None
+    email: EmailStr = Field(..., description="Subscriber email (double opt-in)")
+    conflict: str | None = Field(None, max_length=CONFLICT_MAX_LEN)
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_optional_conflict(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_optional_conflict(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return sanitize_conflict(v)
 
 
 @router.post("/newsletter/subscribe")

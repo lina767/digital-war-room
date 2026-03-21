@@ -19,7 +19,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import Any, Callable, Optional, TypeVar
+from contextlib import contextmanager
+from typing import Any, Callable, Generator, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -60,6 +61,7 @@ def _configure_structlog() -> None:
 def _configure_stdlib_bridge() -> None:
     """Route standard library logging to structlog so logging.getLogger() calls emit structured logs."""
     import structlog
+    from structlog.contextvars import merge_contextvars
 
     try:
         from structlog.stdlib import ProcessorFormatter, add_log_level, add_logger_name
@@ -67,6 +69,7 @@ def _configure_stdlib_bridge() -> None:
         return
     is_prod = os.getenv("ENV", os.getenv("ENVIRONMENT", "")).lower() in ("production", "prod")
     shared = [
+        merge_contextvars,
         add_log_level,
         add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),

@@ -14,7 +14,7 @@ from services.proximity_correlation import run_correlation_for_events
 
 from .utils import run_async
 
-# Max strike events to correlate (Overpass rate limit; keep agent run time bounded)
+# Max strike events to correlate (batched Overpass + cache in services.proximity_correlation)
 MAX_STRIKES = 15
 
 

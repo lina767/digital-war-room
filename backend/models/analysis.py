@@ -23,6 +23,7 @@ class AnalysisResult(BaseModel):
     corroborated_patterns: List[Dict[str, Any]] = Field(default_factory=list)
     scenarios: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str = ""
+    narrative_story: str = ""
     actors: List[Dict[str, Any]] = Field(default_factory=list)
     predictive: Dict[str, Any] = Field(default_factory=dict)
     compliance: Dict[str, Any] = Field(default_factory=dict)

@@ -39,3 +39,4 @@ backend/data/
 
 **/__pycache__
 .coverage
+backend/.venv

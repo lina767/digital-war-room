@@ -12,13 +12,13 @@ from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from agents.config import DEFAULT_CONFLICT
 from agents.supervisor import analyze_conflict, run_analysis_streaming
 from middleware.rate_limit import limiter
 from models.analysis import AnalysisResult
-from utils.sanitize import sanitize_conflict
+from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 from .state_helpers import (
     get_cache,
@@ -34,7 +34,19 @@ router = APIRouter()
 
 
 class AnalyzeRequest(BaseModel):
-    conflict: str
+    conflict: str = Field(..., min_length=1, max_length=CONFLICT_MAX_LEN, description="Conflict identifier")
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_conflict(cls, v: object) -> str:
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        return v.strip()
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_conflict(cls, v: str) -> str:
+        return sanitize_conflict(v)
 
 
 # Max wall-clock time for a single analysis run (e.g. OFAC + 11 agents + LLM).

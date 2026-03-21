@@ -4,13 +4,15 @@ from typing import List, Optional
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 router = APIRouter()
 
@@ -41,52 +43,105 @@ def threat_color(level: str) -> colors.HexColor:
 
 # ── Pydantic models ────────────────────────────────────────────────────────
 class ScenarioItem(BaseModel):
-    description: Optional[str] = None
-    probability: Optional[float] = None
+    description: Optional[str] = Field(None, max_length=4000)
+    probability: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
 class BrentInfo(BaseModel):
-    price: Optional[str] = None
-    change_pct: Optional[str] = None
-    as_of: Optional[str] = None
+    price: Optional[str] = Field(None, max_length=64)
+    change_pct: Optional[str] = Field(None, max_length=32)
+    as_of: Optional[str] = Field(None, max_length=64)
 
 
 class FinintData(BaseModel):
     brent: Optional[BrentInfo] = None
-    escalation_score: Optional[float] = None
-    summary: Optional[str] = None
+    escalation_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    summary: Optional[str] = Field(None, max_length=12000)
 
 
 class GeointData(BaseModel):
-    anomaly_count: Optional[int] = 0
-    high_confidence_count: Optional[int] = 0
-    geoint_score: Optional[float] = 20.0
-    summary: Optional[str] = None
+    anomaly_count: Optional[int] = Field(default=0, ge=0, le=10_000_000)
+    high_confidence_count: Optional[int] = Field(default=0, ge=0, le=10_000_000)
+    geoint_score: Optional[float] = Field(default=20.0, ge=0.0, le=100.0)
+    summary: Optional[str] = Field(None, max_length=12000)
 
 
 class SigintData(BaseModel):
-    sigint_score: Optional[float] = 30.0
-    summary: Optional[str] = None
+    sigint_score: Optional[float] = Field(default=30.0, ge=0.0, le=100.0)
+    summary: Optional[str] = Field(None, max_length=12000)
 
 
 class NewsData(BaseModel):
-    news_score: Optional[float] = None
-    overall_sentiment: Optional[float] = None
-    sentiment_label: Optional[str] = None
-    top_sources: Optional[List[str]] = []
+    news_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    overall_sentiment: Optional[float] = Field(None, ge=-1.0, le=1.0)
+    sentiment_label: Optional[str] = Field(None, max_length=64)
+    top_sources: Optional[List[str]] = Field(default_factory=list, max_length=50)
+
+    @field_validator("top_sources", mode="before")
+    @classmethod
+    def _cap_sources(cls, v: object) -> List[str]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise TypeError("top_sources must be a list of strings")
+        return [str(x).strip() for x in v[:50] if x is not None and str(x).strip()]
+
+    @field_validator("top_sources")
+    @classmethod
+    def _each_source_len(cls, v: List[str]) -> List[str]:
+        for s in v:
+            if len(s) > 256:
+                raise ValueError("each top_sources entry must be at most 256 characters")
+        return v
 
 
 class ExportRequest(BaseModel):
-    conflict: str
-    escalation_score: Optional[float] = None
-    threat_level: Optional[str] = None
-    key_findings: Optional[List[str]] = []
-    scenarios: Optional[List[ScenarioItem]] = []
-    summary: Optional[str] = None
+    conflict: str = Field(..., min_length=1, max_length=CONFLICT_MAX_LEN)
+    escalation_score: Optional[float] = Field(None, ge=0.0, le=100.0)
+    threat_level: Optional[str] = Field(None, max_length=32)
+    key_findings: Optional[List[str]] = Field(default_factory=list, max_length=40)
+    scenarios: Optional[List[ScenarioItem]] = Field(default_factory=list, max_length=50)
+    summary: Optional[str] = Field(None, max_length=20000)
     finint: Optional[FinintData] = None
     geoint: Optional[GeointData] = None
     sigint: Optional[SigintData] = None
     news: Optional[NewsData] = None
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_conflict(cls, v: object) -> str:
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        return v.strip()
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_conflict(cls, v: str) -> str:
+        return sanitize_conflict(v)
+
+    @field_validator("key_findings", mode="before")
+    @classmethod
+    def _normalize_findings(cls, v: object) -> List[str]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise TypeError("key_findings must be a list of strings")
+        return [str(x).strip() for x in v[:40] if x is not None and str(x).strip()]
+
+    @field_validator("key_findings")
+    @classmethod
+    def _each_finding_len(cls, v: List[str]) -> List[str]:
+        for line in v:
+            if len(line) > 2000:
+                raise ValueError("each key finding must be at most 2000 characters")
+        return v
+
+    @field_validator("scenarios", mode="before")
+    @classmethod
+    def _scenarios_default(cls, v: object) -> object:
+        if v is None:
+            return []
+        return v
 
 
 # ── PDF Builder ────────────────────────────────────────────────────────────

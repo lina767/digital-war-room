@@ -18,7 +18,8 @@
     "version:patch": "npm version patch",
     "version:minor": "npm version minor",
     "version:major": "npm version major",
-    "check:seo": "node scripts/check-seo-discoverability.js"
+    "check:seo": "node scripts/check-seo-discoverability.js",
+    "generate-types": "bash scripts/generate-types.sh"
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.1.11",
@@ -65,6 +66,7 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
     "jsdom": "^28.1.0",
+    "json-schema-to-typescript": "^15.0.4",
     "postcss": "^8.5.6",
     "prettier": "^3.8.1",
     "tailwindcss": "^3.4.17",

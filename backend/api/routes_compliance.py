@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from agents.config import DEFAULT_CONFLICT
 from compliance.risk_score import compute_compliance_risk
@@ -15,14 +15,48 @@ from compliance.sanctions_search import get_threshold_policy, search_sanctions
 from compliance.supply_chain import get_intermediary_policy, screen_route
 from compliance.zones import ALL_ZONES, SANCTIONS_ZONES
 from middleware.rate_limit import limiter
+from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 router = APIRouter()
 
+_QUERY_MAX = 500
+_QUERIES_MAX_ITEMS = 50
+
 
 class SanctionsCheckRequest(BaseModel):
-    query: Optional[str] = None
-    queries: Optional[List[str]] = None
+    query: Optional[str] = Field(None, max_length=_QUERY_MAX)
+    queries: Optional[List[str]] = Field(None, max_length=_QUERIES_MAX_ITEMS)
     include_ownership_chains: bool = False
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def _strip_query(cls, v: object) -> Optional[str]:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("query must be a string")
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("queries", mode="before")
+    @classmethod
+    def _normalize_queries(cls, v: object) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            raise TypeError("queries must be a list of strings")
+        out = [str(q).strip() for q in v if q is not None and str(q).strip()]
+        return out if out else None
+
+    @field_validator("queries")
+    @classmethod
+    def _each_query_length(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if not v:
+            return v
+        for q in v:
+            if len(q) > _QUERY_MAX:
+                raise ValueError(f"each query must be at most {_QUERY_MAX} characters")
+        return v
 
 
 def _screened_at_iso() -> str:
@@ -107,18 +141,54 @@ async def get_compliance_threshold_policy() -> Any:
 class ComplianceDocumentQAContext(BaseModel):
     """Optional compliance context sent from the frontend (current panel state)."""
 
-    ofac_sample: Optional[List[str]] = None
-    ofac_programs_summary: Optional[str] = None
-    risk_level: Optional[str] = None
-    risk_drivers_summary: Optional[str] = None
+    ofac_sample: Optional[List[str]] = Field(None, max_length=100)
+    ofac_programs_summary: Optional[str] = Field(None, max_length=8000)
+    risk_level: Optional[str] = Field(None, max_length=64)
+    risk_drivers_summary: Optional[str] = Field(None, max_length=8000)
+
+    @field_validator("ofac_sample", mode="before")
+    @classmethod
+    def _cap_ofac_sample(cls, v: object) -> Optional[List[str]]:
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            raise TypeError("ofac_sample must be a list of strings")
+        return [str(x).strip() for x in v[:100] if x is not None and str(x).strip()]
+
+    @field_validator("ofac_sample")
+    @classmethod
+    def _each_ofac_name(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if not v:
+            return v
+        for name in v:
+            if len(name) > 256:
+                raise ValueError("each OFAC sample name must be at most 256 characters")
+        return v
 
 
 class ComplianceDocumentQARequest(BaseModel):
     """Request for Document QA using compliance context only (no PDF ingest)."""
 
-    question: str
-    conflict: Optional[str] = None
+    question: str = Field(..., min_length=1, max_length=16000)
+    conflict: Optional[str] = Field(None, max_length=CONFLICT_MAX_LEN)
     context: Optional[ComplianceDocumentQAContext] = None
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_optional_conflict(cls, v: object) -> Optional[str]:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_optional_conflict(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return sanitize_conflict(v)
 
 
 def _build_compliance_context(conflict: str, ctx: Optional[ComplianceDocumentQAContext]) -> str:
@@ -181,16 +251,16 @@ async def compliance_document_qa(request: Request, body: ComplianceDocumentQAReq
 
 
 class RouteScreeningWaypoint(BaseModel):
-    label: str
-    lat: float
-    lon: float
-    country_code: str = ""
-    port_type: str = "port"
+    label: str = Field(..., min_length=1, max_length=256)
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    country_code: str = Field(default="", max_length=8)
+    port_type: str = Field(default="port", max_length=64)
 
 
 class RouteScreeningRequest(BaseModel):
-    route_label: str
-    waypoints: List[RouteScreeningWaypoint]
+    route_label: str = Field(..., min_length=1, max_length=256)
+    waypoints: List[RouteScreeningWaypoint] = Field(..., min_length=1, max_length=500)
 
 
 @router.post("/compliance/route-screening")
@@ -232,11 +302,11 @@ async def get_intermediary_policy_route() -> Dict[str, Any]:
 
 
 class RiskScoreRequest(BaseModel):
-    sanctions_matches: Optional[List[Dict[str, Any]]] = None
-    geofencing_alerts: Optional[List[Dict[str, Any]]] = None
+    sanctions_matches: Optional[List[Dict[str, Any]]] = Field(None, max_length=2000)
+    geofencing_alerts: Optional[List[Dict[str, Any]]] = Field(None, max_length=2000)
     supply_chain_result: Optional[Dict[str, Any]] = None
-    ais_anomalies: Optional[List[Dict[str, Any]]] = None
-    escalation_level: Optional[str] = None
+    ais_anomalies: Optional[List[Dict[str, Any]]] = Field(None, max_length=2000)
+    escalation_level: Optional[str] = Field(None, max_length=64)
 
 
 @router.post("/compliance/risk-score")

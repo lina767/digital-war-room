@@ -6,24 +6,66 @@ from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from middleware.rate_limit import limiter
+from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 router = APIRouter()
 
 
 class DocumentIngestRequest(BaseModel):
-    url: str
-    source: str = "pdf"
-    conflict: str = ""
+    url: str = Field(..., min_length=8, max_length=2048)
+    source: str = Field(default="pdf", max_length=64)
+    conflict: str = Field(default="", max_length=CONFLICT_MAX_LEN)
+
+    @field_validator("url")
+    @classmethod
+    def _url_scheme(cls, v: str) -> str:
+        s = v.strip()
+        if not s.startswith(("http://", "https://")):
+            raise ValueError("url must start with http:// or https://")
+        return s
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_conflict(cls, v: object) -> str:
+        if v is None:
+            return ""
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        return v.strip()
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_conflict_optional(cls, v: str) -> str:
+        if not v:
+            return ""
+        return sanitize_conflict(v)
 
 
 class DocumentQARequest(BaseModel):
-    question: str
-    source: Optional[str] = None
-    conflict: Optional[str] = None
-    doc_id: Optional[str] = None
+    question: str = Field(..., min_length=1, max_length=16000)
+    source: Optional[str] = Field(None, max_length=64)
+    conflict: Optional[str] = Field(None, max_length=CONFLICT_MAX_LEN)
+    doc_id: Optional[str] = Field(None, max_length=128)
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_optional_conflict(cls, v: object) -> Optional[str]:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_optional_conflict(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return sanitize_conflict(v)
 
 
 @router.post("/documents/ingest")

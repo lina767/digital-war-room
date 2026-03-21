@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from agents.chokepoint_agent import _load_overrides, _save_overrides
 from agents.geoint_agent import get_thermal_anomalies
@@ -17,7 +17,7 @@ from services.job_queue import Job, JobQueue
 
 router = APIRouter()
 
-# Max strikes to correlate (Overpass rate limit ~1 req/s; keeps response time reasonable)
+# Max strikes to correlate (Overpass: batched union queries + TTL cache in services.proximity_correlation)
 _PROXIMITY_ANALYZE_MAX_STRIKES = 15
 
 VALID_CHOKEPOINT_STATUSES = {"OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED"}
@@ -53,8 +53,8 @@ async def get_proximity_strikes(region: str = "middle_east", days: int = 3):
 async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
     """
     GET /api/proximity/analyze?region=...&days=3
-    Full proximity analysis server-side: fetches NASA FIRMS strikes, queries Overpass for
-    schools/hospitals/government within 300m, optionally checks tunnel/military sites for
+    Full proximity analysis server-side: fetches NASA FIRMS strikes, batched Overpass queries for
+    schools/hospitals/government within 300m (with TTL cache), optionally checks tunnel/military sites for
     PROBABLE_HUMAN_SHIELD. Returns { evidence: [...] } (camelCase for frontend).
     Replaces client-side Overpass loop; use this for the Dashboard "Run" button.
     """
@@ -156,23 +156,42 @@ async def get_tunnel_sites():
 
 
 class ProximityEventItem(BaseModel):
-    lat: float
-    lon: float
-    source: Optional[str] = None
-    description: Optional[str] = None
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
+    source: Optional[str] = Field(None, max_length=128)
+    description: Optional[str] = Field(None, max_length=4000)
 
 
 class ProximityWebhookBody(BaseModel):
-    events: List[ProximityEventItem]
-    tunnel_sites_geojson_url: Optional[str] = None
+    events: List[ProximityEventItem] = Field(..., min_length=1, max_length=500)
+    tunnel_sites_geojson_url: Optional[str] = Field(None, max_length=2048)
     tunnel_sites: Optional[Dict[str, Any]] = None  # inline GeoJSON FeatureCollection
+
+    @field_validator("tunnel_sites_geojson_url", mode="before")
+    @classmethod
+    def _strip_tunnel_url(cls, v: object) -> Optional[str]:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("tunnel_sites_geojson_url must be a string")
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("tunnel_sites_geojson_url")
+    @classmethod
+    def _tunnel_url_scheme(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("tunnel_sites_geojson_url must start with http:// or https://")
+        return v
 
 
 @router.post("/webhooks/proximity-events")
 async def webhook_proximity_events(request: Request, body: ProximityWebhookBody):
     """
     POST /api/webhooks/proximity-events
-    Accepts a list of events (lat, lon, optional source/description). For each event, queries Overpass
+    Accepts a list of events (lat, lon, optional source/description). Batched Overpass correlation
     for schools/hospitals/government within 300m, correlates distance, and optionally checks
     tunnel_sites (or tunnel_sites_geojson_url) for PROBABLE_HUMAN_SHIELD within 100m of the same facility.
     Returns { "evidence": [ ... ] }.
