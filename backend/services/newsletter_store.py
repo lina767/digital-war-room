@@ -6,6 +6,7 @@ import logging
 import os
 import sqlite3
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -32,6 +33,13 @@ def _ensure_db() -> sqlite3.Connection:
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_email ON newsletter_subscribers(email)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_newsletter_conflict ON newsletter_subscribers(conflict)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_newsletter_confirmed ON newsletter_subscribers(confirmed_at)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS newsletter_daily_lock (
+            day_utc TEXT PRIMARY KEY,
+            started_at TEXT NOT NULL,
+            completed_at TEXT
+        )
+    """)
     conn.commit()
     return conn
 
@@ -177,5 +185,79 @@ def get_conflicts_with_subscribers() -> List[str]:
             "SELECT DISTINCT conflict FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL ORDER BY conflict"
         )
         return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def try_acquire_daily_newsletter_lock() -> bool:
+    """
+    Mutex for the daily send so overlapping cron + in-process runs do not duplicate mail the same UTC day.
+    Returns True if this invocation should run the job; False if already completed today or another run in progress.
+    """
+    now = datetime.now(timezone.utc)
+    day = now.strftime("%Y-%m-%d")
+    conn = _ensure_db()
+    try:
+        cur = conn.execute(
+            "SELECT started_at, completed_at FROM newsletter_daily_lock WHERE day_utc = ?",
+            (day,),
+        )
+        row = cur.fetchone()
+        if row:
+            started_s, completed_s = row[0], row[1]
+            if completed_s:
+                logger.info("Newsletter daily: already completed for %s", day)
+                return False
+            try:
+                started = datetime.fromisoformat(started_s.replace("Z", "+00:00"))
+            except ValueError:
+                started = now
+            if now - started < timedelta(minutes=30):
+                logger.info("Newsletter daily: another run in progress for %s", day)
+                return False
+            conn.execute("DELETE FROM newsletter_daily_lock WHERE day_utc = ?", (day,))
+            conn.commit()
+        now_iso = now.isoformat()
+        conn.execute(
+            "INSERT INTO newsletter_daily_lock (day_utc, started_at, completed_at) VALUES (?, ?, NULL)",
+            (day, now_iso),
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        logger.info("Newsletter daily: lock contention for %s", day)
+        return False
+    finally:
+        conn.close()
+
+
+def mark_daily_newsletter_completed() -> None:
+    """Mark today's daily newsletter run as finished (prevents duplicate sends same UTC day)."""
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    conn = _ensure_db()
+    try:
+        conn.execute(
+            "UPDATE newsletter_daily_lock SET completed_at = ? WHERE day_utc = ?",
+            (now_iso, day),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_subscriber_by_email(email: str) -> bool:
+    """
+    Remove a subscriber row by email (e.g. bounce/complaint webhook). Returns True if a row was deleted.
+    """
+    em = (email or "").strip().lower()
+    if not em:
+        return False
+    conn = _ensure_db()
+    try:
+        cur = conn.execute("DELETE FROM newsletter_subscribers WHERE email = ?", (em,))
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()

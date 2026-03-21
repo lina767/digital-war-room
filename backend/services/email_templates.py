@@ -140,6 +140,12 @@ def daily_briefing_email_html(
     else:
         escalation_html = ""
 
+    # Inbox preheader (hidden snippet line; many clients show this next to subject)
+    snippet = (summary or "").strip().replace("\n", " ")
+    if len(snippet) > 130:
+        snippet = snippet[:127] + "..."
+    preheader = f"{conflict} — {snippet}" if snippet else f"Daily intelligence briefing for {conflict}"
+
     # Key findings list
     findings_html = ""
     for i, finding in enumerate(key_findings[:8], 1):
@@ -163,6 +169,13 @@ def daily_briefing_email_html(
         <tr>
             <td align="center" style="padding: 40px 20px;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 600px;">
+
+                    <!-- Preheader: hidden preview text for email clients -->
+                    <tr>
+                        <td style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+                            {_escape_html(preheader)}
+                        </td>
+                    </tr>
 
                     <!-- Header -->
                     <tr>

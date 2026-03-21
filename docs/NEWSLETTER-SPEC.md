@@ -73,6 +73,7 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 | GET | `/api/newsletter/confirm?token=...` | Set `confirmed_at`; show success page. |
 | GET | `/api/newsletter/unsubscribe?token=...` | Remove or deactivate subscriber; show “You have been unsubscribed.” |
 | POST | `/api/newsletter/send-daily` | (Optional) Cron: run analysis for configured conflict(s), then send daily emails. Protected by `NEWSLETTER_CRON_SECRET`. |
+| POST | `/api/webhooks/resend` | Resend webhooks (bounces/complaints). Set `RESEND_WEBHOOK_SECRET` (Svix signing secret). |
 
 ---
 
@@ -88,6 +89,10 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 ## 7. Env and docs
 
 - **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL`, optional `RESEND_NEWSLETTER_SEGMENT_ID` / `RESEND_NEWSLETTER_SEGMENT_IDS`, `RESEND_CONTACTS_SYNC`, `NEWSLETTER_CRON_SECRET`, `NEWSLETTER_SEND_UTC_HOUR=6`.
+- **Scheduling (avoid double daily send):** Either use the **in-process** scheduler (default when Resend is configured) **or** only **external cron** on `POST /api/newsletter/send-daily`. If you use cron only, set **`NEWSLETTER_IN_PROCESS_SCHEDULER=false`** so the app does not also run the 06:00 UTC loop in `main.py`.
+- **Dedupe:** **`NEWSLETTER_DAILY_DEDUPE`** (default `true`) uses a SQLite row per UTC day so a second trigger the same day no-ops after the first successful run.
+- **Send tuning:** `NEWSLETTER_SEND_PARALLELISM` (default `5`), `NEWSLETTER_SEND_MAX_RETRIES`, `NEWSLETTER_SEND_BACKOFF_BASE` for Resend 429/5xx retries.
+- **Bounces / complaints:** Configure a Resend webhook pointing to **`POST /api/webhooks/resend`** and set **`RESEND_WEBHOOK_SECRET`** to the Svix signing secret from the webhook details page. Hard bounces and complaints remove the subscriber locally and sync Resend Contacts when enabled.
 - **API-KEYS.md / DEPLOYMENT.md:** Resend setup; cron (if used) at 06:00 UTC calling `POST /api/newsletter/send-daily`.
 - **Privacy page:** Short “Newsletter” section (EN): what we store (email, conflict), purpose (daily briefing), unsubscribe, controller.
 

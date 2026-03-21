@@ -170,34 +170,54 @@ async def lifespan(app: FastAPI):
         greynoise_task = asyncio.create_task(run_greynoise_scheduler())
         greynoise_discovery_task = asyncio.create_task(run_greynoise_tag_discovery())
 
-    # Newsletter daily job: fixed time (e.g. 06:00 UTC), run analysis then send emails
+    # Newsletter daily job: fixed time (e.g. 06:00 UTC), run analysis then send emails.
+    # NEWSLETTER_IN_PROCESS_SCHEDULER=false when using only external cron (POST /api/newsletter/send-daily).
     newsletter_task = None
     if (os.getenv("RESEND_API_KEY") or "").strip() and (os.getenv("NEWSLETTER_FROM") or "").strip():
-        send_hour = int(os.getenv("NEWSLETTER_SEND_UTC_HOUR", "6"))
+        try:
+            from services.newsletter_sender import log_newsletter_deliverability_hints
 
-        def _seconds_until_next_send() -> float:
-            now = datetime.now(timezone.utc)
-            next_run = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
-            if next_run <= now:
-                next_run = next_run + timedelta(days=1)
-            return max(60, (next_run - now).total_seconds())
+            log_newsletter_deliverability_hints()
+        except Exception:
+            pass
+        in_process = (os.getenv("NEWSLETTER_IN_PROCESS_SCHEDULER", "true") or "").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+        )
+        if in_process:
+            send_hour = int(os.getenv("NEWSLETTER_SEND_UTC_HOUR", "6"))
 
-        async def _newsletter_loop():
-            from api.routes_newsletter import run_daily_newsletter_job
+            def _seconds_until_next_send() -> float:
+                now = datetime.now(timezone.utc)
+                next_run = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run = next_run + timedelta(days=1)
+                return max(60, (next_run - now).total_seconds())
 
-            while True:
-                delay = _seconds_until_next_send()
-                await asyncio.sleep(delay)
-                try:
-                    conflicts, sent = await run_daily_newsletter_job(app.state)
-                    if conflicts or sent:
-                        logger.info("Newsletter daily job: conflicts=%s sent=%d", conflicts, sent)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning("Newsletter daily job error: %s", e)
+            async def _newsletter_loop():
+                from api.routes_newsletter import run_daily_newsletter_job
 
-        newsletter_task = asyncio.create_task(_newsletter_loop())
+                while True:
+                    delay = _seconds_until_next_send()
+                    await asyncio.sleep(delay)
+                    try:
+                        conflicts, sent, skipped_dup = await run_daily_newsletter_job(app.state)
+                        if skipped_dup:
+                            logger.info("Newsletter daily job: skipped (already completed today)")
+                        elif conflicts or sent:
+                            logger.info("Newsletter daily job: conflicts=%s sent=%d", conflicts, sent)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.warning("Newsletter daily job error: %s", e)
+
+            newsletter_task = asyncio.create_task(_newsletter_loop())
+        else:
+            logger.info(
+                "Newsletter in-process scheduler disabled (NEWSLETTER_IN_PROCESS_SCHEDULER=false); "
+                "use cron for POST /api/newsletter/send-daily"
+            )
 
     # Ensure shared HTTP client is created early (so DNS pools etc. warm up)
     get_http_client()

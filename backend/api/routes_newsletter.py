@@ -4,6 +4,7 @@ All responses and behaviour follow docs/NEWSLETTER-SPEC.md.
 """
 
 import asyncio
+import logging
 import os
 import time
 
@@ -14,20 +15,22 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from agents.supervisor import analyze_conflict
 from middleware.rate_limit import limiter
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
-from services.resend_contacts import (
-    mark_contact_unsubscribed,
-    upsert_pending_contact,
-    upsert_subscribed_contact,
-)
 from services.newsletter_store import (
     add_subscriber,
     confirm_subscription,
     get_conflicts_with_subscribers,
     list_confirmed_subscribers,
+    mark_daily_newsletter_completed,
     remove_by_unsubscribe_token,
     remove_unconfirmed_subscriber,
+    try_acquire_daily_newsletter_lock,
 )
-from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
+from services.resend_contacts import (
+    mark_contact_unsubscribed,
+    upsert_pending_contact,
+    upsert_subscribed_contact,
+)
+from utils.sanitize import sanitize_conflict
 
 from .state_helpers import (
     push_agent_status,
@@ -36,14 +39,19 @@ from .state_helpers import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 ANALYZE_TIMEOUT_SEC = 300
 NEWSLETTER_DEFAULT_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Global").strip() or "Global"
+# Bounded concurrent Resend calls per conflict batch (daily send)
+_NEWSLETTER_SEND_PARALLELISM = max(1, min(20, int(os.getenv("NEWSLETTER_SEND_PARALLELISM", "5"))))
+_NEWSLETTER_DAILY_DEDUPE = (os.getenv("NEWSLETTER_DAILY_DEDUPE", "true") or "").strip().lower() not in ("0", "false", "no")
 
 
 class SubscribeBody(BaseModel):
     email: EmailStr = Field(..., description="Subscriber email (double opt-in)")
-    conflict: str | None = Field(None, max_length=CONFLICT_MAX_LEN)
+    # Literal matches utils.sanitize.CONFLICT_MAX_LEN; avoids NameError if imports drift in deploys.
+    conflict: str | None = Field(None, max_length=80)
 
     @field_validator("conflict", mode="before")
     @classmethod
@@ -148,17 +156,29 @@ async def newsletter_unsubscribe(request: Request, token: str = "") -> JSONRespo
     )
 
 
-async def run_daily_newsletter_job(app_state) -> tuple[list[str], int]:
+async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
     """
     Run analysis for each conflict that has confirmed subscribers, then send daily briefing emails.
-    Returns (list of conflicts processed, number of emails sent).
+    Returns (conflicts, emails_sent, skipped_duplicate).
+
+    Optional SQLite mutex (NEWSLETTER_DAILY_DEDUPE): one completed run per UTC calendar day to avoid
+    duplicate mail when both in-process scheduler and external cron call this endpoint.
     """
     conflicts = get_conflicts_with_subscribers()
     if not conflicts:
-        return ([], 0)
+        return ([], 0, False)
+
+    acquired_lock = False
+    if _NEWSLETTER_DAILY_DEDUPE:
+        if not try_acquire_daily_newsletter_lock():
+            return (conflicts, 0, True)
+        acquired_lock = True
+
     state = app_state.state_service if hasattr(app_state, "state_service") else None
     loop = asyncio.get_running_loop()
     sent_total = 0
+    sem = asyncio.Semaphore(_NEWSLETTER_SEND_PARALLELISM)
+
     for conflict in conflicts:
         try:
             result = await asyncio.wait_for(
@@ -178,11 +198,23 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int]:
         push_agent_status(app_state, result)
         push_run_history(app_state, conflict, at_ts, result)
         subscribers = list_confirmed_subscribers(conflict)
-        for sub in subscribers:
-            ok = await send_daily_briefing(sub["email"], sub["conflict"], result, sub["unsubscribe_token"])
-            if ok:
+
+        async def _send_one(sub: dict, *, res: dict = result) -> bool:
+            async with sem:
+                return await send_daily_briefing(
+                    sub["email"], sub["conflict"], res, sub["unsubscribe_token"]
+                )
+
+        results = await asyncio.gather(*[_send_one(sub) for sub in subscribers], return_exceptions=True)
+        for r in results:
+            if r is True:
                 sent_total += 1
-    return (conflicts, sent_total)
+            elif isinstance(r, Exception):
+                logger.warning("Newsletter send task error: %s", r)
+
+    if _NEWSLETTER_DAILY_DEDUPE and acquired_lock:
+        mark_daily_newsletter_completed()
+    return (conflicts, sent_total, False)
 
 
 @router.post("/newsletter/send-daily")
@@ -197,9 +229,19 @@ async def newsletter_send_daily(
     secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
     if secret and x_newsletter_secret != secret:
         return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
-    conflicts, sent_total = await run_daily_newsletter_job(request.app.state)
+    conflicts, sent_total, skipped_dup = await run_daily_newsletter_job(request.app.state)
     if not conflicts:
         return JSONResponse(status_code=200, content={"message": "No subscribers.", "sent": 0})
+    if skipped_dup:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "Daily run already completed today (deduplicated).",
+                "conflicts": conflicts,
+                "sent": 0,
+                "skipped_duplicate": True,
+            },
+        )
     return JSONResponse(
         status_code=200,
         content={"message": "Daily run complete.", "conflicts": conflicts, "sent": sent_total},
