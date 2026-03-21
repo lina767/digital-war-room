@@ -2,7 +2,14 @@
 
 Digital War Room runs a multi-agent intelligence workflow that turns heterogeneous OSINT inputs into a single, structured threat assessment.
 
-Interactive page: <https://digital-war-room.com/how-it-works>
+## Interactive page
+
+The **interactive How It Works** experience is a live walkthrough (dashboard guide, methodology, and related links) in the product UI:
+
+- **Production:** <https://digital-war-room.com/how-it-works>
+- **Same app (local or any deployment):** `/how-it-works`
+
+Use that page when you want the guided, clickable version; this Markdown doc is the canonical **text** reference you can read in the [Documentation hub](https://digital-war-room.com/docs/documentation?doc=how-it-works) or on GitHub.
 
 ## End-to-end flow
 

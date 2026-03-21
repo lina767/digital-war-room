@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
-import { ExternalLink, Files } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ExternalLink, Files, MousePointerClick } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
 import { DocsArticle, DocsToc } from "@/components/docs/DocsArticle";
@@ -78,6 +78,50 @@ const Documentation = () => {
                     </a>
                   </div>
                 </section>
+                {activeDoc.interactivePage && (
+                  <section
+                    className="rounded-xl border border-primary/30 bg-primary/5 p-4 sm:p-5"
+                    aria-label="Interactive companion page"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                      <div className="flex gap-3 min-w-0">
+                        <div className="mt-0.5 rounded-md border border-primary/25 bg-background/80 p-2 shrink-0">
+                          <MousePointerClick className="h-5 w-5 text-primary" aria-hidden />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-semibold text-foreground tracking-tight">
+                            Interactive page
+                          </h3>
+                          <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                            {activeDoc.interactivePage.description}
+                          </p>
+                          <p className="text-xs text-muted-foreground/90 mt-2 font-mono break-all">
+                            {activeDoc.interactivePage.url}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                        <a
+                          href={activeDoc.interactivePage.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors min-h-11 sm:min-h-10"
+                        >
+                          {activeDoc.interactivePage.label}
+                          <ExternalLink className="h-4 w-4 flex-shrink-0" />
+                        </a>
+                        {activeDoc.interactivePage.sameOriginPath && (
+                          <Link
+                            to={activeDoc.interactivePage.sameOriginPath}
+                            className="text-xs text-primary hover:underline text-center sm:text-right"
+                          >
+                            Open in this app ({activeDoc.interactivePage.sameOriginPath})
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                )}
                 <DocsArticle markdown={activeDoc.content} />
               </div>
             }
