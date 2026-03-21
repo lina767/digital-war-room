@@ -63,6 +63,8 @@ class TestCEOSynthesis:
         assert isinstance(result["narrative_story"], str)
         assert "compliance" in result
         assert "alerts" in result
+        assert "pattern_flags" in result
+        assert isinstance(result["pattern_flags"], list)
         assert result["conflict"] == "Iran"
 
     def test_composite_score_is_weighted(self):

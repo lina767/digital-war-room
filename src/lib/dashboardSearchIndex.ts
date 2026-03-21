@@ -115,6 +115,20 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     }
   });
 
+  (data.pattern_flags ?? []).forEach((p, i) => {
+    if (hits.length >= MAX_BUILT) return;
+    const title = (p.title ?? p.id ?? "Pattern").trim();
+    const line = [p.title, p.detail].filter(Boolean).join(" — ");
+    if (!line.trim()) return;
+    hits.push({
+      id: `pattern-flag-${i}-${p.id ?? i}`,
+      category: "finding",
+      title: clip(title, 90),
+      snippet: clip(line),
+      meta: "Data pattern watch",
+    });
+  });
+
   (data.finint?.polymarket ?? []).forEach((m, i) => {
     if (m.question) {
       hits.push({

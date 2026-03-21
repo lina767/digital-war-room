@@ -15,6 +15,7 @@ import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
 import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
+import { PatternFlagsBanner } from "@/components/dashboard/PatternFlagsBanner";
 import { SEO } from "@/components/SEO";
 const THREAT_BADGE_STYLES: Record<string, string> = {
   LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -221,6 +222,9 @@ function DashboardContent() {
           <LiveTicker conflictData={conflictData} headlineAllowedSources={headlineAllowedSources} />
         </div>
       </div>
+      {conflictData?.pattern_flags != null && conflictData.pattern_flags.length > 0 && (
+        <PatternFlagsBanner flags={conflictData.pattern_flags} />
+      )}
       {/* Top Navbar – touch-friendly min 44px height on mobile */}
       <header className="min-h-14 border-b border-border flex items-center justify-between px-3 md:px-4 flex-shrink-0 gap-2 py-2 sm:py-0" role="banner">
         <div className="flex items-center gap-2 min-w-0">
