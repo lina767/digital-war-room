@@ -29,11 +29,7 @@ import {
   NUCLEAR_FACILITIES,
   circlePoints,
 } from "./mapOverlaysData";
-import {
-  buildTheaterDisplayItems,
-  CLUSTER_MIN_POINTS,
-  type TheaterDisplayItem,
-} from "./theaterMapCluster";
+import { buildTheaterDisplayItems, type TheaterDisplayItem } from "./theaterMapCluster";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -275,10 +271,9 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
   const markers = useMemo(() => {
     return items.map((item, i) => {
       if (item.type === "cluster") {
-        const { lat, lon, events: evs } = item;
-        const count = evs.length;
+        const { lat, lon } = item;
         const r = 3.2 * s;
-        const tooltipContent = `${count} events · click to zoom in`;
+        const tooltipContent = "Clustered area · click to zoom in";
         return (
           <Marker key={`cluster-${lat.toFixed(3)}-${lon.toFixed(3)}-${i}`} coordinates={[lon, lat]}>
             <g
@@ -293,19 +288,6 @@ const TheaterEventsLayer = memo(function TheaterEventsLayer({
                 stroke="hsl(var(--primary))"
                 strokeWidth={0.45 * s}
               />
-              <text
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill="hsl(var(--foreground))"
-                style={{
-                  fontSize: `${Math.max(7, 10 * s)}px`,
-                  fontFamily: "var(--font-mono), monospace",
-                  fontWeight: 700,
-                  pointerEvents: "none",
-                }}
-              >
-                {count > 99 ? "99+" : count}
-              </text>
             </g>
           </Marker>
         );
@@ -688,8 +670,8 @@ function TheaterMapInner({
     { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
   >(null);
   const [explosionRange, setExplosionRange] = useState<ExplosionTimeRange>("7d");
-  /** Grid clustering for dense theater event datasets (see CLUSTER_MIN_POINTS). */
-  const [eventClustering, setEventClustering] = useState(true);
+  /** Grid clustering for dense theater event datasets; always on. */
+  const eventClustering = true;
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
   const [zoom, setZoom] = useState(4.73);
   const [center, setCenter] = useState<[number, number]>([54.0836, 31.7419]);
@@ -1151,13 +1133,6 @@ function TheaterMapInner({
               )}
             </div>
           )}
-          {/* Weekly event count for aggregated data */}
-          {selectedEvent.events_count != null && selectedEvent.events_count > 0 && (
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-              <span className="text-muted-foreground">Events (week)</span>
-              <span className="text-right text-foreground/90 font-semibold">{selectedEvent.events_count}</span>
-            </div>
-          )}
           {/* Casualties: always show – with data or fallback explanation */}
           <div className="space-y-0.5">
             <span className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">Casualties</span>
@@ -1165,7 +1140,7 @@ function TheaterMapInner({
               {selectedEvent.fatalities != null || selectedEvent.deaths_civilians != null || selectedEvent.deaths_a != null || selectedEvent.deaths_b != null ? (
                 <>
                   {selectedEvent.fatalities != null && (
-                    <p>Total reported: {selectedEvent.fatalities} {selectedEvent.events_count ? `(week ${selectedEvent.event_date ?? "?"})` : "fatality/fatalities"}</p>
+                    <p>Total reported: {selectedEvent.fatalities} fatality/fatalities</p>
                   )}
                   {selectedEvent.deaths_civilians != null && (
                     <p>Civilian: {selectedEvent.deaths_civilians}</p>
@@ -1321,21 +1296,6 @@ function TheaterMapInner({
             HEAT
             {heatmapLoading && layers.heatmap && <span className="animate-pulse">…</span>}
           </button>
-          {layers.theaterEvents && filteredTheaterEvents.length > CLUSTER_MIN_POINTS && (
-            <button
-              type="button"
-              onClick={() => setEventClustering((c) => !c)}
-              className={`px-1.5 py-0.5 rounded border text-[10px] font-mono uppercase touch-manipulation ${
-                eventClustering
-                  ? "bg-primary/15 border-primary/50 text-foreground"
-                  : "bg-card/60 border-border/70 text-muted-foreground hover:text-foreground"
-              }`}
-              title="Merge nearby markers when zoomed out (large datasets)"
-              aria-label={eventClustering ? "Disable marker clustering" : "Enable marker clustering"}
-            >
-              CLS
-            </button>
-          )}
           <span className="text-[11px] font-mono text-muted-foreground ml-0.5">EXP</span>
           {(["6h", "24h", "48h", "7d", "all"] as ExplosionTimeRange[]).map((range) => {
             const isActive = explosionRange === range;
