@@ -28,6 +28,7 @@ import {
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { Link } from "react-router-dom";
+import { DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE, DOCS_SOURCE_DIRECTORY } from "@/lib/docLinks";
 import { Target, X, Globe, LayoutGrid, List, Focus } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 import { formatTimeAgo } from "@/lib/utils";
@@ -431,11 +432,11 @@ export function DashboardRightPanel({
         <AgentsStatusBar />
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        <Link to="/how-it-works#dashboard-guide" className="text-primary hover:underline">How to read the dashboard</Link>
+        <Link to={DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE} className="text-primary hover:underline">How to read the dashboard</Link>
         {" · "}
         <Link to="/blog" className="text-primary hover:underline">Blog</Link>
         {" · "}
-        <Link to="/sources" className="text-primary hover:underline">Source Directory</Link>
+        <Link to={DOCS_SOURCE_DIRECTORY} className="text-primary hover:underline">Source Directory</Link>
         {" · "}
         <Link to="/app/monitoring" className="text-primary hover:underline">Agent Monitor</Link>
       </p>

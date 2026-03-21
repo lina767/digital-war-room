@@ -35,8 +35,8 @@ Main user-facing capabilities:
 
 - **Getting Started:** [README setup section](https://github.com/lina767/digital-war-room#getting-started)
 - **Architecture:** [docs/ARCHITECTURE.md](https://github.com/lina767/digital-war-room/blob/main/docs/ARCHITECTURE.md)
-- **Features & Interface:** [docs/how-it-works.md](https://github.com/lina767/digital-war-room/blob/main/docs/how-it-works.md)
-- **Data Sources:** [docs/source-directory.md](https://github.com/lina767/digital-war-room/blob/main/docs/source-directory.md)
+- **Features & Interface:** [docs/how-it-works.md](https://github.com/lina767/digital-war-room/blob/main/docs/how-it-works.md) — in-app: [Documentation hub](https://digital-war-room.com/docs/documentation?doc=how-it-works)
+- **Data Sources:** [docs/source-directory.md](https://github.com/lina767/digital-war-room/blob/main/docs/source-directory.md) — in-app: [Source Directory (embedded)](https://digital-war-room.com/docs/documentation?doc=source-directory)
 - **Contributing:** [CONTRIBUTING.md](https://github.com/lina767/digital-war-room/blob/main/CONTRIBUTING.md)
 - **API Reference:** [docs/API-REFERENCE.md](https://github.com/lina767/digital-war-room/blob/main/docs/API-REFERENCE.md)
 
@@ -347,9 +347,7 @@ Primary routes registered in `src/App.tsx` include:
 
 - `/` and `/app/dashboard`
 - `/app/monitoring`
-- `/how-it-works`
-- `/methodology`
-- `/sources`
+- `/how-it-works`, `/methodology`, `/sources` → redirect to `/docs/documentation` with `?doc=how-it-works` | `methodology` | `source-directory`
 - `/daily-briefing`
 - `/docs/documentation`
 - `/newsletter` + confirm/unsubscribe routes

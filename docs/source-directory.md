@@ -1,8 +1,6 @@
 # Source Directory
 
-The Source Directory is the transparency layer for all external inputs used by Digital War Room.
-
-Interactive page: <https://digital-war-room.com/sources>
+The Source Directory is the transparency layer for all external inputs used by Digital War Room. The former standalone `/sources` page is now **embedded in the documentation hub** below the Markdown intro when you open [Documentation → Source Directory](https://digital-war-room.com/docs/documentation?doc=source-directory).
 
 ## Purpose
 
@@ -30,12 +28,10 @@ Each directory entry may include:
 
 ## Generation model
 
-The directory is generated from source metadata and agent-to-source mappings in the frontend codebase, then rendered as a searchable, filterable page.
+The directory is generated from source metadata and agent-to-source mappings in the frontend codebase (`src/lib/sourceDirectory.ts`, `agentsConfig`). In the documentation UI it is rendered as a **searchable, filterable** list so provenance stays auditable.
 
-This keeps source attribution auditable and ensures the dashboard can be traced back to source provenance.
+## Related
 
-Related pages:
-
-- How It Works: <https://digital-war-room.com/how-it-works>
-- Methodology: <https://digital-war-room.com/methodology>
-- Documentation hub: <https://digital-war-room.com/docs/documentation>
+- [How It Works](https://digital-war-room.com/docs/documentation?doc=how-it-works)
+- [Methodology](https://digital-war-room.com/docs/documentation?doc=methodology)
+- [Documentation hub](https://digital-war-room.com/docs/documentation)

@@ -5,13 +5,12 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 
+const DOCS_HUB = "/docs/documentation";
+
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AgentMonitor = lazy(() => import("./pages/AgentMonitor"));
 const NotFound = lazy(() => import("./pages/NotFound"));
-const HowItWorks = lazy(() => import("./pages/HowItWorks"));
-const Methodology = lazy(() => import("./pages/Methodology"));
 const Impressum = lazy(() => import("./pages/Impressum"));
-const SourceDirectory = lazy(() => import("./pages/SourceDirectory"));
 const DailyIntelligenceBriefing = lazy(() => import("./pages/DailyIntelligenceBriefing"));
 const Documentation = lazy(() => import("./pages/Documentation"));
 const Newsletter = lazy(() => import("./pages/Newsletter"));
@@ -35,9 +34,9 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
           <Route path="/app/monitoring" element={<AgentMonitor />} />
-          <Route path="/how-it-works" element={<HowItWorks />} />
-          <Route path="/methodology" element={<Methodology />} />
-          <Route path="/sources" element={<SourceDirectory />} />
+          <Route path="/how-it-works" element={<Navigate to={`${DOCS_HUB}?doc=how-it-works`} replace />} />
+          <Route path="/methodology" element={<Navigate to={`${DOCS_HUB}?doc=methodology`} replace />} />
+          <Route path="/sources" element={<Navigate to={`${DOCS_HUB}?doc=source-directory`} replace />} />
           <Route path="/daily-briefing" element={<DailyIntelligenceBriefing />} />
           <Route path="/docs/documentation" element={<Documentation />} />
           <Route path="/docs" element={<Navigate to="/docs/documentation" replace />} />

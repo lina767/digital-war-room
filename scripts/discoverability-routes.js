@@ -8,10 +8,11 @@ export const BASE_URL = "https://digital-war-room.com";
 
 const STATIC_PUBLIC_ROUTES = [
   { path: "/", changefreq: "daily", priority: "1.0", prerender: true, sitemap: true },
-  { path: "/how-it-works", changefreq: "monthly", priority: "0.8", prerender: true, sitemap: true },
-  { path: "/methodology", changefreq: "monthly", priority: "0.8", prerender: true, sitemap: true },
-  { path: "/sources", changefreq: "monthly", priority: "0.8", prerender: true, sitemap: true },
-  { path: "/docs/documentation", changefreq: "monthly", priority: "0.7", prerender: true, sitemap: true },
+  // Legacy URLs redirect client-side to /docs/documentation?doc=…; still prerender for crawlers.
+  { path: "/how-it-works", changefreq: "monthly", priority: "0.5", prerender: true, sitemap: false },
+  { path: "/methodology", changefreq: "monthly", priority: "0.5", prerender: true, sitemap: false },
+  { path: "/sources", changefreq: "monthly", priority: "0.5", prerender: true, sitemap: false },
+  { path: "/docs/documentation", changefreq: "monthly", priority: "0.85", prerender: true, sitemap: true },
   { path: "/docs", changefreq: "monthly", priority: "0.4", prerender: true, sitemap: false },
   { path: "/daily-briefing", changefreq: "daily", priority: "0.9", prerender: true, sitemap: true },
   { path: "/newsletter", changefreq: "weekly", priority: "0.6", prerender: true, sitemap: true },

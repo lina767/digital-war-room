@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { DOCS_HOW_IT_WORKS, DOCS_METHODOLOGY, DOCS_SOURCE_DIRECTORY } from "@/lib/docLinks";
 
 /**
  * Blog posts for the Digital War Room. Add entries here or later replace with CMS/API.
@@ -29,11 +30,11 @@ export const BLOG_POSTS: BlogPost[] = [
         </p>
         <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">
           For a full overview of the system, see{" "}
-          <Link to="/how-it-works" className="text-primary hover:underline">How it works</Link>
+          <Link to={DOCS_HOW_IT_WORKS} className="text-primary hover:underline">How it works</Link>
           {" "}and the{" "}
-          <Link to="/methodology" className="text-primary hover:underline">Methodology</Link>
+          <Link to={DOCS_METHODOLOGY} className="text-primary hover:underline">Methodology</Link>
           {" "}page, and the{" "}
-          <Link to="/sources" className="text-primary hover:underline">Source Directory</Link>
+          <Link to={DOCS_SOURCE_DIRECTORY} className="text-primary hover:underline">Source Directory</Link>
           {" "}for sources and reliability ratings.
         </p>
       </>

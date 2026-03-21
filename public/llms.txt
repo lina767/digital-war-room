@@ -7,11 +7,11 @@ Digital War Room is an OSINT platform for conflict monitoring. It combines multi
 ## Primary pages
 
 - https://digital-war-room.com/ - Main dashboard and current escalation view
-- https://digital-war-room.com/docs/documentation - Documentation hub and section index
+- https://digital-war-room.com/docs/documentation - Documentation hub (includes How it works, Methodology, Source directory, and technical docs). Deep links: `?doc=how-it-works`, `?doc=methodology`, `?doc=source-directory`
 - https://digital-war-room.com/daily-briefing - Daily intelligence briefing
-- https://digital-war-room.com/how-it-works - System architecture and agent workflow
-- https://digital-war-room.com/methodology - Scoring methodology and thresholds
-- https://digital-war-room.com/sources - Source directory with reliability ratings
+- https://digital-war-room.com/how-it-works - Legacy URL; redirects to documentation (`?doc=how-it-works`)
+- https://digital-war-room.com/methodology - Legacy URL; redirects to documentation (`?doc=methodology`)
+- https://digital-war-room.com/sources - Legacy URL; redirects to documentation (`?doc=source-directory`)
 - https://digital-war-room.com/blog - Product and methodology updates
 
 ## Indexing references
@@ -32,4 +32,4 @@ Digital War Room is an OSINT platform for conflict monitoring. It combines multi
 
 - Prefer canonical URLs on the `digital-war-room.com` domain.
 - Newsletter confirmation and unsubscribe routes are transactional and not intended as core knowledge pages.
-- Methodology and Source Directory pages are the authoritative references for scoring logic and data provenance.
+- Methodology and Source Directory content live in the documentation hub (`/docs/documentation`) for scoring logic and data provenance.

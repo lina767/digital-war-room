@@ -20,7 +20,6 @@ export const CANONICAL_DOC_LINKS = {
   apiReference: `${REPO_DOCS_BASE}/API-REFERENCE.md`,
   deployment: `${REPO_DOCS_BASE}/DEPLOYMENT.md`,
   howItWorks: `${REPO_DOCS_BASE}/how-it-works.md`,
-  howItWorksInteractive: "https://digital-war-room.com/how-it-works",
   methodology: `${REPO_DOCS_BASE}/methodology.md`,
   sourceDirectory: `${REPO_DOCS_BASE}/source-directory.md`,
   security: `${REPO_DOCS_BASE}/SECURITY.md`,
@@ -33,18 +32,6 @@ export interface DocumentationManifestSection {
   description: string;
 }
 
-/** Optional link to the live interactive companion page (e.g. How It Works UI). */
-export interface DocumentationInteractivePage {
-  /** Canonical production URL */
-  url: string;
-  /** Short CTA label */
-  label: string;
-  /** One-line explanation shown above the article */
-  description: string;
-  /** In-app route for the same experience (SPA), e.g. `/how-it-works` */
-  sameOriginPath?: string;
-}
-
 export interface DocumentationManifestDoc {
   id: string;
   sectionId: string;
@@ -53,7 +40,6 @@ export interface DocumentationManifestDoc {
   filePath: string;
   githubUrl: string;
   content: string;
-  interactivePage?: DocumentationInteractivePage;
 }
 
 export const DEFAULT_DOC_ID = "project-documentation";
@@ -99,13 +85,6 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
     filePath: "docs/how-it-works.md",
     githubUrl: `${REPO_DOCS_BASE}/how-it-works.md`,
     content: howItWorks,
-    interactivePage: {
-      url: CANONICAL_DOC_LINKS.howItWorksInteractive,
-      label: "Open interactive How It Works",
-      description:
-        "Step-through UI with dashboard guide, methodology highlights, and links — same content as the standalone /how-it-works page.",
-      sameOriginPath: "/how-it-works",
-    },
   },
   {
     id: "architecture",
@@ -138,7 +117,7 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
     id: "methodology",
     sectionId: "architecture",
     title: "Methodology",
-    description: "Scoring rationale and analytical method used for escalation assessments.",
+    description: "Scoring weights, threat thresholds, peak-weighted escalation, and Signal Framework notes.",
     filePath: "docs/methodology.md",
     githubUrl: `${REPO_DOCS_BASE}/methodology.md`,
     content: methodology,
@@ -165,7 +144,7 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
     id: "source-directory",
     sectionId: "api-and-data",
     title: "Source Directory",
-    description: "Provider inventory and source transparency details.",
+    description: "Provider inventory plus embedded searchable source list.",
     filePath: "docs/source-directory.md",
     githubUrl: `${REPO_DOCS_BASE}/source-directory.md`,
     content: sourceDirectory,
