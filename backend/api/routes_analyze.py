@@ -316,7 +316,7 @@ async def trigger_analysis(
     conflict: str = DEFAULT_CONFLICT,
     x_trigger_secret: str | None = Header(default=None, alias="X-Trigger-Secret"),
 ) -> Any:
-   """
+    """
     Führt einmalig eine Analyse aus und füllt den Cache (z. B. nach Neustart oder Limit-Reset).
     Optional: ANALYZE_TRIGGER_SECRET in Railway setzen, dann Header X-Trigger-Secret mitschicken.
     """
