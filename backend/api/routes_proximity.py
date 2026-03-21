@@ -6,6 +6,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
+
+from api.deps import JobQueueDep
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -188,7 +190,7 @@ class ProximityWebhookBody(BaseModel):
 
 
 @router.post("/webhooks/proximity-events")
-async def webhook_proximity_events(request: Request, body: ProximityWebhookBody):
+async def webhook_proximity_events(body: ProximityWebhookBody, queue: JobQueueDep):
     """
     POST /api/webhooks/proximity-events
     Accepts a list of events (lat, lon, optional source/description). Batched Overpass correlation
@@ -206,20 +208,11 @@ async def webhook_proximity_events(request: Request, body: ProximityWebhookBody)
         except Exception:
             tunnel_geojson = None
 
-    queue: JobQueue | None = getattr(request.app.state, "job_queue", None)
-
     async def _handle_proximity_job(payload: Dict[str, Any]) -> Dict[str, Any]:
         evts = payload.get("events") or []
         geojson = payload.get("tunnel_geojson")
         evidence = await run_correlation_for_events(evts, tunnel_sites_geojson=geojson)
         return {"evidence": evidence, "count": len(evidence)}
-
-    if queue is None:
-        try:
-            result = await _handle_proximity_job({"events": events, "tunnel_geojson": tunnel_geojson})
-            return result
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"error": str(e)})
 
     job = await queue.enqueue(
         "proximity_correlation",
@@ -230,14 +223,11 @@ async def webhook_proximity_events(request: Request, body: ProximityWebhookBody)
 
 
 @router.get("/webhooks/proximity-events/{job_id}")
-async def get_proximity_job_status(request: Request, job_id: str):
+async def get_proximity_job_status(job_id: str, queue: JobQueueDep):
     """
     GET /api/webhooks/proximity-events/{job_id}
     Returns status and (when finished) result for a previously enqueued proximity correlation job.
     """
-    queue: JobQueue | None = getattr(request.app.state, "job_queue", None)
-    if queue is None:
-        return JSONResponse(status_code=503, content={"error": "Job queue not available"})
     job: Job | None = await queue.get_job(job_id)
     if job is None:
         return JSONResponse(status_code=404, content={"error": "Job not found"})

@@ -7,7 +7,7 @@ Attributes are set in main.lifespan.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 
@@ -30,4 +30,4 @@ def get_ws_manager(request: Request):
 
 StateServiceDep = Annotated[StateService, Depends(get_state_service)]
 JobQueueDep = Annotated[JobQueue, Depends(get_job_queue)]
-WsManagerDep = Annotated[object, Depends(get_ws_manager)]
+WsManagerDep = Annotated[Any, Depends(get_ws_manager)]
