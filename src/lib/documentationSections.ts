@@ -44,6 +44,18 @@ export interface DocumentationManifestDoc {
 
 export const DEFAULT_DOC_ID = "project-documentation";
 
+/** Canonical path for SEO (default hub URL has no query string). */
+export function documentationSeoPath(docId: string): string {
+  if (docId === DEFAULT_DOC_ID) {
+    return "/docs/documentation";
+  }
+  return `/docs/documentation?doc=${encodeURIComponent(docId)}`;
+}
+
+export function documentationSeoTitle(docTitle: string): string {
+  return `${docTitle} — Digital War Room`;
+}
+
 export const DOCUMENTATION_MANIFEST_SECTIONS: DocumentationManifestSection[] = [
   {
     id: "overview",

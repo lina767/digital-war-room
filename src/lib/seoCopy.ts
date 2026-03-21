@@ -32,8 +32,7 @@ export const TITLE_METHODOLOGY = "Methodology — Digital War Room";
 export const DESCRIPTION_METHODOLOGY =
   "How the Digital War Room computes escalation scores, threat levels, and agent fusion. Methodology and scoring logic.";
 
-// Documentation
-export const TITLE_DOCUMENTATION = "Documentation — Digital War Room";
+// Documentation (hub fallback; per-page titles come from documentationSections manifest)
 export const DESCRIPTION_DOCUMENTATION =
   "Explore the Digital War Room documentation: getting started, platform features, intelligence methodology, and source transparency.";
 

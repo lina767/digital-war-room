@@ -11,10 +11,12 @@ import {
   DEFAULT_DOC_ID,
   DOCUMENTATION_MANIFEST_DOCS,
   DOCUMENTATION_MANIFEST_SECTIONS,
+  documentationSeoPath,
+  documentationSeoTitle,
   getDocumentationDocById,
   getDocumentationDocOrDefault,
 } from "@/lib/documentationSections";
-import { TITLE_DOCUMENTATION, DESCRIPTION_DOCUMENTATION } from "@/lib/seoCopy";
+import { DESCRIPTION_DOCUMENTATION } from "@/lib/seoCopy";
 
 const Documentation = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -42,21 +44,28 @@ const Documentation = () => {
     setSearchParams({ doc: docId });
   };
 
+  const seoPath = documentationSeoPath(activeDoc.id);
+  const seoTitle = documentationSeoTitle(activeDoc.title);
+  const seoDescription = activeDoc.description || DESCRIPTION_DOCUMENTATION;
+  const site = "https://digital-war-room.com";
+  const docBreadcrumbs = [
+    { name: "Home", url: `${site}/` },
+    { name: "Documentation", url: `${site}/docs/documentation` },
+    { name: activeDoc.title, url: `${site}${seoPath}` },
+  ];
+
   return (
     <>
       <SEO
-        title={TITLE_DOCUMENTATION}
-        description={DESCRIPTION_DOCUMENTATION}
-        path="/docs/documentation"
-        breadcrumbs={[
-          { name: "Home", url: "https://digital-war-room.com/" },
-          { name: "Documentation", url: "https://digital-war-room.com/docs/documentation" },
-        ]}
+        title={seoTitle}
+        description={seoDescription}
+        path={seoPath}
+        breadcrumbs={docBreadcrumbs}
       />
       <ContentPageLayout
         label="DOCUMENTATION"
-        title="Project Documentation"
-        description={DESCRIPTION_DOCUMENTATION}
+        title={activeDoc.title}
+        description={seoDescription}
         icon={<Files className="h-5 w-5 text-muted-foreground" />}
         maxWidth="4xl"
       >

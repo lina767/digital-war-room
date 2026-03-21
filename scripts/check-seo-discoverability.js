@@ -14,6 +14,9 @@ const NOINDEX_ROUTES = new Set([
   "/newsletter/unsubscribe",
 ]);
 
+/** Redirect-only routes; canonical doc URLs live under /docs/documentation?doc=… in the sitemap. */
+const LEGACY_DOC_REDIRECT_ROUTES = new Set(["/how-it-works", "/methodology", "/sources"]);
+
 function getAppRoutes() {
   const source = readFileSync(appPath, "utf8");
   const routeRegex = /<Route\s+path="([^"]+)"/g;
@@ -66,7 +69,7 @@ function main() {
     if (!prerenderPathSet.has(path)) {
       errors.push(`Missing prerender flag for route: ${path}`);
     }
-    if (!sitemapPathSet.has(path)) {
+    if (!LEGACY_DOC_REDIRECT_ROUTES.has(path) && !sitemapPathSet.has(path)) {
       errors.push(`Missing sitemap flag for route: ${path}`);
     }
   }

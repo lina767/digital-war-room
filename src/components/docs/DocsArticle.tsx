@@ -88,16 +88,23 @@ export function DocsArticle({ markdown }: DocsArticleProps) {
       blockquote: ({ children }) => (
         <blockquote className="border-l-2 border-border pl-4 italic text-muted-foreground my-5">{children}</blockquote>
       ),
-      code: ({ inline, children, ...props }) =>
-        inline ? (
-          <code className="rounded bg-muted px-1 py-0.5 text-[0.85em]" {...props}>
+      code: ({ inline, className, children, node: _node, ...props }) => {
+        // react-markdown v9+ often omits `inline`; undefined is falsy and wrongly styled all backticks as blocks.
+        const isFencedWithLanguage = typeof className === "string" && /^language-/.test(className);
+        const isBlock = isFencedWithLanguage || inline === false;
+        return isBlock ? (
+          <code
+            className="block overflow-x-auto rounded-lg border border-border bg-card/60 p-3 text-xs sm:text-sm"
+            {...props}
+          >
             {children}
           </code>
         ) : (
-          <code className="block overflow-x-auto rounded-lg border border-border bg-card/60 p-3 text-xs sm:text-sm" {...props}>
+          <code className="rounded bg-muted px-1 py-0.5 text-[0.85em]" {...props}>
             {children}
           </code>
-        ),
+        );
+      },
       a: ({ href, children }) => (
         <a
           href={href}

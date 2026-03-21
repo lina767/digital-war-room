@@ -11,10 +11,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const today = new Date().toISOString().slice(0, 10);
 const routes = getSitemapRoutes();
 
+/** Escape for XML text (e.g. & in query strings). */
+function escapeXmlText(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 const urlEntries = routes
   .map(
     (r) => `  <url>
-    <loc>${BASE_URL}${r.path === "/" ? "/" : r.path}</loc>
+    <loc>${escapeXmlText(`${BASE_URL}${r.path === "/" ? "/" : r.path}`)}</loc>
     <lastmod>${today}</lastmod>
     <changefreq>${r.changefreq}</changefreq>
     <priority>${r.priority}</priority>

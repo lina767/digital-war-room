@@ -6,6 +6,40 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export const BASE_URL = "https://digital-war-room.com";
 
+const DEFAULT_DOCUMENTATION_DOC_ID = "project-documentation";
+
+/** Doc entry ids from DOCUMENTATION_MANIFEST_DOCS (must stay in sync with documentationSections.ts). */
+function getDocumentationDocIds() {
+  const documentationSectionsPath = join(__dirname, "..", "src", "lib", "documentationSections.ts");
+  const source = readFileSync(documentationSectionsPath, "utf8");
+  const start = source.indexOf("export const DOCUMENTATION_MANIFEST_DOCS");
+  if (start === -1) {
+    return [];
+  }
+  const end = source.indexOf("];", start);
+  const block = source.slice(start, end);
+  const docIdRegex = /\bid:\s*"([^"]+)"\s*,\s*sectionId:/g;
+  const ids = [];
+  let m = docIdRegex.exec(block);
+  while (m) {
+    ids.push(m[1]);
+    m = docIdRegex.exec(block);
+  }
+  return ids;
+}
+
+function getDocumentationDeepLinkRoutes() {
+  return getDocumentationDocIds()
+    .filter((id) => id !== DEFAULT_DOCUMENTATION_DOC_ID)
+    .map((id) => ({
+      path: `/docs/documentation?doc=${encodeURIComponent(id)}`,
+      changefreq: "monthly",
+      priority: "0.65",
+      prerender: true,
+      sitemap: true,
+    }));
+}
+
 const STATIC_PUBLIC_ROUTES = [
   { path: "/", changefreq: "daily", priority: "1.0", prerender: true, sitemap: true },
   // Legacy URLs redirect client-side to /docs/documentation?doc=…; still prerender for crawlers.
@@ -60,7 +94,7 @@ export function getDiscoverabilityRoutes() {
     sitemap: true,
   }));
 
-  return uniqueByPath([...STATIC_PUBLIC_ROUTES, ...blogRoutes]);
+  return uniqueByPath([...STATIC_PUBLIC_ROUTES, ...getDocumentationDeepLinkRoutes(), ...blogRoutes]);
 }
 
 export function getPrerenderRoutes() {
