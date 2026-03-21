@@ -28,6 +28,10 @@ class EnergyResult(BaseAgentResult):
     food_commodities: List[Dict[str, Any]] = Field(default_factory=list)
     fao_fpi: Dict[str, Any] = Field(default_factory=dict)
     fertilizer: Dict[str, Any] = Field(default_factory=dict)
+    world_bank_country: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="World Bank Open Data country snapshot (GDP, CPI, electricity access, poverty headcount).",
+    )
     food_security_risk: float = 0.0
     global_impact_note: Optional[str] = None
 

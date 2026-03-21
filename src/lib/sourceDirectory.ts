@@ -82,6 +82,12 @@ const SOURCE_META: Record<
   "Food commodities": { reliability: "curated", keyRequired: true, free: true, url: "https://www.alphavantage.co/support/#api-key" },
   "FAO FPI": { reliability: "official", keyRequired: false, free: true, url: "https://www.fao.org/worldfoodsituation/foodpricesindex/en/" },
   Fertilizer: { reliability: "official", keyRequired: false, free: true, url: "https://www.worldbank.org" },
+  "World Bank Open Data": {
+    reliability: "official",
+    keyRequired: false,
+    free: true,
+    url: "https://data.worldbank.org",
+  },
   "AISStream/MT": { reliability: "curated", keyRequired: true, free: false, url: "https://aisstream.io" },
   "EIA baseline": { reliability: "curated", keyRequired: true, free: true, url: "https://www.eia.gov" },
   "External status": { reliability: "supplementary", keyRequired: false, free: true },

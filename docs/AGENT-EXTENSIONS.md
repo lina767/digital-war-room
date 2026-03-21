@@ -16,6 +16,7 @@ Jeder Agent hat eine feste Tool-Liste und eine regelbasierte Fallback-Kette. Erw
 | **GEOINT** | NASA FIRMS, ReliefWeb, ACLED (optional), EO Browser Links | **Liveuamap API** (kostenpflichtig, in DEPLOYMENT erwähnt), **Sentinel Hub Process API** (SENTINELHUB_CLIENT_ID/SECRET für automatische Tiles), weitere Regionen in `REGION_BBOX` |
 | **SOCMINT** | Telegram, Nitter, Reddit, RSS, ReliefWeb | Weitere Telegram-Kanäle/Regionen in `TELEGRAM_CHANNELS`, Mastodon/Bluesky als Tool (wenn stabile API), mehr Subreddits pro Region |
 | **TECHINT** | Alpha Vantage (ETFs), NewsAPI (Export Control), IODA, OONI, Cloudflare Radar, Shodan | Weitere Shodan-Queries (z. B. Industrie-Protokolle), GreyNoise (Botnet/Scanning), Censys; optional mehr Länder in `CONFLICT_COUNTRY_CODES` |
+| **ENERGY** | EIA/FRED/Alpha Vantage (Öl/Nahrung), FAO FPI, World Bank (Dünger global + **Länder-Makro** GDP/CPI/Stromzugriff) | Weitere WB-Indikatoren; UN SDG-API als zusätzliches Tool; weitere Rohstoffserien |
 
 **Vorgehen pro Agent:**
 

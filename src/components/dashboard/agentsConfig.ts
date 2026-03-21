@@ -122,6 +122,10 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "Food commodities", description: "Wheat, Corn, Soybean – Alpha Vantage" },
       { name: "FAO FPI", description: "Food Price Index (monthly CSV, free)" },
       { name: "Fertilizer", description: "World Bank – Urea, DAP (free API)" },
+      {
+        name: "World Bank Open Data",
+        description: "Country macro: GDP, CPI, electricity access, poverty headcount (conflict → ISO3; open API)",
+      },
     ],
   },
   {

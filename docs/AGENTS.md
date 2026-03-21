@@ -79,9 +79,9 @@ Per-agent description: inputs, data sources, main output fields, and typical use
 ## ENERGY
 
 - **Input:** `conflict`.
-- **Sources:** AGSI+ (EU gas storage), Alpha Vantage (Brent/WTI), FRED, EIA.
-- **Outputs:** `energy_score`, `agsi_storage`, `commodities`, `food_commodities`, `food_security_risk`, `summary`.
-- **Use:** Energy supply stress and commodity price shocks.
+- **Sources:** Alpha Vantage (Brent/WTI), FRED, EIA; FAO Food Price Index (CSV); **World Bank Open Data** (global fertilizer Urea/DAP; **country-level** GDP, CPI, electricity access, poverty at $1.90/day when `conflict` maps to an ISO3 via slug or substring rules).
+- **Outputs:** `energy_score`, `agsi_storage`, `commodities`, `food_commodities`, `fao_fpi`, `fertilizer`, `world_bank_country`, `food_security_risk`, `summary`, optional `global_impact_note`.
+- **Use:** Energy supply stress, commodity price shocks, and structural macro context (WB) for the conflict geography.
 
 ---
 

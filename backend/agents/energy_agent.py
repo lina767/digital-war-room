@@ -1,8 +1,11 @@
 """
 ENERGY / Commodities Agent – commodity indices, food & fertilizer.
 Fetches: oil (EIA then FRED then Alpha Vantage), food (FRED then Alpha Vantage),
-FAO Food Price Index, World Bank fertilizer prices, and computes food_security_risk.
-Rule-based score from price volatility. No LLM. (AGSI+ removed – was unreliable.)
+FAO Food Price Index, World Bank fertilizer prices (global), and optional **World Bank
+country macro** indicators (GDP, CPI, electricity access, poverty headcount) for the
+conflict-mapped ISO3 — open data, no API key.
+Computes food_security_risk. Rule-based score from price volatility. No LLM.
+(AGSI+ removed – was unreliable.)
 """
 
 import asyncio
@@ -56,11 +59,71 @@ FAO_FPI_URL = os.getenv(
 
 # World Bank commodity prices API (free, monthly)
 WORLD_BANK_COMMODITIES_URL = "https://api.worldbank.org/v2/country/WLD/indicator"
+WORLD_BANK_BASE = "https://api.worldbank.org/v2/country"
 UREA_INDICATOR = "COMMODITY.FERTILIZER.UREA"
 DAP_INDICATOR = "COMMODITY.FERTILIZER.DAP"
 
+# Country-level open macro (World Bank Open Data) — mapped from conflict string
+WB_MACRO_INDICATORS: List[tuple[str, str, str]] = [
+    ("NY.GDP.MKTP.KD.ZG", "gdp_growth_pct", "GDP growth (annual %)"),
+    ("FP.CPI.TOTL.ZG", "inflation_cpi_pct", "Inflation, consumer prices (annual %)"),
+    ("EG.ELC.ACCS.ZS", "electricity_access_pct", "Access to electricity (% of population)"),
+    # Humanitarian / development stress (latest available year per WB)
+    ("SI.POV.DDAY", "poverty_headcount_pct", "Poverty headcount at $1.90/day (% pop)"),
+]
+
 # Countries heavily exposed to food imports via Hormuz / Bab el-Mandeb
 EXPOSED_COUNTRIES = ["Egypt", "Yemen", "Somalia", "Djibouti", "Ethiopia", "Sudan"]
+
+# Normalised conflict slug (dashboard keys) → ISO3 — matches CONFLICT_CENTERS / dropdown labels
+_EXACT_CONFLICT_TO_WB_ISO3: Dict[str, str] = {
+    "iran": "IRN",
+    "us-iran": "IRN",
+    "middle-east": "IRN",
+    "hezbollah": "LBN",
+    "houthis": "YEM",
+    "ukraine": "UKR",
+    "israel-palestine": "ISR",
+    "lebanon": "LBN",
+    "taiwan-strait": "TWN",
+    "sudan": "SDN",
+    "yemen": "YEM",
+    "myanmar": "MMR",
+    "sahel": "NER",  # Niger as Sahel proxy (WB data availability)
+    "korea": "KOR",
+    "syria": "SYR",
+    "drc": "COD",
+    "ethiopia": "ETH",
+}
+
+# Substring → ISO3 (longest match wins; list order not used — sorted by needle length at runtime)
+_CONFLICT_SUBSTR_TO_WB_ISO3: List[tuple[str, str]] = [
+    ("israel-palestine", "ISR"),
+    ("taiwan-strait", "TWN"),
+    ("north-korea", "PRK"),
+    ("north korea", "PRK"),
+    ("south-korea", "KOR"),
+    ("south korea", "KOR"),
+    ("us-iran", "IRN"),
+    ("middle-east", "IRN"),
+    ("hezbollah", "LBN"),
+    ("houthi", "YEM"),
+    ("palestine", "PSE"),
+    ("israel", "ISR"),
+    ("lebanon", "LBN"),
+    ("ukraine", "UKR"),
+    ("myanmar", "MMR"),
+    ("ethiopia", "ETH"),
+    ("dprk", "PRK"),
+    ("syria", "SYR"),
+    ("iran", "IRN"),
+    ("yemen", "YEM"),
+    ("sudan", "SDN"),
+    ("taiwan", "TWN"),
+    ("korea", "KOR"),
+    ("sahel", "NER"),
+    ("drc", "COD"),
+]
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -68,6 +131,100 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_conflict_slug(conflict: str) -> str:
+    """Lowercase slug aligned with dashboard keys (e.g. 'US Iran' → 'us-iran')."""
+    return (
+        conflict.lower()
+        .strip()
+        .replace(" ", "-")
+        .replace("_", "-")
+    )
+
+
+def _world_bank_country_for_conflict(conflict: str) -> Optional[str]:
+    """Map conflict label to World Bank ISO3: exact slug first, then longest substring match."""
+    if not conflict or not conflict.strip():
+        return None
+    key = _normalize_conflict_slug(conflict)
+    if key in _EXACT_CONFLICT_TO_WB_ISO3:
+        return _EXACT_CONFLICT_TO_WB_ISO3[key]
+    for needle, iso in sorted(_CONFLICT_SUBSTR_TO_WB_ISO3, key=lambda x: -len(x[0])):
+        if needle in key:
+            return iso
+    return None
+
+
+async def _fetch_world_bank_country_indicators(wb_iso3: str) -> Dict[str, Any]:
+    """Latest values for selected World Bank development indicators (open API, no key)."""
+    if not wb_iso3:
+        return {}
+    out: Dict[str, Any] = {
+        "country_iso3": wb_iso3.upper(),
+        "source": "world_bank_open_data",
+        "indicators": [],
+    }
+    iso = wb_iso3.upper()
+
+    async def _one(
+        client: httpx.AsyncClient, indicator_id: str, key: str, label: str
+    ) -> Dict[str, Any]:
+        try:
+            resp = await client.get(
+                f"{WORLD_BANK_BASE}/{iso}/indicator/{indicator_id}",
+                params={"format": "json", "per_page": "1", "mrv": "1"},
+            )
+            if resp.status_code != 200:
+                return {
+                    "key": key,
+                    "label": label,
+                    "id": indicator_id,
+                    "error": f"HTTP {resp.status_code}",
+                }
+            data = resp.json()
+            if not isinstance(data, list) or len(data) < 2:
+                return {"key": key, "label": label, "id": indicator_id, "error": "invalid response"}
+            rows = data[1]
+            if not isinstance(rows, list) or not rows:
+                return {"key": key, "label": label, "id": indicator_id, "value": None, "date": None}
+            row = rows[0]
+            if not isinstance(row, dict):
+                return {"key": key, "label": label, "id": indicator_id, "error": "bad row"}
+            raw_val = row.get("value")
+            num_val: Optional[float]
+            if raw_val in (None, ""):
+                num_val = None
+            else:
+                try:
+                    num_val = float(raw_val)
+                except (TypeError, ValueError):
+                    num_val = None
+            return {
+                "key": key,
+                "label": label,
+                "id": indicator_id,
+                "value": num_val,
+                "date": row.get("date"),
+            }
+        except Exception as e:
+            logger.debug("ENERGY: WB indicator %s failed: %s", indicator_id, e)
+            return {"key": key, "label": label, "id": indicator_id, "error": str(e)}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            parts = await asyncio.gather(
+                *(_one(client, iid, key, lbl) for iid, key, lbl in WB_MACRO_INDICATORS)
+            )
+            out["indicators"] = list(parts)
+    except Exception as e:
+        logger.debug("ENERGY: World Bank country indicators failed: %s", e)
+        out["error"] = str(e)
+    return out
+
+
+async def _async_empty_wb() -> Dict[str, Any]:
+    return {}
 
 
 async def _fetch_fao_fpi() -> Dict[str, Any]:
@@ -190,6 +347,7 @@ def _build_summary(
     score: float,
     food_risk: float,
     conflict: str = "",
+    wb_country: Optional[Dict[str, Any]] = None,
 ) -> str:
     parts = []
     valid_c = [c for c in commodities if c.get("price") and "error" not in c]
@@ -205,6 +363,20 @@ def _build_summary(
         parts.append(f"FAO FPI: {fpi_val:.1f}{yoy_str}")
     if food_risk >= 60:
         parts.append(f"Food security risk: {food_risk:.0f}/100 (exposed: {', '.join(EXPOSED_COUNTRIES[:3])})")
+    if wb_country and wb_country.get("indicators") and not wb_country.get("error"):
+        iso = wb_country.get("country_iso3") or "?"
+        lines = []
+        for ind in wb_country.get("indicators") or []:
+            if ind.get("error"):
+                continue
+            v = ind.get("value")
+            if v is None:
+                continue
+            lbl = ind.get("key") or ind.get("label") or ""
+            d = ind.get("date") or ""
+            lines.append(f"{lbl} {v:.1f}" + (f" ({d})" if d else ""))
+        if lines:
+            parts.append(f"WB macro ({iso}): " + "; ".join(lines[:6]))
     if not parts:
         return "ENERGY: No commodity data (set EIA_API_KEY/FRED_API_KEY for oil/food, or ALPHAVANTAGE_API_KEY)."
     out = "ENERGY: " + " ".join(parts)
@@ -225,6 +397,7 @@ async def _generate_haiku_summary_energy(
     fao_fpi: Dict[str, Any],
     energy_score: float,
     food_risk: float,
+    wb_country: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Optional 2-3 sentence analyst summary via haiku_service.analyst_summary."""
     try:
@@ -242,12 +415,14 @@ async def _generate_haiku_summary_energy(
             "food": [{"symbol": c.get("symbol"), "change_pct": c.get("change_pct")} for c in valid_food[:3]],
             "fao_fpi_index": fao_fpi.get("index"),
             "fao_fpi_yoy": fao_fpi.get("yoy_change_pct"),
+            "world_bank_country": wb_country if wb_country else {},
         }
         data = json.dumps(compact, indent=2)
         system = (
             "You are an energy and commodities analyst for conflict monitoring. Summarize the following "
             "data in 2-3 sentences: oil (Brent/WTI), food commodities, FAO Food Price Index, "
-            "food security risk. Focus on escalation or chokepoint implications. Write in English."
+            "food security risk, and optional World Bank country macro (GDP growth, inflation, electricity access). "
+            "Focus on escalation or chokepoint implications. Write in English."
         )
         out = await analyst_summary(system=system, data=data, max_tokens=256)
         return out.strip() if out else None
@@ -467,7 +642,9 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
         except Exception as e:
             logger.warning("ENERGY: food commodities fetch failed, continuing without: %s", e)
 
-        fao_fpi, fertilizer = await asyncio.gather(fao_task, fert_task)
+        wb_iso = _world_bank_country_for_conflict(conflict)
+        wb_task = _fetch_world_bank_country_indicators(wb_iso) if wb_iso else _async_empty_wb()
+        fao_fpi, fertilizer, wb_country = await asyncio.gather(fao_task, fert_task, wb_task)
 
         energy_score = _compute_energy_score(oil_commodities)
         food_risk = _compute_food_security_risk(food_commodities, fao_fpi, fertilizer)
@@ -478,6 +655,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             energy_score,
             food_risk,
             conflict=conflict,
+            wb_country=wb_country if wb_country else None,
         )
         try:
             llm_summary = await _generate_haiku_summary_energy(
@@ -487,6 +665,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
                 fao_fpi,
                 energy_score,
                 food_risk,
+                wb_country if wb_country else None,
             )
             summary = llm_summary if llm_summary else rule_summary
         except Exception as e:
@@ -517,6 +696,7 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
             "food_commodities": food_commodities,
             "fao_fpi": fao_fpi,
             "fertilizer": fertilizer,
+            "world_bank_country": wb_country if wb_country else {},
             "food_security_risk": round(food_risk, 1),
             "summary": summary,
             "global_impact_note": global_impact_note,
@@ -550,13 +730,31 @@ def run_energy_agent(conflict: str) -> Dict[str, Any]:
                 status="ok" if (out.get("fertilizer") and not out.get("fertilizer", {}).get("error")) else "error",
                 fetched_at=fetched_at,
             ),
+            SourceResult(
+                name="World Bank (country macro)",
+                status="ok"
+                if (
+                    out.get("world_bank_country")
+                    and out.get("world_bank_country", {}).get("indicators")
+                    and not out.get("world_bank_country", {}).get("error")
+                )
+                else "error",
+                fetched_at=fetched_at,
+                record_count=len(out.get("world_bank_country", {}).get("indicators") or []),
+            ),
         ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "energy", sr)
         has_data = bool(
-            (out.get("commodities") or out.get("food_commodities") or out.get("fao_fpi") or out.get("fertilizer"))
+            (
+                out.get("commodities")
+                or out.get("food_commodities")
+                or out.get("fao_fpi")
+                or out.get("fertilizer")
+                or (out.get("world_bank_country") or {}).get("indicators")
+            )
         )
         out["_meta"] = build_agent_meta("energy", fetched_at, duration_ms, source_results, has_any_data=has_data)
         return out
