@@ -23,7 +23,7 @@ import httpx
 from .airstream_client import collect_tankers_by_chokepoint
 from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
-from .utils import SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
+from .utils import DataConfidenceLevel, SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +145,21 @@ GDELT_6H_THRESHOLD = 2
 GDELT_RISK_FLOOR_6H = 50.0
 # When no live AIS (baseline_only/estimated): 1+ GDELT hit still raises floor so "closed" can show
 GDELT_NO_LIVE_AIS_MIN_HITS = 1
+
+
+def _aggregate_chokepoint_data_confidence(
+    live_ais_count: int,
+    eia_data: Dict[str, Any],
+    gdelt_disruption: Dict[str, Any],
+    external_status: Dict[str, Any],
+) -> DataConfidenceLevel:
+    """live = AIS; estimated = proxies (EIA/GDELT/external); degraded = static baselines only."""
+    if live_ais_count > 0:
+        return "live"
+    if bool(eia_data) or bool(gdelt_disruption) or bool(external_status):
+        return "estimated"
+    return "degraded"
+
 
 # ── EMA temporal smoothing ───────────────────────────────────────────────────
 
@@ -841,12 +856,19 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
         llm_summary = await _generate_haiku_summary_chokepoint(conflict, chokepoints, chokepoint_score)
         summary = llm_summary if llm_summary else rule_summary
 
+        live_ais_n = sum(1 for cp in chokepoints if cp.get("data_quality") == "live_ais")
+        eia_block = eia_data if isinstance(eia_data, dict) else {}
+        gdelt_block = gdelt_disruption if isinstance(gdelt_disruption, dict) else {}
+        ext_block = external_status if isinstance(external_status, dict) else {}
+        data_confidence = _aggregate_chokepoint_data_confidence(live_ais_n, eia_block, gdelt_block, ext_block)
+
         return {
             "chokepoints": chokepoints,
             "chokepoint_score": chokepoint_score,
             "summary": summary,
             "gdelt_disruption": gdelt_disruption,
             "external_status": external_status,
+            "data_confidence": data_confidence,
         }
 
     start = time.perf_counter()
@@ -897,12 +919,16 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
             for sr in source_results:
                 reg.record_result(sr.name, "chokepoint", sr)
         has_data = bool(cps or (out.get("gdelt_disruption") or {}))
+        dc_meta = out.get("data_confidence")
+        if dc_meta not in ("live", "estimated", "degraded"):
+            dc_meta = "estimated"
         out["_meta"] = build_agent_meta(
             "chokepoint",
             fetched_at,
             duration_ms,
             source_results,
             has_any_data=has_data,
+            data_confidence=dc_meta,
         )
         return out
     except Exception as e:
@@ -910,6 +936,7 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
         duration_ms = int((time.perf_counter() - start) * 1000)
         fb = get_agent_fallback("chokepoint")
         fb["summary"] = f"CHOKEPOINT error: {e}"
+        fb["data_confidence"] = "degraded"
         fb["_meta"] = build_agent_meta(
             "chokepoint",
             fetched_at,
@@ -918,6 +945,7 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
             fallback_used=True,
             error_summary=str(e),
             has_any_data=False,
+            data_confidence="degraded",
         )
         return fb
 

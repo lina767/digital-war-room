@@ -12,6 +12,10 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+# Per-agent signal quality for synthesis (not the same as statistical confidence).
+# degraded = no usable primary/proxy feed — numeric scores must not be read as "all clear".
+DataConfidenceLevel = Literal["live", "estimated", "degraded"]
+
 logger = logging.getLogger(__name__)
 
 # Shared pool for run_async fallback (when asyncio.run() can't be used).
@@ -116,6 +120,7 @@ class AgentMetadata(BaseModel):
     sources: List[SourceResult]
     confidence: ScoreConfidence
     data_freshness: Literal["live", "recent", "stale", "unavailable"]
+    data_confidence: DataConfidenceLevel = "estimated"
     fallback_used: bool = False
     error_summary: Optional[str] = None
 
@@ -168,14 +173,25 @@ def build_agent_meta(
     error_summary: Optional[str] = None,
     has_any_data: bool = True,
     confidence: Optional[ScoreConfidence] = None,
+    data_confidence: Optional[DataConfidenceLevel] = None,
 ) -> Dict[str, Any]:
     """Build the _meta dict for an agent result (confidence + data_freshness from source_results).
 
     If *confidence* is set (e.g. FININT merges SourceResult health with per-key API status),
     it is used instead of compute_confidence_from_sources(source_results).
+
+    *data_confidence* (live / estimated / degraded) may be set explicitly; otherwise it is
+    inferred from freshness and whether any data was returned.
     """
     confidence_used = confidence if confidence is not None else compute_confidence_from_sources(source_results)
     data_freshness = data_freshness_from_sources(source_results, has_any_data=has_any_data)
+    if data_confidence is None:
+        if fallback_used or (data_freshness == "unavailable" and not has_any_data):
+            data_confidence = "degraded"
+        elif data_freshness == "live":
+            data_confidence = "live"
+        else:
+            data_confidence = "estimated"
     meta = AgentMetadata(
         agent=agent,
         fetched_at=fetched_at,
@@ -183,7 +199,33 @@ def build_agent_meta(
         sources=source_results,
         confidence=confidence_used,
         data_freshness=data_freshness,
+        data_confidence=data_confidence,
         fallback_used=fallback_used,
         error_summary=error_summary,
     )
     return meta.model_dump(mode="json")
+
+
+def infer_data_confidence_from_result(result: Optional[Dict[str, Any]]) -> DataConfidenceLevel:
+    """Best-effort data_confidence for CEO weighting and supervisor copy.
+
+    Prefer explicit ``data_confidence`` on the payload or ``_meta.data_confidence``;
+    otherwise derive from ``_meta`` (fallback, freshness).
+    """
+    if not result:
+        return "degraded"
+    explicit = result.get("data_confidence")
+    if explicit in ("live", "estimated", "degraded"):
+        return explicit  # type: ignore[return-value]
+    meta = result.get("_meta")
+    if isinstance(meta, dict):
+        dc = meta.get("data_confidence")
+        if dc in ("live", "estimated", "degraded"):
+            return dc  # type: ignore[return-value]
+        if meta.get("fallback_used"):
+            return "degraded"
+        if meta.get("data_freshness") == "unavailable":
+            return "degraded"
+        if meta.get("data_freshness") == "live":
+            return "live"
+    return "estimated"

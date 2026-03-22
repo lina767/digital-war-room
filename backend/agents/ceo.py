@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .agent_state_store import get_agent_state_store
 from .context import WAVE1_AGENTS, WAVE2_AGENTS, AgentContext, build_context_from_results
@@ -25,8 +25,26 @@ from .divisions import (
 )
 from .entity_registry import EntityRegistry
 from .registry import AgentRegistry, get_agent_registry
+from .utils import infer_data_confidence_from_result
 
 logger = logging.getLogger(__name__)
+
+# Legacy supervisor: per-agent weights (sum 1.0). Excluded when data_confidence=degraded (renormalized).
+CEO_LEGACY_AGENT_WEIGHTS: Dict[str, float] = {
+    "finint": 0.09,
+    "sigint": 0.11,
+    "news": 0.09,
+    "geoint": 0.05,
+    "satintel": 0.05,
+    "socmint": 0.08,
+    "techint": 0.07,
+    "cyber": 0.07,
+    "energy": 0.07,
+    "protest": 0.07,
+    "diplo": 0.06,
+    "proximity": 0.08,
+    "chokepoint": 0.10,
+}
 
 # CEO-level division weights
 CEO_WEIGHTS = {
@@ -47,6 +65,34 @@ def _normalize_finding_confidence(val: Any) -> str:
     if s in ("low", "l", "1"):
         return "low"
     return "medium"
+
+
+def _legacy_combined_excluding_degraded(
+    scores: Dict[str, float],
+    agent_data_confidence: Dict[str, str],
+) -> Tuple[float, float]:
+    """Weighted mean over non-degraded agents; weights renormalized to sum to 1.
+
+    Returns (combined_score, active_weight_sum). If active_weight_sum==0, all streams are degraded.
+    """
+    active = {
+        k: w
+        for k, w in CEO_LEGACY_AGENT_WEIGHTS.items()
+        if agent_data_confidence.get(k) != "degraded"
+    }
+    if not active:
+        return 0.0, 0.0
+    tw = sum(active.values())
+    combined = sum(scores.get(k, 0.0) * (active[k] / tw) for k in active)
+    return combined, tw
+
+
+def _degraded_streams_caveat(degraded_agents: List[str]) -> str:
+    labels = ", ".join(a.upper() for a in degraded_agents)
+    return (
+        f"Data caveat: degraded streams (no reliable feed) for {labels} — "
+        "treat those scores as unknown; low values reflect missing data, not evidence of safety."
+    )
 
 
 def _align_key_findings_confidence(findings: List[str], conf: List[str]) -> List[str]:
@@ -402,6 +448,11 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     narrative_result = agent_results.get("narrative") or {}
     chokepoint_result = agent_results.get("chokepoint") or {}
 
+    agent_data_confidence: Dict[str, str] = {
+        name: infer_data_confidence_from_result(agent_results.get(name)) for name in CEO_LEGACY_AGENT_WEIGHTS
+    }
+    degraded_agents = sorted([n for n, c in agent_data_confidence.items() if c == "degraded"])
+
     finint_score = float(finint_result.get("escalation_score", 0.0))
     sigint_score = float(sigint_result.get("sigint_score", 0.0))
     news_score = float(news_result.get("news_score", 0.0))
@@ -416,22 +467,22 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     proximity_score = float(proximity_result.get("proximity_score", 0.0))
     chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
 
-    # Legacy supervisor weighting (as requested) to preserve historical output behavior.
-    legacy_combined = (
-        finint_score * 0.09
-        + sigint_score * 0.11
-        + news_score * 0.09
-        + geoint_score * 0.05
-        + satintel_score * 0.05
-        + socmint_score * 0.08
-        + techint_score * 0.07
-        + cyber_score * 0.07
-        + energy_score * 0.07
-        + protest_score * 0.07
-        + diplo_score * 0.06
-        + proximity_score * 0.08
-        + chokepoint_score * 0.10
-    )
+    scores_by_agent: Dict[str, float] = {
+        "finint": finint_score,
+        "sigint": sigint_score,
+        "news": news_score,
+        "geoint": geoint_score,
+        "satintel": satintel_score,
+        "socmint": socmint_score,
+        "techint": techint_score,
+        "cyber": cyber_score,
+        "energy": energy_score,
+        "protest": protest_score,
+        "diplo": diplo_score,
+        "proximity": proximity_score,
+        "chokepoint": chokepoint_score,
+    }
+    legacy_combined, legacy_active_weight = _legacy_combined_excluding_degraded(scores_by_agent, agent_data_confidence)
     has_agent_scores = any(
         (
             "escalation_score" in finint_result,
@@ -449,7 +500,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "chokepoint_score" in chokepoint_result,
         )
     )
-    synthesis_score = legacy_combined if has_agent_scores else division_composite
+    has_legacy_signal = has_agent_scores and legacy_active_weight > 0
+    synthesis_score = legacy_combined if has_legacy_signal else division_composite
 
     agent_scores_for_predictive = {
         "finint": finint_score,
@@ -466,6 +518,14 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "proximity": proximity_score,
         "chokepoint": chokepoint_score,
     }
+
+    temporal_context: Dict[str, Any] = {}
+    try:
+        from services.agent_score_history import get_temporal_context
+
+        temporal_context = get_temporal_context(conflict, agent_scores_for_predictive)
+    except Exception:
+        pass
 
     if synthesis_score >= 80:
         threat_level = "CRITICAL"
@@ -485,7 +545,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     key_findings_confidence: List[str] = []
     root_cause_suggestions: List[Dict[str, str]] = []
     scenarios = []
-    summary = _build_rule_based_ceo_summary(conflict, synthesis_score, threat_level, division_results)
+    summary = _build_rule_based_ceo_summary(
+        conflict, synthesis_score, threat_level, division_results, degraded_agents=degraded_agents
+    )
 
     supervisor_payload = _build_supervisor_user_payload(
         conflict,
@@ -494,6 +556,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         division_composite,
         division_results,
         acled_refs,
+        agent_data_confidence,
+        degraded_agents,
         finint_result,
         sigint_result,
         news_result,
@@ -508,6 +572,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         proximity_result,
         narrative_result,
         chokepoint_result,
+        temporal_context,
     )
 
     if use_rule_based:
@@ -529,6 +594,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                 sigint_score,
                 news_score,
                 geoint_score,
+                satintel_score,
                 socmint_score,
                 techint_score,
                 cyber_score,
@@ -644,7 +710,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     try:
         from .predictive import build_predictive_block
 
-        predictive = build_predictive_block(conflict, synthesis_score, agent_scores_for_predictive)
+        predictive = build_predictive_block(
+            conflict, synthesis_score, agent_scores_for_predictive, degraded_agents=degraded_agents
+        )
     except Exception:
         predictive = {}
 
@@ -678,6 +746,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "alerts": alerts,
         "pattern_flags": [],
         "synthesis_meta": synthesis_meta,
+        "agent_data_confidence": agent_data_confidence,
+        "degraded_agents": degraded_agents,
+        "temporal_context": temporal_context,
     }
 
     # Include per-agent raw results for API compatibility
@@ -703,6 +774,13 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     # Division metadata (new)
     response["divisions"] = {name: dr.model_dump(mode="json") for name, dr in division_results.items()}
 
+    try:
+        from services.agent_score_history import record_daily_scores
+
+        record_daily_scores(conflict, agent_scores_for_predictive)
+    except Exception:
+        pass
+
     return response
 
 
@@ -711,10 +789,13 @@ def _build_rule_based_ceo_summary(
     composite: float,
     threat_level: str,
     division_results: Dict[str, DivisionResult],
+    *,
+    degraded_agents: Optional[List[str]] = None,
 ) -> str:
     """
     Build a deterministic 2-3 sentence CEO recap when LLM synthesis is unavailable.
     """
+    degraded_agents = degraded_agents or []
     ordered = sorted(division_results.items(), key=lambda x: -x[1].score)
     top_name, top_result = ordered[0] if ordered else ("overall", None)
     second_name, second_result = ordered[1] if len(ordered) > 1 else (None, None)
@@ -746,9 +827,13 @@ def _build_rule_based_ceo_summary(
 
     if anomaly_notes:
         sentence_3 = f"Watch items: {'; '.join(anomaly_notes)}."
-        return f"{sentence_1} {sentence_2} {sentence_3}".strip()
+        body = f"{sentence_1} {sentence_2} {sentence_3}".strip()
+    else:
+        body = f"{sentence_1} {sentence_2}".strip()
 
-    return f"{sentence_1} {sentence_2}".strip()
+    if degraded_agents:
+        return f"{_degraded_streams_caveat(degraded_agents)}\n\n{body}".strip()
+    return body
 
 
 def _agents_seem_contradictory(scores: List[float]) -> bool:
@@ -833,6 +918,9 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     if agent_name == "chokepoint":
         out["chokepoints"] = (result.get("chokepoints") or [])[:5]
         out["chokepoint_score"] = result.get("chokepoint_score", 0.0)
+        dc = result.get("data_confidence")
+        if dc in ("live", "estimated", "degraded"):
+            out["data_confidence"] = dc
     return out
 
 
@@ -843,6 +931,8 @@ def _build_supervisor_user_payload(
     division_composite: float,
     division_results: Dict[str, DivisionResult],
     acled_refs: Any,
+    agent_data_confidence: Dict[str, str],
+    degraded_agents: List[str],
     finint_result: Dict[str, Any],
     sigint_result: Dict[str, Any],
     news_result: Dict[str, Any],
@@ -857,6 +947,7 @@ def _build_supervisor_user_payload(
     proximity_result: Dict[str, Any],
     narrative_result: Dict[str, Any],
     chokepoint_result: Dict[str, Any],
+    temporal_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Shared compact payload for CEO LLM supervisor and cross-stream narrative synthesis."""
     finint_score = float(finint_result.get("escalation_score", 0.0))
@@ -884,6 +975,8 @@ def _build_supervisor_user_payload(
             for r in (acled_refs or [])[:3]
             if isinstance(r, dict) and (r.get("excerpt") or r.get("title"))
         ],
+        "agent_data_confidence": agent_data_confidence,
+        "degraded_agents": degraded_agents,
         "agent_scores": {
             "finint": finint_score,
             "sigint": sigint_score,
@@ -913,6 +1006,7 @@ def _build_supervisor_user_payload(
         "proximity": _compact_for_llm("proximity", proximity_result),
         "narrative": _compact_for_llm("narrative", narrative_result),
         "chokepoint": _compact_for_llm("chokepoint", chokepoint_result),
+        "agent_score_temporal": temporal_context or {},
     }
 
 
@@ -972,9 +1066,13 @@ _CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to 10 
 - PROXIMITY: Strike-civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
 - CHOKEPOINT: Maritime chokepoint monitoring (Strait of Hormuz, Bab el-Mandeb, Suez Canal) - tanker density, oil flow estimates, disruption risk scoring, data quality transparency
 
+DATA CONFIDENCE (required): The payload includes "agent_data_confidence" per stream: "live" (primary sensors/APIs), "estimated" (proxies or partial feeds), "degraded" (no reliable feed). The list "degraded_agents" names streams whose numeric scores must NOT be read as evidence of safety — low scores there usually mean missing data, not a calm situation. When "degraded_agents" is non-empty, you MUST state explicitly which streams are degraded and warn that the composite may understate risk. Do not imply the theater is quiet based solely on low scores from degraded streams.
+
 When the payload includes "narrative", this is the Signal Framework: state vs exile/independent media comparison. Use synthesis_text, synthesis_probability, and source_comparison_table to inform key_findings and summary when relevant.
 
 When the payload includes "acled_reference_analyses", these are curated ACLED analysis pages whose content has been fetched and extracted. Use these analyses to inform key_findings, scenarios, and summary as substantive context.
+
+When the payload includes "agent_score_temporal", it holds per-agent temporal context: delta_vs_prior_utc_day (vs last stored UTC day), trend_7d (rising|falling|stable|insufficient_data), consecutive_days_up/down, and daily_scores_7d. Prefer trend and momentum over one-off scores when framing findings (e.g. stable baseline vs multi-day climb).
 
 Analyze all streams holistically and return ONLY valid JSON with no markdown:
 {

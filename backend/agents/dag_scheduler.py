@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from graphlib import TopologicalSorter
-from typing import Any, Callable, Dict, Generator, List, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -159,22 +159,68 @@ class DAGScheduler:
                         store.set(nid, node.fallback)
                         sorter.done(nid)
                         continue
-                    futures[pool.submit(self._run_node, node, executor, store)] = nid
+                    t_submit = time.perf_counter()
+                    futures[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
 
-                for future in futures:
-                    nid = futures[future]
+                for future, (nid, t_submit) in futures.items():
+                    node = self._nodes[nid]
                     try:
-                        result = future.result(timeout=self._nodes[nid].timeout_s)
+                        result, inner_ms = future.result(timeout=node.timeout_s)
                         store.set(nid, result)
+                        self._emit_agent_heartbeat(
+                            nid, node, store, result, inner_ms, timed_out=False, exec_failed=False
+                        )
                     except FuturesTimeoutError:
-                        logger.warning("Node '%s' timed out (%.0fs)", nid, self._nodes[nid].timeout_s)
-                        store.set(nid, self._nodes[nid].fallback)
+                        logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
+                        wall_ms = (time.perf_counter() - t_submit) * 1000
+                        fb = node.fallback
+                        store.set(nid, fb)
+                        self._emit_agent_heartbeat(
+                            nid, node, store, fb, wall_ms, timed_out=True, exec_failed=False
+                        )
                     except Exception as exc:
                         logger.warning("Node '%s' failed: %s", nid, exc)
-                        store.set(nid, self._nodes[nid].fallback)
+                        wall_ms = (time.perf_counter() - t_submit) * 1000
+                        fb = node.fallback
+                        store.set(nid, fb)
+                        self._emit_agent_heartbeat(
+                            nid, node, store, fb, wall_ms, timed_out=False, exec_failed=True
+                        )
                     sorter.done(nid)
 
         return store
+
+    @staticmethod
+    def _emit_agent_heartbeat(
+        nid: str,
+        node: DAGNode,
+        store: ResultStore,
+        result: Any,
+        duration_ms: float,
+        *,
+        timed_out: bool,
+        exec_failed: bool,
+    ) -> None:
+        try:
+            from .heartbeat_hooks import classify_agent_outcome, sources_for_agent_snapshot
+            from .registry import get_agent_registry
+            from services.agent_heartbeat_store import record_agent_heartbeat
+
+            if get_agent_registry().get(nid) is None:
+                return
+            outcome = classify_agent_outcome(result, timed_out=timed_out, exec_failed=exec_failed)
+            ratio, srcs = sources_for_agent_snapshot(nid)
+            record_agent_heartbeat(
+                agent=nid,
+                conflict=getattr(store, "conflict", "") or "",
+                cycle_id=getattr(store, "cycle_id", "") or "",
+                outcome=outcome,
+                duration_ms=duration_ms,
+                sources_ok_ratio=ratio,
+                sources=srcs,
+            )
+        except Exception as exc:
+            logger.debug("agent heartbeat not recorded for %s: %s", nid, exc)
 
     def run_streaming(self, executors: Dict[str, Callable], store: ResultStore) -> Generator:
         """Like run(), but yields (node_id, result) only for streamable nodes.
@@ -200,25 +246,41 @@ class DAGScheduler:
                         if node.streamable:
                             yield (nid, node.fallback)
                         continue
-                    futures[pool.submit(self._run_node, node, executor, store)] = nid
+                    t_submit = time.perf_counter()
+                    futures[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
 
-                for future in futures:
-                    nid = futures[future]
+                for future, (nid, t_submit) in futures.items():
                     node = self._nodes[nid]
                     try:
-                        result = future.result(timeout=node.timeout_s)
-                    except (FuturesTimeoutError, Exception) as exc:
-                        logger.warning("Node '%s' failed/timed out: %s", nid, exc)
+                        result, inner_ms = future.result(timeout=node.timeout_s)
+                        timed_out = False
+                        exec_failed = False
+                    except FuturesTimeoutError:
+                        logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
                         result = node.fallback
+                        inner_ms = (time.perf_counter() - t_submit) * 1000
+                        timed_out = True
+                        exec_failed = False
+                    except Exception as exc:
+                        logger.warning("Node '%s' failed: %s", nid, exc)
+                        result = node.fallback
+                        inner_ms = (time.perf_counter() - t_submit) * 1000
+                        timed_out = False
+                        exec_failed = True
                     store.set(nid, result)
+                    self._emit_agent_heartbeat(
+                        nid, node, store, result, inner_ms, timed_out=timed_out, exec_failed=exec_failed
+                    )
                     sorter.done(nid)
                     if node.streamable:
                         yield (nid, result)
 
     @staticmethod
-    def _run_node(node: DAGNode, executor: Callable, store: ResultStore) -> Any:
-        """Execute a single node's callable, passing the store for dep lookup."""
+    def _run_node(node: DAGNode, executor: Callable, store: ResultStore) -> Tuple[Any, float]:
+        """Execute a single node's callable, passing the store for dep lookup. Returns (result, duration_ms)."""
         from .analysis_run_state import invoke_with_current_store
+
+        t0 = time.perf_counter()
 
         def _run() -> Any:
             return invoke_with_current_store(store, executor)
@@ -227,6 +289,8 @@ class DAGScheduler:
             from observability import run_node_traced
 
             conflict = getattr(store, "conflict", "") or ""
-            return run_node_traced(node.id, node.node_type, conflict, _run)
+            out = run_node_traced(node.id, node.node_type, conflict, _run)
         except Exception:
-            return _run()
+            out = _run()
+        duration_ms = (time.perf_counter() - t0) * 1000
+        return out, duration_ms

@@ -258,6 +258,7 @@ class ChokepointResult(BaseAgentResult):
     chokepoints: List[Dict[str, Any]] = Field(default_factory=list)
     gdelt_disruption: Dict[str, Any] = Field(default_factory=dict)
     external_status: Dict[str, Any] = Field(default_factory=dict)
+    data_confidence: str = "estimated"  # live | estimated | degraded
 
 
 # ---------------------------------------------------------------------------

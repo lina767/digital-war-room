@@ -120,6 +120,19 @@ async def analyze_stream(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
     )
 
 
+@router.get("/status")
+async def agents_ops_status() -> Any:
+    """
+    GET /api/status
+    Ops snapshot for monitoring: per-agent heartbeat (last run, last successful run, 24h error rate,
+    Haiku token slice), plus global Anthropic budget. In-memory since process start; structured
+    ``agent_heartbeat`` logs are also emitted on each agent node completion.
+    """
+    from services.agent_heartbeat_store import get_ops_snapshot
+
+    return get_ops_snapshot()
+
+
 @router.get("/agents/status")
 async def agents_status(state: StateServiceDep) -> Any:
     """

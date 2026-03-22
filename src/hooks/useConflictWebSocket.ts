@@ -210,9 +210,15 @@ export interface ConflictData {
       data_quality: "live_ais" | "estimated" | "baseline_only";
     }>;
     chokepoint_score?: number;
+    /** Aggregate feed quality (aligned with backend agent_data_confidence). */
+    data_confidence?: "live" | "estimated" | "degraded";
     summary?: string;
     _meta?: AgentMeta;
   };
+  /** Per-agent data quality from CEO pipeline (degraded = no reliable feed). */
+  agent_data_confidence?: Record<string, "live" | "estimated" | "degraded">;
+  /** Agents whose scores were excluded from composite — not evidence of safety. */
+  degraded_agents?: string[];
   /** Heuristic anomaly flags vs previous cached run (e.g. military chatter spike). */
   pattern_flags?: Array<{
     id?: string;

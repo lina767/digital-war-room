@@ -69,6 +69,8 @@ export interface AgentMeta {
   sources: SourceResult[];
   confidence: ScoreConfidence;
   data_freshness: "live" | "recent" | "stale" | "unavailable";
+  /** live / estimated / degraded — aligns with CEO agent_data_confidence. */
+  data_confidence?: "live" | "estimated" | "degraded";
   fallback_used?: boolean;
   error_summary?: string | null;
 }
@@ -225,6 +227,52 @@ export async function getAgentsMonitoring(): Promise<AgentsMonitoringResponse | 
     const res = await fetchWithTimeout(apiUrl("agents/monitoring"), { method: "GET", timeoutMs: 15_000 });
     if (!res.ok) return null;
     return (await res.json()) as AgentsMonitoringResponse;
+  } catch {
+    return null;
+  }
+}
+
+/** GET /api/status — per-agent heartbeat, 24h error rate, Haiku quota slice (process lifetime). */
+export interface AgentsOpsHeartbeatRow {
+  at: number;
+  at_iso: string;
+  conflict?: string;
+  outcome?: string;
+  duration_ms?: number;
+  sources_ok_ratio?: number | null;
+}
+
+export interface AgentsOpsAgentRow {
+  agent: string;
+  division: string;
+  last_run: AgentsOpsHeartbeatRow | null;
+  last_successful_run: AgentsOpsHeartbeatRow | null;
+  error_rate_24h: number | null;
+  runs_24h_sample: number;
+  quota: {
+    haiku_month_tokens?: TokenInOut | null;
+    haiku_last_run_tokens?: TokenInOut | null;
+  };
+}
+
+export interface AgentsOpsStatusResponse {
+  generated_at: number;
+  generated_at_iso: string;
+  window_error_rate_sec: number;
+  agents: AgentsOpsAgentRow[];
+  anthropic_haiku_global: {
+    month_budget_usd?: number;
+    month_spent_usd?: number;
+    model?: string;
+  };
+  quota_note: string;
+}
+
+export async function getAgentsOpsStatus(): Promise<AgentsOpsStatusResponse | null> {
+  try {
+    const res = await fetchWithTimeout(`${getApiBase()}/api/status`, { method: "GET", timeoutMs: 15_000 });
+    if (!res.ok) return null;
+    return (await res.json()) as AgentsOpsStatusResponse;
   } catch {
     return null;
   }

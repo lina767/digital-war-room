@@ -29,6 +29,7 @@ Formatting:
 - Name streams when useful: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST,
   DIPLO, PROXIMITY, CHOKEPOINT, Signal Framework (payload key "narrative") when present.
 - If two signals contradict, say so briefly and which stream is softer evidence.
+- If PAYLOAD_JSON includes "degraded_agents" (non-empty), name those streams and clarify that low scores there reflect missing feeds, not necessarily calm conditions.
 - Stay under ~450 words."""
 
 _AGENT_ORDER = (
@@ -101,6 +102,8 @@ def synthesize_narrative(agent_outputs: Dict[str, Any]) -> str:
         "division_composite_score": agent_outputs.get("division_composite_score"),
         "division_scores": agent_outputs.get("division_scores"),
         "agent_scores": agent_outputs.get("agent_scores"),
+        "agent_data_confidence": agent_outputs.get("agent_data_confidence"),
+        "degraded_agents": agent_outputs.get("degraded_agents"),
         "acled_reference_analyses": agent_outputs.get("acled_reference_analyses"),
     }
     for k in _AGENT_ORDER:

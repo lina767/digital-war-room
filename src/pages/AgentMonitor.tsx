@@ -8,10 +8,13 @@ import {
   getAgentsHealth,
   getAgentsHistory,
   getAgentsMonitoring,
+  getAgentsOpsStatus,
   getAnalyzeStatus,
   triggerRefreshAnalysis,
   type AgentsHealthResponse,
   type AgentsMonitoringResponse,
+  type AgentsOpsAgentRow,
+  type AgentsOpsStatusResponse,
   type AnalysisRunSummary,
   type MonitoringErrorEntry,
 } from "@/lib/api";
@@ -29,6 +32,8 @@ import {
   RefreshCw,
   ChevronDown,
   DollarSign,
+  Eye,
+  EyeOff,
   Layers,
   ScrollText,
 } from "lucide-react";
@@ -68,6 +73,13 @@ function formatErrorTime(ts: number): string {
   }
 }
 
+function isAgentBlindOps(row: AgentsOpsAgentRow): boolean {
+  const er = row.error_rate_24h;
+  if (er != null && er >= 0.25) return true;
+  if (row.last_run?.outcome === "failed") return true;
+  return false;
+}
+
 function formatRelativeTime(iso?: string): string {
   if (!iso) return "—";
   try {
@@ -105,6 +117,7 @@ function AgentMonitorContent() {
   const [health, setHealth] = useState<AgentsHealthResponse | null>(null);
   const [history, setHistory] = useState<AnalysisRunSummary[]>([]);
   const [monitoring, setMonitoring] = useState<AgentsMonitoringResponse | null>(null);
+  const [opsStatus, setOpsStatus] = useState<AgentsOpsStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runAgainLoading, setRunAgainLoading] = useState(false);
@@ -113,16 +126,18 @@ function AgentMonitorContent() {
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
-      const [statusRes, healthRes, historyRes, monRes] = await Promise.all([
+      const [statusRes, healthRes, historyRes, monRes, opsRes] = await Promise.all([
         getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
         getAgentsMonitoring(),
+        getAgentsOpsStatus(),
       ]);
       if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
       if (healthRes) setHealth(healthRes);
       if (historyRes?.runs) setHistory(historyRes.runs);
       if (monRes) setMonitoring(monRes);
+      if (opsRes) setOpsStatus(opsRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load monitoring data");
     } finally {
@@ -198,16 +213,18 @@ function AgentMonitorContent() {
           break;
         }
       }
-      const [statusRes, healthRes, historyRes, monRes] = await Promise.all([
+      const [statusRes, healthRes, historyRes, monRes, opsRes] = await Promise.all([
         getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
         getAgentsMonitoring(),
+        getAgentsOpsStatus(),
       ]);
       if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
       if (healthRes) setHealth(healthRes);
       if (historyRes?.runs) setHistory(historyRes.runs);
       if (monRes) setMonitoring(monRes);
+      if (opsRes) setOpsStatus(opsRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to refresh");
       toast.error("Refresh failed", { description: e instanceof Error ? e.message : "Unknown error" });
@@ -326,6 +343,90 @@ function AgentMonitorContent() {
             {error}
           </div>
         )}
+
+        {/* Ops heartbeat: 24h error rate + last run (backend process memory) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              Ops heartbeat
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              From structured <code className="text-[10px]">agent_heartbeat</code> logs per DAG run. Error rate uses
+              the last 24h of in-memory runs (resets on deploy). Haiku quota is monthly token spend vs budget.
+            </p>
+            {opsStatus?.anthropic_haiku_global && (
+              <p className="text-xs text-muted-foreground font-mono mt-1">
+                Haiku month: ${opsStatus.anthropic_haiku_global.month_spent_usd?.toFixed(4) ?? "—"} / $
+                {opsStatus.anthropic_haiku_global.month_budget_usd ?? "—"} · {opsStatus.anthropic_haiku_global.model ?? ""}
+              </p>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {opsStatus?.agents?.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse min-w-[720px]">
+                  <thead>
+                    <tr className="border-b border-border text-left">
+                      <th className="py-1.5 pr-2 font-mono text-xs">Vision</th>
+                      <th className="py-1.5 pr-2 font-mono text-xs">Agent</th>
+                      <th className="py-1.5 pr-2 font-mono text-xs">24h err</th>
+                      <th className="py-1.5 pr-2 font-mono text-xs">Last outcome</th>
+                      <th className="py-1.5 pr-2 font-mono text-xs">Sources OK</th>
+                      <th className="py-1.5 font-mono text-xs">Last run</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {opsStatus.agents.map((row) => {
+                      const blind = isAgentBlindOps(row);
+                      const er = row.error_rate_24h;
+                      const src = row.last_run?.sources_ok_ratio;
+                      return (
+                        <tr key={row.agent} className="border-b border-border/40">
+                          <td className="py-1.5 pr-2 align-middle" title={blind ? "Elevated failures or last run failed" : "OK"}>
+                            {blind ? (
+                              <EyeOff className="h-4 w-4 text-amber-500" aria-label="Likely blind or degraded" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-emerald-600/80" aria-label="OK" />
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-2 font-mono text-xs">{row.agent}</td>
+                          <td className="py-1.5 pr-2 tabular-nums text-xs">
+                            {er != null ? `${(er * 100).toFixed(1)}% (${row.runs_24h_sample} runs)` : "—"}
+                          </td>
+                          <td className="py-1.5 pr-2 text-xs">
+                            {row.last_run?.outcome ? (
+                              <Badge variant={row.last_run.outcome === "failed" ? "destructive" : "secondary"} className="text-[10px]">
+                                {row.last_run.outcome}
+                              </Badge>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-2 tabular-nums text-xs">
+                            {src != null && src !== undefined ? `${Math.round(src * 100)}%` : "—"}
+                          </td>
+                          <td className="py-1.5 text-xs text-muted-foreground">
+                            {row.last_run?.at_iso
+                              ? formatRelativeTime(row.last_run.at_iso)
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No heartbeat data yet. Run at least one full analysis after deploy to populate this table.
+              </p>
+            )}
+            {opsStatus?.quota_note && (
+              <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">{opsStatus.quota_note}</p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Live alerts */}
         {(degradedSources.length > 0 || fallbackAgents.length > 0) && (

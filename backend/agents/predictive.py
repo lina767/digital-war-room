@@ -129,13 +129,21 @@ def _compute_escalation_score(combined_score: float, agent_scores: Dict[str, flo
     return max(combined_score, peak_weighted)
 
 
-def build_predictive_block(conflict: str, combined_score: float, agent_scores: Dict[str, float]) -> PredictiveBlock:
+def build_predictive_block(
+    conflict: str,
+    combined_score: float,
+    agent_scores: Dict[str, float],
+    *,
+    degraded_agents: Optional[List[str]] = None,
+) -> PredictiveBlock:
     """
     Build predictive block from supervisor scores and per-agent scores.
 
     Uses conflict-specific baselines and a peak-weighted escalation score
     that reflects crisis signals from top agents instead of being dampened
     by quiet agents.
+
+    *degraded_agents*: streams with no reliable feed — scores are not treated as evidence of calm.
     """
     baseline_level = _get_conflict_baseline(conflict)
     baseline_range = _range_from_level(baseline_level)
@@ -169,6 +177,10 @@ def build_predictive_block(conflict: str, combined_score: float, agent_scores: D
 
     confidence: PredictiveConfidence = "HIGH" if len([s for s in agent_scores.values() if s > 0]) >= 5 else "MEDIUM"
 
+    notes_24h = f"Peak-weighted score {escalation_score:.0f} (combined avg {combined_score:.0f})."
+    if degraded_agents:
+        notes_24h += f" Degraded streams (unknown signal quality): {', '.join(degraded_agents)}."
+
     escalation_24h: EscalationForecast = {
         "horizon": "24h",
         "level": level_24h,
@@ -177,7 +189,7 @@ def build_predictive_block(conflict: str, combined_score: float, agent_scores: D
         "confidence": confidence,
         "drivers": driver_labels,
         "vs_baseline": vs_baseline,
-        "notes": f"Peak-weighted score {escalation_score:.0f} (combined avg {combined_score:.0f}).",
+        "notes": notes_24h,
     }
 
     # 7d uses same score/level as 24h; horizon is for display/planning only.
