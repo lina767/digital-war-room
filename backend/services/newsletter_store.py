@@ -247,6 +247,20 @@ def mark_daily_newsletter_completed() -> None:
         conn.close()
 
 
+def clear_daily_newsletter_lock_today() -> None:
+    """
+    Remove today's lock row (incomplete run). Use when the job acquired the lock but sent zero
+    emails so cron / a later attempt can retry the same UTC day.
+    """
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    conn = _ensure_db()
+    try:
+        conn.execute("DELETE FROM newsletter_daily_lock WHERE day_utc = ?", (day,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def remove_subscriber_by_email(email: str) -> bool:
     """
     Remove a subscriber row by email (e.g. bounce/complaint webhook). Returns True if a row was deleted.

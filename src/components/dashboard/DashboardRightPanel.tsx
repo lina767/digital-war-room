@@ -131,6 +131,9 @@ interface DashboardRightPanelProps {
   displayConflictLabel: string;
   activeConflict?: string | null;
   analysisLoading?: boolean;
+  analysisRunning?: boolean;
+  analysisError?: string | null;
+  onRunAnalysis?: () => void | Promise<unknown>;
   proximityEvidence: ProximityEvidence[];
   /** Empty = all headline sources. Shared with Live ticker. */
   headlineAllowedSources: Set<string>;
@@ -145,6 +148,9 @@ export function DashboardRightPanel({
   displayConflictLabel,
   activeConflict = null,
   analysisLoading,
+  analysisRunning,
+  analysisError,
+  onRunAnalysis,
   proximityEvidence,
   headlineAllowedSources,
   onHeadlineAllowedSourcesChange,
@@ -185,7 +191,16 @@ export function DashboardRightPanel({
             title="UPDATED BRIEFING"
             headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
           >
-            <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} embedded />
+            <UpdatedBriefing
+              data={conflictData}
+              conflictLabel={displayConflictLabel}
+              lastUpdated={lastUpdated}
+              isLoading={analysisLoading}
+              isRunning={analysisRunning}
+              analysisError={analysisError}
+              onRunAnalysis={onRunAnalysis}
+              embedded
+            />
           </CollapsiblePanel>
         );
       case "signal-framework":
@@ -302,7 +317,15 @@ export function DashboardRightPanel({
     const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "—";
     return (
       <div className="space-y-4">
-        <UpdatedBriefing data={conflictData} conflictLabel={displayConflictLabel} lastUpdated={lastUpdated} isLoading={analysisLoading} />
+        <UpdatedBriefing
+          data={conflictData}
+          conflictLabel={displayConflictLabel}
+          lastUpdated={lastUpdated}
+          isLoading={analysisLoading}
+          isRunning={analysisRunning}
+          analysisError={analysisError}
+          onRunAnalysis={onRunAnalysis}
+        />
         <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
           <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">AT A GLANCE</p>
           {summaryLine("Compliance", riskLevel)}

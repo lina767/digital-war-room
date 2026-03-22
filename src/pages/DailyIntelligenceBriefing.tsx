@@ -1,12 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, FileDown, RefreshCw, Share2, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getLatestAnalysis } from "@/lib/api";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
-import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
-import { cn } from "@/lib/utils";
+import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import {
   PREDICTIVE_OUTLOOK_DISCLAIMER,
   PREDICTIVE_OUTLOOK_INTRO_SHORT,
@@ -47,14 +46,25 @@ const BRIEFING_NAV = [
   { href: "#briefing-sources", label: "Sources" },
 ] as const;
 
+/** Daily Briefing is Iran-only; no conflict switching. */
+const DAILY_BRIEFING_CONFLICT = DEFAULT_CONFLICT;
+
 export default function DailyIntelligenceBriefing() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const conflictParam = searchParams.get("conflict") ?? CONFLICT_OPTIONS[0]?.apiValue ?? "Iran";
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const conflictParam = DAILY_BRIEFING_CONFLICT;
   const [data, setData] = useState<ConflictData | null>(null);
   const [fromCache, setFromCache] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Strip legacy ?conflict=… so bookmarks only show /daily-briefing
+  useEffect(() => {
+    if (searchParams.has("conflict")) {
+      navigate("/daily-briefing", { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   const loadBriefing = useCallback(() => {
     setLoading(true);
@@ -106,11 +116,7 @@ export default function DailyIntelligenceBriefing() {
 
   const now = new Date();
   const dayOfOps = Math.max(1, differenceInDays(now, OPERATIONS_START_DATE) + 1);
-  const conflictLabel = CONFLICT_OPTIONS.find((o) => o.apiValue === conflictParam)?.label ?? conflictParam;
-
-  const handleConflictChange = (value: string) => {
-    setSearchParams({ conflict: value }, { replace: true });
-  };
+  const conflictLabel = "Iran";
 
   const globalImpactFindings = (data?.key_findings ?? []).filter((f) =>
     String(f).toLowerCase().includes("global impact")
@@ -157,30 +163,6 @@ export default function DailyIntelligenceBriefing() {
             <span>Back to dashboard</span>
           </Link>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-              <span className="sr-only">Conflict focus</span>
-              <span aria-hidden className="hidden sm:inline">
-                Focus
-              </span>
-              <select
-                className={cn(
-                  "h-9 min-w-[140px] rounded-md border border-border bg-card/80 px-2.5 py-1 text-sm font-mono text-foreground",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                )}
-                value={conflictParam}
-                onChange={(e) => handleConflictChange(e.target.value)}
-                aria-label="Conflict focus for this briefing"
-              >
-                {!CONFLICT_OPTIONS.some((o) => o.apiValue === conflictParam) && (
-                  <option value={conflictParam}>{conflictLabel}</option>
-                )}
-                {CONFLICT_OPTIONS.map((o) => (
-                  <option key={o.id} value={o.apiValue}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
             <Button
               variant="outline"
               size="sm"

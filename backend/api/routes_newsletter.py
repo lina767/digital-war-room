@@ -19,6 +19,7 @@ from middleware.rate_limit import limiter
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
 from services.newsletter_store import (
     add_subscriber,
+    clear_daily_newsletter_lock_today,
     confirm_subscription,
     get_conflicts_with_subscribers,
     list_confirmed_subscribers,
@@ -217,8 +218,19 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
             elif isinstance(r, Exception):
                 logger.warning("Newsletter send task error: %s", r)
 
+    # Only mark the UTC day complete if at least one email was sent. Otherwise the lock would
+    # block retries even when analyze_conflict timed out for every conflict or all Resend calls failed.
     if _NEWSLETTER_DAILY_DEDUPE and acquired_lock:
-        mark_daily_newsletter_completed()
+        if sent_total > 0:
+            mark_daily_newsletter_completed()
+        else:
+            clear_daily_newsletter_lock_today()
+            logger.warning(
+                "Newsletter daily: 0 emails sent for conflicts=%s (analysis timeout, send failure, or no confirmed subscribers). "
+                "Lock cleared so send-daily / cron can retry today.",
+                conflicts,
+            )
+
     return (conflicts, sent_total, False)
 
 

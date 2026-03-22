@@ -35,7 +35,7 @@ Newsletter feature: subscribers receive a daily email with the current Daily Bri
 - **Reference:** [Resend – Managing domains](https://resend.com/docs/dashboard/domains/introduction) (SPF, DKIM, verification).
 - **Module** `backend/services/newsletter_sender.py`:
   - `send_confirmation_email(email: str, conflict: str, confirm_token: str)` – one-time link to `.../newsletter/confirm?token=...`.
-  - `send_daily_briefing(email: str, conflict: str, briefing_data: dict, unsubscribe_token: str)` – subject e.g. `Daily Briefing – [Conflict] – [Date]`; body: summary, key findings (e.g. first 10), link to `/daily-briefing?conflict=...`, footer with unsubscribe link `.../newsletter/unsubscribe?token=...`.
+  - `send_daily_briefing(email: str, conflict: str, briefing_data: dict, unsubscribe_token: str)` – subject e.g. `Daily Briefing – [Conflict] – [Date]`; body: summary, key findings (e.g. first 10), link to `/daily-briefing` (Iran-focused page; no conflict query), footer with unsubscribe link `.../newsletter/unsubscribe?token=...`.
 - All copy in **English**.
 
 ---
@@ -89,8 +89,20 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 ## 7. Env and docs
 
 - **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL`, optional `RESEND_NEWSLETTER_SEGMENT_ID` / `RESEND_NEWSLETTER_SEGMENT_IDS`, `RESEND_CONTACTS_SYNC`, `NEWSLETTER_CRON_SECRET`, `NEWSLETTER_SEND_UTC_HOUR=6`.
+
+### Troubleshooting: „Keine Mail heute“
+
+| Ursache | Was prüfen |
+|--------|------------|
+| **Zeitzone** | Versand ist **`NEWSLETTER_SEND_UTC_HOUR` UTC** (Standard: 06:00 **UTC**, nicht Ortszeit). |
+| **Double opt-in** | Nur Zeilen mit gesetztem `confirmed_at` in SQLite bekommen Mail. Nach Subscribe **Bestätigungslink** in der E-Mail klicken. |
+| **Deploy / Neustart** | In-process Scheduler wartet bis zur **nächsten** vollen Stunde UTC – wenn der Server **nach** dieser Zeit startet, ist der Lauf für **diesen** Tag versäumt (nächster Lauf: Folgetag), sofern kein externes Cron `POST /api/newsletter/send-daily` triggert. |
+| **Ephemeral Disk (z. B. Railway)** | Ohne Volume geht **`NEWSLETTER_DB_PATH`** (SQLite) bei Deploy verloren → Abonnenten/Lock weg. Volume mounten und `NEWSLETTER_DB_PATH` auf persistenten Pfad setzen. |
+| **Dedupe / Retry** | Wenn der Lauf **0** Mails sendet (z. B. `analyze_conflict` Timeout für alle Konflikte), wird der Tages-Lock **nicht** als abgeschlossen markiert und gelöscht, damit **Cron/Retry** am selben UTC-Tag noch greifen kann. |
+| **Resend** | `RESEND_API_KEY`, `NEWSLETTER_FROM` (verifizierte Domain); Resend-Dashboard auf Bounces/Logs prüfen. |
+
 - **Scheduling (avoid double daily send):** Either use the **in-process** scheduler (default when Resend is configured) **or** only **external cron** on `POST /api/newsletter/send-daily`. If you use cron only, set **`NEWSLETTER_IN_PROCESS_SCHEDULER=false`** so the app does not also run the 06:00 UTC loop in `main.py`.
-- **Dedupe:** **`NEWSLETTER_DAILY_DEDUPE`** (default `true`) uses a SQLite row per UTC day so a second trigger the same day no-ops after the first successful run.
+- **Dedupe:** **`NEWSLETTER_DAILY_DEDUPE`** (default `true`) uses a SQLite row per UTC day; the day is marked **completed only after at least one briefing email was sent**, so a failed run (0 sends) does not block retries the same UTC day.
 - **Send tuning:** `NEWSLETTER_SEND_PARALLELISM` (default `5`), `NEWSLETTER_SEND_MAX_RETRIES`, `NEWSLETTER_SEND_BACKOFF_BASE` for Resend 429/5xx retries.
 - **Bounces / complaints:** Configure a Resend webhook pointing to **`POST /api/webhooks/resend`** and set **`RESEND_WEBHOOK_SECRET`** to the Svix signing secret from the webhook details page. Hard bounces and complaints remove the subscriber locally and sync Resend Contacts when enabled.
 - **API-KEYS.md / DEPLOYMENT.md:** Resend setup; cron (if used) at 06:00 UTC calling `POST /api/newsletter/send-daily`.

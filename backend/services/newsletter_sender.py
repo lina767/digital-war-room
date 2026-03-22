@@ -92,8 +92,9 @@ def _unsubscribe_link(unsubscribe_token: str) -> str:
     return f"{_base_url()}/newsletter/unsubscribe?{urlencode({'token': unsubscribe_token})}"
 
 
-def _briefing_link(conflict: str) -> str:
-    return f"{_base_url()}/daily-briefing?{urlencode({'conflict': conflict})}"
+def _briefing_link(_conflict: str) -> str:
+    """Frontend Daily Briefing page is Iran-only; URL has no conflict selector."""
+    return f"{_base_url()}/daily-briefing"
 
 
 def _mask_email(addr: str) -> str:

@@ -4,8 +4,10 @@ import { RootCauseSuggestions } from "@/components/dashboard/RootCauseSuggestion
 import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { TextSkeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { formatTimeAgo } from "@/lib/utils";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
+import { Play } from "lucide-react";
 
 interface UpdatedBriefingProps {
   data: ConflictData | null;
@@ -13,6 +15,12 @@ interface UpdatedBriefingProps {
   lastUpdated: Date | null;
   /** True while initial fetch of cached analysis is in progress (improves perceived load time). */
   isLoading?: boolean;
+  /** True while an explicit analysis run is in progress. */
+  isRunning?: boolean;
+  /** Optional error message from analysis trigger/polling. */
+  analysisError?: string | null;
+  /** Trigger a new analysis run from the UI. */
+  onRunAnalysis?: () => void | Promise<unknown>;
   /** When true, render only content (no panel title). Use when already wrapped in a CollapsiblePanel with the same title. */
   embedded?: boolean;
 }
@@ -21,7 +29,10 @@ function UpdatedBriefingContent({
   data,
   conflictLabel,
   isLoading,
-}: Pick<UpdatedBriefingProps, "data" | "conflictLabel" | "isLoading">) {
+  isRunning,
+  analysisError,
+  onRunAnalysis,
+}: Pick<UpdatedBriefingProps, "data" | "conflictLabel" | "isLoading" | "isRunning" | "analysisError" | "onRunAnalysis">) {
   const summary = data?.summary ?? null;
   const narrativeStory = data?.narrative_story ?? null;
   const scenarios = data?.scenarios ?? [];
@@ -34,7 +45,25 @@ function UpdatedBriefingContent({
     <>
       {isLoading && !hasContent && <TextSkeleton lines={3} className="text-xs" />}
         {!hasContent && !isLoading && (
-          <p className="text-xs text-muted-foreground italic">Run analysis for {conflictLabel} to see the briefing.</p>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground italic">Run analysis for {conflictLabel} to see the briefing.</p>
+            {analysisError && (
+              <p className="text-xs text-destructive">{analysisError}</p>
+            )}
+            {onRunAnalysis && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px] gap-1.5"
+                onClick={() => void onRunAnalysis()}
+                disabled={Boolean(isRunning)}
+              >
+                <Play className="h-3.5 w-3.5" aria-hidden />
+                {isRunning ? "Running..." : "Run analysis"}
+              </Button>
+            )}
+          </div>
         )}
         {summary && (
           <div className="mb-3">
@@ -86,9 +115,25 @@ function UpdatedBriefingContent({
   );
 }
 
-export function UpdatedBriefing({ data, conflictLabel, lastUpdated, isLoading, embedded }: UpdatedBriefingProps) {
+export function UpdatedBriefing({
+  data,
+  conflictLabel,
+  lastUpdated,
+  isLoading,
+  isRunning,
+  analysisError,
+  onRunAnalysis,
+  embedded,
+}: UpdatedBriefingProps) {
   const content = (
-    <UpdatedBriefingContent data={data} conflictLabel={conflictLabel} isLoading={isLoading} />
+    <UpdatedBriefingContent
+      data={data}
+      conflictLabel={conflictLabel}
+      isLoading={isLoading}
+      isRunning={isRunning}
+      analysisError={analysisError}
+      onRunAnalysis={onRunAnalysis}
+    />
   );
 
   if (embedded) {

@@ -56,7 +56,15 @@ function DashboardContent() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [agentExpanded, setAgentExpanded] = useState<string | null>(null);
 
-  const { data: conflictData, status, initialLoadPending, lastUpdated, dataFromCache } = useConflictWebSocket({
+  const {
+    data: conflictData,
+    status,
+    initialLoadPending,
+    lastUpdated,
+    dataFromCache,
+    analysisError,
+    runAnalysis,
+  } = useConflictWebSocket({
     conflict: selectedConflict,
     enabled: true,
   });
@@ -412,6 +420,9 @@ function DashboardContent() {
           displayConflictLabel={displayConflictLabel}
           activeConflict={selectedConflict}
           analysisLoading={initialLoadPending}
+          analysisRunning={status === "analyzing"}
+          analysisError={analysisError}
+          onRunAnalysis={runAnalysis}
           proximityEvidence={proximityEvidence}
           headlineAllowedSources={headlineAllowedSources}
           onHeadlineAllowedSourcesChange={setHeadlineAllowedSources}
