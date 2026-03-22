@@ -17,6 +17,10 @@ import {
   CONFLICT_CENTERS,
   matchConflict,
   THEATER_EVENT_STYLE,
+  THEATER_STRIKE_LIKE_TYPES,
+  inferStrikeAttribution,
+  STRIKE_ATTRIBUTION_STYLE,
+  strikeMarkerColors,
   type GeointAnomaly,
   type SigintAircraft,
   type SigintShip,
@@ -51,7 +55,7 @@ interface LayerVisibility {
 }
 
 type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
-type ExplosionTimeRange = "6h" | "24h" | "48h" | "7d" | "all";
+type StrikeTimeRange = "6h" | "24h" | "48h" | "7d" | "all";
 
 const INITIAL_LAYERS: LayerVisibility = {
   theaterEvents: true,
@@ -81,10 +85,12 @@ function parseEventTimestamp(value?: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function withinExplosionRange(evt: TheaterEvent, range: ExplosionTimeRange): boolean {
-  if (range === "all" || evt.event_type !== "explosion") return true;
+/** Time window for strike-like events (airstrike, missile, etc.); fire/other stay visible unless undated. */
+function withinStrikeTimeRange(evt: TheaterEvent, range: StrikeTimeRange): boolean {
+  if (range === "all") return true;
+  if (!THEATER_STRIKE_LIKE_TYPES.has(evt.event_type)) return true;
 
-  const hoursByRange: Record<Exclude<ExplosionTimeRange, "all">, number> = {
+  const hoursByRange: Record<Exclude<StrikeTimeRange, "all">, number> = {
     "6h": 6,
     "24h": 24,
     "48h": 48,
@@ -92,7 +98,7 @@ function withinExplosionRange(evt: TheaterEvent, range: ExplosionTimeRange): boo
   };
 
   const timestamp = parseEventTimestamp(evt.event_date ?? evt.date_start);
-  if (timestamp == null) return false;
+  if (timestamp == null) return true;
 
   const cutoff = Date.now() - hoursByRange[range] * 60 * 60 * 1000;
   return timestamp >= cutoff;
@@ -174,7 +180,7 @@ function TheaterMapInner({
   const [selectedSigint, setSelectedSigint] = useState<
     { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
   >(null);
-  const [explosionRange, setExplosionRange] = useState<ExplosionTimeRange>("7d");
+  const [strikeTimeRange, setStrikeTimeRange] = useState<StrikeTimeRange>("7d");
   /** Off: no green cluster halos; all strikes render as individual markers (WebGL). */
   const eventClustering = false;
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -268,7 +274,7 @@ function TheaterMapInner({
   }, [activeConflict]);
 
   useEffect(() => {
-    setExplosionRange("7d");
+    setStrikeTimeRange("7d");
   }, [activeConflict]);
 
   useEffect(() => {
@@ -316,8 +322,8 @@ function TheaterMapInner({
   );
 
   const filteredTheaterEvents = useMemo(
-    () => theaterEvents.filter((evt) => withinExplosionRange(evt, explosionRange)),
-    [theaterEvents, explosionRange],
+    () => theaterEvents.filter((evt) => withinStrikeTimeRange(evt, strikeTimeRange)),
+    [theaterEvents, strikeTimeRange],
   );
 
   const theaterDisplayItems = useMemo(
@@ -343,6 +349,19 @@ function TheaterMapInner({
         label,
         fill,
         count: filteredTheaterEvents.filter((e) => e.event_type === key).length,
+      }))
+      .filter((item) => item.count > 0);
+  }, [filteredTheaterEvents, theaterLoading]);
+
+  const attributionLegendItems = useMemo(() => {
+    if (theaterLoading || filteredTheaterEvents.length === 0) return [];
+    const keys = ["us", "israel", "axis"] as const;
+    return keys
+      .map((key) => ({
+        key,
+        label: STRIKE_ATTRIBUTION_STYLE[key].label,
+        fill: STRIKE_ATTRIBUTION_STYLE[key].fill,
+        count: filteredTheaterEvents.filter((e) => inferStrikeAttribution(e) === key).length,
       }))
       .filter((item) => item.count > 0);
   }, [filteredTheaterEvents, theaterLoading]);
@@ -411,11 +430,15 @@ function TheaterMapInner({
       const layerId = info.layer?.id as string | undefined;
       if (o.pick?.kind === "theater") {
         const evt = o.pick.event;
-        const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
+        const attr = inferStrikeAttribution(evt);
+        const attrHint =
+          attr !== "unknown" ? ` · ${STRIKE_ATTRIBUTION_STYLE[attr].label}` : "";
         const baseLabel = evt.label ?? evt.event_type;
         const locationPart = [evt.country, evt.admin1].filter(Boolean).join(", ");
-        const content = locationPart ? `${baseLabel} · ${locationPart}` : baseLabel;
-        setTooltipFromDeck(content, style.stroke, info);
+        const content = (locationPart ? `${baseLabel} · ${locationPart}` : baseLabel) + attrHint;
+        const { stroke } = strikeMarkerColors(evt);
+        const border = `rgba(${stroke[0]},${stroke[1]},${stroke[2]},${stroke[3] / 255})`;
+        setTooltipFromDeck(content, border, info);
         return;
       }
       if (o.pick?.kind === "aircraft") {
@@ -442,6 +465,8 @@ function TheaterMapInner({
     },
     [handleTooltipHide, setTooltipFromDeck],
   );
+
+  const selectedStrikeAttr = selectedEvent != null ? inferStrikeAttribution(selectedEvent) : "unknown";
 
   return (
     <div ref={mapContainerRef} className="absolute inset-0" role="application" aria-label="Theater map, conflict region">
@@ -576,6 +601,14 @@ function TheaterMapInner({
               )}
             </div>
           </div>
+          {selectedStrikeAttr !== "unknown" && (
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-muted-foreground">Map attribution</span>
+              <span className="text-right text-foreground/90">
+                {STRIKE_ATTRIBUTION_STYLE[selectedStrikeAttr].label}
+              </span>
+            </div>
+          )}
           {(selectedEvent.actor1 != null ||
             selectedEvent.actor2 != null ||
             selectedEvent.side_a != null ||
@@ -690,7 +723,7 @@ function TheaterMapInner({
             type="button"
             onClick={() => toggleLayer("theaterEvents")}
             className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-            title="Theater strike / FIRMS / ACLED event markers"
+            title="Strike markers (ACLED/FIRMS) — halos & colors by inferred side when text allows"
             aria-label={layers.theaterEvents ? "Hide theater event markers" : "Show theater event markers"}
           >
             <span
@@ -712,20 +745,25 @@ function TheaterMapInner({
             HEAT
             {heatmapLoading && layers.heatmap && <span className="animate-pulse">…</span>}
           </button>
-          <span className="text-[11px] font-mono text-muted-foreground ml-0.5">EXP</span>
-          {(["6h", "24h", "48h", "7d", "all"] as ExplosionTimeRange[]).map((range) => {
-            const isActive = explosionRange === range;
+          <span
+            className="text-[11px] font-mono text-muted-foreground ml-0.5"
+            title="Time filter for strike-type markers (airstrike, missile, explosion, …)"
+          >
+            TIME
+          </span>
+          {(["6h", "24h", "48h", "7d", "all"] as StrikeTimeRange[]).map((range) => {
+            const isActive = strikeTimeRange === range;
             return (
               <button
                 key={range}
                 type="button"
-                onClick={() => setExplosionRange(range)}
+                onClick={() => setStrikeTimeRange(range)}
                 className={`px-1.5 py-0.5 rounded border text-[10px] font-mono uppercase transition-colors touch-manipulation ${
                   isActive
                     ? "bg-destructive/20 border-destructive/60 text-foreground"
                     : "bg-card/60 border-border/70 text-muted-foreground hover:text-foreground"
                 }`}
-                aria-label={`Show explosion events for ${range.toUpperCase()}`}
+                aria-label={`Filter strike events by time window ${range.toUpperCase()}`}
               >
                 {range.toUpperCase()}
               </button>
@@ -874,6 +912,16 @@ function TheaterMapInner({
                 <span className="text-[11px] font-mono text-muted-foreground">Sea lanes</span>
               </div>
             )}
+          </div>
+        )}
+        {attributionLegendItems.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap border-l border-border/50 pl-2">
+            {attributionLegendItems.map(({ key, label, fill }) => (
+              <div key={key} className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full ring-1 ring-white/20" style={{ backgroundColor: fill }} title={label} />
+                <span className="text-[11px] font-mono text-muted-foreground">{label}</span>
+              </div>
+            ))}
           </div>
         )}
         {eventLegendItems.length > 0 && (

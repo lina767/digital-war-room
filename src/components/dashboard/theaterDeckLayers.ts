@@ -4,7 +4,8 @@ import { PathStyleExtension } from "@deck.gl/extensions";
 import type { Layer } from "@deck.gl/core";
 import type { ConflictEventForHeatmap, TheaterEvent } from "@/lib/api";
 import {
-  THEATER_EVENT_STYLE,
+  THEATER_STRIKE_LIKE_TYPES,
+  strikeMarkerColors,
   type GeointAnomaly,
   type SigintAircraft,
   type SigintShip,
@@ -39,13 +40,6 @@ function normalizeChokepointName(name: string): string {
   if (normalized.includes("babelmandeb")) return "babelmandeb";
   if (normalized.includes("suez")) return "suez";
   return normalized;
-}
-
-function hexToRgba(hex: string, a = 255): [number, number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return [128, 128, 128, a];
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, a];
 }
 
 /** Logarithmic marker scale — visually consistent across zoom 2..8 */
@@ -135,6 +129,10 @@ function chokepointZoneData(
 }
 
 const pathDashExt = new PathStyleExtension({ dash: true });
+
+function sanitizeLabelText(text: string): string {
+  return text.replace(/[–—]/g, "-");
+}
 
 /**
  * Builds deck.gl layers for the theater map (WebGL). Order: lines → polygons → heatmap → points (top = last).
@@ -305,18 +303,43 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
   const theaterEvents = theaterDisplayItems.filter((i) => i.type === "event");
 
   if (lv.theaterEvents && theaterEvents.length > 0) {
+    const strikeHalos = theaterEvents
+      .map((item) => item.event)
+      .filter((evt) => THEATER_STRIKE_LIKE_TYPES.has(evt.event_type));
+    if (strikeHalos.length > 0) {
+      layers.push(
+        new ScatterplotLayer({
+          id: "theater-strike-halos",
+          data: strikeHalos.map((evt) => {
+            const { halo } = strikeMarkerColors(evt);
+            return {
+              position: [evt.lon, evt.lat] as [number, number],
+              halo,
+            };
+          }),
+          getPosition: (d) => d.position,
+          getRadius: 13 * s,
+          radiusUnits: "pixels",
+          getFillColor: (d) => d.halo,
+          stroked: false,
+          pickable: false,
+          radiusMinPixels: 8,
+          radiusMaxPixels: 48,
+        }),
+      );
+    }
+
     layers.push(
       new ScatterplotLayer({
         id: "theater-events",
         data: theaterEvents.map((item) => {
           const evt = item.event;
-          const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
-          const [r, g, b] = hexToRgba(style.fill, 255);
+          const { fill, stroke } = strikeMarkerColors(evt);
           return {
             position: [evt.lon, evt.lat] as [number, number],
             pick: { kind: "theater" as const, event: evt },
-            fill: [r, g, b, 230] as [number, number, number, number],
-            stroke: [...hexToRgba(style.stroke, 255).slice(0, 3), 255] as [number, number, number, number],
+            fill,
+            stroke,
           };
         }),
         getPosition: (d) => d.position,
@@ -424,7 +447,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         const mid = route.coordinates[Math.floor(route.coordinates.length / 2)];
         labelData.push({
           pos: [mid[0], mid[1]],
-          text: route.name,
+          text: sanitizeLabelText(route.name),
           color: [56, 189, 248, 230],
         });
       }
@@ -434,7 +457,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         const mid = lane.coordinates[Math.floor(lane.coordinates.length / 2)];
         labelData.push({
           pos: [mid[0], mid[1]],
-          text: lane.name,
+          text: sanitizeLabelText(lane.name),
           color: [45, 212, 191, 230],
         });
       }
@@ -449,6 +472,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
           getSize: 11,
           getColor: (d) => d.color,
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSettings: { sdf: true },
           fontWeight: 500,
           outlineWidth: 2,
           outlineColor: [10, 10, 12, 200],

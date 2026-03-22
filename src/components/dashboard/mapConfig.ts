@@ -65,6 +65,101 @@ export const THEATER_EVENT_STYLE: Record<
   other: { label: "Other", fill: "#6b7280", stroke: "#4b5563" },
 };
 
+/** Event types drawn as “strike” markers with halo (ISW-style attack emphasis). */
+export const THEATER_STRIKE_LIKE_TYPES = new Set([
+  "airstrike",
+  "missile",
+  "drone",
+  "explosion",
+  "naval",
+]);
+
+export type StrikeAttribution = "us" | "israel" | "axis" | "unknown";
+
+/**
+ * Coarse attribution from ACLED/FIRMS text + country (OSINT-style heuristics, not verified truth).
+ * Similar idea to strike maps that distinguish coalition vs regional actors.
+ */
+export function inferStrikeAttribution(evt: {
+  label?: string;
+  notes?: string;
+  actor1?: string;
+  actor2?: string;
+  sub_event_type?: string;
+  country?: string;
+}): StrikeAttribution {
+  const text = [evt.label, evt.notes, evt.actor1, evt.actor2, evt.sub_event_type]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/\b(us forces|united states|u\.s\. military|usaf|us navy|centcom|american forces|operation inherent)\b/.test(text)) {
+    return "us";
+  }
+  if (/\b(israel|idf|iaf|israel defense|israeli air)\b/.test(text)) {
+    return "israel";
+  }
+  if (
+    /\b(iran|irgc|irgc-qf|basij|quds force|houthi|ansarallah|hezbollah|hashd|pmf|pasdaran)\b/.test(text)
+  ) {
+    return "axis";
+  }
+  const cy = (evt.country || "").toLowerCase();
+  if (cy === "israel") return "israel";
+  if (cy === "iran" || cy === "yemen") return "axis";
+  return "unknown";
+}
+
+/** Fill/stroke for attribution when inferrable; unknown falls back to THEATER_EVENT_STYLE by event_type. */
+export const STRIKE_ATTRIBUTION_STYLE: Record<
+  StrikeAttribution,
+  { label: string; fill: string; stroke: string }
+> = {
+  us: { label: "US / coalition", fill: "#1d4ed8", stroke: "#1e3a8a" },
+  israel: { label: "Israel", fill: "#38bdf8", stroke: "#0284c7" },
+  axis: { label: "Iran / axis", fill: "#ea580c", stroke: "#9a3412" },
+  unknown: { label: "Unattributed", fill: "#6b7280", stroke: "#4b5563" },
+};
+
+type Rgba = [number, number, number, number];
+
+function hexToRgbTuple(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return [107, 114, 128];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Deck.gl colors: attribution when inferrable, else event_type palette. */
+export function strikeMarkerColors(evt: {
+  event_type: string;
+  label?: string;
+  notes?: string;
+  actor1?: string;
+  actor2?: string;
+  sub_event_type?: string;
+  country?: string;
+}): { fill: Rgba; stroke: Rgba; halo: Rgba } {
+  const attr = inferStrikeAttribution(evt);
+  if (attr === "unknown") {
+    const style = THEATER_EVENT_STYLE[evt.event_type] ?? THEATER_EVENT_STYLE.other;
+    const [r, g, b] = hexToRgbTuple(style.fill);
+    const [sr, sg, sb] = hexToRgbTuple(style.stroke);
+    return {
+      fill: [r, g, b, 230],
+      stroke: [sr, sg, sb, 255],
+      halo: [r, g, b, 72],
+    };
+  }
+  const style = STRIKE_ATTRIBUTION_STYLE[attr];
+  const [r, g, b] = hexToRgbTuple(style.fill);
+  const [sr, sg, sb] = hexToRgbTuple(style.stroke);
+  return {
+    fill: [r, g, b, 238],
+    stroke: [sr, sg, sb, 255],
+    halo: [r, g, b, 85],
+  };
+}
+
 /**
  * Conflict keys for which SAM / Air routes / Sea lanes overlay data exists (Iran/Gulf/Levant).
  * For other conflicts, those overlays are not rendered.
