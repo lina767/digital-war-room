@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ── Configuration ────────────────────────────────────────────────────────────
 
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
-HF_API_BASE = "https://api-inference.huggingface.co/models/"
+HF_API_BASE = os.getenv("HF_API_BASE", "https://router.huggingface.co/hf-inference/models/")
 HF_API_TIMEOUT = int(os.getenv("HF_API_TIMEOUT", "45"))
 HF_CACHE_MAX_SIZE = int(os.getenv("HF_CACHE_MAX_SIZE", "10000"))
 

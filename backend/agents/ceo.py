@@ -212,7 +212,7 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
             dependencies=summary_ids + ["compliance_build", "acled_refs"],
             node_type="synthesis",
             streamable=True,
-            timeout_s=30.0,
+            timeout_s=90.0,
         )
     )
 

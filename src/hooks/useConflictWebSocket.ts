@@ -495,7 +495,8 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         setAnalysisError("Analysis started – loading data (may take 2–5 min)…");
       }
       await triggerRefreshAnalysis(conflictRef.current);
-      const maxPolls = 48; // 48 × 5s = 4 min
+      // Backend ANALYZE_TIMEOUT_SEC = 300s; poll long enough to outlast a full run + cache write.
+      const maxPolls = 72; // 72 × 5s = 6 min
       for (let i = 0; i < maxPolls; i++) {
         await new Promise((r) => setTimeout(r, 5_000));
         const statusRes = await getAnalyzeStatus(conflictRef.current);

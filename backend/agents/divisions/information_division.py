@@ -126,6 +126,9 @@ class InformationDivision(DivisionHead):
             items = data.get(key, []) if isinstance(data, dict) else []
             filtered = []
             for item in items:
+                if not isinstance(item, dict):
+                    filtered.append(item)
+                    continue
                 text = item.get("title", "") or item.get("text", "") or ""
                 if not text:
                     filtered.append(item)
