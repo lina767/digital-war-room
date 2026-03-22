@@ -694,7 +694,7 @@ async def _generate_haiku_summary_chokepoint(
 # ── Main agent function ─────────────────────────────────────────────────────
 
 
-def run_chokepoint_agent(conflict: str) -> Dict[str, Any]:
+def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run CHOKEPOINT agent: monitors Hormuz, Bab el-Mandeb, Suez."""
 
     async def _run() -> Dict[str, Any]:

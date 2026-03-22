@@ -5,6 +5,7 @@ from agents.analysis_run_state import (
     get_current_cycle_id,
     get_peer_result,
     get_peer_results,
+    get_peers_snapshot,
     invoke_with_current_store,
 )
 from agents.dag_scheduler import DAGNode, DAGScheduler, ResultStore
@@ -13,6 +14,7 @@ from agents.dag_scheduler import DAGNode, DAGScheduler, ResultStore
 def test_outside_run_no_peer():
     assert get_peer_result("sigint") is None
     assert get_peer_results(["sigint", "news"]) == {"sigint": None, "news": None}
+    assert get_peers_snapshot() == {}
     assert get_current_conflict() == ""
     assert get_current_cycle_id() == ""
 
@@ -27,6 +29,7 @@ def test_invoke_exposes_peer_reads():
         assert get_current_cycle_id() == "c-test"
         assert get_peer_result("sigint") == {"sigint_score": 42, "summary": "x"}
         assert get_peer_results(["sigint", "missing"])["missing"] is None
+        assert get_peers_snapshot(exclude="news") == {"sigint": {"sigint_score": 42, "summary": "x"}}
         return "ok"
 
     assert invoke_with_current_store(store, inner) == "ok"

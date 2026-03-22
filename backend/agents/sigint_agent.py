@@ -1140,7 +1140,7 @@ _SIGINT_TOOL_SCHEMAS = [
 ]
 
 
-def run_sigint_agent(conflict: str) -> Dict[str, Any]:
+def run_sigint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return run_agent_with_fallback(
         conflict,
         rule_based_fn=_run_rule_based_sigint,

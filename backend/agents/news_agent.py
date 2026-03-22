@@ -1296,7 +1296,9 @@ _NEWS_TOOL_SCHEMAS = [
 ]
 
 
-def run_news_agent(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+def run_news_agent(
+    conflict: str, context: Optional["AgentContext"] = None, peers: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     def rule_based(c: str):
         return _run_rule_based_news(c, context)
 

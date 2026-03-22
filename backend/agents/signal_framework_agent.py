@@ -444,7 +444,7 @@ class SignalFrameworkReport(BaseModel):
     error: Optional[str] = None
 
 
-def run_signal_framework_agent(conflict: str) -> Dict[str, Any]:
+def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Run the Signal Framework: compare state vs exile/independent sources,
     compute lexical, latency, discrepancy, and reaction signals; return structured report in English.

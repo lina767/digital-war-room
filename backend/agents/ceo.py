@@ -219,38 +219,59 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     return all_nodes, all_executors
 
 
+def _invoke_agent_entry(
+    fn: Any,
+    conflict: str,
+    agent_name: str,
+    store: ResultStore,
+    *,
+    wave2: bool,
+) -> Any:
+    """Ruft ``run_*_agent`` mit optionalem ``AgentContext`` und ``peers=`` (Snapshot anderer Agenten)."""
+    from .analysis_run_state import get_peers_snapshot
+
+    peers = get_peers_snapshot(exclude=agent_name)
+    if wave2:
+        raw = store.get("agent_context")
+        ctx: Any = None
+        if raw is not None:
+            ctx = AgentContext.model_validate(raw) if isinstance(raw, dict) else raw
+        if ctx is not None:
+            try:
+                return fn(conflict, ctx, peers=peers)
+            except TypeError:
+                try:
+                    return fn(conflict, ctx)
+                except TypeError:
+                    pass
+        try:
+            return fn(conflict, peers=peers)
+        except TypeError:
+            return fn(conflict)
+    try:
+        return fn(conflict, peers=peers)
+    except TypeError:
+        return fn(conflict)
+
+
 def _build_agent_executors(conflict: str, registry: AgentRegistry) -> Dict[str, Any]:
-    """Build executor callables for all Tier 1 agent nodes. WAVE2 agents receive shared context."""
-    executors = {}
+    """Build executor callables for all Tier 1 agent nodes; jeder Agent erhält optional ``peers``."""
+    executors: Dict[str, Any] = {}
     for desc in registry.all_agents():
         entry_func = registry.get_entry_func(desc.name)
         if entry_func is None:
             continue
         agent_name = desc.name
         fn = entry_func
-        if agent_name in WAVE2_AGENTS:
+        wave2 = agent_name in WAVE2_AGENTS
 
-            def _make_context_aware_executor(_fn=fn, _c=conflict):
-                def executor(store):
-                    ctx = store.get("agent_context")
-                    if ctx is not None:
-                        if isinstance(ctx, dict):
-                            ctx = AgentContext.model_validate(ctx)
-                        try:
-                            return _fn(_c, ctx)
-                        except TypeError:
-                            return _fn(_c)
-                    return _fn(_c)
+        def _make_executor(_fn: Any = fn, _c: str = conflict, _name: str = agent_name, _w2: bool = wave2):
+            def executor(store: ResultStore) -> Any:
+                return _invoke_agent_entry(_fn, _c, _name, store, wave2=_w2)
 
-                return executor
+            return executor
 
-            executors[agent_name] = _make_context_aware_executor()
-        else:
-
-            def _make_executor(_fn=fn, _c=conflict):
-                return lambda store: _fn(_c)
-
-            executors[agent_name] = _make_executor()
+        executors[agent_name] = _make_executor()
     return executors
 
 

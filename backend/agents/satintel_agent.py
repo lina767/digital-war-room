@@ -179,7 +179,9 @@ def _fallback_result(conflict: str, reason: str) -> Dict[str, Any]:
     }
 
 
-def run_satintel_agent(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+def run_satintel_agent(
+    conflict: str, context: Optional["AgentContext"] = None, peers: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     start = time.perf_counter()
     fetched_at = utc_now_iso()
 

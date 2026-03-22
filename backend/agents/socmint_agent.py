@@ -14,7 +14,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import feedparser
 import httpx
@@ -1017,7 +1017,7 @@ Return ONLY valid JSON:
 No markdown, no explanation, just JSON."""
 
 
-def run_socmint_agent(conflict: str) -> Dict[str, Any]:
+def run_socmint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run SOCMINT: either rule-based (fixed tool chain) or LLM-driven, depending on USE_RULE_BASED_AGENTS."""
     import json
 

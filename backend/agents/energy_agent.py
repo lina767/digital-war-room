@@ -613,7 +613,7 @@ async def _fetch_commodity_prices_for(api_key: str, symbols: List[tuple]) -> Lis
     return results
 
 
-def run_energy_agent(conflict: str) -> Dict[str, Any]:
+def run_energy_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run ENERGY/Commodities agent: oil/food prices (EIA/FRED/Alpha Vantage), FAO FPI, fertilizer."""
     eia_key = (os.getenv("EIA_API_KEY") or "").strip()
     fred_key = (os.getenv("FRED_API_KEY") or "").strip()

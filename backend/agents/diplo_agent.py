@@ -361,7 +361,7 @@ def _build_summary(ofac: Dict[str, Any], eu: Dict[str, Any], news: List[Dict[str
     return "DIPLO: " + " ".join(parts)
 
 
-def run_diplo_agent(conflict: str) -> Dict[str, Any]:
+def run_diplo_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run DIPLO/Legal agent: OFAC SDN, EU sanctions, UN/ICJ RSS."""
 
     async def _run() -> Dict[str, Any]:

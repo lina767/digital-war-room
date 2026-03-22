@@ -10,9 +10,12 @@ When USE_AGENT_HANDOFF is enabled, the DAG runs agents in two waves:
 Agents that support context accept an optional second argument: run_*_agent(conflict, context=None).
 
 Peer data beyond the compact AgentContext: while a DAG node runs, use
-``analysis_run_state.get_peer_result("sigint")`` (and similar) to read other nodes' outputs
-from the shared ResultStore — no CEO/supervisor round-trip required; only nodes that have
-already completed and written to the store are readable (DAG order).
+``analysis_run_state.get_peer_result("sigint")`` or ``get_peers_snapshot()`` to read other
+nodes' outputs from the shared ResultStore — no CEO/supervisor round-trip required; only
+nodes that have already completed and written to the store are readable (DAG order).
+
+The orchestrator also passes ``peers={...}`` into every ``run_*_agent`` (optional kwarg) with
+the same non-None snapshot for convenience.
 """
 
 from typing import Any, Dict, List

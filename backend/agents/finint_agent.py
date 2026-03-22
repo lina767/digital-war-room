@@ -2025,7 +2025,7 @@ def _docqa_for_flagged_entities(flagged: List[Dict[str, Any]]) -> List[Dict[str,
     return results
 
 
-def run_finint_agent(conflict: str) -> Dict[str, Any]:
+def run_finint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return run_agent_with_fallback(
         conflict,
         rule_based_fn=_run_rule_based_finint,

@@ -91,7 +91,7 @@ async def _generate_haiku_summary_proximity(
         return None
 
 
-def run_proximity_agent(conflict: str) -> Dict[str, Any]:
+def run_proximity_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run PROXIMITY agent: FIRMS strikes + Overpass + optional tunnel sites → evidence + score."""
     import time
 

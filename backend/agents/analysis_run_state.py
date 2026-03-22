@@ -61,6 +61,23 @@ def get_peer_results(node_ids: List[str]) -> Dict[str, Any]:
     return r.get_many(node_ids)
 
 
+def get_peers_snapshot(*, exclude: Optional[str] = None) -> Dict[str, Any]:
+    """Alle Registry-Agenten mit bereits vorliegendem Ergebnis im aktuellen Run (ohne ``exclude``).
+
+    Nur Keys mit nicht-``None``-Werten — kompakt für Prompts/Weiterverarbeitung.
+    """
+    from .registry import get_agent_registry
+
+    out: Dict[str, Any] = {}
+    for desc in get_agent_registry().all_agents():
+        if exclude and desc.name == exclude:
+            continue
+        val = get_peer_result(desc.name)
+        if val is not None:
+            out[desc.name] = val
+    return out
+
+
 def invoke_with_current_store(
     store: AnalysisRunReader,
     executor: Callable[[AnalysisRunReader], Any],

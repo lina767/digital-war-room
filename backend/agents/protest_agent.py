@@ -338,7 +338,7 @@ async def _cluster_protest_events_haiku(acled_events: List[Dict]) -> Optional[st
         return None
 
 
-def run_protest_agent(conflict: str) -> Dict[str, Any]:
+def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run PROTEST/Civil Society agent: ACLED protests/riots, GDELT protest coverage."""
     import time
 

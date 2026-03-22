@@ -1614,7 +1614,9 @@ def enrich_with_ner_entities(
     return geoint_result
 
 
-def run_geoint_agent(conflict: str, context: Optional["AgentContext"] = None) -> Dict[str, Any]:
+def run_geoint_agent(
+    conflict: str, context: Optional["AgentContext"] = None, peers: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     def rule_based(c: str):
         return _run_rule_based_geoint(c, context)
 

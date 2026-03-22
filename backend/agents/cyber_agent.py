@@ -749,7 +749,7 @@ def _greynoise_context_from_snapshot(conflict: str) -> Optional[GreyNoiseScanCon
         return None
 
 
-def run_cyber_agent(conflict: str) -> Dict[str, Any]:
+def run_cyber_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Run CYBER agent: CISA KEV (cached), threat RSS, OTX, GreyNoise, InternetDB, NVD CVSS.
     Returns structured dict (from CyberAgentResult) for backward compatibility with supervisor.

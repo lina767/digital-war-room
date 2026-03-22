@@ -980,7 +980,7 @@ async def _generate_haiku_summary_techint(
         return None
 
 
-def run_techint_agent(conflict: str) -> Dict[str, Any]:
+def run_techint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run TECHINT: tech indicators, export control, IODA, OONI, Cloudflare Radar, Shodan."""
     import time
 
