@@ -1,13 +1,18 @@
 """
 AgentContext – Shared context for closer agent collaboration.
 
-When USE_AGENT_HANDOFF is enabled, the supervisor runs agents in two waves:
+When USE_AGENT_HANDOFF is enabled, the DAG runs agents in two waves:
 - Wave 1 (foundation): finint, sigint, news, diplo, techint, cyber run in parallel.
 - Context is built from their results (summaries, regions, entities, key findings).
 - Wave 2 (context-aware): geoint, socmint, energy, protest, proximity, chokepoint, narrative
   receive this context and can focus queries (e.g. GEOINT on SIGINT regions, NEWS on FININT cues).
 
 Agents that support context accept an optional second argument: run_*_agent(conflict, context=None).
+
+Peer data beyond the compact AgentContext: while a DAG node runs, use
+``analysis_run_state.get_peer_result("sigint")`` (and similar) to read other nodes' outputs
+from the shared ResultStore — no CEO/supervisor round-trip required; only nodes that have
+already completed and written to the store are readable (DAG order).
 """
 
 from typing import Any, Dict, List

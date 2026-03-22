@@ -218,10 +218,15 @@ class DAGScheduler:
     @staticmethod
     def _run_node(node: DAGNode, executor: Callable, store: ResultStore) -> Any:
         """Execute a single node's callable, passing the store for dep lookup."""
+        from .analysis_run_state import invoke_with_current_store
+
+        def _run() -> Any:
+            return invoke_with_current_store(store, executor)
+
         try:
             from observability import run_node_traced
 
             conflict = getattr(store, "conflict", "") or ""
-            return run_node_traced(node.id, node.node_type, conflict, lambda: executor(store))
+            return run_node_traced(node.id, node.node_type, conflict, _run)
         except Exception:
-            return executor(store)
+            return _run()
