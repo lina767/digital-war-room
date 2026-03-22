@@ -56,11 +56,8 @@ export function markerScale(zoom: number): number {
 const GEOINT_ORANGE: [number, number, number, number] = [255, 68, 0, 255];
 const SIGINT_AIR: [number, number, number, number] = [96, 165, 250, 255];
 const SIGINT_SEA: [number, number, number, number] = [52, 211, 153, 255];
-const CLUSTER_PRIMARY: [number, number, number, number] = [0, 255, 136, 220];
-
 export type TheaterPick =
   | { kind: "theater"; event: TheaterEvent }
-  | { kind: "cluster"; lat: number; lon: number }
   | { kind: "aircraft"; data: SigintAircraft }
   | { kind: "ship"; data: SigintShip };
 
@@ -306,30 +303,6 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
   }
 
   const theaterEvents = theaterDisplayItems.filter((i) => i.type === "event");
-  const theaterClusters = theaterDisplayItems.filter((i) => i.type === "cluster");
-
-  if (lv.theaterEvents && theaterClusters.length > 0) {
-    layers.push(
-      new ScatterplotLayer({
-        id: "theater-clusters",
-        data: theaterClusters.map((c) => ({
-          position: [c.lon, c.lat] as [number, number],
-          pick: { kind: "cluster" as const, lat: c.lat, lon: c.lon },
-        })),
-        getPosition: (d) => d.position,
-        getRadius: 10 * s,
-        radiusUnits: "pixels",
-        getFillColor: [...CLUSTER_PRIMARY.slice(0, 3), 180] as [number, number, number, number],
-        getLineColor: [0, 200, 110, 255],
-        lineWidthUnits: "pixels",
-        getLineWidth: 1.5,
-        stroked: true,
-        pickable: true,
-        radiusMinPixels: 8,
-        radiusMaxPixels: 36,
-      }),
-    );
-  }
 
   if (lv.theaterEvents && theaterEvents.length > 0) {
     layers.push(

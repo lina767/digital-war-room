@@ -175,7 +175,8 @@ function TheaterMapInner({
     { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
   >(null);
   const [explosionRange, setExplosionRange] = useState<ExplosionTimeRange>("7d");
-  const eventClustering = true;
+  /** Off: no green cluster halos; all strikes render as individual markers (WebGL). */
+  const eventClustering = false;
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -197,7 +198,6 @@ function TheaterMapInner({
   const [heatmapError, setHeatmapError] = useState<string | null>(null);
 
   const zoom = viewState.zoom;
-  const s = markerScale(zoom);
 
   const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const TOOLTIP_DELAY_MS = 180;
@@ -241,17 +241,6 @@ function TheaterMapInner({
 
   const handleShipSelect = useCallback((ship: SigintShip) => {
     setSelectedSigint({ type: "ship", data: ship });
-    setSelectedEvent(null);
-    setTooltip(null);
-  }, []);
-
-  const handleClusterZoomIn = useCallback((lat: number, lon: number) => {
-    setViewState((vs) => ({
-      ...vs,
-      longitude: lon,
-      latitude: lat,
-      zoom: Math.min(vs.zoom * 1.4, 8),
-    }));
     setSelectedEvent(null);
     setTooltip(null);
   }, []);
@@ -395,10 +384,6 @@ function TheaterMapInner({
       };
       if (o.pick) {
         const p = o.pick;
-        if (p.kind === "cluster") {
-          handleClusterZoomIn(p.lat, p.lon);
-          return;
-        }
         if (p.kind === "theater") {
           handleEventSelect(p.event);
           return;
@@ -413,7 +398,7 @@ function TheaterMapInner({
         }
       }
     },
-    [handleClusterZoomIn, handleEventSelect, handleAircraftSelect, handleShipSelect],
+    [handleEventSelect, handleAircraftSelect, handleShipSelect],
   );
 
   const onDeckHover = useCallback(
@@ -431,10 +416,6 @@ function TheaterMapInner({
         const locationPart = [evt.country, evt.admin1].filter(Boolean).join(", ");
         const content = locationPart ? `${baseLabel} · ${locationPart}` : baseLabel;
         setTooltipFromDeck(content, style.stroke, info);
-        return;
-      }
-      if (o.pick?.kind === "cluster") {
-        setTooltipFromDeck("Clustered area · click to zoom in", "hsl(var(--primary))", info);
         return;
       }
       if (o.pick?.kind === "aircraft") {
