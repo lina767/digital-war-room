@@ -956,11 +956,12 @@ def _normalize_theater_event_type(source: str, raw_type: str | None, sub_type: s
     t = (raw_type or "").lower()
     st = (sub_type or "").lower()
     if source == "FIRMS":
-        if "explosion" in t or t == "explosion":
-            return "airstrike"
-        if "fire" in t:
+        # FIRMS _classify(): explosion | fire | unknown (not ACLED text — do not map explosion → airstrike).
+        if t == "fire" or ("fire" in t and "explosion" not in t):
             return "fire"
-        return "explosion"
+        if t == "explosion" or "explosion" in t:
+            return "explosion"
+        return "other"
     if source == "ACLED":
         if "air" in st or "drone" in st:
             return "airstrike"

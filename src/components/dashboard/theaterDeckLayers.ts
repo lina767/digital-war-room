@@ -363,21 +363,32 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
   }
 
   if (lv.geoint) {
-    const valid = geointAnomalies.filter(
-      (a) =>
-        typeof a.latitude === "number" &&
-        typeof a.longitude === "number" &&
-        isFinite(a.latitude) &&
-        isFinite(a.longitude),
-    );
+    const withCoords = geointAnomalies
+      .map((a) => {
+        const lat =
+          typeof a.latitude === "number"
+            ? a.latitude
+            : typeof (a as { lat?: number }).lat === "number"
+              ? (a as { lat: number }).lat
+              : NaN;
+        const lon =
+          typeof a.longitude === "number"
+            ? a.longitude
+            : typeof (a as { lon?: number }).lon === "number"
+              ? (a as { lon: number }).lon
+              : NaN;
+        return { a, lat, lon };
+      })
+      .filter(({ lat, lon }) => isFinite(lat) && isFinite(lon));
+    const valid = withCoords.map(({ a, lat, lon }) => ({ ...a, latitude: lat, longitude: lon }));
     if (valid.length > 0) {
       layers.push(
         new ScatterplotLayer({
           id: "geoint-anomalies",
           data: valid.map((a) => ({
             position: [a.longitude, a.latitude] as [number, number],
-            r: Math.min(3 + (a.frp ?? 0) / 200, 8) * s,
-            tooltip: `${a.classification ?? "unknown"} · FRP ${Math.round(a.frp ?? 0)} MW`,
+            r: Math.min(3 + (a.frp ?? 0) / 200, 10) * s,
+            tooltip: `${(a.classification || (a as { type?: string }).type) ?? "thermal"} · FRP ${Math.round(a.frp ?? 0)} MW`,
           })),
           getPosition: (d) => d.position,
           getRadius: (d) => d.r,

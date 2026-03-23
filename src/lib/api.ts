@@ -524,6 +524,34 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   if (Array.isArray(raw.pattern_flags)) {
     (out as Record<string, unknown>).pattern_flags = raw.pattern_flags;
   }
+  // GEOINT anomalies: backend uses lat/lon; map layer expects latitude/longitude (GeointAnomaly).
+  const geoint = raw.geoint as Record<string, unknown> | undefined;
+  if (geoint && Array.isArray(geoint.anomalies)) {
+    (out as Record<string, unknown>).geoint = {
+      ...geoint,
+      anomalies: (geoint.anomalies as Record<string, unknown>[]).map((a) => {
+        const latRaw = a.latitude ?? a.lat;
+        const lonRaw = a.longitude ?? a.lon;
+        const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
+        const lon = typeof lonRaw === "number" ? lonRaw : Number(lonRaw);
+        const frp = typeof a.frp === "number" ? a.frp : Number(a.frp) || 0;
+        const classification =
+          typeof a.classification === "string"
+            ? a.classification
+            : typeof a.type === "string"
+              ? a.type
+              : "";
+        return {
+          ...a,
+          latitude: lat,
+          longitude: lon,
+          frp,
+          confidence: typeof a.confidence === "string" ? a.confidence : String(a.confidence ?? ""),
+          classification,
+        };
+      }),
+    };
+  }
   return out;
 }
 
