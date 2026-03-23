@@ -1,6 +1,6 @@
 """
 Postgres persistence for quality_signals and ais_track_samples.
-Schema created on first use (same pattern as analysis_audit_store).
+Schema: migrations 002 + 003 (tenant_id, RLS).
 """
 
 from __future__ import annotations
@@ -8,17 +8,34 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_SQL = (Path(__file__).resolve().parent.parent / "migrations" / "002_quality_signals_ais_tracks.sql").read_text(
+_SCHEMA_002 = (Path(__file__).resolve().parent.parent / "migrations" / "002_quality_signals_ais_tracks.sql").read_text(
+    encoding="utf-8"
+)
+_SCHEMA_003 = (Path(__file__).resolve().parent.parent / "migrations" / "003_multi_tenancy.sql").read_text(
     encoding="utf-8"
 )
 
 AIS_TRACK_RETENTION_DAYS = int(os.getenv("AIS_TRACK_RETENTION_DAYS", "30"))
+
+
+def _tid(tenant_id: Optional[uuid.UUID]) -> uuid.UUID:
+    if tenant_id is not None:
+        return tenant_id
+    try:
+        from services.request_context import get_current_tenant_id
+
+        return get_current_tenant_id()
+    except Exception:
+        from services.tenant_constants import get_default_tenant_id
+
+        return get_default_tenant_id()
 
 
 async def _connect():
@@ -32,27 +49,37 @@ async def _connect():
 
 async def ensure_quality_schema(conn) -> None:
     """Run migration DDL idempotently."""
-    await conn.execute(_SCHEMA_SQL)
+    await conn.execute(_SCHEMA_002)
+    try:
+        await conn.execute(_SCHEMA_003)
+    except Exception as e:
+        logger.debug("quality_store 003 optional: %s", e)
 
 
-async def upsert_quality_signals(conflict: str, rows: Sequence[Dict[str, Any]]) -> None:
+async def upsert_quality_signals(
+    conflict: str, rows: Sequence[Dict[str, Any]], tenant_id: Optional[uuid.UUID] = None
+) -> None:
     """Insert or update fused signal rows."""
     if not rows:
         return
+    tid = _tid(tenant_id)
     conn = await _connect()
     if not conn:
         return
     try:
         await ensure_quality_schema(conn)
+        from services.db_tenant import set_session_tenant
+
+        await set_session_tenant(conn, tid, None)
         for r in rows:
             await conn.execute(
                 """
                 INSERT INTO quality_signals (
-                    conflict, signal_key, canonical_text, first_seen_utc, last_seen_utc,
+                    tenant_id, conflict, signal_key, canonical_text, first_seen_utc, last_seen_utc,
                     source_agents, lat, lon, confidence, confirmation, decay_state, updated_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, NOW())
-                ON CONFLICT (conflict, signal_key) DO UPDATE SET
+                VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, NOW())
+                ON CONFLICT (tenant_id, conflict, signal_key) DO UPDATE SET
                     first_seen_utc = LEAST(quality_signals.first_seen_utc, EXCLUDED.first_seen_utc),
                     last_seen_utc = GREATEST(quality_signals.last_seen_utc, EXCLUDED.last_seen_utc),
                     source_agents = EXCLUDED.source_agents,
@@ -62,10 +89,11 @@ async def upsert_quality_signals(conflict: str, rows: Sequence[Dict[str, Any]]) 
                     confirmation = EXCLUDED.confirmation,
                     decay_state = CASE
                         WHEN EXCLUDED.confirmation = 'confirmed' THEN 'active'
-                        ELSE EXCLUDED.decay_state
+                        ELSE quality_signals.decay_state
                     END,
                     updated_at = NOW()
                 """,
+                tid,
                 conflict,
                 r["signal_key"],
                 r["canonical_text"],
@@ -84,27 +112,32 @@ async def upsert_quality_signals(conflict: str, rows: Sequence[Dict[str, Any]]) 
         await conn.close()
 
 
-async def apply_signal_decay(conflict: str) -> None:
+async def apply_signal_decay(conflict: str, tenant_id: Optional[uuid.UUID] = None) -> None:
     """Downgrade unconfirmed signals: >24h low_confidence, >48h stale."""
+    tid = _tid(tenant_id)
     conn = await _connect()
     if not conn:
         return
     try:
         await ensure_quality_schema(conn)
+        from services.db_tenant import set_session_tenant
+
+        await set_session_tenant(conn, tid, None)
         now = datetime.now(timezone.utc)
         await conn.execute(
             """
             UPDATE quality_signals
             SET decay_state = CASE
                 WHEN confirmation = 'confirmed' THEN 'active'
-                WHEN first_seen_utc < $2 THEN 'stale'
-                WHEN first_seen_utc < $3 THEN 'low_confidence'
+                WHEN first_seen_utc < $3 THEN 'stale'
+                WHEN first_seen_utc < $4 THEN 'low_confidence'
                 ELSE 'active'
             END,
             updated_at = NOW()
-            WHERE conflict = $1
+            WHERE tenant_id = $1 AND conflict = $2
               AND confirmation = 'unconfirmed'
             """,
+            tid,
             conflict,
             now - timedelta(hours=48),
             now - timedelta(hours=24),
@@ -116,22 +149,27 @@ async def apply_signal_decay(conflict: str) -> None:
 
 
 async def fetch_quality_signals_for_conflict(
-    conflict: str, *, limit: int = 100
+    conflict: str, *, limit: int = 100, tenant_id: Optional[uuid.UUID] = None
 ) -> List[Dict[str, Any]]:
+    tid = _tid(tenant_id)
     conn = await _connect()
     if not conn:
         return []
     try:
         await ensure_quality_schema(conn)
+        from services.db_tenant import set_session_tenant
+
+        await set_session_tenant(conn, tid, None)
         recs = await conn.fetch(
             """
             SELECT signal_key, canonical_text, first_seen_utc, last_seen_utc,
                    source_agents, lat, lon, confidence, confirmation, decay_state
             FROM quality_signals
-            WHERE conflict = $1
+            WHERE tenant_id = $1 AND conflict = $2
             ORDER BY last_seen_utc DESC
-            LIMIT $2
+            LIMIT $3
             """,
+            tid,
             conflict,
             limit,
         )
@@ -159,14 +197,20 @@ async def fetch_quality_signals_for_conflict(
         await conn.close()
 
 
-async def insert_ais_track_samples(conflict: str, samples: Sequence[Dict[str, Any]]) -> None:
+async def insert_ais_track_samples(
+    conflict: str, samples: Sequence[Dict[str, Any]], tenant_id: Optional[uuid.UUID] = None
+) -> None:
     if not samples:
         return
+    tid = _tid(tenant_id)
     conn = await _connect()
     if not conn:
         return
     try:
         await ensure_quality_schema(conn)
+        from services.db_tenant import set_session_tenant
+
+        await set_session_tenant(conn, tid, None)
         for s in samples:
             mmsi = str(s.get("mmsi") or "")
             if not mmsi:
@@ -183,9 +227,10 @@ async def insert_ais_track_samples(conflict: str, samples: Sequence[Dict[str, An
                 continue
             await conn.execute(
                 """
-                INSERT INTO ais_track_samples (mmsi, conflict, observed_at, lat, lon)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO ais_track_samples (tenant_id, mmsi, conflict, observed_at, lat, lon)
+                VALUES ($1, $2, $3, $4, $5, $6)
                 """,
+                tid,
                 mmsi[:32],
                 conflict[:240],
                 observed,
@@ -199,22 +244,27 @@ async def insert_ais_track_samples(conflict: str, samples: Sequence[Dict[str, An
 
 
 async def fetch_ais_track_recent(
-    conflict: str, mmsi: str, *, limit: int = 40
+    conflict: str, mmsi: str, *, limit: int = 40, tenant_id: Optional[uuid.UUID] = None
 ) -> List[Tuple[datetime, float, float]]:
+    tid = _tid(tenant_id)
     conn = await _connect()
     if not conn:
         return []
     try:
         await ensure_quality_schema(conn)
+        from services.db_tenant import set_session_tenant
+
+        await set_session_tenant(conn, tid, None)
         cutoff = datetime.now(timezone.utc) - timedelta(days=AIS_TRACK_RETENTION_DAYS)
         rows = await conn.fetch(
             """
             SELECT observed_at, lat, lon
             FROM ais_track_samples
-            WHERE conflict = $1 AND mmsi = $2 AND observed_at >= $3
+            WHERE tenant_id = $1 AND conflict = $2 AND mmsi = $3 AND observed_at >= $4
             ORDER BY observed_at DESC
-            LIMIT $4
+            LIMIT $5
             """,
+            tid,
             conflict[:240],
             mmsi[:32],
             cutoff,
@@ -234,8 +284,18 @@ async def prune_old_ais_tracks() -> None:
         return
     try:
         await ensure_quality_schema(conn)
+        from services.db_tenant import set_session_tenant
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=AIS_TRACK_RETENTION_DAYS)
-        await conn.execute("DELETE FROM ais_track_samples WHERE observed_at < $1", cutoff)
+        trows = await conn.fetch("SELECT id FROM tenants")
+        for tr in trows:
+            tid = tr["id"]
+            await set_session_tenant(conn, tid, None)
+            await conn.execute(
+                "DELETE FROM ais_track_samples WHERE tenant_id = $1 AND observed_at < $2",
+                tid,
+                cutoff,
+            )
     except Exception as e:
         logger.debug("prune_old_ais_tracks: %s", e)
     finally:

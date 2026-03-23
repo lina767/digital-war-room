@@ -1,5 +1,7 @@
 """
 Newsletter subscriber store (SQLite). Double opt-in: only rows with confirmed_at set receive the daily mail.
+Tenant-scoped via tenant_id (see DEFAULT_TENANT_ID). For Postgres-backed newsletter, see migration 004
+and set NEWSLETTER_USE_POSTGRES=true (not implemented — SQLite remains primary when unset).
 """
 
 import logging
@@ -16,6 +18,12 @@ DB_PATH = Path(os.getenv("NEWSLETTER_DB_PATH", Path(__file__).resolve().parent.p
 DEFAULT_NEWSLETTER_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Global").strip() or "Global"
 
 
+def _default_tenant_str() -> str:
+    from services.tenant_constants import get_default_tenant_id
+
+    return str(get_default_tenant_id())
+
+
 def _ensure_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=10)
@@ -30,7 +38,21 @@ def _ensure_db() -> sqlite3.Connection:
             confirmed_at TEXT
         )
     """)
-    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_email ON newsletter_subscribers(email)")
+    try:
+        conn.execute(
+            """
+            ALTER TABLE newsletter_subscribers ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '00000000-0000-4000-8000-000000000001'
+            """
+        )
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("DROP INDEX IF EXISTS idx_newsletter_email")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletter_tenant_email ON newsletter_subscribers(tenant_id, email)"
+    )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_newsletter_conflict ON newsletter_subscribers(conflict)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_newsletter_confirmed ON newsletter_subscribers(confirmed_at)")
     conn.execute("""
@@ -44,54 +66,51 @@ def _ensure_db() -> sqlite3.Connection:
     return conn
 
 
-def add_subscriber(email: str, conflict: str = DEFAULT_NEWSLETTER_CONFLICT) -> Tuple[Optional[str], Optional[str]]:
+def add_subscriber(
+    email: str, conflict: str = DEFAULT_NEWSLETTER_CONFLICT, *, tenant_id: Optional[str] = None
+) -> Tuple[Optional[str], Optional[str]]:
     """
-    Add a new subscriber (unconfirmed). Returns (confirm_token, unsubscribe_token) or (None, None) if email already exists.
+    Add a new subscriber (unconfirmed). Returns (confirm_token, unsubscribe_token) or (None, None) if email exists.
     """
     email = (email or "").strip().lower()
     if not email:
         raise ValueError("email is required")
     conflict = (conflict or DEFAULT_NEWSLETTER_CONFLICT).strip() or DEFAULT_NEWSLETTER_CONFLICT
+    tid = tenant_id or _default_tenant_str()
     confirm_token = str(uuid.uuid4())
     unsubscribe_token = str(uuid.uuid4())
-    from datetime import datetime, timezone
-
     now = datetime.now(timezone.utc).isoformat()
     conn = _ensure_db()
     try:
         conn.execute(
             """
-            INSERT INTO newsletter_subscribers (email, conflict, subscribed_at, unsubscribe_token, confirm_token, confirmed_at)
-            VALUES (?, ?, ?, ?, ?, NULL)
+            INSERT INTO newsletter_subscribers (tenant_id, email, conflict, subscribed_at, unsubscribe_token, confirm_token, confirmed_at)
+            VALUES (?, ?, ?, ?, ?, ?, NULL)
             """,
-            (email, conflict, now, unsubscribe_token, confirm_token),
+            (tid, email, conflict, now, unsubscribe_token, confirm_token),
         )
         conn.commit()
         return (confirm_token, unsubscribe_token)
     except sqlite3.IntegrityError:
-        # email unique constraint
         return (None, None)
     finally:
         conn.close()
 
 
-def remove_unconfirmed_subscriber(email: str, confirm_token: str) -> bool:
-    """
-    Remove a newly created unconfirmed subscriber row.
-    Used to roll back subscribe flow if confirmation email sending fails.
-    """
+def remove_unconfirmed_subscriber(email: str, confirm_token: str, *, tenant_id: Optional[str] = None) -> bool:
     email = (email or "").strip().lower()
     token = (confirm_token or "").strip()
     if not email or not token:
         return False
+    tid = tenant_id or _default_tenant_str()
     conn = _ensure_db()
     try:
         cur = conn.execute(
             """
             DELETE FROM newsletter_subscribers
-            WHERE email = ? AND confirm_token = ? AND confirmed_at IS NULL
+            WHERE tenant_id = ? AND email = ? AND confirm_token = ? AND confirmed_at IS NULL
             """,
-            (email, token),
+            (tid, email, token),
         )
         conn.commit()
         if cur.rowcount > 0:
@@ -102,14 +121,8 @@ def remove_unconfirmed_subscriber(email: str, confirm_token: str) -> bool:
 
 
 def confirm_subscription(confirm_token: str) -> dict | None:
-    """
-    Set confirmed_at for the subscriber with the given confirm_token.
-    Returns {"email": ..., "conflict": ...} if updated, else None.
-    """
     if not (confirm_token or "").strip():
         return None
-    from datetime import datetime, timezone
-
     now = datetime.now(timezone.utc).isoformat()
     tok = confirm_token.strip()
     conn = _ensure_db()
@@ -132,10 +145,6 @@ def confirm_subscription(confirm_token: str) -> dict | None:
 
 
 def remove_by_unsubscribe_token(token: str) -> tuple[bool, str | None]:
-    """
-    Remove subscriber by unsubscribe_token.
-    Returns (True, email) if a row was deleted, (False, None) otherwise.
-    """
     if not (token or "").strip():
         return (False, None)
     conn = _ensure_db()
@@ -155,40 +164,36 @@ def remove_by_unsubscribe_token(token: str) -> tuple[bool, str | None]:
         conn.close()
 
 
-def apply_resend_contact_sync(email: str, conflict: str, *, unsubscribed: bool) -> str:
-    """
-    Mirror one Resend contact into SQLite: unsubscribed=True removes the row; unsubscribed=False
-    ensures a confirmed subscription (insert or confirm pending / refresh conflict).
-
-    Conflict must already be normalized (e.g. sanitize_conflict). Returns one of:
-    inserted, updated, removed, noop.
-    """
+def apply_resend_contact_sync(
+    email: str, conflict: str, *, unsubscribed: bool, tenant_id: Optional[str] = None
+) -> str:
     em = (email or "").strip().lower()
     if not em:
         return "noop"
+    tid = tenant_id or _default_tenant_str()
     conn = _ensure_db()
     now = datetime.now(timezone.utc).isoformat()
     try:
         if unsubscribed:
-            cur = conn.execute("DELETE FROM newsletter_subscribers WHERE email = ?", (em,))
+            cur = conn.execute("DELETE FROM newsletter_subscribers WHERE tenant_id = ? AND email = ?", (tid, em))
             conn.commit()
             return "removed" if cur.rowcount else "noop"
         cur = conn.execute(
-            "SELECT confirmed_at, conflict FROM newsletter_subscribers WHERE email = ?",
-            (em,),
+            "SELECT confirmed_at, conflict FROM newsletter_subscribers WHERE tenant_id = ? AND email = ?",
+            (tid, em),
         )
         row = cur.fetchone()
         if row:
             confirmed_at, existing_conflict = row[0], row[1]
             if confirmed_at is None:
                 conn.execute(
-                    "UPDATE newsletter_subscribers SET confirmed_at = ?, conflict = ? WHERE email = ?",
-                    (now, conflict, em),
+                    "UPDATE newsletter_subscribers SET confirmed_at = ?, conflict = ? WHERE tenant_id = ? AND email = ?",
+                    (now, conflict, tid, em),
                 )
                 conn.commit()
                 return "updated"
             if existing_conflict != conflict:
-                conn.execute("UPDATE newsletter_subscribers SET conflict = ? WHERE email = ?", (conflict, em))
+                conn.execute("UPDATE newsletter_subscribers SET conflict = ? WHERE tenant_id = ? AND email = ?", (conflict, tid, em))
                 conn.commit()
                 return "updated"
             return "noop"
@@ -196,10 +201,10 @@ def apply_resend_contact_sync(email: str, conflict: str, *, unsubscribed: bool) 
         unsubscribe_token = str(uuid.uuid4())
         conn.execute(
             """
-            INSERT INTO newsletter_subscribers (email, conflict, subscribed_at, unsubscribe_token, confirm_token, confirmed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO newsletter_subscribers (tenant_id, email, conflict, subscribed_at, unsubscribe_token, confirm_token, confirmed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (em, conflict, now, unsubscribe_token, confirm_token, now),
+            (tid, em, conflict, now, unsubscribe_token, confirm_token, now),
         )
         conn.commit()
         return "inserted"
@@ -207,22 +212,36 @@ def apply_resend_contact_sync(email: str, conflict: str, *, unsubscribed: bool) 
         conn.close()
 
 
-def list_confirmed_subscribers(conflict: Optional[str] = None) -> List[dict]:
+def list_confirmed_subscribers(
+    conflict: Optional[str] = None, *, tenant_id: Optional[str] = None
+) -> List[dict]:
     """
-    Return list of confirmed subscribers. Each item: {email, conflict, unsubscribe_token}.
-    If conflict is set, filter by that conflict only.
+    If tenant_id is set, scope to that tenant. If tenant_id is None, include all tenants
+    (used by the daily send job so every confirmed subscriber for a conflict receives mail).
     """
     conn = _ensure_db()
     try:
-        if conflict:
-            cur = conn.execute(
-                "SELECT email, conflict, unsubscribe_token FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL AND conflict = ?",
-                (conflict,),
-            )
+        if tenant_id is None:
+            if conflict:
+                cur = conn.execute(
+                    "SELECT email, conflict, unsubscribe_token FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL AND conflict = ?",
+                    (conflict,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT email, conflict, unsubscribe_token FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL"
+                )
         else:
-            cur = conn.execute(
-                "SELECT email, conflict, unsubscribe_token FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL"
-            )
+            if conflict:
+                cur = conn.execute(
+                    "SELECT email, conflict, unsubscribe_token FROM newsletter_subscribers WHERE tenant_id = ? AND confirmed_at IS NOT NULL AND conflict = ?",
+                    (tenant_id, conflict),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT email, conflict, unsubscribe_token FROM newsletter_subscribers WHERE tenant_id = ? AND confirmed_at IS NOT NULL",
+                    (tenant_id,),
+                )
         rows = cur.fetchall()
         return [{"email": r[0], "conflict": r[1], "unsubscribe_token": r[2]} for r in rows]
     finally:
@@ -230,7 +249,6 @@ def list_confirmed_subscribers(conflict: Optional[str] = None) -> List[dict]:
 
 
 def get_conflicts_with_subscribers() -> List[str]:
-    """Return distinct conflict values that have at least one confirmed subscriber."""
     conn = _ensure_db()
     try:
         cur = conn.execute(
@@ -242,9 +260,6 @@ def get_conflicts_with_subscribers() -> List[str]:
 
 
 def get_subscriber_stats() -> Dict[str, Any]:
-    """
-    Aggregate subscriber counts for ops/debug. Does not expose email addresses.
-    """
     conn = _ensure_db()
     try:
         total = int(conn.execute("SELECT COUNT(*) FROM newsletter_subscribers").fetchone()[0])
@@ -272,10 +287,6 @@ def get_subscriber_stats() -> Dict[str, Any]:
 
 
 def try_acquire_daily_newsletter_lock() -> bool:
-    """
-    Mutex for the daily send so overlapping cron + in-process runs do not duplicate mail the same UTC day.
-    Returns True if this invocation should run the job; False if already completed today or another run in progress.
-    """
     now = datetime.now(timezone.utc)
     day = now.strftime("%Y-%m-%d")
     conn = _ensure_db()
@@ -315,7 +326,6 @@ def try_acquire_daily_newsletter_lock() -> bool:
 
 
 def mark_daily_newsletter_completed() -> None:
-    """Mark today's daily newsletter run as finished (prevents duplicate sends same UTC day)."""
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     now_iso = datetime.now(timezone.utc).isoformat()
     conn = _ensure_db()
@@ -330,10 +340,6 @@ def mark_daily_newsletter_completed() -> None:
 
 
 def clear_daily_newsletter_lock_today() -> None:
-    """
-    Remove today's lock row (incomplete run). Use when the job acquired the lock but sent zero
-    emails so cron / a later attempt can retry the same UTC day.
-    """
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     conn = _ensure_db()
     try:
@@ -343,16 +349,14 @@ def clear_daily_newsletter_lock_today() -> None:
         conn.close()
 
 
-def remove_subscriber_by_email(email: str) -> bool:
-    """
-    Remove a subscriber row by email (e.g. bounce/complaint webhook). Returns True if a row was deleted.
-    """
+def remove_subscriber_by_email(email: str, *, tenant_id: Optional[str] = None) -> bool:
     em = (email or "").strip().lower()
     if not em:
         return False
+    tid = tenant_id or _default_tenant_str()
     conn = _ensure_db()
     try:
-        cur = conn.execute("DELETE FROM newsletter_subscribers WHERE email = ?", (em,))
+        cur = conn.execute("DELETE FROM newsletter_subscribers WHERE tenant_id = ? AND email = ?", (tid, em))
         conn.commit()
         return cur.rowcount > 0
     finally:

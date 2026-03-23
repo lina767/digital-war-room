@@ -16,6 +16,28 @@ export function getWsUrl(path: string): string {
 
 const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 
+/** Optional Supabase session token or DWR API key (multi-tenant backend). */
+export function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("dwr_supabase_access_token");
+  if (token) return { Authorization: `Bearer ${token}` };
+  const key = localStorage.getItem("dwr_api_key");
+  if (key) return { "X-Api-Key": key };
+  const tid = localStorage.getItem("dwr_tenant_id");
+  if (tid) return { "X-Tenant-Id": tid };
+  return {};
+}
+
+function mergeAuthHeaders(init: RequestInit): RequestInit {
+  const auth = getAuthHeaders();
+  if (Object.keys(auth).length === 0) return init;
+  const h = new Headers(init.headers);
+  for (const [k, v] of Object.entries(auth)) {
+    if (!h.has(k)) h.set(k, v);
+  }
+  return { ...init, headers: h };
+}
+
 /** Absolute REST URL under `/api/…`. Omits `search` entries whose value is `undefined`. */
 export function apiUrl(path: string, search?: Record<string, string | number | undefined>): string {
   const base = getApiBase();
@@ -37,7 +59,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...rest, signal: controller.signal });
+    return await fetch(url, mergeAuthHeaders({ ...rest, signal: controller.signal }));
   } finally {
     clearTimeout(id);
   }

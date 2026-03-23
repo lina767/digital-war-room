@@ -9,10 +9,15 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
-_ORDER = ("003_multi_tenancy.sql",)
+_ORDER = (
+    "001_pgvector_setup.sql",
+    "002_quality_signals_ais_tracks.sql",
+    "003_multi_tenancy.sql",
+    "004_newsletter_postgres.sql",
+)
 
 
-async def bootstrap_multi_tenancy_schema() -> None:
+async def bootstrap_schema() -> None:
     url = (os.getenv("DATABASE_URL") or "").strip()
     if not url:
         return

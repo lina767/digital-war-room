@@ -49,12 +49,20 @@ def run_async(coro):
     Works even when an event loop is already running in the current thread
     (Python 3.13 ThreadPoolExecutor edge case). Falls back to executing
     ``asyncio.run()`` in a separate clean thread.
+
+    Copies ``contextvars`` (e.g. tenant RequestContext) into the runner so
+    DB/async helpers see the same context as the calling sync agent code.
     """
+    ctx = contextvars.copy_context()
+
+    def _run() -> Any:
+        return ctx.run(asyncio.run, coro)
+
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(coro)
-    future = _ASYNC_POOL.submit(asyncio.run, coro)
+        return _run()
+    future = _ASYNC_POOL.submit(_run)
     return future.result(timeout=120)
 
 

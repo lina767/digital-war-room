@@ -16,6 +16,7 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
+from middleware.tenant_context import get_request_ctx
 from api.deps import StateServiceDep, WsManagerDep
 from api.http_errors import conflict_bad_request
 from agents.config import DEFAULT_CONFLICT
@@ -37,7 +38,20 @@ from .state_helpers import (
 router = APIRouter()
 
 
-async def persist_analysis_side_effects(conflict: str, result: dict[str, Any]) -> None:
+def _run_analyze_in_context(ctx: Any, conflict: str) -> Any:
+    """Run sync analyze_conflict with RequestContext (needed for executor threads)."""
+    from services.request_context import reset_request_context, set_request_context
+
+    token = set_request_context(ctx)
+    try:
+        return analyze_conflict(conflict)
+    finally:
+        reset_request_context(token)
+
+
+async def persist_analysis_side_effects(
+    conflict: str, result: dict[str, Any], tenant_id: uuid.UUID | None = None
+) -> None:
     """Postgres audit, SIGINT state for compliance deltas, AIS track samples."""
     try:
         from services.analysis_audit_store import persist_analysis_audit
@@ -72,7 +86,7 @@ async def persist_analysis_side_effects(conflict: str, result: dict[str, Any]) -
             ts = s.get("timestamp") or s.get("seen") or now_ts
             samples.append({"mmsi": str(mmsi), "observed_at": ts, "lat": lat, "lon": lon})
         if samples:
-            await insert_ais_track_samples(conflict, samples)
+            await insert_ais_track_samples(conflict, samples, tenant_id=tenant_id)
     except Exception:
         pass
 
@@ -84,16 +98,17 @@ async def _persist_analysis_result(
     state: StateServiceDep,
     app_state: Any,
     ws_manager: WsManagerDep,
+    tenant_id: uuid.UUID | None = None,
 ) -> None:
     """Write analysis to cache, timeline, agent status, run history; broadcast to WebSocket clients."""
     at_ts = time.time()
-    attach_pattern_flags(state, conflict, result)
-    state.set_cache(conflict, result, at_ts)
-    push_escalation_timeline(app_state, conflict, at_ts, result)
-    push_agent_status(app_state, result)
-    push_run_history(app_state, conflict, at_ts, result)
+    attach_pattern_flags(state, conflict, result, tenant_id=tenant_id)
+    state.set_cache(conflict, result, at_ts, tenant_id=tenant_id)
+    push_escalation_timeline(app_state, conflict, at_ts, result, tenant_id=tenant_id)
+    push_agent_status(app_state, result, tenant_id=tenant_id)
+    push_run_history(app_state, conflict, at_ts, result, tenant_id=tenant_id)
     await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
-    await persist_analysis_side_effects(conflict, result)
+    await persist_analysis_side_effects(conflict, result, tenant_id=tenant_id)
 
 
 class AnalyzeRequest(BaseModel):
@@ -176,13 +191,13 @@ async def agents_ops_status() -> Any:
 
 
 @router.get("/agents/status")
-async def agents_status(state: StateServiceDep) -> Any:
+async def agents_status(request: Request, state: StateServiceDep) -> Any:
     """
     GET /api/agents/status
     Per-agent status from last completed analysis. Returns rich object per agent when _meta was present:
     status, fetched_at, duration_ms, confidence, data_freshness, sources, fallback_used, error_summary.
     """
-    return state.get_agent_status()
+    return state.get_agent_status(tenant_id=get_request_ctx(request).tenant_id)
 
 
 @router.get("/agents/health")
@@ -223,12 +238,12 @@ async def agents_monitoring() -> Any:
 
 
 @router.get("/agents/history")
-async def agents_history(state: StateServiceDep, limit: int = 20) -> Any:
+async def agents_history(request: Request, state: StateServiceDep, limit: int = 20) -> Any:
     """
     GET /api/agents/history?limit=20
     Last N analysis run summaries: timestamp, conflict, per-agent duration, overall score, errors.
     """
-    runs = state.get_run_history(limit=limit)
+    runs = state.get_run_history(limit=limit, tenant_id=get_request_ctx(request).tenant_id)
     return {"runs": runs}
 
 
@@ -367,13 +382,15 @@ async def refresh_analysis(
     except ValueError as e:
         return conflict_bad_request(e)
     app_state = request.app.state
-    state.pop_last_error(conflict)
+    req_ctx = get_request_ctx(request)
+    tid = req_ctx.tenant_id
+    state.pop_last_error(conflict, tenant_id=tid)
 
     if sync:
         try:
             loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
+                loop.run_in_executor(None, lambda: _run_analyze_in_context(req_ctx, conflict)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
             await _persist_analysis_result(
@@ -382,38 +399,40 @@ async def refresh_analysis(
                 state=state,
                 app_state=app_state,
                 ws_manager=ws_manager,
+                tenant_id=tid,
             )
             return {"status": "ok", "conflict": conflict}
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
-            state.set_last_error(conflict, msg)
+            state.set_last_error(conflict, msg, tenant_id=tid)
             return JSONResponse(status_code=504, content={"error": msg, "conflict": conflict})
         except Exception as e:
-            state.set_last_error(conflict, str(e))
+            state.set_last_error(conflict, str(e), tenant_id=tid)
             return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
 
     async def _run_in_background() -> None:
         try:
             loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: analyze_conflict(conflict)),
+                loop.run_in_executor(None, lambda: _run_analyze_in_context(req_ctx, conflict)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
-            state.pop_last_error(conflict)
+            state.pop_last_error(conflict, tenant_id=tid)
             await _persist_analysis_result(
                 conflict=conflict,
                 result=result,
                 state=state,
                 app_state=app_state,
                 ws_manager=ws_manager,
+                tenant_id=tid,
             )
             print(f"[refresh] Analysis for {conflict} done and cached.")
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
-            state.set_last_error(conflict, msg)
+            state.set_last_error(conflict, msg, tenant_id=tid)
             print(f"[refresh] Analysis for {conflict} failed: {msg}")
         except Exception as e:
-            state.set_last_error(conflict, str(e))
+            state.set_last_error(conflict, str(e), tenant_id=tid)
             print(f"[refresh] Analysis for {conflict} failed: {e}")
 
     asyncio.create_task(_run_in_background())
@@ -451,13 +470,15 @@ async def trigger_analysis(
         )
     try:
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(None, lambda: analyze_conflict(conflict))
+        req_ctx = get_request_ctx(request)
+        result = await loop.run_in_executor(None, lambda: _run_analyze_in_context(req_ctx, conflict))
         await _persist_analysis_result(
             conflict=conflict,
             result=result,
             state=state,
             app_state=request.app.state,
             ws_manager=ws_manager,
+            tenant_id=req_ctx.tenant_id,
         )
         return AnalysisResult.model_validate(result)
     except Exception as e:

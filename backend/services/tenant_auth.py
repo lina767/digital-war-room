@@ -19,7 +19,7 @@ from services.tenant_constants import get_default_tenant_id
 
 logger = logging.getLogger(__name__)
 
-JWT_ALGORITHMS = ("HS256", "RS256")
+JWT_ALGORITHMS = ("HS256",)
 
 # API keys: dwr_<32 hex chars>_<32 hex chars> (128 hex total after second underscore)
 _API_KEY_RE = re.compile(r"^dwr_[0-9a-f]{32}_[0-9a-f]{32}$", re.IGNORECASE)

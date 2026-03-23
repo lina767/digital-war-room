@@ -1,6 +1,6 @@
 # Security & Authorization
 
-Das Backend nutzt **kein Supabase** und keine externe Auth-Datenbank. Auth ist optional (z. B. über `ANALYZE_TRIGGER_SECRET` für den Trigger-Endpoint). Die folgenden Maßnahmen sind umgesetzt bzw. empfohlen.
+Das Backend unterstützt **Multi-Tenancy** mit mandantenspezifischen Daten in PostgreSQL (Row Level Security über Session-Variablen), optional **JWT** (Supabase oder eigenes Secret) und **mandantenbezogene API-Schlüssel**. Ohne Token gilt der **Default-Tenant** (`DEFAULT_TENANT_ID`, siehe Migration `003_multi_tenancy.sql`). Zusätzlich bleiben **Rate Limits** und optional **`ANALYZE_TRIGGER_SECRET`** für den Trigger-Endpoint bestehen.
 
 ---
 
@@ -14,23 +14,13 @@ Das Backend nutzt **kein Supabase** und keine externe Auth-Datenbank. Auth ist o
 
 ---
 
-## 2. API-Key-Rotation (externe Services)
+## 2. API-Keys (externe Dienste vs. DWR-API)
 
-Es gibt **keine integrierte User-Auth** (kein Supabase). API-Keys für externe Dienste (ACLED, GreyNoise, NewsAPI, etc.) liegen in der Backend-`.env` bzw. in den Umgebungsvariablen von Railway/Vercel.
+**Externe Dienste** (ACLED, GreyNoise, NewsAPI, …): Keys liegen in der Backend-`.env` (plattformweit).
 
-**Empfehlung – Rotation ohne Downtime:**
+**Digital-War-Room-API** (Mandanten): Owner/Admin können pro Tenant Schlüssel erzeugen (`POST /api/tenant/api-keys`). Format: `dwr_<hex>_<hex>`, Speicher nur als **SHA-256-Hash**; Klartext wird einmal zurückgegeben. Requests: Header `X-Api-Key` oder `Authorization: Bearer <key>`.
 
-- **Railway (Backend):**  
-  - Neue Keys in **Variables** eintragen (oder per CLI).  
-  - Optional: **Environment Groups** nutzen und Keys dort rotieren; Redeploy/Neustart, damit die neue Umgebung aktiv wird.  
-  - Alte Keys bei den Anbietern (ACLED, GreyNoise, etc.) erst deaktivieren, nachdem der neue Key im Backend läuft.
-
-- **Vercel (Frontend):**  
-  - Nur `VITE_*`-Variablen (z. B. `VITE_API_URL`). Rotation = neuen Wert setzen → **Redeploy**, damit der Build die neue URL nutzt.
-
-- **Best Practice:**  
-  - Keys regelmäßig rotieren (z. B. quartalsweise).  
-  - Pro Dienst einen eigenen Key nutzen, um bei Kompromittierung nur einen Key zu wechseln.
+**Rotation:** Schlüssel in der DB widerrufen (`DELETE /api/tenant/api-keys/{id}`), neuen Key erzeugen.
 
 ---
 
@@ -63,13 +53,20 @@ Es gibt **keine integrierte User-Auth** (kein Supabase). API-Keys für externe D
 
 ---
 
-## 6. RBAC / User-Tiers (ohne Supabase)
+## 6. Multi-Tenancy, RBAC und JWT
 
-Aktuell gibt es **kein RBAC** und keine User-Tiers. Für spätere Erweiterung ohne Supabase:
+- **Schema:** Tabellen `tenants`, `tenant_memberships` (Rollen: `owner`, `admin`, `member`, `viewer`), `tenant_api_keys`; Spalte `tenant_id` auf `embeddings`, `quality_signals`, `ais_track_samples`. Migrationen: `backend/migrations/003_multi_tenancy.sql`, `004_newsletter_postgres.sql` (Newsletter-Tabellen unter Postgres).
+- **RLS:** Pro Verbindung setzt das Backend `app.active_tenant_id` (siehe `services/db_tenant.py`), Policies auf den Daten-Tabellen filtern darauf.
+- **JWT:** `SUPABASE_JWT_SECRET` oder `JWT_SECRET` (HS256), Claim `sub` = User-UUID. Optional `X-Tenant-Id`, wenn der User mehreren Mandanten angehört.
+- **RBAC:** Rollen kommen aus `tenant_memberships`; API-Key-Clients erhalten synthetische Rolle `api_client`. Geschützte Routen prüfen `owner`/`admin` wo nötig.
+- **Strenger Modus:** `MULTI_TENANCY_REQUIRE_AUTH=true` → Anfragen ohne gültiges JWT/API-Key erhalten 401 (außer öffentlich definierte Endpunkte).
+- **Frontend:** `/app/login` speichert optional `dwr_supabase_access_token` oder `dwr_api_key` in `localStorage`; `src/lib/api.ts` hängt `getAuthHeaders()` an `fetchWithTimeout` an.
 
-- **Option A:** Eigenes kleines Auth-Modul (z. B. JWT mit eigenem Secret, User/Tier in DB oder Config).
-- **Option B:** API-Gateway (z. B. Cloudflare Access, Kong) vor dem Backend; Tiers über API-Key-Header oder Gruppen.
-- **Option C:** Rate-Limits pro Tier unterschiedlich setzen (z. B. `key_func` auf API-Key oder User-ID, wenn später vorhanden).
+---
+
+## 7. Newsletter (SQLite)
+
+Lokal ohne zentrale DB: **SQLite** unter `data/newsletter.sqlite` mit `tenant_id` pro Zeile (eindeutig pro Mandant + E-Mail). Täglicher Versand nutzt weiterhin eine globale `newsletter_daily_lock`-Zeile pro UTC-Tag.
 
 ---
 
@@ -78,8 +75,9 @@ Aktuell gibt es **kein RBAC** und keine User-Tiers. Für spätere Erweiterung oh
 | Thema              | Stand / Empfehlung                                      |
 |--------------------|---------------------------------------------------------|
 | Rate Limiting      | ✅ slowapi, 10/min (Analyse), 5/min (Trigger)           |
-| API-Key-Rotation   | 📋 Manuell über Railway/Vercel Env; Redeploy nach Wechsel |
+| Plattform-API-Keys | 📋 Env (externe Dienste); Rotation über Provider       |
+| Mandanten-API-Keys | ✅ Hash in DB; `X-Api-Key` / Bearer                     |
 | CORS               | ✅ Konfigurierbar; in Prod explizite Origins setzen     |
 | Input-Sanitization | ✅ `sanitize_conflict()` vor Agent-Dispatch              |
-| Auth               | Kein Supabase; optional Trigger-Secret, sonst keine User-Auth |
-| RBAC / Tiers       | ❌ Noch nicht umgesetzt; Optionen oben                  |
+| Auth / Tenants     | ✅ JWT + API-Key + Default-Tenant; optional REQUIRE_AUTH |
+| RBAC               | ✅ Rollen in `tenant_memberships`                        |

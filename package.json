@@ -32,6 +32,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@react-pdf/renderer": "^4.3.2",
+    "@supabase/supabase-js": "^2.100.0",
     "@turf/distance": "^7.3.4",
     "@turf/helpers": "^7.3.4",
     "@types/react-simple-maps": "^3.0.6",

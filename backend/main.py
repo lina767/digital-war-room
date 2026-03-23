@@ -1,6 +1,7 @@
 import logging
 import os
 import asyncio
+from typing import Any
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.gzip import GZipMiddleware
 
 from middleware.rate_limit import limiter
+from middleware.tenant_context import TenantContextMiddleware
 from api.routes import router as api_router, push_escalation_timeline, push_agent_status, push_run_history
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
@@ -32,6 +34,8 @@ from observability import init as init_observability
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 from services.state_service import StateService
+from services.request_context import RequestContext, reset_request_context, set_request_context
+from services.tenant_constants import get_default_tenant_id
 from agents.socmint_agent import scrape_twitter_nitter, scrape_telegram_channels, search_reddit
 
 # Konflikt, der periodisch automatisch analysiert wird (unabhängig von Aufrufen)
@@ -67,6 +71,12 @@ class ConnectionManager:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_observability()  # structlog, Sentry, OpenTelemetry (OTEL when OTEL_EXPORTER_OTLP_ENDPOINT set)
+    try:
+        from services.schema_bootstrap import bootstrap_schema
+
+        await bootstrap_schema()
+    except Exception as e:
+        logger.warning("Schema bootstrap skipped or failed: %s", e)
     app.state.state_service = StateService()
     # Legacy in-memory fallback when routes don't use state_service (e.g. tests)
     app.state.analysis_cache = {}
@@ -112,14 +122,24 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     pass
 
-                result = await loop.run_in_executor(None, lambda: analyze_conflict(AUTO_ANALYZE_CONFLICT))
+                def _run_auto() -> Any:
+                    tid = get_default_tenant_id()
+                    ctx = RequestContext(tenant_id=tid, user_id=None, role="viewer", auth_method="default")
+                    tok = set_request_context(ctx)
+                    try:
+                        return analyze_conflict(AUTO_ANALYZE_CONFLICT)
+                    finally:
+                        reset_request_context(tok)
+
+                result = await loop.run_in_executor(None, _run_auto)
                 at_ts = time.time()
-                attach_pattern_flags(app.state.state_service, AUTO_ANALYZE_CONFLICT, result)
-                app.state.state_service.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts)
-                app.state.state_service.pop_last_error(AUTO_ANALYZE_CONFLICT)
-                push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
-                push_agent_status(app.state, result)
-                push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
+                _ntid = get_default_tenant_id()
+                attach_pattern_flags(app.state.state_service, AUTO_ANALYZE_CONFLICT, result, tenant_id=_ntid)
+                app.state.state_service.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts, tenant_id=_ntid)
+                app.state.state_service.pop_last_error(AUTO_ANALYZE_CONFLICT, tenant_id=_ntid)
+                push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result, tenant_id=_ntid)
+                push_agent_status(app.state, result, tenant_id=_ntid)
+                push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result, tenant_id=_ntid)
                 await app.state.ws_manager.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})
                 try:
                     from api.routes_analyze import persist_analysis_side_effects
@@ -320,6 +340,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(TenantContextMiddleware)
 if "*" in CORS_ORIGINS and os.getenv("ENVIRONMENT", "").lower() == "production":
     logger.warning(
         "CORS is set to '*' in production. Set CORS_ORIGINS to explicit origins (e.g. https://yourdomain.com)."
@@ -372,12 +393,21 @@ def root() -> dict:
 
 @app.websocket("/ws/{conflict}")
 async def websocket_endpoint(websocket: WebSocket, conflict: str):
+    import uuid as uuid_mod
+
     manager = websocket.app.state.ws_manager
     await manager.connect(websocket)
     logger.info("WS client connected – conflict: %s", conflict)
     try:
+        ws_tid = get_default_tenant_id()
+        raw_t = websocket.query_params.get("tenant_id")
+        if raw_t:
+            try:
+                ws_tid = uuid_mod.UUID(raw_t)
+            except ValueError:
+                pass
         # Sofort gecachtes Ergebnis senden (von Auto-Run oder letztem POST)
-        entry = websocket.app.state.state_service.get_cache(conflict)
+        entry = websocket.app.state.state_service.get_cache(conflict, tenant_id=ws_tid)
         if entry:
             result = {**entry["result"], "status": "ok"}
             await websocket.send_json(result)
@@ -386,7 +416,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
 
         while True:
             await asyncio.sleep(60)
-            entry = websocket.app.state.state_service.get_cache(conflict)
+            entry = websocket.app.state.state_service.get_cache(conflict, tenant_id=ws_tid)
             if entry:
                 result = {**entry["result"], "status": "ok"}
                 await websocket.send_json(result)

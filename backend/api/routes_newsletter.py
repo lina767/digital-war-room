@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import time
+from typing import Any
 
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
@@ -15,7 +16,10 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from api.http_errors import conflict_bad_request
 from agents.supervisor import analyze_conflict
 from agents.pattern_anomalies import attach_pattern_flags
+from services.request_context import RequestContext, reset_request_context, set_request_context
+from services.tenant_constants import get_default_tenant_id
 from middleware.rate_limit import limiter
+from middleware.tenant_context import get_request_ctx
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
 from services.newsletter_store import (
     add_subscriber,
@@ -110,7 +114,8 @@ async def newsletter_subscribe(request: Request, body: SubscribeBody) -> JSONRes
             conflict = sanitize_conflict(NEWSLETTER_DEFAULT_CONFLICT)
         except ValueError as e:
             return conflict_bad_request(e)
-    confirm_token, unsubscribe_token = add_subscriber(email, conflict)
+    tid = str(get_request_ctx(request).tenant_id)
+    confirm_token, unsubscribe_token = add_subscriber(email, conflict, tenant_id=tid)
     if confirm_token is None:
         return JSONResponse(
             status_code=409,
@@ -123,7 +128,7 @@ async def newsletter_subscribe(request: Request, body: SubscribeBody) -> JSONRes
     sent = await send_confirmation_email(email, conflict, confirm_token)
     if not sent:
         # Avoid trapping users in a pending state when email delivery fails.
-        remove_unconfirmed_subscriber(email, confirm_token)
+        remove_unconfirmed_subscriber(email, confirm_token, tenant_id=tid)
         return JSONResponse(
             status_code=503,
             content={
@@ -206,10 +211,20 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
     sent_total = 0
     sem = asyncio.Semaphore(_NEWSLETTER_SEND_PARALLELISM)
 
+    def _run_analyze_default(c: str) -> Any:
+        tid = get_default_tenant_id()
+        ctx = RequestContext(tenant_id=tid, user_id=None, role="viewer", auth_method="default")
+        tok = set_request_context(ctx)
+        try:
+            return analyze_conflict(c)
+        finally:
+            reset_request_context(tok)
+
+    ntid = get_default_tenant_id()
     for conflict in conflicts:
         try:
             result = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda c=conflict: analyze_conflict(c)),
+                loop.run_in_executor(None, lambda c=conflict: _run_analyze_default(c)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
         except asyncio.TimeoutError:
@@ -218,14 +233,14 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
             continue
         at_ts = time.time()
         if state:
-            attach_pattern_flags(state, conflict, result)
-            state.set_cache(conflict, result, at_ts)
+            attach_pattern_flags(state, conflict, result, tenant_id=ntid)
+            state.set_cache(conflict, result, at_ts, tenant_id=ntid)
         else:
             app_state.analysis_cache[conflict] = {"result": result, "at": at_ts}
-        push_escalation_timeline(app_state, conflict, at_ts, result)
-        push_agent_status(app_state, result)
-        push_run_history(app_state, conflict, at_ts, result)
-        subscribers = list_confirmed_subscribers(conflict)
+        push_escalation_timeline(app_state, conflict, at_ts, result, tenant_id=ntid)
+        push_agent_status(app_state, result, tenant_id=ntid)
+        push_run_history(app_state, conflict, at_ts, result, tenant_id=ntid)
+        subscribers = list_confirmed_subscribers(conflict, tenant_id=None)
 
         async def _send_one(sub: dict, *, res: dict = result) -> bool:
             async with sem:
@@ -311,7 +326,7 @@ async def newsletter_sync_from_resend(
             continue
         unsubscribed = bool(c.get("unsubscribed"))
         conflict = _conflict_from_resend_contact(c)
-        outcome = apply_resend_contact_sync(email, conflict, unsubscribed=unsubscribed)
+        outcome = apply_resend_contact_sync(email, conflict, unsubscribed=unsubscribed, tenant_id=str(get_default_tenant_id()))
         if outcome in counts:
             counts[outcome] += 1
     return JSONResponse(

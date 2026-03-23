@@ -412,6 +412,7 @@ Detailed rollout and production checklist:
 - Rate limits are enabled on conflict-bearing endpoints.
 - Validate and sanitize conflict inputs before execution.
 - Use trigger secret for protected analysis triggering (`ANALYZE_TRIGGER_SECRET`) when exposed publicly.
+- Multi-tenancy: apply DB migrations `003`/`004`, set `SUPABASE_JWT_SECRET` or `JWT_SECRET` for HS256 user tokens, optional `MULTI_TENANCY_REQUIRE_AUTH=true` to reject unauthenticated calls. Tenant API keys: `POST /api/tenant/api-keys`. Frontend: `/app/login` and `getAuthHeaders()` in `src/lib/api.ts`.
 
 Related docs:
 
