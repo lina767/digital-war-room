@@ -19,9 +19,11 @@ from middleware.rate_limit import limiter
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
 from services.newsletter_store import (
     add_subscriber,
+    apply_resend_contact_sync,
     clear_daily_newsletter_lock_today,
     confirm_subscription,
     get_conflicts_with_subscribers,
+    get_subscriber_stats,
     list_confirmed_subscribers,
     mark_daily_newsletter_completed,
     remove_by_unsubscribe_token,
@@ -29,7 +31,9 @@ from services.newsletter_store import (
     try_acquire_daily_newsletter_lock,
 )
 from services.resend_contacts import (
+    fetch_contacts_from_resend,
     mark_contact_unsubscribed,
+    resolve_import_segment_id,
     upsert_pending_contact,
     upsert_subscribed_contact,
 )
@@ -72,6 +76,24 @@ class SubscribeBody(BaseModel):
         if v is None:
             return None
         return sanitize_conflict(v)
+
+
+def _conflict_from_resend_contact(contact: dict) -> str:
+    raw = (contact.get("first_name") or "").strip() or None
+    if raw is None:
+        return NEWSLETTER_DEFAULT_CONFLICT
+    try:
+        return sanitize_conflict(raw)
+    except ValueError:
+        return NEWSLETTER_DEFAULT_CONFLICT
+
+
+class SyncFromResendBody(BaseModel):
+    segment_id: str | None = Field(
+        None,
+        max_length=80,
+        description="Resend segment UUID; defaults to RESEND_NEWSLETTER_SEGMENT_ID(S) / RESEND_AUDIENCE_ID",
+    )
 
 
 @router.post("/newsletter/subscribe")
@@ -232,6 +254,75 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
             )
 
     return (conflicts, sent_total, False)
+
+
+@router.get("/newsletter/status")
+@limiter.limit("30/minute")
+async def newsletter_status(
+    request: Request,
+    x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+) -> JSONResponse:
+    """
+    GET /api/newsletter/status – SQLite subscriber counts (confirmed vs pending) and DB path.
+    Same auth as send-daily: NEWSLETTER_CRON_SECRET via X-Newsletter-Secret when set.
+    """
+    secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
+    if secret and x_newsletter_secret != secret:
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    return JSONResponse(status_code=200, content=get_subscriber_stats())
+
+
+@router.post("/newsletter/sync-from-resend")
+@limiter.limit("5/minute")
+async def newsletter_sync_from_resend(
+    request: Request,
+    body: SyncFromResendBody,
+    x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+) -> JSONResponse:
+    """
+    POST /api/newsletter/sync-from-resend – list contacts in a Resend segment and mirror into SQLite.
+
+    - unsubscribed=false → insert confirmed row or confirm pending / update conflict (from Resend first_name).
+    - unsubscribed=true → remove local row (aligns DB with “not subscribed” in Resend).
+
+    Same auth as send-daily. Requires segment_id in body or RESEND_NEWSLETTER_SEGMENT_ID / RESEND_AUDIENCE_ID.
+    """
+    secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
+    if secret and x_newsletter_secret != secret:
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    segment_id = resolve_import_segment_id(body.segment_id)
+    if not segment_id:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "segment_id required in JSON body or set RESEND_NEWSLETTER_SEGMENT_ID / RESEND_AUDIENCE_ID in env.",
+            },
+        )
+    try:
+        contacts = await fetch_contacts_from_resend(segment_id=segment_id)
+    except RuntimeError as e:
+        return JSONResponse(status_code=502, content={"error": str(e)})
+    counts: dict[str, int] = {"inserted": 0, "updated": 0, "removed": 0, "noop": 0}
+    for c in contacts:
+        if not isinstance(c, dict):
+            continue
+        email = c.get("email")
+        if not email or not isinstance(email, str):
+            continue
+        unsubscribed = bool(c.get("unsubscribed"))
+        conflict = _conflict_from_resend_contact(c)
+        outcome = apply_resend_contact_sync(email, conflict, unsubscribed=unsubscribed)
+        if outcome in counts:
+            counts[outcome] += 1
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": "Resend → SQLite sync complete.",
+            "segment_id": segment_id,
+            "fetched": len(contacts),
+            **counts,
+        },
+    )
 
 
 @router.post("/newsletter/send-daily")

@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,58 @@ def remove_by_unsubscribe_token(token: str) -> tuple[bool, str | None]:
         conn.close()
 
 
+def apply_resend_contact_sync(email: str, conflict: str, *, unsubscribed: bool) -> str:
+    """
+    Mirror one Resend contact into SQLite: unsubscribed=True removes the row; unsubscribed=False
+    ensures a confirmed subscription (insert or confirm pending / refresh conflict).
+
+    Conflict must already be normalized (e.g. sanitize_conflict). Returns one of:
+    inserted, updated, removed, noop.
+    """
+    em = (email or "").strip().lower()
+    if not em:
+        return "noop"
+    conn = _ensure_db()
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        if unsubscribed:
+            cur = conn.execute("DELETE FROM newsletter_subscribers WHERE email = ?", (em,))
+            conn.commit()
+            return "removed" if cur.rowcount else "noop"
+        cur = conn.execute(
+            "SELECT confirmed_at, conflict FROM newsletter_subscribers WHERE email = ?",
+            (em,),
+        )
+        row = cur.fetchone()
+        if row:
+            confirmed_at, existing_conflict = row[0], row[1]
+            if confirmed_at is None:
+                conn.execute(
+                    "UPDATE newsletter_subscribers SET confirmed_at = ?, conflict = ? WHERE email = ?",
+                    (now, conflict, em),
+                )
+                conn.commit()
+                return "updated"
+            if existing_conflict != conflict:
+                conn.execute("UPDATE newsletter_subscribers SET conflict = ? WHERE email = ?", (conflict, em))
+                conn.commit()
+                return "updated"
+            return "noop"
+        confirm_token = str(uuid.uuid4())
+        unsubscribe_token = str(uuid.uuid4())
+        conn.execute(
+            """
+            INSERT INTO newsletter_subscribers (email, conflict, subscribed_at, unsubscribe_token, confirm_token, confirmed_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (em, conflict, now, unsubscribe_token, confirm_token, now),
+        )
+        conn.commit()
+        return "inserted"
+    finally:
+        conn.close()
+
+
 def list_confirmed_subscribers(conflict: Optional[str] = None) -> List[dict]:
     """
     Return list of confirmed subscribers. Each item: {email, conflict, unsubscribe_token}.
@@ -185,6 +237,36 @@ def get_conflicts_with_subscribers() -> List[str]:
             "SELECT DISTINCT conflict FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL ORDER BY conflict"
         )
         return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_subscriber_stats() -> Dict[str, Any]:
+    """
+    Aggregate subscriber counts for ops/debug. Does not expose email addresses.
+    """
+    conn = _ensure_db()
+    try:
+        total = int(conn.execute("SELECT COUNT(*) FROM newsletter_subscribers").fetchone()[0])
+        confirmed = int(
+            conn.execute("SELECT COUNT(*) FROM newsletter_subscribers WHERE confirmed_at IS NOT NULL").fetchone()[0]
+        )
+        pending = total - confirmed
+        cur = conn.execute(
+            """
+            SELECT conflict, COUNT(*) FROM newsletter_subscribers
+            WHERE confirmed_at IS NOT NULL
+            GROUP BY conflict ORDER BY conflict
+            """
+        )
+        by_conflict = [{"conflict": r[0], "confirmed": int(r[1])} for r in cur.fetchall()]
+        return {
+            "db_path": str(DB_PATH.resolve()),
+            "total_rows": total,
+            "confirmed": confirmed,
+            "pending": pending,
+            "confirmed_by_conflict": by_conflict,
+        }
     finally:
         conn.close()
 

@@ -22,6 +22,7 @@ from services.http_client import get_http_client
 logger = logging.getLogger(__name__)
 
 RESEND_API_BASE = "https://api.resend.com"
+_RESEND_LIST_PAGE_SIZE = 100
 DEFAULT_NEWSLETTER_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Global").strip() or "Global"
 
 
@@ -55,6 +56,15 @@ def _newsletter_segment_ids() -> list[str]:
     if not raw:
         return []
     return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+def resolve_import_segment_id(explicit: str | None) -> str | None:
+    """Prefer explicit segment UUID from caller; otherwise first ID from env (segment or legacy audience)."""
+    s = (explicit or "").strip()
+    if s:
+        return s
+    ids = _newsletter_segment_ids()
+    return ids[0] if ids else None
 
 
 def _contact_path_suffix(email: str) -> str:
@@ -137,6 +147,52 @@ async def _upsert_contact(email: str, conflict: str, unsubscribed: bool) -> bool
     except Exception as exc:
         logger.exception("Resend contact upsert failed: %s", exc)
         return False
+
+
+async def fetch_contacts_from_resend(*, segment_id: str | None = None) -> list[dict[str, Any]]:
+    """
+    List all contacts from Resend (GET /contacts) with cursor pagination.
+    Optional segment_id filters to contacts in that segment (Resend query param).
+
+    Raises RuntimeError on transport error or non-200 response.
+    """
+    key = _api_key()
+    if not key:
+        raise RuntimeError("RESEND_API_KEY is not set")
+
+    client = get_http_client()
+    headers = {"Authorization": f"Bearer {key}"}
+    all_rows: list[dict[str, Any]] = []
+    after: str | None = None
+    seg = (segment_id or "").strip() or None
+
+    while True:
+        params: dict[str, Any] = {"limit": _RESEND_LIST_PAGE_SIZE}
+        if seg:
+            params["segment_id"] = seg
+        if after:
+            params["after"] = after
+        resp = await client.request("GET", f"{RESEND_API_BASE}/contacts", headers=headers, params=params)
+        if resp.status_code != 200:
+            logger.warning("Resend list contacts failed status=%s body=%s", resp.status_code, resp.text[:500])
+            raise RuntimeError(f"Resend list contacts failed: HTTP {resp.status_code}")
+        payload = resp.json()
+        data = payload.get("data") or []
+        if not isinstance(data, list):
+            break
+        for item in data:
+            if isinstance(item, dict):
+                all_rows.append(item)
+        if not payload.get("has_more"):
+            break
+        if not data:
+            break
+        last_id = data[-1].get("id") if isinstance(data[-1], dict) else None
+        if not last_id:
+            break
+        after = str(last_id)
+
+    return all_rows
 
 
 async def _ensure_segments(client, headers: dict[str, str], path_suffix: str, segment_ids: list[str]) -> None:

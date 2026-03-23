@@ -10,7 +10,7 @@ Newsletter feature: subscribers receive a daily email with the current Daily Bri
 |-------|--------|
 | **Double opt-in** | Yes. Send confirmation email; only confirmed subscribers receive the daily mail. |
 | **Email provider** | **Resend** (env: `RESEND_API_KEY`, `NEWSLETTER_FROM`). |
-| **Send time** | **Fixed time** (e.g. 06:00 UTC). At that time: **run an extra analysis** for the configured conflict(s), then send the newsletter with that **fresh** result („morning briefing“ with up-to-date data). |
+| **Send time** | **Fixed local time** (default **10:00** in **Europe/Berlin**, i.e. CET/CEST). At that time: **run an extra analysis** for the configured conflict(s), then send the newsletter with that **fresh** result („morning briefing“ with up-to-date data). Config: `NEWSLETTER_SEND_TIMEZONE`, `NEWSLETTER_SEND_HOUR`, `NEWSLETTER_SEND_MINUTE`; legacy `NEWSLETTER_SEND_UTC_HOUR` fixes a UTC hour instead. |
 
 ---
 
@@ -55,13 +55,13 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 
 ## 4. Daily send: fixed time + extra analysis
 
-- **Fixed time:** e.g. **06:00 UTC** (configurable via env `NEWSLETTER_SEND_UTC_HOUR`, default `6`).
+- **Fixed time:** default **10:00** in **Europe/Berlin** (`NEWSLETTER_SEND_TIMEZONE`, `NEWSLETTER_SEND_HOUR`, `NEWSLETTER_SEND_MINUTE`). Optional legacy: **`NEWSLETTER_SEND_UTC_HOUR`** (if set in env) uses a fixed UTC hour instead.
 - **Sequence each day at that time:**
   1. **Trigger a full analysis** for the conflict(s) that have confirmed subscribers (e.g. `AUTO_ANALYZE_CONFLICT` or list of conflicts with subscribers). Use existing `analyze_conflict(conflict)`; wait for completion and update cache (same as periodic analysis).
   2. **Send newsletters:** For each conflict that was just analyzed, load cached result, get `list_confirmed_subscribers(conflict)`, render and send one email per subscriber via Resend (with unsubscribe token).
 - **Implementation options:**
   - **A) Background task in lifespan** (like `run_periodic_analysis` in `main.py`): asyncio task that sleeps until next 06:00 UTC, then runs analysis → send; loop.
-  - **B) Protected cron endpoint** `POST /api/newsletter/send-daily` (e.g. `X-Newsletter-Secret` / `NEWSLETTER_CRON_SECRET`), called by external cron at 06:00 UTC; endpoint triggers analysis then send. Prefer **B** if you use external cron (e.g. Railway/Render cron, GitHub Actions); otherwise **A** keeps everything in-process.
+  - **B) Protected cron endpoint** `POST /api/newsletter/send-daily` (e.g. `X-Newsletter-Secret` / `NEWSLETTER_CRON_SECRET`), called by external cron at the same local time (e.g. 10:00 Europe/Berlin); endpoint triggers analysis then send. Prefer **B** if you use external cron (e.g. Railway/Render cron, GitHub Actions); otherwise **A** keeps everything in-process.
 
 ---
 
@@ -73,6 +73,8 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 | GET | `/api/newsletter/confirm?token=...` | Set `confirmed_at`; show success page. |
 | GET | `/api/newsletter/unsubscribe?token=...` | Remove or deactivate subscriber; show “You have been unsubscribed.” |
 | POST | `/api/newsletter/send-daily` | (Optional) Cron: run analysis for configured conflict(s), then send daily emails. Protected by `NEWSLETTER_CRON_SECRET`. |
+| GET | `/api/newsletter/status` | Ops: SQLite counts (confirmed/pending), DB path. Same secret header when `NEWSLETTER_CRON_SECRET` is set. |
+| POST | `/api/newsletter/sync-from-resend` | Import/mirror: list Resend contacts for a segment (`GET /contacts?segment_id=`) into SQLite (confirmed vs remove if unsubscribed). Body: optional `segment_id`; defaults to env segment/audience. Same secret. |
 | POST | `/api/webhooks/resend` | Resend webhooks (bounces/complaints). Set `RESEND_WEBHOOK_SECRET` (Svix signing secret). |
 
 ---
@@ -88,13 +90,13 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 
 ## 7. Env and docs
 
-- **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL`, optional `RESEND_NEWSLETTER_SEGMENT_ID` / `RESEND_NEWSLETTER_SEGMENT_IDS`, `RESEND_CONTACTS_SYNC`, `NEWSLETTER_CRON_SECRET`, `NEWSLETTER_SEND_UTC_HOUR=6`.
+- **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL`, optional `RESEND_NEWSLETTER_SEGMENT_ID` / `RESEND_NEWSLETTER_SEGMENT_IDS`, `RESEND_CONTACTS_SYNC`, `NEWSLETTER_CRON_SECRET`, optional `NEWSLETTER_SEND_TIMEZONE` / `NEWSLETTER_SEND_HOUR` / `NEWSLETTER_SEND_MINUTE` (or legacy `NEWSLETTER_SEND_UTC_HOUR`).
 
 ### Troubleshooting: „Keine Mail heute“
 
 | Ursache | Was prüfen |
 |--------|------------|
-| **Zeitzone** | Versand ist **`NEWSLETTER_SEND_UTC_HOUR` UTC** (Standard: 06:00 **UTC**, nicht Ortszeit). |
+| **Zeitzone** | Standard: **10:00 Ortszeit** **`Europe/Berlin`** (CET/CEST). Alternativ: `NEWSLETTER_SEND_UTC_HOUR` setzen → feste UTC-Stunde (Legacy). |
 | **Double opt-in** | Nur Zeilen mit gesetztem `confirmed_at` in SQLite bekommen Mail. Nach Subscribe **Bestätigungslink** in der E-Mail klicken. |
 | **Deploy / Neustart** | In-process Scheduler wartet bis zur **nächsten** vollen Stunde UTC – wenn der Server **nach** dieser Zeit startet, ist der Lauf für **diesen** Tag versäumt (nächster Lauf: Folgetag), sofern kein externes Cron `POST /api/newsletter/send-daily` triggert. |
 | **Ephemeral Disk (z. B. Railway)** | Ohne Volume geht **`NEWSLETTER_DB_PATH`** (SQLite) bei Deploy verloren → Abonnenten/Lock weg. Volume mounten und `NEWSLETTER_DB_PATH` auf persistenten Pfad setzen. |

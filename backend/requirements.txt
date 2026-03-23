@@ -71,6 +71,7 @@ strictyaml==1.7.3
 tenacity==9.1.4
 typing-inspection==0.4.2
 typing_extensions==4.15.0
+tzdata>=2024.1
 update-checker==0.18.0
 urllib3==2.6.3
 uuid_utils==0.14.1

@@ -444,7 +444,7 @@ Related docs:
 ### Newsletter does not send
 
 - verify `RESEND_API_KEY` and `NEWSLETTER_FROM`
-- check `NEWSLETTER_SEND_UTC_HOUR`
+- check `NEWSLETTER_SEND_TIMEZONE` / `NEWSLETTER_SEND_HOUR` (or legacy `NEWSLETTER_SEND_UTC_HOUR`)
 - inspect backend logs around daily scheduler window
 
 ---

@@ -4,6 +4,7 @@ import asyncio
 import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -172,7 +173,7 @@ async def lifespan(app: FastAPI):
         greynoise_task = asyncio.create_task(run_greynoise_scheduler())
         greynoise_discovery_task = asyncio.create_task(run_greynoise_tag_discovery())
 
-    # Newsletter daily job: fixed time (e.g. 06:00 UTC), run analysis then send emails.
+    # Newsletter daily job: default 10:00 Europe/Berlin (CET/CEST); run analysis then send emails.
     # NEWSLETTER_IN_PROCESS_SCHEDULER=false when using only external cron (POST /api/newsletter/send-daily).
     newsletter_task = None
     if (os.getenv("RESEND_API_KEY") or "").strip() and (os.getenv("NEWSLETTER_FROM") or "").strip():
@@ -188,14 +189,72 @@ async def lifespan(app: FastAPI):
             "no",
         )
         if in_process:
-            send_hour = int(os.getenv("NEWSLETTER_SEND_UTC_HOUR", "6"))
-
             def _seconds_until_next_send() -> float:
-                now = datetime.now(timezone.utc)
-                next_run = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
+                """
+                Next run: default 10:00 in Europe/Berlin (CET/CEST). Override via
+                NEWSLETTER_SEND_TIMEZONE, NEWSLETTER_SEND_HOUR, NEWSLETTER_SEND_MINUTE.
+                Legacy: if NEWSLETTER_SEND_UTC_HOUR is set in the environment, use that UTC hour instead.
+                """
+                if "NEWSLETTER_SEND_UTC_HOUR" in os.environ:
+                    try:
+                        send_hour = int(os.getenv("NEWSLETTER_SEND_UTC_HOUR", "6"), 10)
+                    except ValueError:
+                        send_hour = 6
+                    send_hour = max(0, min(23, send_hour))
+                    now = datetime.now(timezone.utc)
+                    next_run = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
+                    if next_run <= now:
+                        next_run = next_run + timedelta(days=1)
+                    return max(60.0, (next_run - now).total_seconds())
+
+                tz_name = (os.getenv("NEWSLETTER_SEND_TIMEZONE") or "Europe/Berlin").strip() or "Europe/Berlin"
+                try:
+                    tz = ZoneInfo(tz_name)
+                except Exception:
+                    logger.warning("Invalid NEWSLETTER_SEND_TIMEZONE=%r; using Europe/Berlin", tz_name)
+                    tz = ZoneInfo("Europe/Berlin")
+                try:
+                    hour = int(os.getenv("NEWSLETTER_SEND_HOUR", "10"), 10)
+                except ValueError:
+                    hour = 10
+                try:
+                    minute = int(os.getenv("NEWSLETTER_SEND_MINUTE", "0"), 10)
+                except ValueError:
+                    minute = 0
+                hour = max(0, min(23, hour))
+                minute = max(0, min(59, minute))
+                now = datetime.now(tz)
+                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 if next_run <= now:
                     next_run = next_run + timedelta(days=1)
-                return max(60, (next_run - now).total_seconds())
+                return max(60.0, (next_run - now).total_seconds())
+
+            _first_delay = _seconds_until_next_send()
+            if "NEWSLETTER_SEND_UTC_HOUR" in os.environ:
+                logger.info(
+                    "Newsletter in-process scheduler: NEWSLETTER_SEND_UTC_HOUR=%s (UTC); first run in %.0f s",
+                    os.getenv("NEWSLETTER_SEND_UTC_HOUR"),
+                    _first_delay,
+                )
+            else:
+                _tz = (os.getenv("NEWSLETTER_SEND_TIMEZONE") or "Europe/Berlin").strip() or "Europe/Berlin"
+                try:
+                    _h = int(os.getenv("NEWSLETTER_SEND_HOUR", "10"), 10)
+                except ValueError:
+                    _h = 10
+                try:
+                    _m = int(os.getenv("NEWSLETTER_SEND_MINUTE", "0"), 10)
+                except ValueError:
+                    _m = 0
+                _h = max(0, min(23, _h))
+                _m = max(0, min(59, _m))
+                logger.info(
+                    "Newsletter in-process scheduler: daily send at %02d:%02d %s; first run in %.0f s",
+                    _h,
+                    _m,
+                    _tz,
+                    _first_delay,
+                )
 
             async def _newsletter_loop():
                 from api.routes_newsletter import run_daily_newsletter_job
