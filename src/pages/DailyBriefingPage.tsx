@@ -27,8 +27,7 @@ const NAV_ITEMS = [
   { id: "briefing-developments", label: "Findings" },
   { id: "briefing-predictive", label: "Outlook" },
   { id: "briefing-global", label: "Global" },
-  { id: "briefing-watch", label: "Scenarios" },
-  { id: "briefing-compliance", label: "Compliance" },
+  { id: "briefing-watch", label: "Things to Watch" },
   { id: "briefing-sources", label: "Deep Dives" },
 ];
 
@@ -142,12 +141,6 @@ export default function DailyBriefingPage() {
                 <h2 className="briefing-display text-2xl">Global Impact</h2>
                 <p className="mt-2 text-sm text-[var(--text-secondary)]">
                   Energy and shipping sensitivities remain linked to chokepoint pressure and escalation trajectory.
-                </p>
-              </section>
-              <section id="briefing-compliance" className="briefing-card p-3">
-                <h2 className="briefing-display text-2xl">Sanctions Compliance</h2>
-                <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                  Compliance risk is synthesized from sanctions list matches, AIS/geofencing signals, and escalation context.
                 </p>
               </section>
             </div>

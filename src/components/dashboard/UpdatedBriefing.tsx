@@ -83,19 +83,23 @@ function UpdatedBriefingContent({
             <NarrativeBody text={narrativeStory} />
           </div>
         )}
-        {scenarios.length > 0 && (
+        {data != null && (
           <div>
             <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Things to Watch</p>
-            <ol className="space-y-2 list-decimal list-inside">
-              {scenarios.slice(0, 5).map((s, i) => (
-                <li key={i} className="text-xs leading-relaxed">
-                  <span className="font-medium">{s.description}</span>
-                  {typeof s.probability === "number" && (
-                    <span className="ml-1 text-muted-foreground">({Math.round(s.probability * 100)}%)</span>
-                  )}
-                </li>
-              ))}
-            </ol>
+            {scenarios.length > 0 ? (
+              <ol className="space-y-2 list-decimal list-inside">
+                {scenarios.slice(0, 5).map((s, i) => (
+                  <li key={i} className="text-xs leading-relaxed">
+                    <span className="font-medium">{s.description}</span>
+                    {typeof s.probability === "number" && (
+                      <span className="ml-1 text-muted-foreground">({Math.round(s.probability * 100)}%)</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No scenarios on watch for this period.</p>
+            )}
           </div>
         )}
         {hasContent && !summary && scenarios.length === 0 && keyFindings.length > 0 && (
