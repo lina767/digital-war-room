@@ -188,7 +188,7 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
     Run analysis for each conflict that has confirmed subscribers, then send daily briefing emails.
     Returns (conflicts, emails_sent, skipped_duplicate).
 
-    Optional SQLite mutex (NEWSLETTER_DAILY_DEDUPE): one completed run per UTC calendar day to avoid
+    Optional deduplication mutex (NEWSLETTER_DAILY_DEDUPE): one completed run per UTC calendar day to avoid
     duplicate mail when both in-process scheduler and external cron call this endpoint.
     """
     conflicts = get_conflicts_with_subscribers()
@@ -263,7 +263,7 @@ async def newsletter_status(
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
 ) -> JSONResponse:
     """
-    GET /api/newsletter/status – SQLite subscriber counts (confirmed vs pending) and DB path.
+    GET /api/newsletter/status – PostgreSQL subscriber counts (confirmed vs pending).
     Same auth as send-daily: NEWSLETTER_CRON_SECRET via X-Newsletter-Secret when set.
     """
     secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
@@ -280,7 +280,7 @@ async def newsletter_sync_from_resend(
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
 ) -> JSONResponse:
     """
-    POST /api/newsletter/sync-from-resend – list contacts in a Resend segment and mirror into SQLite.
+    POST /api/newsletter/sync-from-resend – list contacts in a Resend segment and mirror into PostgreSQL.
 
     - unsubscribed=false → insert confirmed row or confirm pending / update conflict (from Resend first_name).
     - unsubscribed=true → remove local row (aligns DB with “not subscribed” in Resend).
@@ -317,7 +317,7 @@ async def newsletter_sync_from_resend(
     return JSONResponse(
         status_code=200,
         content={
-            "message": "Resend → SQLite sync complete.",
+            "message": "Resend → PostgreSQL sync complete.",
             "segment_id": segment_id,
             "fetched": len(contacts),
             **counts,

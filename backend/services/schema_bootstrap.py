@@ -9,7 +9,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
-_ORDER = ("003_multi_tenancy.sql",)
+_ORDER = (
+    "003_multi_tenancy.sql",
+    "004_newsletter.sql",
+)
 
 
 async def bootstrap_multi_tenancy_schema() -> None:
