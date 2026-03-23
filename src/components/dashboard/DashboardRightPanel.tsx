@@ -309,12 +309,12 @@ export function DashboardRightPanel({
 
   const renderSummaryView = () => {
     const keyFindings = conflictData?.key_findings ?? [];
-    const riskLevel = conflictData?.compliance?.risk_score?.level ?? "—";
+    const riskLevel = conflictData?.compliance?.risk_score?.level ?? "–";
     const cpData = conflictData?.chokepoint;
     const chokepoints = cpData?.chokepoints ?? [];
     const restricted = chokepoints.filter((c) => (c.status ?? "").toUpperCase() !== "OPEN").length;
     const articles = conflictData?.news?.articles ?? [];
-    const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "—";
+    const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "–";
     return (
       <div className="space-y-4">
         <UpdatedBriefing
@@ -355,13 +355,13 @@ export function DashboardRightPanel({
     const summary = conflictData?.summary ?? null;
     const keyFindings = conflictData?.key_findings ?? [];
     const score = conflictData?.escalation_score ?? null;
-    const threat = conflictData?.threat_level ?? "—";
+    const threat = conflictData?.threat_level ?? "–";
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[11px] text-muted-foreground">ESCALATION</span>
-            <span className="font-mono text-lg font-bold text-primary">{score ?? "—"}</span>
+            <span className="font-mono text-lg font-bold text-primary">{score ?? "–"}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="font-mono text-[11px] text-muted-foreground">THREAT</span>

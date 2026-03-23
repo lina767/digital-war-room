@@ -37,6 +37,46 @@ from .state_helpers import (
 router = APIRouter()
 
 
+async def persist_analysis_side_effects(conflict: str, result: dict[str, Any]) -> None:
+    """Postgres audit, SIGINT state for compliance deltas, AIS track samples."""
+    try:
+        from services.analysis_audit_store import persist_analysis_audit
+
+        await persist_analysis_audit(conflict, result)
+    except Exception:
+        pass
+    try:
+        from agents.agent_state_store import get_agent_state_store
+
+        sig = result.get("sigint")
+        if isinstance(sig, dict):
+            get_agent_state_store().set_result(conflict, "sigint", sig, time.time())
+    except Exception:
+        pass
+    try:
+        from services.quality_store import insert_ais_track_samples
+
+        sig = result.get("sigint") or {}
+        ships = sig.get("ships") or []
+        samples: list[dict[str, Any]] = []
+        now_ts = time.time()
+        for s in ships:
+            if not isinstance(s, dict) or "error" in s:
+                continue
+            mmsi = s.get("mmsi") or s.get("name")
+            if mmsi is None:
+                continue
+            lat, lon = s.get("lat"), s.get("lon")
+            if lat is None or lon is None:
+                continue
+            ts = s.get("timestamp") or s.get("seen") or now_ts
+            samples.append({"mmsi": str(mmsi), "observed_at": ts, "lat": lat, "lon": lon})
+        if samples:
+            await insert_ais_track_samples(conflict, samples)
+    except Exception:
+        pass
+
+
 async def _persist_analysis_result(
     *,
     conflict: str,
@@ -53,12 +93,7 @@ async def _persist_analysis_result(
     push_agent_status(app_state, result)
     push_run_history(app_state, conflict, at_ts, result)
     await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
-    try:
-        from services.analysis_audit_store import persist_analysis_audit
-
-        await persist_analysis_audit(conflict, result)
-    except Exception:
-        pass
+    await persist_analysis_side_effects(conflict, result)
 
 
 class AnalyzeRequest(BaseModel):

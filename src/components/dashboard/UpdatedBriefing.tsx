@@ -78,7 +78,7 @@ function UpdatedBriefingContent({
               Cross-stream narrative
             </p>
             <p className="text-[10px] text-muted-foreground/90 mb-2 leading-snug">
-              How FININT, SIGINT, GEOINT, and related streams reinforce or qualify each other — read after the recap.
+              How FININT, SIGINT, GEOINT, and related streams reinforce or qualify each other – read after the recap.
             </p>
             <NarrativeBody text={narrativeStory} />
           </div>

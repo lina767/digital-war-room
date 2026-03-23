@@ -79,7 +79,7 @@ export interface AgentMeta {
   sources: SourceResult[];
   confidence: ScoreConfidence;
   data_freshness: "live" | "recent" | "stale" | "unavailable";
-  /** live / estimated / degraded — aligns with CEO agent_data_confidence. */
+  /** live / estimated / degraded – aligns with CEO agent_data_confidence. */
   data_confidence?: "live" | "estimated" | "degraded";
   fallback_used?: boolean;
   error_summary?: string | null;
@@ -134,6 +134,8 @@ export interface AnalyzeResponse {
   compliance?: Record<string, unknown>;
   /** Heuristic anomaly flags (vs previous run): military chatter spike, volume spikes, escalation jump. */
   pattern_flags?: Array<Record<string, unknown>>;
+  /** Cross-source fusion: signals, summary, fusion_meta (Postgres-backed when DATABASE_URL set). */
+  cross_validation?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -247,7 +249,7 @@ export interface AgentsMonitoringResponse {
   };
 }
 
-/** GET /api/agents/monitoring — fallback stats, error log, Haiku cost/tokens (in-memory). */
+/** GET /api/agents/monitoring – fallback stats, error log, Haiku cost/tokens (in-memory). */
 export async function getAgentsMonitoring(): Promise<AgentsMonitoringResponse | null> {
   try {
     const res = await fetchWithTimeout(apiUrl("agents/monitoring"), { method: "GET", timeoutMs: 15_000 });
@@ -258,7 +260,7 @@ export async function getAgentsMonitoring(): Promise<AgentsMonitoringResponse | 
   }
 }
 
-/** GET /api/status — per-agent heartbeat, 24h error rate, Haiku quota slice (process lifetime). */
+/** GET /api/status – per-agent heartbeat, 24h error rate, Haiku quota slice (process lifetime). */
 export interface AgentsOpsHeartbeatRow {
   at: number;
   at_iso: string;

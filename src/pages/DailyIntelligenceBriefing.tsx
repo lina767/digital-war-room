@@ -303,7 +303,7 @@ export default function DailyIntelligenceBriefing() {
                         Cross-stream narrative
                       </p>
                       <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-                        Operational story: how the main intelligence lines connect, reinforce, or contradict — the beat
+                        Operational story: how the main intelligence lines connect, reinforce, or contradict – the beat
                         after the executive summary.
                       </p>
                       <NarrativeBody text={String(data.narrative_story)} />
@@ -343,7 +343,7 @@ export default function DailyIntelligenceBriefing() {
                       {data.news!.articles!.slice(0, 10).map((a, i) => (
                         <li key={i} className="flex gap-2">
                           <span className="text-primary shrink-0">•</span>
-                          <span>{a.title ?? "—"}</span>
+                          <span>{a.title ?? "–"}</span>
                         </li>
                       ))}
                     </ul>
@@ -719,7 +719,7 @@ export default function DailyIntelligenceBriefing() {
           )}
 
           <p className="no-print mt-8 pt-6 border-t border-border text-sm text-muted-foreground">
-            Get the daily briefing by email —{" "}
+            Get the daily briefing by email –{" "}
             <Link to="/newsletter" className="text-primary hover:underline">
               Subscribe to daily briefing
             </Link>

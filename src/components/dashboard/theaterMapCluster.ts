@@ -6,7 +6,7 @@ export type TheaterDisplayItem =
 
 const CLUSTER_MIN_POINTS = 45;
 
-/** Grid cell size in degrees — shrinks as zoom increases so clusters split when zooming in. */
+/** Grid cell size in degrees – shrinks as zoom increases so clusters split when zooming in. */
 function cellSizeDegrees(zoom: number): number {
   return Math.max(0.06, 3.5 / Math.pow(zoom, 1.2));
 }

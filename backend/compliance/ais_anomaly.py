@@ -19,8 +19,10 @@ IMPORTANT: Intelligence signals only – not legal advice.
 
 import logging
 import math
+import os
 import time
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from .zones import SANCTIONS_ZONES, Zone, all_matching_zones
 
@@ -31,6 +33,8 @@ MAX_SPEED_KN = 35.0
 NM_PER_DEGREE_LAT = 60.0
 
 DARK_ACTIVITY_WINDOW_SEC = 6 * 3600  # 6 hours
+TRACK_DARK_GAP_H = float(os.getenv("AIS_TRACK_DARK_GAP_H", "6"))
+ROUTE_DEVIATION_NM = float(os.getenv("AIS_ROUTE_DEVIATION_NM", "180"))
 
 
 def _haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -135,6 +139,31 @@ def detect_spoofing(
         if lat is None or lon is None:
             continue
 
+        sog_raw = ship.get("sog") or ship.get("speed") or ship.get("SOG")
+        if sog_raw is not None:
+            try:
+                sog_kn = float(sog_raw)
+                if sog_kn > MAX_SPEED_KN * 1.15:
+                    ts_val = ship.get("timestamp") if ship.get("timestamp") else None
+                    anomalies.append(
+                        AISAnomaly(
+                            asset_id=str(ship_id),
+                            asset_name=ship_name,
+                            anomaly_type="velocity_anomaly",
+                            severity="HIGH" if sog_kn > MAX_SPEED_KN * 1.5 else "MEDIUM",
+                            detail=(
+                                f"Reported SOG {sog_kn:.1f} kn exceeds plausible max ~{MAX_SPEED_KN:.0f} kn "
+                                f"for this vessel class / region."
+                            ),
+                            lat=float(lat),
+                            lon=float(lon),
+                            last_seen_at=ts_val,
+                            confidence="HIGH" if sog_kn > MAX_SPEED_KN * 1.5 else "MEDIUM",
+                        )
+                    )
+            except (TypeError, ValueError):
+                pass
+
         if ship_id in prev:
             prev_pos = prev[ship_id]
             prev_lat = prev_pos.get("lat")
@@ -157,7 +186,7 @@ def detect_spoofing(
                         AISAnomaly(
                             asset_id=ship_id,
                             asset_name=ship_name,
-                            anomaly_type="spoofing",
+                            anomaly_type="position_jump",
                             severity="HIGH" if zone_name else "MEDIUM",
                             detail=(
                                 f"Implausible position jump: {dist_nm:.0f} nm in "
@@ -199,6 +228,112 @@ def detect_spoofing(
                 )
 
     return anomalies
+
+
+def _fetch_track_history_sync(conflict: str, mmsi: str) -> List[Tuple[datetime, float, float]]:
+    try:
+        from agents.utils import run_async
+        from services.quality_store import fetch_ais_track_recent
+
+        return run_async(fetch_ais_track_recent(conflict, mmsi, limit=50))
+    except Exception as e:
+        logger.debug("AIS track history unavailable: %s", e)
+        return []
+
+
+def detect_route_deviation(
+    ships: List[Dict[str, Any]],
+    conflict: str,
+) -> List[AISAnomaly]:
+    """
+    Compare current positions to recent stored track centroids (Postgres).
+    Large deviation suggests atypical routing vs. recent history for that MMSI.
+    """
+    if not conflict or not os.getenv("DATABASE_URL", "").strip():
+        return []
+    out: List[AISAnomaly] = []
+    for ship in ships:
+        if not isinstance(ship, dict) or "error" in ship:
+            continue
+        mmsi = ship.get("mmsi")
+        if mmsi is None:
+            continue
+        lat, lon = ship.get("lat"), ship.get("lon")
+        if lat is None or lon is None:
+            continue
+        hist = _fetch_track_history_sync(conflict, str(mmsi))
+        if len(hist) < 3:
+            continue
+        # centroid of historical points (exclude current if duplicated)
+        lats = [p[1] for p in hist]
+        lons = [p[2] for p in hist]
+        clat = sum(lats) / len(lats)
+        clon = sum(lons) / len(lons)
+        dist_nm = _haversine_nm(clat, clon, float(lat), float(lon))
+        if dist_nm > ROUTE_DEVIATION_NM:
+            ts_val = ship.get("timestamp") if ship.get("timestamp") else None
+            out.append(
+                AISAnomaly(
+                    asset_id=str(mmsi),
+                    asset_name=str(ship.get("name") or "Vessel"),
+                    anomaly_type="route_deviation",
+                    severity="MEDIUM",
+                    detail=(
+                        f"Current position ~{dist_nm:.0f} nm from recent track centroid "
+                        f"({len(hist)} stored samples) — atypical vs. recent movement."
+                    ),
+                    lat=float(lat),
+                    lon=float(lon),
+                    last_seen_at=ts_val,
+                    confidence="MEDIUM",
+                )
+            )
+    return out
+
+
+def detect_track_dark_gaps(
+    ships: List[Dict[str, Any]],
+    conflict: str,
+) -> List[AISAnomaly]:
+    """Flag long gaps between consecutive stored AIS samples for the same MMSI."""
+    if not conflict or not os.getenv("DATABASE_URL", "").strip():
+        return []
+    out: List[AISAnomaly] = []
+    for ship in ships:
+        if not isinstance(ship, dict) or "error" in ship:
+            continue
+        mmsi = ship.get("mmsi")
+        if mmsi is None:
+            continue
+        lat, lon = ship.get("lat"), ship.get("lon")
+        hist = _fetch_track_history_sync(conflict, str(mmsi))
+        if len(hist) < 2:
+            continue
+        # hist is newest-first from query
+        ordered = sorted(hist, key=lambda x: x[0])
+        for i in range(1, len(ordered)):
+            dt = (ordered[i][0] - ordered[i - 1][0]).total_seconds() / 3600.0
+            if dt >= TRACK_DARK_GAP_H:
+                ts_val = ship.get("timestamp") if ship.get("timestamp") else None
+                out.append(
+                    AISAnomaly(
+                        asset_id=str(mmsi),
+                        asset_name=str(ship.get("name") or "Vessel"),
+                        anomaly_type="dark_shipping",
+                        severity="HIGH" if dt >= TRACK_DARK_GAP_H * 2 else "MEDIUM",
+                        detail=(
+                            f"No AIS samples for ~{dt:.1f}h between stored track points "
+                            f"(possible AIS gap / dark period)."
+                        ),
+                        lat=float(lat) if lat is not None else float(ordered[i][1]),
+                        lon=float(lon) if lon is not None else float(ordered[i][2]),
+                        gap_hours=dt,
+                        last_seen_at=ts_val,
+                        confidence="MEDIUM",
+                    )
+                )
+                break
+    return out
 
 
 def detect_dark_activity(
@@ -276,6 +411,7 @@ def analyze_ais_anomalies(
     sigint_result: Dict[str, Any],
     previous_sigint: Optional[Dict[str, Any]] = None,
     previous_run_ts: Optional[float] = None,
+    conflict: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Run all AIS anomaly heuristics on SIGINT output.
@@ -305,6 +441,8 @@ def analyze_ais_anomalies(
         previous_run_ts=previous_run_ts,
         current_ts=time.time(),
     )
+    route_dev = detect_route_deviation(ships, conflict) if conflict else []
+    dark_gaps = detect_track_dark_gaps(ships, conflict) if conflict else []
 
-    all_anomalies = spoofing + dark
+    all_anomalies = spoofing + dark + route_dev + dark_gaps
     return [a.to_dict() for a in all_anomalies]

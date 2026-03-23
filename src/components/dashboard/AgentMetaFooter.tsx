@@ -3,7 +3,7 @@ import type { AgentMeta } from "@/lib/api";
 import { AlertTriangle, Clock } from "lucide-react";
 
 function formatRelative(iso?: string): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   try {
     const d = new Date(iso);
     const diff = (Date.now() - d.getTime()) / 1000;
@@ -12,7 +12,7 @@ function formatRelative(iso?: string): string {
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
   } catch {
-    return "—";
+    return "–";
   }
 }
 

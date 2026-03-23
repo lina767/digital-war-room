@@ -19,7 +19,7 @@ export function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-/** True below the `lg` breakpoint — mobile / tablet portrait layouts. */
+/** True below the `lg` breakpoint – mobile / tablet portrait layouts. */
 export function useIsMobileLayout(): boolean {
   return useMediaQuery(`(max-width: ${LG_MIN_WIDTH - 1}px)`);
 }

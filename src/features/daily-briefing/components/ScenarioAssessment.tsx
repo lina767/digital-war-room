@@ -10,7 +10,7 @@ export function ScenarioAssessment({ scenarios }: ScenarioAssessmentProps) {
     <section id="briefing-watch" className="space-y-2">
       <h2 className="briefing-display text-2xl">Things to Watch</h2>
       <p className="text-sm text-[var(--text-secondary)]">
-        Supervisor-generated scenarios with rough probability weights — not precise forecasts.
+        Supervisor-generated scenarios with rough probability weights – not precise forecasts.
       </p>
       {scenarios.length === 0 ? (
         <div className="briefing-card p-4 text-sm text-[var(--text-secondary)]">

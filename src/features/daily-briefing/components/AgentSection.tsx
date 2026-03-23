@@ -19,7 +19,7 @@ export function AgentSection({ agentId, block, expanded, onToggle }: AgentSectio
           <span className="text-sm">{AGENTS[agentId].fullName}</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          <span className="briefing-mono">{block.status.score != null ? `${Math.round(block.status.score)}/100` : "—"}</span>
+          <span className="briefing-mono">{block.status.score != null ? `${Math.round(block.status.score)}/100` : "–"}</span>
           {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </div>
       </button>

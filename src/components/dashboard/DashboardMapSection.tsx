@@ -110,16 +110,16 @@ export function DashboardMapSection({
                 <div key={p.at ?? i} className="flex flex-col items-center gap-0.5 sm:gap-1 flex-shrink-0">
                   <div
                     className={`h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full flex-shrink-0 ${dotColorForScore(p.escalation_score ?? 0)}`}
-                    title={`Abgeschlossen: ${p.label_with_date ?? p.label ?? "—"} · Score ${p.escalation_score ?? "—"}`}
+                    title={`Abgeschlossen: ${p.label_with_date ?? p.label ?? "–"} · Score ${p.escalation_score ?? "–"}`}
                   />
                   <span className="font-mono text-[10px] sm:text-[11px] text-muted-foreground whitespace-nowrap" title={p.datetime_iso ?? undefined}>
-                    {p.label_with_date ?? p.label ?? "—"}
+                    {p.label_with_date ?? p.label ?? "–"}
                   </span>
                 </div>
               ))
             ) : (
               <span className="font-mono text-[10px] sm:text-[11px] text-muted-foreground italic">
-                No timeline data yet — escalation over time will appear here after more analysis runs.
+                No timeline data yet – escalation over time will appear here after more analysis runs.
               </span>
             )}
           </div>

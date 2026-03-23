@@ -121,6 +121,12 @@ async def lifespan(app: FastAPI):
                 push_agent_status(app.state, result)
                 push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result)
                 await app.state.ws_manager.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})
+                try:
+                    from api.routes_analyze import persist_analysis_side_effects
+
+                    await persist_analysis_side_effects(AUTO_ANALYZE_CONFLICT, result)
+                except Exception:
+                    pass
 
                 # Log Haiku usage stats for this run
                 try:

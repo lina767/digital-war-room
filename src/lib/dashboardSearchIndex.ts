@@ -92,7 +92,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
 
   (data.news?.articles ?? []).forEach((a, i) => {
     const title = a.title?.trim() || "Untitled headline";
-    const line = [a.source, a.title].filter(Boolean).join(" — ");
+    const line = [a.source, a.title].filter(Boolean).join(" – ");
     hits.push({
       id: `headline-${i}-${a.url ?? i}`,
       category: "headline",
@@ -118,7 +118,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   (data.pattern_flags ?? []).forEach((p, i) => {
     if (hits.length >= MAX_BUILT) return;
     const title = (p.title ?? p.id ?? "Pattern").trim();
-    const line = [p.title, p.detail].filter(Boolean).join(" — ");
+    const line = [p.title, p.detail].filter(Boolean).join(" – ");
     if (!line.trim()) return;
     hits.push({
       id: `pattern-flag-${i}-${p.id ?? i}`,
@@ -134,7 +134,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
       hits.push({
         id: `poly-${i}`,
         category: "agent",
-        title: "FININT — Polymarket",
+        title: "FININT – Polymarket",
         snippet: clip(m.question),
         meta: m.probability != null ? `${Math.round(m.probability * 100)}%` : "Market",
         agentLabel: "FININT",
@@ -175,7 +175,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   esc.forEach((e, i) => {
     if (!e) return;
     const parts = [e.horizon, e.level, ...(e.drivers ?? []), e.notes].filter(Boolean);
-    const t = parts.join(" — ");
+    const t = parts.join(" – ");
     hits.push({
       id: `pred-${i}`,
       category: "agent",
@@ -207,7 +207,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
       hits.push({
         id: `ac-${i}`,
         category: "agent",
-        title: "SIGINT — Aircraft",
+        title: "SIGINT – Aircraft",
         snippet: clip(ac.flight),
         meta: ac.country,
         agentLabel: "SIGINT",
@@ -220,7 +220,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
         id: `sig-report-${i}`,
         category: "headline",
         title: clip(r.title, 100),
-        snippet: clip([r.title, r.source].filter(Boolean).join(" — ")),
+        snippet: clip([r.title, r.source].filter(Boolean).join(" – ")),
         meta: r.source ?? "SIGINT report",
         url: r.url,
       });
@@ -233,7 +233,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
         id: `icj-${i}`,
         category: "headline",
         title: clip(n.title, 100),
-        snippet: clip([n.title, n.source].filter(Boolean).join(" — ")),
+        snippet: clip([n.title, n.source].filter(Boolean).join(" – ")),
         meta: n.source ?? "UN / ICJ",
         url: n.url,
       });

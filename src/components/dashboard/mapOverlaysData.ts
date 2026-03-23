@@ -143,16 +143,16 @@ export const CHOKEPOINT_ZONES: ChokePointZone[] = [
 
 /** Major military bases (illustrative strategic overlay for TheaterMap). */
 export const MILITARY_BASES: StrategicSite[] = [
-  { id: "mb-us-al-udeid", name: "US Air Base — Al Udeid", country: "Qatar", coordinates: [51.313, 25.117] },
-  { id: "mb-us-al-dhafra", name: "US Air Base — Al Dhafra", country: "UAE", coordinates: [54.548, 24.248] },
-  { id: "mb-us-nsa-bahrain", name: "US Naval Support Activity — Bahrain", country: "Bahrain", coordinates: [50.606, 26.191] },
-  { id: "mb-us-diego-garcia", name: "US Support Facility — Diego Garcia", country: "BIOT", coordinates: [72.411, -7.313] },
-  { id: "mb-us-camp-lemonnier", name: "US Base — Camp Lemonnier", country: "Djibouti", coordinates: [43.148, 11.547] },
-  { id: "mb-us-ain-al-asad", name: "US Air Base — Ain al-Asad", country: "Iraq", coordinates: [41.031, 33.785] },
-  { id: "mb-idf-nevatim", name: "IDF Base — Nevatim (F-35I)", country: "Israel", coordinates: [35.012, 31.208] },
-  { id: "mb-idf-hatzerim", name: "IDF Base — Hatzerim (F-16I)", country: "Israel", coordinates: [34.723, 31.233] },
-  { id: "mb-idf-ramat-david", name: "IDF Base — Ramat David (F-15I)", country: "Israel", coordinates: [35.179, 32.665] },
-  { id: "mb-idf-palmachim", name: "IDF Base — Palmachim (Arrow/Jericho)", country: "Israel", coordinates: [34.692, 31.931] },
+  { id: "mb-us-al-udeid", name: "US Air Base – Al Udeid", country: "Qatar", coordinates: [51.313, 25.117] },
+  { id: "mb-us-al-dhafra", name: "US Air Base – Al Dhafra", country: "UAE", coordinates: [54.548, 24.248] },
+  { id: "mb-us-nsa-bahrain", name: "US Naval Support Activity – Bahrain", country: "Bahrain", coordinates: [50.606, 26.191] },
+  { id: "mb-us-diego-garcia", name: "US Support Facility – Diego Garcia", country: "BIOT", coordinates: [72.411, -7.313] },
+  { id: "mb-us-camp-lemonnier", name: "US Base – Camp Lemonnier", country: "Djibouti", coordinates: [43.148, 11.547] },
+  { id: "mb-us-ain-al-asad", name: "US Air Base – Ain al-Asad", country: "Iraq", coordinates: [41.031, 33.785] },
+  { id: "mb-idf-nevatim", name: "IDF Base – Nevatim (F-35I)", country: "Israel", coordinates: [35.012, 31.208] },
+  { id: "mb-idf-hatzerim", name: "IDF Base – Hatzerim (F-16I)", country: "Israel", coordinates: [34.723, 31.233] },
+  { id: "mb-idf-ramat-david", name: "IDF Base – Ramat David (F-15I)", country: "Israel", coordinates: [35.179, 32.665] },
+  { id: "mb-idf-palmachim", name: "IDF Base – Palmachim (Arrow/Jericho)", country: "Israel", coordinates: [34.692, 31.931] },
 ];
 
 /** Civilian and strategic nuclear facilities (illustrative strategic overlay). */

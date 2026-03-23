@@ -18,7 +18,7 @@ interface DocsExportBarProps {
 
 export function DocsExportBar({ doc, className }: DocsExportBarProps) {
   const handlePdf = () => {
-    toast.message('Opening print dialog — choose "Save as PDF" as the destination.');
+    toast.message('Opening print dialog – choose "Save as PDF" as the destination.');
     window.print();
   };
 
@@ -53,7 +53,7 @@ export function DocsExportBar({ doc, className }: DocsExportBarProps) {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-[240px] text-xs">
-          Uses your browser print dialog — pick “Save as PDF” as the destination.
+          Uses your browser print dialog – pick “Save as PDF” as the destination.
         </TooltipContent>
       </Tooltip>
       <Tooltip>

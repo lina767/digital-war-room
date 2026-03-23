@@ -22,7 +22,7 @@ const Support = () => {
         label="SUPPORT"
         title="Support the Mission"
         icon={<Heart className="h-5 w-5 text-primary" />}
-        description="This project is intentionally free and open: no paywall, no partisan framing, no sensationalism — just structured insights that anyone can use. To keep the platform online and up to date, I need help covering the basic operating costs (API usage, including the Claude API: Haiku and Sonnet). Support via Buy Me a Coffee — one-time or monthly."
+        description="This project is intentionally free and open: no paywall, no partisan framing, no sensationalism – just structured insights that anyone can use. To keep the platform online and up to date, I need help covering the basic operating costs (API usage, including the Claude API: Haiku and Sonnet). Support via Buy Me a Coffee – one-time or monthly."
         maxWidth="2xl"
       >
       <div className="rounded-lg border border-border bg-card/40 p-6 sm:p-8">

@@ -19,9 +19,9 @@ export function formatTimeAgo(
   date: Date | string | null | undefined,
   addSuffix = true,
 ): string {
-  if (date == null) return "—";
+  if (date == null) return "–";
   const ms = typeof date === "string" ? new Date(date).getTime() : date.getTime();
-  if (Number.isNaN(ms)) return "—";
+  if (Number.isNaN(ms)) return "–";
   const sec = Math.floor((Date.now() - ms) / 1000);
   if (sec < 60) return addSuffix ? "Just now" : "now";
   if (sec < 3600) {

@@ -33,6 +33,7 @@ def build_compliance_and_alerts(
         sigint_data,
         previous_sigint=previous_sigint,
         previous_run_ts=previous_sigint_ts,
+        conflict=conflict,
     )
     updated_previous_sigint = sigint_data if sigint_data.get("ships") else previous_sigint
     updated_previous_sigint_ts = time.time() if sigint_data.get("ships") else previous_sigint_ts

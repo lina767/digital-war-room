@@ -42,7 +42,7 @@ export function buildDocumentationJson(doc: DocumentationManifestDoc): string {
   const payload = {
     exportVersion: EXPORT_VERSION,
     exportedAt,
-    source: "Digital War Room — documentation",
+    source: "Digital War Room – documentation",
     doc: {
       id: doc.id,
       title: doc.title,

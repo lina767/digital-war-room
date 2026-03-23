@@ -37,7 +37,7 @@ export const BLOG_POSTS: BlogPost[] = [
           auto-generated summaries derived from the same analysis stack that powers the
           dashboard: FININT, SIGINT, GEOINT, news, cyber, energy, and related streams fused
           by the supervisor into escalation scores, key findings, scenarios, and compliance
-          context. They reflect what the pipeline measured in a given window — not a separate
+          context. They reflect what the pipeline measured in a given window – not a separate
           editorial column.
         </p>
         <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl mb-4">
@@ -92,7 +92,7 @@ export const BLOG_POSTS: BlogPost[] = [
             weekly insights
           </Link>{" "}
           (auto-generated analysis summaries), and occasional notes on conflict monitoring and
-          OSINT. No fluff — just what matters for understanding how the Digital War Room works
+          OSINT. No fluff – just what matters for understanding how the Digital War Room works
           and what it can do.
         </p>
         <p className="text-sm sm:text-[15px] text-muted-foreground max-w-3xl">

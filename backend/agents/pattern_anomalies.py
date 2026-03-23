@@ -298,12 +298,14 @@ def compute_pattern_flags(
     return flags[:5]
 
 
-def attach_pattern_flags(state_service: Any, conflict: str, result: Dict[str, Any]) -> None:
+def attach_pattern_flags(
+    state_service: Any, conflict: str, result: Dict[str, Any], tenant_id: Any = None
+) -> None:
     """Mutate result to add `pattern_flags` by comparing to cached previous run."""
     prev: Optional[Dict[str, Any]] = None
     if state_service is not None and hasattr(state_service, "get_cache"):
         try:
-            entry = state_service.get_cache(conflict)
+            entry = state_service.get_cache(conflict, tenant_id=tenant_id)
             if isinstance(entry, dict):
                 prev = entry.get("result")
         except Exception:

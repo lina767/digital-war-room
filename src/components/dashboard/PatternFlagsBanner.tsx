@@ -40,7 +40,7 @@ export function PatternFlagsBanner({ flags, className }: PatternFlagsBannerProps
                 >
                   {f.title ?? "Pattern"}
                 </span>
-                {f.detail ? <span className="text-muted-foreground"> — {f.detail}</span> : null}
+                {f.detail ? <span className="text-muted-foreground"> – {f.detail}</span> : null}
               </li>
             ))}
           </ul>

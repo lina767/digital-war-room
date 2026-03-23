@@ -232,6 +232,16 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
         )
     )
 
+    # Cross-source quality fusion (embeddings + Postgres signals)
+    all_nodes.append(
+        DAGNode(
+            id="quality_fusion",
+            dependencies=["news", "geoint", "protest", "socmint", "diplo"],
+            node_type="enrichment",
+            timeout_s=45.0,
+        )
+    )
+
     for div in divisions:
         div_nodes = div.get_dag_nodes()
         all_nodes.extend(div_nodes)
@@ -256,7 +266,7 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     all_nodes.append(
         DAGNode(
             id="ceo_synthesis",
-            dependencies=summary_ids + ["compliance_build", "acled_refs"],
+            dependencies=summary_ids + ["compliance_build", "acled_refs", "quality_fusion"],
             node_type="synthesis",
             streamable=True,
             timeout_s=90.0,
@@ -380,9 +390,23 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
             logger.warning("Compliance build failed: %s", e)
             return {"compliance": {}, "alerts": []}
 
+    def exec_quality_fusion(store: ResultStore) -> Dict[str, Any]:
+        try:
+            from quality.fusion import run_quality_fusion
+
+            agent_results = {
+                k: _as_dict(store.get(k))
+                for k in ("news", "geoint", "protest", "socmint", "diplo")
+            }
+            return run_quality_fusion(conflict, agent_results)
+        except Exception as e:
+            logger.warning("quality_fusion failed: %s", e)
+            return {"signals": [], "summary": "", "fusion_meta": {"error": str(e)}}
+
     executors["acled_refs"] = exec_acled
     executors["agent_context"] = exec_agent_context
     executors["compliance_build"] = exec_compliance
+    executors["quality_fusion"] = exec_quality_fusion
     return executors
 
 
@@ -745,6 +769,10 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "narrative",
         "chokepoint",
     ]
+    qf = store.get("quality_fusion") or {}
+    if not isinstance(qf, dict):
+        qf = {}
+
     provenance_index: List[Dict[str, Any]] = []
     for pname in provenance_agent_keys:
         raw = agent_results.get(pname) or {}
@@ -795,6 +823,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "temporal_context": temporal_context,
         "analysis_run_id": get_analysis_run_id(),
         "provenance_index": provenance_index,
+        "cross_validation": qf,
     }
 
     # Include per-agent raw results for API compatibility

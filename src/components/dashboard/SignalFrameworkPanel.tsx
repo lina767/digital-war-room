@@ -66,8 +66,8 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
           <div className="space-y-3">
             {table.map((row, i) => {
               const point = row.point ?? `Point ${i + 1}`;
-              const stateText = (row.state_narrative_en ?? row.state_narrative) || "—";
-              const exileText = (row.exile_narrative_en ?? row.exile_narrative) || "—";
+              const stateText = (row.state_narrative_en ?? row.state_narrative) || "–";
+              const exileText = (row.exile_narrative_en ?? row.exile_narrative) || "–";
               return (
                 <div key={i} className="rounded border border-border bg-muted/20 p-2.5 space-y-2">
                   <p className="text-[11px] font-medium text-foreground">{point}</p>

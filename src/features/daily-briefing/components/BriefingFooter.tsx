@@ -14,7 +14,7 @@ export function BriefingFooter({ generatedAt, version }: BriefingFooterProps) {
       <p className="briefing-mono mt-2">
         Generated: {generatedAt.toISOString()} | {version}
       </p>
-      <p className="mt-1">Digital War Room — digital-war-room.com</p>
+      <p className="mt-1">Digital War Room – digital-war-room.com</p>
     </footer>
   );
 }

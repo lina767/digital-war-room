@@ -18,7 +18,7 @@ export default function NewsletterConfirm() {
   return (
     <>
       <SEO
-        title="Confirm Newsletter Subscription — Digital War Room"
+        title="Confirm Newsletter Subscription – Digital War Room"
         description="Confirm your newsletter subscription for the Digital War Room daily briefing."
         path="/newsletter/confirm"
         noindex

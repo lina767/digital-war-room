@@ -18,7 +18,7 @@ export default function NewsletterUnsubscribe() {
   return (
     <>
       <SEO
-        title="Unsubscribe from Newsletter — Digital War Room"
+        title="Unsubscribe from Newsletter – Digital War Room"
         description="Manage your Digital War Room newsletter subscription preferences."
         path="/newsletter/unsubscribe"
         noindex

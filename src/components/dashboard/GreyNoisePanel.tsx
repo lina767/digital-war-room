@@ -297,7 +297,7 @@ export function GreyNoisePanel({ conflict = "Iran" }: GreyNoisePanelProps) {
         <div className="flex items-center gap-2 px-2 py-1.5 rounded border bg-red-500/10 border-red-500/30">
           <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
           <span className="text-[11px] font-bold text-red-400">
-            HIGH-PRIORITY INBOUND SCANS —{" "}
+            HIGH-PRIORITY INBOUND SCANS –{" "}
             {threats
               .filter((t) => t.direction === "inbound" && t.priority === "high")
               .map((t) => t.tag)

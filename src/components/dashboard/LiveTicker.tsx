@@ -3,14 +3,14 @@ import type { ConflictData } from "@/hooks/useConflictWebSocket";
 import { filterArticlesBySourceKeys } from "@/lib/headlineSources";
 
 const FALLBACK_ITEMS = [
-  "● RC-135 Rivet Joint detected over Persian Gulf — 3rd pass in 6 hours",
-  "● Brent crude +4.2% — highest single-day move in 3 weeks",
+  "● RC-135 Rivet Joint detected over Persian Gulf – 3rd pass in 6 hours",
+  "● Brent crude +4.2% – highest single-day move in 3 weeks",
   "● Polymarket: Iran conflict 34%",
   "● IRGC mobilization reports on 3 Telegram channels",
   "● NetBlocks: Iran internet connectivity degraded 12%",
-  "● IDF reserves called up — Channel 12 reports",
+  "● IDF reserves called up – Channel 12 reports",
   "● USS Eisenhower carrier strike group enters Strait of Hormuz",
-  "● NOTAM issued for Tehran FIR — airspace restrictions expanding",
+  "● NOTAM issued for Tehran FIR – airspace restrictions expanding",
 ];
 
 interface LiveTickerProps {

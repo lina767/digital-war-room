@@ -126,7 +126,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
         <div className="flex items-center gap-2 px-2 py-1.5 rounded border bg-red-500/10 border-red-500/30 animate-pulse">
           <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
           <span className="text-[11px] font-bold text-red-400">
-            DOOMSDAY / NUCLEAR C3 AIRCRAFT DETECTED — {byCategory["doomsday"]!.map((a) => a.flight || "?").join(", ")}
+            DOOMSDAY / NUCLEAR C3 AIRCRAFT DETECTED – {byCategory["doomsday"]!.map((a) => a.flight || "?").join(", ")}
           </span>
         </div>
       )}
@@ -136,7 +136,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
         <div className="flex items-center gap-2 px-2 py-1.5 rounded border bg-orange-400/10 border-orange-400/30">
           <Shield className="h-3.5 w-3.5 text-orange-400 shrink-0" />
           <span className="text-[11px] font-bold text-orange-300">
-            IRANIAN GOV / IRGC AIRCRAFT — {byCategory["iranian_gov"]!.map((a) => a.flight || "?").join(", ")}
+            IRANIAN GOV / IRGC AIRCRAFT – {byCategory["iranian_gov"]!.map((a) => a.flight || "?").join(", ")}
           </span>
         </div>
       )}
@@ -187,7 +187,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
                     }`}
                   >
                     <span className="font-mono text-foreground/90 truncate">
-                      {ac.flight || "—"}
+                      {ac.flight || "–"}
                     </span>
                     <span className="text-muted-foreground truncate text-right">
                       {ac.type || ""}
@@ -269,7 +269,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
               {ships.slice(0, 20).map((s, i) => (
                 <div key={`${s.name}-${i}`} className="flex items-center justify-between gap-2 text-[11px]">
                   <span className="font-mono text-foreground/90 truncate">
-                    {s.name || "—"}
+                    {s.name || "–"}
                   </span>
                   <span className="text-muted-foreground truncate text-right">
                     {s.region || ""}

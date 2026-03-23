@@ -69,7 +69,7 @@ function formatErrorTime(ts: number): string {
   try {
     return new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
   } catch {
-    return "—";
+    return "–";
   }
 }
 
@@ -81,7 +81,7 @@ function isAgentBlindOps(row: AgentsOpsAgentRow): boolean {
 }
 
 function formatRelativeTime(iso?: string): string {
-  if (!iso) return "—";
+  if (!iso) return "–";
   try {
     const d = new Date(iso);
     const now = Date.now();
@@ -91,7 +91,7 @@ function formatRelativeTime(iso?: string): string {
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
   } catch {
-    return "—";
+    return "–";
   }
 }
 
@@ -357,8 +357,8 @@ function AgentMonitorContent() {
             </p>
             {opsStatus?.anthropic_haiku_global && (
               <p className="text-xs text-muted-foreground font-mono mt-1">
-                Haiku month: ${opsStatus.anthropic_haiku_global.month_spent_usd?.toFixed(4) ?? "—"} / $
-                {opsStatus.anthropic_haiku_global.month_budget_usd ?? "—"} · {opsStatus.anthropic_haiku_global.model ?? ""}
+                Haiku month: ${opsStatus.anthropic_haiku_global.month_spent_usd?.toFixed(4) ?? "–"} / $
+                {opsStatus.anthropic_haiku_global.month_budget_usd ?? "–"} · {opsStatus.anthropic_haiku_global.model ?? ""}
               </p>
             )}
           </CardHeader>
@@ -392,7 +392,7 @@ function AgentMonitorContent() {
                           </td>
                           <td className="py-1.5 pr-2 font-mono text-xs">{row.agent}</td>
                           <td className="py-1.5 pr-2 tabular-nums text-xs">
-                            {er != null ? `${(er * 100).toFixed(1)}% (${row.runs_24h_sample} runs)` : "—"}
+                            {er != null ? `${(er * 100).toFixed(1)}% (${row.runs_24h_sample} runs)` : "–"}
                           </td>
                           <td className="py-1.5 pr-2 text-xs">
                             {row.last_run?.outcome ? (
@@ -400,16 +400,16 @@ function AgentMonitorContent() {
                                 {row.last_run.outcome}
                               </Badge>
                             ) : (
-                              "—"
+                              "–"
                             )}
                           </td>
                           <td className="py-1.5 pr-2 tabular-nums text-xs">
-                            {src != null && src !== undefined ? `${Math.round(src * 100)}%` : "—"}
+                            {src != null && src !== undefined ? `${Math.round(src * 100)}%` : "–"}
                           </td>
                           <td className="py-1.5 text-xs text-muted-foreground">
                             {row.last_run?.at_iso
                               ? formatRelativeTime(row.last_run.at_iso)
-                              : "—"}
+                              : "–"}
                           </td>
                         </tr>
                       );
@@ -477,8 +477,8 @@ function AgentMonitorContent() {
                     <div>
                       <span className="text-muted-foreground text-xs font-mono">Last run</span>
                       <p className="text-xs">
-                        {monitoring.fallback.last_run.conflict}: {monitoring.fallback.last_run.count} agent(s) —{" "}
-                        {monitoring.fallback.last_run.agents.join(", ") || "—"}
+                        {monitoring.fallback.last_run.conflict}: {monitoring.fallback.last_run.count} agent(s) –{" "}
+                        {monitoring.fallback.last_run.agents.join(", ") || "–"}
                       </p>
                     </div>
                   )}
@@ -556,7 +556,7 @@ function AgentMonitorContent() {
                 </div>
                 {lastRunByAgent.length > 0 && (
                   <div>
-                    <p className="text-[11px] font-mono text-muted-foreground mb-1">Last run — tokens by tag</p>
+                    <p className="text-[11px] font-mono text-muted-foreground mb-1">Last run – tokens by tag</p>
                     <div className="overflow-x-auto max-h-40 overflow-y-auto rounded border border-border/60">
                       <table className="w-full text-xs">
                         <thead>
@@ -581,7 +581,7 @@ function AgentMonitorContent() {
                 )}
                 {monthByAgent.length > 0 && (
                   <div>
-                    <p className="text-[11px] font-mono text-muted-foreground mb-1">Month — tokens by tag</p>
+                    <p className="text-[11px] font-mono text-muted-foreground mb-1">Month – tokens by tag</p>
                     <div className="overflow-x-auto max-h-36 overflow-y-auto rounded border border-border/60">
                       <table className="w-full text-xs">
                         <thead>
@@ -790,7 +790,7 @@ function AgentMonitorContent() {
                         <td className="py-1.5 text-muted-foreground text-xs">{s.agent}</td>
                         <td className="py-1.5 text-right">{s.availability_pct}%</td>
                         <td className="py-1.5 text-right">
-                          {s.avg_latency_ms != null ? `${s.avg_latency_ms} ms` : "—"}
+                          {s.avg_latency_ms != null ? `${s.avg_latency_ms} ms` : "–"}
                         </td>
                         <td className="py-1.5">
                           <Badge
@@ -802,7 +802,7 @@ function AgentMonitorContent() {
                           </Badge>
                         </td>
                         <td className="py-1.5 text-[11px] text-muted-foreground max-w-[200px] truncate" title={s.last_error ?? undefined}>
-                          {s.last_error ?? "—"}
+                          {s.last_error ?? "–"}
                         </td>
                       </tr>
                     ))}

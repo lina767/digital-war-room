@@ -104,7 +104,7 @@ function withinStrikeTimeRange(evt: TheaterEvent, range: StrikeTimeRange): boole
   return timestamp >= cutoff;
 }
 
-/** Carto vector style — used when `VITE_MAPBOX_TOKEN` is not set (no Mapbox map load). */
+/** Carto vector style – used when `VITE_MAPBOX_TOKEN` is not set (no Mapbox map load). */
 const FALLBACK_MAP_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 const MAPBOX_DEFAULT_STYLE = "mapbox://styles/mapbox/dark-v11";
@@ -619,8 +619,8 @@ function TheaterMapInner({
                 {selectedEvent.actor1 != null || selectedEvent.actor2 != null
                   ? [selectedEvent.actor1, selectedEvent.actor2].filter(Boolean).join(" · ")
                   : selectedEvent.side_a != null || selectedEvent.side_b != null
-                    ? `${selectedEvent.side_a ?? "—"} vs ${selectedEvent.side_b ?? "—"}`
-                    : "—"}
+                    ? `${selectedEvent.side_a ?? "–"} vs ${selectedEvent.side_b ?? "–"}`
+                    : "–"}
               </p>
             </div>
           )}
@@ -628,7 +628,7 @@ function TheaterMapInner({
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
               <span className="text-muted-foreground">Date</span>
               <span className="text-right text-foreground/90">
-                {selectedEvent.event_date ?? selectedEvent.date_start ?? "—"}
+                {selectedEvent.event_date ?? selectedEvent.date_start ?? "–"}
               </span>
             </div>
           )}
@@ -699,8 +699,8 @@ function TheaterMapInner({
             <span>Type</span>
             <span className="text-right">
               {selectedSigint.type === "aircraft"
-                ? (selectedSigint.data.category ?? "—")
-                : (selectedSigint.data.type ?? "—")}
+                ? (selectedSigint.data.category ?? "–")
+                : (selectedSigint.data.type ?? "–")}
             </span>
             {selectedSigint.type === "aircraft" && (selectedSigint.data as SigintAircraft).country && (
               <>
@@ -723,7 +723,7 @@ function TheaterMapInner({
             type="button"
             onClick={() => toggleLayer("theaterEvents")}
             className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
-            title="Strike markers (ACLED/FIRMS) — halos & colors by inferred side when text allows"
+            title="Strike markers (ACLED/FIRMS) – halos & colors by inferred side when text allows"
             aria-label={layers.theaterEvents ? "Hide theater event markers" : "Show theater event markers"}
           >
             <span

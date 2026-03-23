@@ -8,7 +8,7 @@ export default function Newsletter() {
   return (
     <>
       <SEO
-        title="Daily Briefing Newsletter — Digital War Room"
+        title="Daily Briefing Newsletter – Digital War Room"
         description="Subscribe to receive the Digital War Room daily intelligence briefing by email."
         path="/newsletter"
         breadcrumbs={[

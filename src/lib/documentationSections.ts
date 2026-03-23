@@ -54,7 +54,7 @@ export function documentationSeoPath(docId: string): string {
 }
 
 export function documentationSeoTitle(docTitle: string): string {
-  return `${docTitle} — Digital War Room`;
+  return `${docTitle} – Digital War Room`;
 }
 
 export const DOCUMENTATION_MANIFEST_SECTIONS: DocumentationManifestSection[] = [

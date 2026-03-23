@@ -4,10 +4,12 @@ Used by routes_analyze and by main.py (push_* for recording analysis results).
 """
 
 import os
+import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import Request
 
+from middleware.tenant_context import get_request_ctx
 from services.state_service import StateService
 
 # Escalation timeline: keep last N points per conflict for "escalation over the day" UI.
@@ -34,6 +36,15 @@ AGENT_KEYS = (
 ANALYSIS_RUN_HISTORY_MAX = 50
 
 
+def _tenant_id(request: Request) -> uuid.UUID:
+    try:
+        return get_request_ctx(request).tenant_id
+    except Exception:
+        from services.tenant_constants import get_default_tenant_id
+
+        return get_default_tenant_id()
+
+
 def _state_from_request(request: Request) -> Optional[StateService]:
     if hasattr(request.app.state, "state_service"):
         return request.app.state.state_service
@@ -47,11 +58,12 @@ def get_state_service(request: Request) -> Optional[StateService]:
 
 def get_cache(request: Request, conflict: Optional[str] = None) -> Any:
     """Return cache entry for conflict, or full cache dict if conflict is None."""
+    tid = _tenant_id(request)
     state = _state_from_request(request)
     if state:
         if conflict is not None:
-            return state.get_cache(conflict)
-        return state.get_cache_all()
+            return state.get_cache(conflict, tenant_id=tid)
+        return state.get_cache_all(tenant_id=tid)
     cache = request.app.state.analysis_cache
     if conflict is not None:
         return cache.get(conflict)
@@ -59,21 +71,23 @@ def get_cache(request: Request, conflict: Optional[str] = None) -> Any:
 
 
 def get_last_error(request: Request, conflict: Optional[str] = None) -> Any:
+    tid = _tenant_id(request)
     state = _state_from_request(request)
     if state:
         if conflict is not None:
-            return state.get_last_error(conflict)
-        return state.get_last_error_all()
+            return state.get_last_error(conflict, tenant_id=tid)
+        return state.get_last_error_all(tenant_id=tid)
     d = request.app.state.analysis_last_error
     return d.get(conflict) if conflict is not None else d
 
 
 def get_escalation_timeline(request: Request, conflict: Optional[str] = None) -> Any:
+    tid = _tenant_id(request)
     state = _state_from_request(request)
     if state:
         if conflict is not None:
-            return state.get_escalation_timeline(conflict)
-        return state.get_escalation_timeline_all()
+            return state.get_escalation_timeline(conflict, tenant_id=tid)
+        return state.get_escalation_timeline_all(tenant_id=tid)
     d = request.app.state.escalation_timeline_history
     return d.get(conflict, []) if conflict is not None else d
 
@@ -115,10 +129,10 @@ def build_agent_status_from_result(result: dict) -> Dict[str, Dict[str, Any]]:
     return status
 
 
-def push_agent_status(app_state, result: dict) -> None:
+def push_agent_status(app_state, result: dict, tenant_id: Optional[uuid.UUID] = None) -> None:
     """Record per-agent status from last analysis. Uses StateService when available."""
     if hasattr(app_state, "state_service") and app_state.state_service:
-        app_state.state_service.set_agent_status_full(build_agent_status_from_result(result))
+        app_state.state_service.set_agent_status_full(build_agent_status_from_result(result), tenant_id=tenant_id)
         return
     if not hasattr(app_state, "agent_status_last"):
         return
@@ -129,7 +143,7 @@ def push_agent_status(app_state, result: dict) -> None:
         status[k] = v
 
 
-def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> None:
+def push_run_history(app_state, conflict: str, at_ts: float, result: dict, tenant_id: Optional[uuid.UUID] = None) -> None:
     """Append one run summary. Uses StateService when available."""
     if not isinstance(result, dict):
         return
@@ -158,13 +172,15 @@ def push_run_history(app_state, conflict: str, at_ts: float, result: dict) -> No
     except Exception:
         pass
     if hasattr(app_state, "state_service") and app_state.state_service:
-        app_state.state_service.push_run_history_entry(entry)
+        app_state.state_service.push_run_history_entry(entry, tenant_id=tenant_id)
         return
     if hasattr(app_state, "analysis_run_history") and app_state.analysis_run_history is not None:
         app_state.analysis_run_history.append(entry)
 
 
-def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dict) -> None:
+def push_escalation_timeline(
+    app_state, conflict: str, at_ts: float, result: dict, tenant_id: Optional[uuid.UUID] = None
+) -> None:
     """Append one point to escalation timeline. Uses StateService when available."""
     score = None
     if isinstance(result, dict):
@@ -176,7 +192,7 @@ def push_escalation_timeline(app_state, conflict: str, at_ts: float, result: dic
     except (TypeError, ValueError):
         return
     if hasattr(app_state, "state_service") and app_state.state_service:
-        app_state.state_service.append_escalation_timeline(conflict, at_ts, score)
+        app_state.state_service.append_escalation_timeline(conflict, at_ts, score, tenant_id=tenant_id)
         return
     if not hasattr(app_state, "escalation_timeline_history"):
         return

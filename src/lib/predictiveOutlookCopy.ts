@@ -14,4 +14,4 @@ export const PREDICTIVE_OUTLOOK_INTRO_SHORT =
   "Strong signals from key agents drive the level; bands are rough ranges, not precise probabilities.";
 
 export const PREDICTIVE_OUTLOOK_DISCLAIMER =
-  "Levels and bands are coarse indicators from agent scores and a conflict-specific baseline—not precise probabilities.";
+  "Levels and bands are coarse indicators from agent scores and a conflict-specific baseline–not precise probabilities.";

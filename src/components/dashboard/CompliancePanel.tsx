@@ -453,13 +453,13 @@ function ComplianceZonesSection() {
           <div>
             <span className="text-muted-foreground">Sanctions:</span>
             {zones.sanctions_zones.map((z, i) => (
-              <p key={i} className="font-mono truncate">{z.name ?? "—"}</p>
+              <p key={i} className="font-mono truncate">{z.name ?? "–"}</p>
             ))}
           </div>
           <div>
             <span className="text-muted-foreground">All zones:</span>
             {zones.all_zones.slice(0, 15).map((z, i) => (
-              <p key={i} className="font-mono truncate">{z.name ?? "—"}</p>
+              <p key={i} className="font-mono truncate">{z.name ?? "–"}</p>
             ))}
             {zones.all_zones.length > 15 && (
               <p className="text-muted-foreground">+{zones.all_zones.length - 15} more</p>
@@ -833,7 +833,7 @@ function DocumentManagementSection() {
       </form>
       {qaResult && (
         <div className="mt-1.5 rounded border border-border bg-background/50 px-2 py-1.5 text-[11px]">
-          <p>{qaResult.answer ?? "—"}</p>
+          <p>{qaResult.answer ?? "–"}</p>
           {qaResult.confidence != null && <p className="text-muted-foreground">Confidence: {qaResult.confidence}</p>}
         </div>
       )}

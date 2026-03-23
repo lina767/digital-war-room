@@ -217,7 +217,7 @@ export interface ConflictData {
   };
   /** Per-agent data quality from CEO pipeline (degraded = no reliable feed). */
   agent_data_confidence?: Record<string, "live" | "estimated" | "degraded">;
-  /** Agents whose scores were excluded from composite — not evidence of safety. */
+  /** Agents whose scores were excluded from composite – not evidence of safety. */
   degraded_agents?: string[];
   /** Heuristic anomaly flags vs previous cached run (e.g. military chatter spike). */
   pattern_flags?: Array<{

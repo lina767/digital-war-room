@@ -28,7 +28,7 @@ export function AgentStatusPanel({ agents }: AgentStatusPanelProps) {
                 <span className="briefing-mono">{AGENTS[agentId].label}</span>
               </div>
               <div className="flex items-center gap-3 text-[var(--text-secondary)]">
-                <span className="briefing-mono">{typeof score === "number" ? `${Math.round(score)}/100` : "—"}</span>
+                <span className="briefing-mono">{typeof score === "number" ? `${Math.round(score)}/100` : "–"}</span>
                 <span>{formatTimeAgo(row?.status.lastUpdated ?? null)}</span>
               </div>
             </div>

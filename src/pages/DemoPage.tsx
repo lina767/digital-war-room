@@ -56,8 +56,8 @@ export default function DemoPage() {
   return (
     <>
       <SEO
-        title="Curated demo — Digital War Room"
-        description="Explore a curated Red Sea / Bab el-Mandeb scenario: escalation score, BLUF narrative, and multi-stream context—without live agent runs."
+        title="Curated demo – Digital War Room"
+        description="Explore a curated Red Sea / Bab el-Mandeb scenario: escalation score, BLUF narrative, and multi-stream context–without live agent runs."
         path="/demo"
         imageAlt="Digital War Room demo snapshot"
       />
@@ -109,12 +109,12 @@ export default function DemoPage() {
                 <div>
                   <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Escalation score</p>
                   <p className="font-mono text-5xl font-bold text-primary tabular-nums">
-                    {data.escalation_score != null ? Math.round(data.escalation_score) : "—"}
+                    {data.escalation_score != null ? Math.round(data.escalation_score) : "–"}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Threat</p>
-                  <Badge className={`mt-1 border ${threatClass(data.threat_level)}`}>{data.threat_level ?? "—"}</Badge>
+                  <Badge className={`mt-1 border ${threatClass(data.threat_level)}`}>{data.threat_level ?? "–"}</Badge>
                 </div>
                 <div className="min-w-[200px] flex-1">
                   <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Theater</p>

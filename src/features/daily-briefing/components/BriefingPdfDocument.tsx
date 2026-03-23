@@ -34,13 +34,13 @@ export function BriefingPdfDocument({ data }: { data: DailyBriefingData }) {
         <Text style={styles.subheading}>Scenarios</Text>
         {data.scenarios.map((s) => (
           <Text key={s.id} style={styles.line}>
-            {s.type} {s.probability}% — {s.description}
+            {s.type} {s.probability}% – {s.description}
           </Text>
         ))}
         <Text style={styles.subheading}>Agent Deep Dives</Text>
         {Object.entries(data.agents).map(([agent, block]) => (
           <Text key={agent} style={styles.line}>
-            {agent}: {block.status.score ?? "—"}/100 | {block.metadata.model} | {block.metadata.latencyMs}ms
+            {agent}: {block.status.score ?? "–"}/100 | {block.metadata.model} | {block.metadata.latencyMs}ms
           </Text>
         ))}
         <Text style={styles.footer}>

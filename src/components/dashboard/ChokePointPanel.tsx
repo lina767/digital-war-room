@@ -255,7 +255,7 @@ export function ChokePointPanel({ data, embedded = false }: ChokePointPanelProps
             <div className="flex justify-between text-[11px] pt-0.5">
               <span className="text-muted-foreground">Food Risk</span>
               <span className={`font-mono ${foodRisk >= 60 ? "text-red-400" : foodRisk >= 40 ? "text-amber-400" : "text-emerald-400"}`}>
-                {energy != null ? `${Math.round(foodRisk)}/100` : "—"}
+                {energy != null ? `${Math.round(foodRisk)}/100` : "–"}
               </span>
             </div>
           </div>

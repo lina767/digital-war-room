@@ -32,7 +32,7 @@ const Dashboard = () => {
   return (
     <>
       <SEO
-        title="Digital War Room — AI-Powered OSINT Intelligence"
+        title="Digital War Room – AI-Powered OSINT Intelligence"
         description="Digital War Room: AI-powered OSINT conflict monitoring. Real-time escalation score, multi-agent intelligence (GEOINT, SIGINT, SOCMINT, FININT, TECHINT) and BLUF-style briefings."
         path="/app/dashboard"
         imageAlt="Digital War Room dashboard showing conflict escalation and intelligence streams"
@@ -259,7 +259,7 @@ function DashboardContent() {
           </div>
           {/* Signal counter (from current analysis data) */}
           <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
-            <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "—"}</span>
+            <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "–"}</span>
             <span>signals</span>
           </div>
           <button

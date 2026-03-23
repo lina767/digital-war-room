@@ -48,7 +48,7 @@ const BlogPost = () => {
   return (
     <>
       <SEO
-        title={`${post.title} — Digital War Room Blog`}
+        title={`${post.title} – Digital War Room Blog`}
         description={post.excerpt}
         path={`/blog/${post.slug}`}
         pageType="BlogPosting"

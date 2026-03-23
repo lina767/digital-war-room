@@ -2,7 +2,7 @@
 export const LANDING = {
   headline: "Open-source noise is not a strategy.",
   subhead:
-    "Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, and TECHINT into one escalation score and BLUF-style briefings—so you see the pattern before the headline.",
+    "Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, and TECHINT into one escalation score and BLUF-style briefings–so you see the pattern before the headline.",
   primaryCta: "View curated demo",
   primaryCtaHref: "/demo",
   secondaryCta: "Open live dashboard",
@@ -12,7 +12,7 @@ export const LANDING = {
   useCases: [
     {
       title: "Geopolitical & security analysis",
-      body: "Track chokepoints, military posture, and corroborated patterns across agents—without tab bankruptcy.",
+      body: "Track chokepoints, military posture, and corroborated patterns across agents–without tab bankruptcy.",
       imageAlt: "Escalation and multi-stream intelligence overview",
     },
     {
@@ -22,7 +22,7 @@ export const LANDING = {
     },
     {
       title: "Markets & risk",
-      body: "See how conflict signals connect to energy, logistics, and sentiment—before volatility shows up in headlines.",
+      body: "See how conflict signals connect to energy, logistics, and sentiment–before volatility shows up in headlines.",
       imageAlt: "Markets and escalation context",
     },
   ],

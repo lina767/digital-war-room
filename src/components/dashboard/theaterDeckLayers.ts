@@ -42,7 +42,7 @@ function normalizeChokepointName(name: string): string {
   return normalized;
 }
 
-/** Logarithmic marker scale — visually consistent across zoom 2..8 */
+/** Logarithmic marker scale – visually consistent across zoom 2..8 */
 export function markerScale(zoom: number): number {
   return Math.max(0.15, 1 / Math.sqrt(zoom));
 }
@@ -131,7 +131,7 @@ function chokepointZoneData(
 const pathDashExt = new PathStyleExtension({ dash: true });
 
 function sanitizeLabelText(text: string): string {
-  return text.replace(/[–—]/g, "-");
+  return text.replace(/[––]/g, "-");
 }
 
 /**

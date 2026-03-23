@@ -6,18 +6,34 @@ using PostgreSQL + pgvector. Falls back gracefully to in-memory operations
 (via hf_service) when DATABASE_URL is not configured.
 
 Requires: asyncpg, pgvector extension on PostgreSQL.
-Migration: backend/migrations/001_pgvector_setup.sql
+Migration: backend/migrations/001_pgvector_setup.sql, 003_multi_tenancy.sql
 """
+
+from __future__ import annotations
 
 import hashlib
 import logging
 import os
+import uuid
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 _pool = None
+
+
+def _tid(tenant_id: Optional[uuid.UUID]) -> uuid.UUID:
+    if tenant_id is not None:
+        return tenant_id
+    try:
+        from services.request_context import get_current_tenant_id
+
+        return get_current_tenant_id()
+    except Exception:
+        from services.tenant_constants import get_default_tenant_id
+
+        return get_default_tenant_id()
 
 
 async def _get_pool():
@@ -63,6 +79,7 @@ async def store_embedding(
     source: str = "unknown",
     conflict: str = "",
     metadata: Optional[Dict[str, Any]] = None,
+    tenant_id: Optional[uuid.UUID] = None,
 ) -> bool:
     """
     Store an embedding in the database. Uses content_hash for upsert.
@@ -72,21 +89,26 @@ async def store_embedding(
     if not pool:
         return False
 
+    tid = _tid(tenant_id)
     content_hash = _content_hash(text)
     preview = text[:200] if text else ""
     meta = metadata or {}
 
     try:
         async with pool.acquire() as conn:
+            from services.db_tenant import set_session_tenant
+
+            await set_session_tenant(conn, tid, None)
             await conn.execute(
                 """
-                INSERT INTO embeddings (content_hash, source, text_preview, embedding, metadata, conflict)
-                VALUES ($1, $2, $3, $4::vector, $5, $6)
-                ON CONFLICT (content_hash) DO UPDATE SET
+                INSERT INTO embeddings (tenant_id, content_hash, source, text_preview, embedding, metadata, conflict)
+                VALUES ($1, $2, $3, $4, $5::vector, $6, $7)
+                ON CONFLICT (tenant_id, content_hash) DO UPDATE SET
                     embedding = EXCLUDED.embedding,
                     metadata = EXCLUDED.metadata,
                     updated_at = now()
                 """,
+                tid,
                 content_hash,
                 source,
                 preview,
@@ -105,6 +127,7 @@ async def store_embeddings_batch(
     embeddings: List[List[float]],
     source: str = "unknown",
     conflict: str = "",
+    tenant_id: Optional[uuid.UUID] = None,
 ) -> int:
     """
     Batch-store embeddings. Each item should have a 'text' key.
@@ -114,9 +137,13 @@ async def store_embeddings_batch(
     if not pool:
         return 0
 
+    tid = _tid(tenant_id)
     stored = 0
     try:
         async with pool.acquire() as conn:
+            from services.db_tenant import set_session_tenant
+
+            await set_session_tenant(conn, tid, None)
             for item, emb in zip(items, embeddings, strict=True):
                 text = item.get("text") or item.get("title") or item.get("summary") or ""
                 if not text or not emb:
@@ -126,12 +153,13 @@ async def store_embeddings_batch(
                 try:
                     await conn.execute(
                         """
-                        INSERT INTO embeddings (content_hash, source, text_preview, embedding, metadata, conflict)
-                        VALUES ($1, $2, $3, $4::vector, $5, $6)
-                        ON CONFLICT (content_hash) DO UPDATE SET
+                        INSERT INTO embeddings (tenant_id, content_hash, source, text_preview, embedding, metadata, conflict)
+                        VALUES ($1, $2, $3, $4, $5::vector, $6, $7)
+                        ON CONFLICT (tenant_id, content_hash) DO UPDATE SET
                             embedding = EXCLUDED.embedding,
                             updated_at = now()
                         """,
+                        tid,
                         content_hash,
                         source,
                         preview,
@@ -156,6 +184,7 @@ async def find_similar(
     source: Optional[str] = None,
     conflict: Optional[str] = None,
     threshold: float = 0.7,
+    tenant_id: Optional[uuid.UUID] = None,
 ) -> List[Dict[str, Any]]:
     """
     Find similar items by cosine similarity using pgvector.
@@ -165,10 +194,11 @@ async def find_similar(
     if not pool:
         return []
 
+    tid = _tid(tenant_id)
     try:
-        conditions = ["1 - (embedding <=> $1::vector) >= $2"]
-        params: list = [str(embedding), threshold]
-        idx = 3
+        conditions = ["tenant_id = $2", "1 - (embedding <=> $1::vector) >= $3"]
+        params: list = [str(embedding), tid, threshold]
+        idx = 4
 
         if source:
             conditions.append(f"source = ${idx}")
@@ -190,6 +220,9 @@ async def find_similar(
         """
 
         async with pool.acquire() as conn:
+            from services.db_tenant import set_session_tenant
+
+            await set_session_tenant(conn, tid, None)
             rows = await conn.fetch(query, *params)
             return [
                 {
@@ -210,6 +243,7 @@ async def deduplicate_by_db(
     texts: List[str],
     source: str = "unknown",
     threshold: float = 0.92,
+    tenant_id: Optional[uuid.UUID] = None,
 ) -> List[int]:
     """
     Check texts against stored embeddings to find near-duplicates.
@@ -229,9 +263,10 @@ async def deduplicate_by_db(
     if not embeddings:
         return list(range(len(texts)))
 
+    tid = _tid(tenant_id)
     novel_indices = []
     for i, (text, emb) in enumerate(zip(texts, embeddings, strict=True)):
-        similar = await find_similar(emb, top_k=1, source=source, threshold=threshold)
+        similar = await find_similar(emb, top_k=1, source=source, threshold=threshold, tenant_id=tid)
         if not similar:
             novel_indices.append(i)
         else:
