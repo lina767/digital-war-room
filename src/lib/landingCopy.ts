@@ -2,7 +2,7 @@
 export const LANDING = {
   headline: "Open-source noise is not a strategy.",
   subhead:
-    "Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, and TECHINT into one escalation score and BLUF-style briefings–so you see the pattern before the headline.",
+    "Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROTEST, PROXIMITY, and related streams into one escalation score and BLUF-style briefings—so you see the pattern before the headline.",
   primaryCta: "View curated demo",
   primaryCtaHref: "/demo",
   secondaryCta: "Open live dashboard",
