@@ -251,10 +251,14 @@ function TheaterMapInner({
     setTooltip(null);
   }, []);
 
+  /** Below this zoom, force pitch to 0 so the basemap stays flat; dense markers read clearer at overview scale. */
+  const ZOOM_FLATTEN_PITCH = 5.5;
+
   const onViewStateChange = useCallback(
     ({ viewState: vs }: { viewState: typeof viewState }) => {
       const z = Math.min(Math.max(vs.zoom, 2), 8);
-      setViewState({ ...vs, zoom: z });
+      const pitch = z < ZOOM_FLATTEN_PITCH ? 0 : (vs.pitch ?? 0);
+      setViewState({ ...vs, zoom: z, pitch });
     },
     [],
   );

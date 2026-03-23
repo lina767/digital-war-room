@@ -273,6 +273,8 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         pickable: true,
         radiusMinPixels: 4,
         radiusMaxPixels: 28,
+        /** Face camera — default false makes flat circles smear into ellipses when the map is pitched. */
+        billboard: true,
       }),
     );
   }
@@ -296,6 +298,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         pickable: true,
         radiusMinPixels: 4,
         radiusMaxPixels: 28,
+        billboard: true,
       }),
     );
   }
@@ -325,6 +328,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
           pickable: false,
           radiusMinPixels: 8,
           radiusMaxPixels: 48,
+          billboard: true,
         }),
       );
     }
@@ -353,6 +357,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         pickable: true,
         radiusMinPixels: 5,
         radiusMaxPixels: 32,
+        billboard: true,
       }),
     );
   }
@@ -385,6 +390,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
           pickable: true,
           radiusMinPixels: 4,
           radiusMaxPixels: 40,
+          billboard: true,
         }),
       );
     }
@@ -411,6 +417,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
           getLineWidth: 1,
           stroked: true,
           pickable: true,
+          billboard: true,
         }),
       );
     }
@@ -435,6 +442,7 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
           getLineWidth: 1,
           stroked: true,
           pickable: true,
+          billboard: true,
         }),
       );
     }
