@@ -14,6 +14,8 @@ _ORDER = (
     "002_quality_signals_ais_tracks.sql",
     "003_multi_tenancy.sql",
     "004_newsletter_postgres.sql",
+    "005_agent_score_history.sql",
+    "006_greynoise.sql",
 )
 
 
