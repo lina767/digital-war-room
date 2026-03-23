@@ -120,6 +120,8 @@ export interface DailyBriefingData {
     polymarket: PolymarketOdds[];
   };
   chokepoints: ChokepointStatus[];
+  /** Energy-agent note when present (e.g. Hormuz / oil shock). */
+  globalImpactNote?: string | null;
   generatedAt: Date;
   version: string;
 }

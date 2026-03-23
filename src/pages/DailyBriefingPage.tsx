@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AgentDeepDives } from "@/features/daily-briefing/components/AgentDeepDives";
 import { AgentStatusPanel } from "@/features/daily-briefing/components/AgentStatusPanel";
 import { BLUFSection } from "@/features/daily-briefing/components/BLUFSection";
@@ -35,6 +36,8 @@ export default function DailyBriefingPage() {
   const { state, dispatch, meta } = useBriefingData();
   const exportPdf = useBriefingExport();
   const data = state.data;
+  const showLoading = !data && (meta.initialLoadPending || state.isLoading);
+  const showError = !data && state.error && !showLoading;
 
   const share = async () => {
     const url = window.location.href;
@@ -46,17 +49,73 @@ export default function DailyBriefingPage() {
     toast.success("Briefing link copied");
   };
 
+  if (showLoading) {
+    return (
+      <div className="briefing-page min-h-screen">
+        <main className="briefing-shell py-8" aria-busy="true" aria-label="Loading briefing">
+          <div className="mb-4 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--text-tertiary)]" aria-hidden />
+            <span className="briefing-mono">Loading intelligence snapshot…</span>
+          </div>
+          <div className="briefing-card space-y-4 p-6">
+            <Skeleton className="h-8 w-2/3 bg-white/10" />
+            <Skeleton className="h-4 w-full bg-white/10" />
+            <Skeleton className="h-4 w-5/6 bg-white/10" />
+            <div className="grid gap-4 pt-4 md:grid-cols-[1.9fr_1.1fr]">
+              <div className="space-y-3">
+                <Skeleton className="h-40 w-full bg-white/10" />
+                <Skeleton className="h-32 w-full bg-white/10" />
+              </div>
+              <div className="space-y-3">
+                <Skeleton className="h-28 w-full bg-white/10" />
+                <Skeleton className="h-24 w-full bg-white/10" />
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (showError) {
+    return (
+      <div className="briefing-page min-h-screen">
+        <main className="briefing-shell py-8">
+          <div className="briefing-card space-y-4 p-6">
+            <p className="text-sm text-[var(--text-secondary)]">{state.error}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void meta.runAnalysis()}>
+                Run analysis
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => meta.refresh()}>
+                Retry connection
+              </Button>
+              <Button asChild size="sm" variant="ghost">
+                <Link to="/">Open dashboard</Link>
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="briefing-page min-h-screen">
         <main className="briefing-shell py-8">
           <div className="briefing-card p-6">
             <p className="mb-3 text-sm text-[var(--text-secondary)]">
-              No briefing data available yet. Run an analysis from the dashboard and reload.
+              No briefing data available yet. Run an analysis from the dashboard or start one here.
             </p>
-            <Button asChild size="sm">
-              <Link to="/">Open dashboard</Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void meta.runAnalysis()}>
+                Run analysis
+              </Button>
+              <Button asChild size="sm" variant="outline">
+                <Link to="/">Open dashboard</Link>
+              </Button>
+            </div>
           </div>
         </main>
       </div>
@@ -140,7 +199,8 @@ export default function DailyBriefingPage() {
               <section id="briefing-global" className="briefing-card p-3">
                 <h2 className="briefing-display text-2xl">Global Impact</h2>
                 <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                  Energy and shipping sensitivities remain linked to chokepoint pressure and escalation trajectory.
+                  {data.globalImpactNote?.trim() ||
+                    "Energy and shipping sensitivities remain linked to chokepoint pressure and escalation trajectory."}
                 </p>
               </section>
             </div>

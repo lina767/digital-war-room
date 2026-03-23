@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer } from "react";
 import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData, PredictiveLevel } from "@/hooks/useConflictWebSocket";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
 import { formatTimeAgo } from "@/lib/utils";
 import { AGENT_ORDER } from "@/features/daily-briefing/constants/agents";
@@ -12,6 +12,7 @@ import type {
   BriefingState,
   ChokepointStatus,
   DailyBriefingData,
+  EscalationSignal,
   Finding,
   Scenario,
   ThreatLevel,
@@ -91,6 +92,69 @@ function toScenarioType(description: string): Scenario["type"] {
   return "ESCALATION";
 }
 
+function levelToWeight(level: PredictiveLevel | undefined): number {
+  switch (level) {
+    case "CRITICAL":
+      return 92;
+    case "HIGH":
+      return 78;
+    case "MEDIUM":
+      return 55;
+    case "LOW":
+      return 38;
+    default:
+      return 50;
+  }
+}
+
+function buildPredictiveOutlook(conflict: ConflictData, escalationScore: number): DailyBriefingData["predictiveOutlook"] {
+  const baseline = conflict.predictive?.baseline_escalation;
+  const esc = conflict.predictive?.escalation?.[0];
+
+  let trajectory: DailyBriefingData["predictiveOutlook"]["trajectory"] = "STABLE";
+  if (baseline?.vs_baseline === "higher") trajectory = "ESCALATING";
+  else if (baseline?.vs_baseline === "lower") trajectory = "DE_ESCALATING";
+  else if (baseline?.vs_baseline === "similar") {
+    if (escalationScore >= 65) trajectory = "ESCALATING";
+    else if (escalationScore <= 35) trajectory = "DE_ESCALATING";
+    else trajectory = "STABLE";
+  } else {
+    if (escalationScore >= 65) trajectory = "ESCALATING";
+    else if (escalationScore <= 35) trajectory = "DE_ESCALATING";
+  }
+
+  const signals: EscalationSignal[] = [];
+  const push = (label: string, weight: number, agent: AgentId) => {
+    if (!label.trim()) return;
+    signals.push({ label: label.slice(0, 120), weight: Math.min(100, Math.max(0, Math.round(weight))), agent });
+  };
+
+  push("Composite escalation score", escalationScore, "NEWS");
+  baseline?.drivers?.slice(0, 2).forEach((d, i) => {
+    push(d, escalationScore * (0.88 - i * 0.08), "SIGINT");
+  });
+  if (esc?.horizon && esc.level) {
+    push(`Predicted stress (${esc.horizon})`, levelToWeight(esc.level), "FININT");
+  }
+  const maxCpRisk = Math.max(
+    0,
+    ...(conflict.chokepoint?.chokepoints ?? []).map((c) => Number(c.disruption_risk ?? 0)),
+  );
+  if (maxCpRisk > 35) {
+    push("Chokepoint disruption risk", Math.round(maxCpRisk), "CHOKEPOINT");
+  }
+  const newsScore = conflict.news?.news_score;
+  if (typeof newsScore === "number" && Number.isFinite(newsScore)) {
+    push("News stream intensity", Math.min(100, Math.round(newsScore)), "NEWS");
+  }
+  conflict.pattern_flags?.slice(0, 2).forEach((pf, i) => {
+    const title = (pf.title ?? pf.detail ?? "").trim();
+    if (title) push(title, Math.min(100, escalationScore + 5 + i * 3), "SIGINT");
+  });
+
+  return { trajectory, signals: signals.slice(0, 5) };
+}
+
 function agentScore(conflict: ConflictData, agent: AgentId): number | null {
   const map: Partial<Record<AgentId, number | undefined>> = {
     FININT: Number((conflict.finint as { finint_score?: number } | undefined)?.finint_score ?? NaN),
@@ -155,6 +219,7 @@ function buildAgentBlock(conflict: ConflictData, agent: AgentId, generatedAt: Da
 }
 
 function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBriefingData {
+  const escalationRounded = Math.round(Number(conflict.escalation_score ?? 0));
   const keyFindings: Finding[] = (conflict.key_findings ?? []).slice(0, 8).map((item, idx) => {
     const text = String(item ?? "");
     const confidence = normalizeConfidence(conflict.key_findings_confidence?.[idx]);
@@ -200,16 +265,11 @@ function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBr
   return {
     conflict: conflict.conflict || DEFAULT_CONFLICT,
     threatLevel: parseThreatLevel(conflict.threat_level),
-    escalationScore: Math.round(Number(conflict.escalation_score ?? 0)),
+    escalationScore: escalationRounded,
     bluf: conflict.summary ?? "No executive summary available.",
     keyFindings,
     scenarios,
-    predictiveOutlook: {
-      trajectory: Number(conflict.escalation_score ?? 0) >= 65 ? "ESCALATING" : "STABLE",
-      signals: [
-        { label: "Escalation score pressure", weight: Math.round(Number(conflict.escalation_score ?? 0)), agent: "NEWS" },
-      ],
-    },
+    predictiveOutlook: buildPredictiveOutlook(conflict, escalationRounded),
     agents,
     market: {
       brent: parsePrice(conflict.finint?.brent, "Brent"),
@@ -222,6 +282,7 @@ function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBr
       })),
     },
     chokepoints,
+    globalImpactNote: conflict.energy?.global_impact_note ?? null,
     generatedAt,
     version: "v2.4.1",
   };
@@ -230,6 +291,12 @@ function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBr
 export function useBriefingData(conflict = DEFAULT_CONFLICT) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const ws = useConflictWebSocket({ conflict, enabled: true });
+
+  const mappedBriefing = useMemo(() => {
+    if (!ws.data) return null;
+    const generatedAt = ws.lastUpdated ?? new Date();
+    return toDailyBriefingData(ws.data, generatedAt);
+  }, [ws.data, ws.lastUpdated]);
 
   useEffect(() => {
     dispatch({ type: "CONNECTION_STATUS", payload: ws.status });
@@ -240,11 +307,9 @@ export function useBriefingData(conflict = DEFAULT_CONFLICT) {
   }, [conflict]);
 
   useEffect(() => {
-    if (!ws.data) return;
-    const generatedAt = ws.lastUpdated ?? new Date();
-    const mapped = toDailyBriefingData(ws.data, generatedAt);
-    dispatch({ type: "DATA_RECEIVED", payload: { data: mapped, fromCache: ws.dataFromCache } });
-  }, [ws.data, ws.lastUpdated, ws.dataFromCache]);
+    if (!mappedBriefing) return;
+    dispatch({ type: "DATA_RECEIVED", payload: { data: mappedBriefing, fromCache: ws.dataFromCache } });
+  }, [mappedBriefing, ws.dataFromCache]);
 
   useEffect(() => {
     if (!ws.analysisError) return;
@@ -257,8 +322,9 @@ export function useBriefingData(conflict = DEFAULT_CONFLICT) {
       lastUpdatedLabel: formatTimeAgo(state.lastUpdated),
       runAnalysis: ws.runAnalysis,
       refresh: ws.refresh,
+      initialLoadPending: ws.initialLoadPending,
     };
-  }, [state.connectionStatus, state.lastUpdated, ws.runAnalysis, ws.refresh]);
+  }, [state.connectionStatus, state.lastUpdated, ws.runAnalysis, ws.refresh, ws.initialLoadPending]);
 
   return { state, dispatch, meta };
 }
