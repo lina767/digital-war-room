@@ -453,19 +453,19 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     }
     degraded_agents = sorted([n for n, c in agent_data_confidence.items() if c == "degraded"])
 
-    finint_score = float(finint_result.get("escalation_score", 0.0))
-    sigint_score = float(sigint_result.get("sigint_score", 0.0))
-    news_score = float(news_result.get("news_score", 0.0))
-    geoint_score = float(geoint_result.get("geoint_score", 0.0))
-    satintel_score = float(satintel_result.get("satintel_score", 0.0))
-    socmint_score = float(socmint_result.get("socmint_score", 0.0))
-    techint_score = float(techint_result.get("techint_score", 0.0))
-    cyber_score = float(cyber_result.get("cyber_score", 0.0))
-    energy_score = float(energy_result.get("energy_score", 0.0))
-    protest_score = float(protest_result.get("protest_score", 0.0))
-    diplo_score = float(diplo_result.get("diplo_score", 0.0))
-    proximity_score = float(proximity_result.get("proximity_score", 0.0))
-    chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
+    finint_score = _coerce_float(finint_result.get("escalation_score"), 0.0)
+    sigint_score = _coerce_float(sigint_result.get("sigint_score"), 0.0)
+    news_score = _coerce_float(news_result.get("news_score"), 0.0)
+    geoint_score = _coerce_float(geoint_result.get("geoint_score"), 0.0)
+    satintel_score = _coerce_float(satintel_result.get("satintel_score"), 0.0)
+    socmint_score = _coerce_float(socmint_result.get("socmint_score"), 0.0)
+    techint_score = _coerce_float(techint_result.get("techint_score"), 0.0)
+    cyber_score = _coerce_float(cyber_result.get("cyber_score"), 0.0)
+    energy_score = _coerce_float(energy_result.get("energy_score"), 0.0)
+    protest_score = _coerce_float(protest_result.get("protest_score"), 0.0)
+    diplo_score = _coerce_float(diplo_result.get("diplo_score"), 0.0)
+    proximity_score = _coerce_float(proximity_result.get("proximity_score"), 0.0)
+    chokepoint_score = _coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
 
     scores_by_agent: Dict[str, float] = {
         "finint": finint_score,
@@ -950,19 +950,19 @@ def _build_supervisor_user_payload(
     temporal_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Shared compact payload for CEO LLM supervisor and cross-stream narrative synthesis."""
-    finint_score = float(finint_result.get("escalation_score", 0.0))
-    sigint_score = float(sigint_result.get("sigint_score", 0.0))
-    news_score = float(news_result.get("news_score", 0.0))
-    geoint_score = float(geoint_result.get("geoint_score", 0.0))
-    satintel_score = float(satintel_result.get("satintel_score", 0.0))
-    socmint_score = float(socmint_result.get("socmint_score", 0.0))
-    techint_score = float(techint_result.get("techint_score", 0.0))
-    cyber_score = float(cyber_result.get("cyber_score", 0.0))
-    energy_score = float(energy_result.get("energy_score", 0.0))
-    protest_score = float(protest_result.get("protest_score", 0.0))
-    diplo_score = float(diplo_result.get("diplo_score", 0.0))
-    proximity_score = float(proximity_result.get("proximity_score", 0.0))
-    chokepoint_score = float(chokepoint_result.get("chokepoint_score", 0.0))
+    finint_score = _coerce_float(finint_result.get("escalation_score"), 0.0)
+    sigint_score = _coerce_float(sigint_result.get("sigint_score"), 0.0)
+    news_score = _coerce_float(news_result.get("news_score"), 0.0)
+    geoint_score = _coerce_float(geoint_result.get("geoint_score"), 0.0)
+    satintel_score = _coerce_float(satintel_result.get("satintel_score"), 0.0)
+    socmint_score = _coerce_float(socmint_result.get("socmint_score"), 0.0)
+    techint_score = _coerce_float(techint_result.get("techint_score"), 0.0)
+    cyber_score = _coerce_float(cyber_result.get("cyber_score"), 0.0)
+    energy_score = _coerce_float(energy_result.get("energy_score"), 0.0)
+    protest_score = _coerce_float(protest_result.get("protest_score"), 0.0)
+    diplo_score = _coerce_float(diplo_result.get("diplo_score"), 0.0)
+    proximity_score = _coerce_float(proximity_result.get("proximity_score"), 0.0)
+    chokepoint_score = _coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
 
     return {
         "conflict": conflict,
@@ -1133,6 +1133,15 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
     if isinstance(ceo_result, dict):
         return ceo_result
 
+    # If the DAG node timed out or returned a non-dict fallback, try one direct
+    # deterministic synthesis pass from collected store data before failing hard.
+    try:
+        recovered = _ceo_synthesize(conflict, divisions, store)
+        if isinstance(recovered, dict):
+            return recovered
+    except Exception as exc:
+        logger.warning("CEO synthesis recovery failed: %s", exc)
+
     return {
         "conflict": conflict,
         "escalation_score": 0,
@@ -1196,3 +1205,18 @@ def _as_dict(result: Any) -> Dict:
     if hasattr(result, "data") and isinstance(result.data, dict):
         return result.data
     return {}
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    """Best-effort float coercion to keep synthesis resilient to bad agent payloads."""
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return default
+            value = stripped
+        return float(value)
+    except (TypeError, ValueError):
+        return default

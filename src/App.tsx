@@ -21,6 +21,7 @@ const Privacy = lazy(() => import("./pages/Privacy"));
 const Support = lazy(() => import("./pages/Support"));
 const Blog = lazy(() => import("./pages/Blog"));
 const BlogPost = lazy(() => import("./pages/BlogPost"));
+const DemoPage = lazy(() => import("./pages/DemoPage"));
 
 function PageFallback() {
   return <PageSkeleton />;
@@ -38,7 +39,7 @@ const App = () => {
       <MobileAnalyticsBoot />
       <Suspense fallback={<PageFallback />}>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/demo" element={<DemoPage />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
           <Route path="/app/monitoring" element={<AgentMonitor />} />
           <Route path="/how-it-works" element={<Navigate to={`${DOCS_HUB}?doc=how-it-works`} replace />} />

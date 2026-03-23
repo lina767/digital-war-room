@@ -4,6 +4,7 @@ import path from "path";
 import { VitePWA } from "vite-plugin-pwa";
 import seoPrerender from "vite-plugin-seo-prerender";
 import { getPrerenderRoutes } from "./scripts/discoverability-routes.js";
+import { spaFallbackPlugin } from "./vite/spaFallbackPlugin";
 
 // https://vitejs.dev/config/
 export default defineConfig(() => {
@@ -12,6 +13,14 @@ export default defineConfig(() => {
     (process.env.VERCEL !== "1" || process.env.VERCEL_FORCE_PRERENDER === "1");
 
   return {
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        app: path.resolve(__dirname, "app/index.html"),
+      },
+    },
+  },
   server: {
     host: "::",
     port: 8080,
@@ -21,13 +30,14 @@ export default defineConfig(() => {
   },
   plugins: [
     react(),
+    spaFallbackPlugin(),
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "favicon.png", "apple-touch-icon.png", "offline.html"],
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallback: "/app/index.html",
+        navigateFallbackDenylist: [/^\/api\//, /^\/$/],
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/[^/]+\/api\/.*/i,

@@ -3,7 +3,7 @@
   "name": "Digital War Room",
   "short_name": "Digital War Room",
   "description": "AI-powered OSINT conflict monitoring platform — multi-agent geopolitical intelligence dashboard monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT and TECHINT.",
-  "start_url": "/",
+  "start_url": "/app/dashboard",
   "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "browser"],

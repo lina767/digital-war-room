@@ -1,0 +1,270 @@
+/* Minimal styles for static marketing landing (no Tailwind) — matches dark OSINT theme */
+:root {
+  --bg: #0a0a0a;
+  --fg: #fafafa;
+  --muted: #a3a3a3;
+  --card: #111111;
+  --border: #262626;
+  --primary: #00ff88;
+  --primary-dim: rgba(0, 255, 136, 0.15);
+  --radius: 0.5rem;
+  --max: 72rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  font-size: 16px;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  z-index: 999;
+  padding: 0.5rem 1rem;
+  background: var(--primary);
+  color: #000;
+}
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+.l-wrap {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+.l-header {
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 0;
+  position: sticky;
+  top: 0;
+  background: rgba(10, 10, 10, 0.92);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+
+.l-header__inner {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.l-logo {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  color: var(--fg);
+  text-decoration: none;
+}
+.l-logo:hover {
+  text-decoration: none;
+  color: var(--primary);
+}
+
+.l-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.l-hero {
+  padding: 4rem 0 3rem;
+}
+
+@media (min-width: 768px) {
+  .l-hero {
+    padding: 5rem 0 4rem;
+  }
+}
+
+.l-kicker {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 1rem;
+}
+
+.l-hero h1 {
+  font-size: clamp(1.85rem, 4vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1.15;
+  margin: 0 0 1.25rem;
+  max-width: 42rem;
+}
+
+.l-lead {
+  font-size: 1.05rem;
+  color: var(--muted);
+  max-width: 40rem;
+  margin: 0 0 2rem;
+}
+
+.l-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.l-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1.25rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.l-btn:hover {
+  text-decoration: none;
+}
+.l-btn--primary {
+  background: var(--primary);
+  color: #050505;
+}
+.l-btn--primary:hover {
+  filter: brightness(1.05);
+}
+.l-btn--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--fg);
+}
+.l-btn--ghost:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.l-hero__media {
+  margin-top: 2.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background: var(--card);
+}
+.l-hero__media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.l-section {
+  padding: 3rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.l-section h2 {
+  font-size: 1.35rem;
+  margin: 0 0 0.5rem;
+}
+
+.l-section__intro {
+  color: var(--muted);
+  max-width: 40rem;
+  margin: 0 0 2rem;
+  font-size: 0.95rem;
+}
+
+.l-grid {
+  display: grid;
+  gap: 1.25rem;
+}
+@media (min-width: 768px) {
+  .l-grid--3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.l-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+}
+.l-card img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  opacity: 0.95;
+}
+.l-card__body {
+  padding: 1.1rem 1.15rem 1.25rem;
+}
+.l-card h3 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+.l-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.l-proof {
+  padding: 2.5rem 0 3rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.l-proof p {
+  margin: 0 auto;
+  max-width: 36rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.l-proof a {
+  display: inline-block;
+  margin-top: 1rem;
+}
+
+.l-footer {
+  border-top: 1px solid var(--border);
+  padding: 2rem 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.l-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-bottom: 1rem;
+}

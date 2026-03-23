@@ -41,7 +41,10 @@ function getDocumentationDeepLinkRoutes() {
 }
 
 const STATIC_PUBLIC_ROUTES = [
-  { path: "/", changefreq: "daily", priority: "1.0", prerender: true, sitemap: true },
+  // Root is static HTML (no Puppeteer); crawlers get full markup from index.html.
+  { path: "/", changefreq: "daily", priority: "1.0", prerender: false, sitemap: true },
+  // Demo loads curated JSON from API in the browser; prerender would only show loading state.
+  { path: "/demo", changefreq: "weekly", priority: "0.95", prerender: false, sitemap: true },
   // Legacy URLs redirect client-side to /docs/documentation?doc=…; still prerender for crawlers.
   { path: "/how-it-works", changefreq: "monthly", priority: "0.5", prerender: true, sitemap: false },
   { path: "/methodology", changefreq: "monthly", priority: "0.5", prerender: true, sitemap: false },

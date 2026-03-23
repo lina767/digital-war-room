@@ -23,8 +23,8 @@ export function NewsletterTokenContent({
       {status === "success" && <p className="text-foreground">{message || successFallback}</p>}
       {status === "error" && <p className="text-destructive">{message}</p>}
       <p>
-        <Link to="/" className="text-primary hover:underline">
-          Return to Dashboard
+        <Link to="/app/dashboard" className="text-primary hover:underline">
+          Return to dashboard
         </Link>
         {showDailyBriefingLink && (
           <>

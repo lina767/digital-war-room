@@ -1,0 +1,114 @@
+{
+  "_demo": true,
+  "scenario_id": "red-sea-bab-el-mandeb-curated",
+  "scenario_title": "Red Sea / Bab el-Mandeb — curated demo",
+  "scenario_note": "Curated snapshot for public demo: representative structure, manually reviewed. Not live intelligence.",
+  "conflict": "Red Sea maritime security",
+  "escalation_score": 72,
+  "threat_level": "HIGH",
+  "key_findings": [
+    "Commercial traffic through Bab el-Mandeb remains exposed to disruption; insurers and flag states are repricing corridor risk faster than public narratives update.",
+    "Naval and airborne ISR patterns (open-source ADS-B / AIS aggregates) show sustained presence at chokepoint approaches—consistent with deterrence posture, not one-off patrols.",
+    "Markets are front-running headlines: energy and container indices already embed a premium; escalation signals show up in futures and freight before TV panels converge."
+  ],
+  "key_findings_context": [
+    "Chokepoint risk is a logistics and insurance problem first—then a geopolitical story.",
+    "Open-source movement data can corroborate official statements when both align—or expose gaps when they do not.",
+    "FININT and news streams often diverge for 6–24h; the dashboard is built to surface that gap."
+  ],
+  "summary": "This curated scenario shows how Digital War Room combines stream-level evidence into a single escalation score and BLUF-style takeaways for a maritime chokepoint context. Data is static for the demo and does not reflect live targeting or classified assessments.",
+  "narrative_story": "When a narrow strait carries a double-digit share of seaborne trade, small incidents scale fast: reroutes add days, spreads widen, and policy responses lag markets. The pattern is not 'more feeds'—it is triangulation across GEOINT movement, SIGINT reporting, SOCMINT chatter, FININT stress, and TECHINT infrastructure signals. The demo snapshot compresses that workflow into one view so analysts can brief leadership without losing traceability to sources.",
+  "geoint": {
+    "geoint_score": 68,
+    "anomalies": [
+      {
+        "label": "AIS gap cluster — Bab el-Mandeb south approach",
+        "severity": "elevated",
+        "notes": "Illustrative: reduced commercial AIS continuity vs 30-day baseline (demo data)."
+      }
+    ],
+    "_meta": {
+      "agent": "geoint",
+      "fetched_at": "2025-03-01T12:00:00Z",
+      "duration_ms": 0,
+      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
+      "confidence": { "level": "curated", "sources_ok": ["demo"], "sources_missing": [] },
+      "data_freshness": "unavailable"
+    }
+  },
+  "sigint": {
+    "sigint_score": 65,
+    "aircraft": [],
+    "ships": [
+      {
+        "name": "Demo vessel track",
+        "lat": 12.6,
+        "lon": 43.4,
+        "type": "merchant",
+        "source": "illustrative"
+      }
+    ],
+    "hormuz_tanker_count": 0,
+    "conflict_reports": [
+      {
+        "title": "Insurers widen Gulf of Aden corridor exclusions (illustrative)",
+        "date": "2025-02-28",
+        "url": "https://example.com/demo",
+        "source": "demo_snapshot"
+      }
+    ],
+    "_meta": {
+      "agent": "sigint",
+      "fetched_at": "2025-03-01T12:00:00Z",
+      "duration_ms": 0,
+      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
+      "confidence": { "level": "curated", "sources_ok": ["demo"], "sources_missing": [] },
+      "data_freshness": "unavailable"
+    }
+  },
+  "proximity": {
+    "proximity_score": 58,
+    "evidence": [
+      {
+        "facilityName": "Port facility — illustrative",
+        "facilityType": "logistics",
+        "distanceMeters": 420,
+        "riskLabel": "elevated",
+        "summary": "Demo-only proximity example near reported activity (not live targeting)."
+      }
+    ],
+    "summary": "Proximity panel illustrates how civilian infrastructure sits near reported friction zones—useful for risk briefings and escalation discipline.",
+    "_meta": {
+      "agent": "proximity",
+      "fetched_at": "2025-03-01T12:00:00Z",
+      "duration_ms": 0,
+      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
+      "confidence": { "level": "curated", "sources_ok": ["demo"], "sources_missing": [] },
+      "data_freshness": "unavailable"
+    }
+  },
+  "finint": {
+    "brent": { "price": "82.40", "change_pct": "+1.2", "as_of": "demo" },
+    "polymarket": [],
+    "_meta": {
+      "agent": "finint",
+      "fetched_at": "2025-03-01T12:00:00Z",
+      "duration_ms": 0,
+      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
+      "confidence": { "level": "curated", "sources_ok": ["demo"], "sources_missing": [] },
+      "data_freshness": "unavailable"
+    }
+  },
+  "news": {
+    "articles": [],
+    "summary": "News stream disabled in curated demo—use live dashboard for full SOCMINT/NEWS agents.",
+    "_meta": {
+      "agent": "news",
+      "fetched_at": "2025-03-01T12:00:00Z",
+      "duration_ms": 0,
+      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
+      "confidence": { "level": "curated", "sources_ok": ["demo"], "sources_missing": [] },
+      "data_freshness": "unavailable"
+    }
+  }
+}

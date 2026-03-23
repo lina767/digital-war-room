@@ -17,6 +17,9 @@ const NOINDEX_ROUTES = new Set([
 /** Redirect-only routes; canonical doc URLs live under /docs/documentation?doc=… in the sitemap. */
 const LEGACY_DOC_REDIRECT_ROUTES = new Set(["/how-it-works", "/methodology", "/sources"]);
 
+/** Indexable routes that skip headless prerender (static HTML or client-only data). */
+const PRERENDER_EXEMPT_ROUTES = new Set(["/demo"]);
+
 function getAppRoutes() {
   const source = readFileSync(appPath, "utf8");
   const routeRegex = /<Route\s+path="([^"]+)"/g;
@@ -66,7 +69,7 @@ function main() {
     if (!discoverabilityPathSet.has(path)) {
       errors.push(`Missing in discoverability routes: ${path}`);
     }
-    if (!prerenderPathSet.has(path)) {
+    if (!prerenderPathSet.has(path) && !PRERENDER_EXEMPT_ROUTES.has(path)) {
       errors.push(`Missing prerender flag for route: ${path}`);
     }
     if (!LEGACY_DOC_REDIRECT_ROUTES.has(path) && !sitemapPathSet.has(path)) {

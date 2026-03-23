@@ -34,7 +34,7 @@ const Dashboard = () => {
       <SEO
         title="Digital War Room — AI-Powered OSINT Intelligence"
         description="Digital War Room: AI-powered OSINT conflict monitoring. Real-time escalation score, multi-agent intelligence (GEOINT, SIGINT, SOCMINT, FININT, TECHINT) and BLUF-style briefings."
-        path="/"
+        path="/app/dashboard"
         imageAlt="Digital War Room dashboard showing conflict escalation and intelligence streams"
       />
       <DashboardContent />

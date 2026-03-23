@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/((?!favicon\\.ico)(?!favicon\\.png)(?!apple-touch-icon\\.png)(?!og-image\\.png)(?!robots\\.txt)(?!sitemap\\.xml)(?!manifest\\.json)(?!llms\\.txt)(?!placeholder\\.svg)(?!assets/).*)",
-      "destination": "/index.html"
+      "destination": "/app/index.html"
     }
   ],
   "headers": [

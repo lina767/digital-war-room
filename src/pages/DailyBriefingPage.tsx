@@ -91,7 +91,7 @@ export default function DailyBriefingPage() {
                 Retry connection
               </Button>
               <Button asChild size="sm" variant="ghost">
-                <Link to="/">Open dashboard</Link>
+                <Link to="/app/dashboard">Open dashboard</Link>
               </Button>
             </div>
           </div>
@@ -113,7 +113,7 @@ export default function DailyBriefingPage() {
                 Run analysis
               </Button>
               <Button asChild size="sm" variant="outline">
-                <Link to="/">Open dashboard</Link>
+                <Link to="/app/dashboard">Open dashboard</Link>
               </Button>
             </div>
           </div>
@@ -147,7 +147,7 @@ export default function DailyBriefingPage() {
       <div className="briefing-page min-h-screen">
         <main className="briefing-shell py-4">
           <div className="mb-3 flex items-center justify-between">
-            <Link to="/" className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-white">
+            <Link to="/app/dashboard" className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-white">
               <ArrowLeft className="h-3.5 w-3.5" />
               Back to dashboard
             </Link>

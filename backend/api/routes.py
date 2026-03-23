@@ -13,6 +13,7 @@ from .routes_iaea import router as iaea_router
 from .routes_newsletter import router as newsletter_router
 from .routes_proximity import router as proximity_router
 from .routes_resend_webhooks import router as resend_webhooks_router
+from .routes_demo import router as demo_router
 from .state_helpers import (
     push_agent_status,
     push_escalation_timeline,
@@ -29,6 +30,7 @@ router.include_router(iaea_router, tags=["iaea"])
 router.include_router(newsletter_router, tags=["newsletter"])
 router.include_router(proximity_router, tags=["proximity"])
 router.include_router(resend_webhooks_router, tags=["webhooks"])
+router.include_router(demo_router, tags=["demo"])
 
 # Re-export for main.py (periodic analysis and WebSocket broadcast)
 __all__ = ["router", "push_escalation_timeline", "push_agent_status", "push_run_history"]

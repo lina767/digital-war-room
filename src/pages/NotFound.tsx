@@ -24,11 +24,11 @@ const NotFound = () => {
           The requested route <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{location.pathname}</code> does not exist.
         </p>
         <Link
-          to="/"
+          to="/app/dashboard"
           className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/90 transition-colors touch-manipulation"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden />
-          Return to Dashboard
+          Return to dashboard
         </Link>
       </div>
     </div>

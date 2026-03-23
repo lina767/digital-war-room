@@ -156,7 +156,7 @@ export default function DailyIntelligenceBriefing() {
         {/* Top bar: back link + actions (hidden when printing) */}
         <div className="no-print mb-6 sm:mb-8 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <Link
-            to="/"
+            to="/app/dashboard"
             className="inline-flex items-center gap-2 text-xs sm:text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -713,7 +713,7 @@ export default function DailyIntelligenceBriefing() {
                 refresh an analysis from the dashboard, then open this page again.
               </p>
               <Button asChild variant="default" size="sm" className="font-mono text-xs">
-                <Link to="/">Open dashboard</Link>
+                <Link to="/app/dashboard">Open dashboard</Link>
               </Button>
             </div>
           )}
