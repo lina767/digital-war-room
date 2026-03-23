@@ -1,9 +1,9 @@
 """
 Daily agent score history for temporal reasoning (trends, day-over-day delta).
 
-Stores one row per (conflict, agent, UTC calendar day). Default backend: SQLite
-(`backend/data/agent_score_history.sqlite`). The same schema can be created in
-Postgres/Supabase for hosted deployments — see `ensure_schema()` DDL comments.
+Stores one row per (conflict, agent, UTC calendar day). Uses PostgreSQL when
+DATABASE_URL is set (see migrations/005_agent_score_history.sql); otherwise
+SQLite under backend/data/agent_score_history.sqlite.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from services.pg_sync import connection, use_postgres
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ def normalize_conflict_key(conflict: str) -> str:
     return s or "unknown"
 
 
-def _ensure_db() -> sqlite3.Connection:
+def _ensure_sqlite() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=10)
     conn.execute(
@@ -68,7 +70,7 @@ def _ensure_db() -> sqlite3.Connection:
     return conn
 
 
-def _prune_old_rows(conn: sqlite3.Connection, conflict_key: str, keep_from_day: date) -> None:
+def _prune_old_rows_sqlite(conn: sqlite3.Connection, conflict_key: str, keep_from_day: date) -> None:
     conn.execute(
         "DELETE FROM agent_daily_scores WHERE conflict_key = ? AND day_utc < ?",
         (conflict_key, keep_from_day.isoformat()),
@@ -119,9 +121,24 @@ def load_scores_for_days(conflict_key: str, days: List[date]) -> Dict[Tuple[str,
     """Return map (agent_key, day_iso) -> score from DB."""
     if not days:
         return {}
+    if use_postgres():
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT agent_key, day_utc::text, score FROM agent_daily_scores
+                    WHERE conflict_key = %s AND day_utc = ANY(%s::date[])
+                    """,
+                    (conflict_key, list(days)),
+                )
+                rows = cur.fetchall()
+        out: Dict[Tuple[str, str], float] = {}
+        for agent_key, day_utc, score in rows:
+            out[(str(agent_key), str(day_utc))] = float(score)
+        return out
     day_strs = [d.isoformat() for d in days]
     placeholders = ",".join("?" * len(day_strs))
-    conn = _ensure_db()
+    conn = _ensure_sqlite()
     try:
         cur = conn.execute(
             f"""
@@ -130,7 +147,7 @@ def load_scores_for_days(conflict_key: str, days: List[date]) -> Dict[Tuple[str,
             """,
             (conflict_key, *day_strs),
         )
-        out: Dict[Tuple[str, str], float] = {}
+        out = {}
         for agent_key, day_utc, score in cur.fetchall():
             out[(str(agent_key), str(day_utc))] = float(score)
         return out
@@ -145,7 +162,6 @@ def get_temporal_context(conflict: str, current_scores: Dict[str, float]) -> Dic
     """
     conflict_key = normalize_conflict_key(conflict)
     today = datetime.now(timezone.utc).date()
-    # Seven calendar days ending today: [today-6, ..., today]
     window_days = [today - timedelta(days=6 - i) for i in range(7)]
     prior_day = today - timedelta(days=1)
 
@@ -165,7 +181,6 @@ def get_temporal_context(conflict: str, current_scores: Dict[str, float]) -> Dic
             else:
                 key = (agent, d.isoformat())
                 series.append(raw.get(key))
-        # Delta vs prior calendar day
         prior_val = raw.get((agent, prior_day.isoformat()))
         if prior_val is not None:
             delta_prior_day = round(cur - prior_val, 2)
@@ -201,11 +216,41 @@ def get_temporal_context(conflict: str, current_scores: Dict[str, float]) -> Dic
 def record_daily_scores(conflict: str, scores: Dict[str, float]) -> None:
     """Upsert today's UTC daily scores for each tracked agent (last write wins)."""
     conflict_key = normalize_conflict_key(conflict)
-    day = datetime.now(timezone.utc).date().isoformat()
+    day = datetime.now(timezone.utc).date()
     now = datetime.now(timezone.utc).isoformat()
     keep_from = datetime.now(timezone.utc).date() - timedelta(days=RETENTION_DAYS)
 
-    conn = _ensure_db()
+    if use_postgres():
+        try:
+            with connection() as conn:
+                with conn.cursor() as cur:
+                    for agent in TRACKED_AGENT_KEYS:
+                        if agent not in scores:
+                            continue
+                        try:
+                            v = float(scores[agent])
+                        except (TypeError, ValueError):
+                            continue
+                        cur.execute(
+                            """
+                            INSERT INTO agent_daily_scores (conflict_key, agent_key, day_utc, score, updated_at)
+                            VALUES (%s, %s, %s, %s, %s::timestamptz)
+                            ON CONFLICT (conflict_key, agent_key, day_utc) DO UPDATE SET
+                                score = EXCLUDED.score,
+                                updated_at = EXCLUDED.updated_at
+                            """,
+                            (conflict_key, agent, day, v, now),
+                        )
+                    cur.execute(
+                        "DELETE FROM agent_daily_scores WHERE conflict_key = %s AND day_utc < %s::date",
+                        (conflict_key, keep_from),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.warning("agent_score_history record failed: %s", e)
+        return
+
+    conn = _ensure_sqlite()
     try:
         for agent in TRACKED_AGENT_KEYS:
             if agent not in scores:
@@ -222,9 +267,9 @@ def record_daily_scores(conflict: str, scores: Dict[str, float]) -> None:
                     score = excluded.score,
                     updated_at = excluded.updated_at
                 """,
-                (conflict_key, agent, day, v, now),
+                (conflict_key, agent, day.isoformat(), v, now),
             )
-        _prune_old_rows(conn, conflict_key, keep_from)
+        _prune_old_rows_sqlite(conn, conflict_key, keep_from)
         conn.commit()
     except Exception as e:
         logger.warning("agent_score_history record failed: %s", e)
@@ -236,16 +281,6 @@ def record_daily_scores(conflict: str, scores: Dict[str, float]) -> None:
         conn.close()
 
 
-"""
-Postgres / Supabase (optional): run once
-
-CREATE TABLE IF NOT EXISTS agent_daily_scores (
-  conflict_key TEXT NOT NULL,
-  agent_key TEXT NOT NULL,
-  day_utc DATE NOT NULL,
-  score DOUBLE PRECISION NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL,
-  PRIMARY KEY (conflict_key, agent_key, day_utc)
-);
-CREATE INDEX IF NOT EXISTS idx_agent_daily_conflict_day ON agent_daily_scores (conflict_key, day_utc);
-"""
+# Backwards-compatible name for tests
+def _ensure_db() -> sqlite3.Connection:
+    return _ensure_sqlite()

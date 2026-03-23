@@ -1,5 +1,6 @@
 """
-GreyNoise Emerging Threats API – serves pre-computed snapshots from SQLite.
+GreyNoise Emerging Threats API – serves pre-computed snapshots from the DB store
+(PostgreSQL when DATABASE_URL is set, else local SQLite).
 No live GreyNoise API calls in the request path; data is refreshed by the 6h scheduler.
 """
 
@@ -8,8 +9,9 @@ import asyncio
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
-from agents.greynoise_agent import get_latest_ips, get_latest_snapshot, get_trend_data, run_greynoise_agent
+from agents.greynoise_agent import run_greynoise_agent
 from api.http_errors import conflict_bad_request
+from services.greynoise_db import get_latest_ips, get_latest_snapshot, get_trend_data
 from utils.sanitize import sanitize_conflict
 
 router = APIRouter(prefix="/greynoise", tags=["greynoise"])
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/greynoise", tags=["greynoise"])
 async def greynoise_latest(conflict: str):
     """
     GET /api/greynoise/{conflict}
-    Returns the latest GreyNoise snapshot for a conflict from SQLite.
+    Returns the latest GreyNoise snapshot for a conflict from the snapshot store.
     Falls back to a live pipeline run if no snapshot exists yet.
     """
     try:

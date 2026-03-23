@@ -10,6 +10,7 @@ from services import agent_score_history as ash
 
 @pytest.fixture
 def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     db = tmp_path / "t.sqlite"
     monkeypatch.setattr(ash, "DB_PATH", db)
     return db

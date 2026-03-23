@@ -719,7 +719,7 @@ def _build_summary(
 
 
 def _greynoise_context_from_snapshot(conflict: str) -> Optional[GreyNoiseScanContext]:
-    """Use greynoise_agent SQLite snapshot for this conflict (avoids duplicate API calls)."""
+    """Use greynoise_agent stored snapshot for this conflict (avoids duplicate API calls)."""
     try:
         from agents.greynoise_agent import get_greynoise_context_for_cyber
 
@@ -753,7 +753,7 @@ def run_cyber_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Di
     """
     Run CYBER agent: CISA KEV (cached), threat RSS, OTX, GreyNoise, InternetDB, NVD CVSS.
     Returns structured dict (from CyberAgentResult) for backward compatibility with supervisor.
-    GreyNoise: uses greynoise_agent SQLite snapshot when available to avoid duplicate API calls.
+    GreyNoise: uses greynoise_agent stored snapshot when available to avoid duplicate API calls.
     """
     otx_key = (os.getenv("OTX_API_KEY") or "").strip()
     greynoise_key = (os.getenv("GREYNOISE_API_KEY") or "").strip()
@@ -771,7 +771,7 @@ def run_cyber_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Di
 
     async def _run() -> CyberAgentResult:
         client = get_http_client()
-        # Prefer GreyNoise data from greynoise_agent SQLite (conflict-specific, no extra API call)
+        # Prefer GreyNoise data from greynoise_agent store (conflict-specific, no extra API call)
         greynoise_snapshot = _greynoise_context_from_snapshot(conflict)
 
         async def _greynoise_source():

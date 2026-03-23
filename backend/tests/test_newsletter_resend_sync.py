@@ -1,4 +1,4 @@
-"""Resend → SQLite newsletter mirror (sync-from-resend) and store helpers."""
+"""Resend → subscriber store mirror (sync-from-resend) and store helpers."""
 
 import httpx
 import pytest
@@ -8,6 +8,7 @@ import services.newsletter_store as newsletter_store
 
 
 def test_apply_resend_contact_sync(monkeypatch, tmp_path):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(newsletter_store, "DB_PATH", tmp_path / "n.sqlite")
     assert newsletter_store.apply_resend_contact_sync("x@y.com", "Iran", unsubscribed=False) == "inserted"
     assert newsletter_store.apply_resend_contact_sync("x@y.com", "Iran", unsubscribed=False) == "noop"
@@ -37,6 +38,7 @@ async def test_fetch_contacts_from_resend(monkeypatch, respx_mock):
 
 
 def test_sync_from_resend_endpoint(monkeypatch, tmp_path, respx_mock):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(newsletter_store, "DB_PATH", tmp_path / "n.sqlite")
     monkeypatch.setenv("NEWSLETTER_CRON_SECRET", "test-secret")
     monkeypatch.setenv("RESEND_API_KEY", "re_test")
@@ -70,6 +72,7 @@ def test_sync_from_resend_endpoint(monkeypatch, tmp_path, respx_mock):
 
 
 def test_sync_from_resend_removes_unsubscribed(monkeypatch, tmp_path, respx_mock):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(newsletter_store, "DB_PATH", tmp_path / "n.sqlite")
     monkeypatch.setenv("NEWSLETTER_CRON_SECRET", "test-secret")
     monkeypatch.setenv("RESEND_API_KEY", "re_test")

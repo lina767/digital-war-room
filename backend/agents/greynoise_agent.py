@@ -8,21 +8,25 @@ scanners from region + inbound scans targeting region infrastructure).
 
 Data flow:
   Scheduler (6h) → GNQL Stats → Tag Taxonomy match → CVE Enrichment → Scoring
-  → LLM Summary → SQLite snapshot.
-  REST endpoint reads from SQLite only (no live GreyNoise calls in request path).
+  → LLM Summary → DB snapshot (PostgreSQL when DATABASE_URL is set, else SQLite file).
+  REST endpoint reads from the store only (no live GreyNoise calls in request path).
 """
 
 import asyncio
 import json
 import logging
-import os
 import re
-import sqlite3
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
+
+from services.greynoise_db import (
+    _get_historical_avg,
+    _save_gnql_ips,
+    _save_pending_tags,
+    get_latest_snapshot,
+    save_snapshot,
+)
 
 from .config import (
     GREYNOISE_API_KEY,
@@ -347,126 +351,6 @@ class GreynoiseResult(BaseModel):
     pending_tags: List[str] = Field(default_factory=list)
 
 
-# ── SQLite persistence ───────────────────────────────────────────────────
-
-DB_PATH = Path(
-    os.getenv("GREYNOISE_DB_PATH", Path(__file__).resolve().parent.parent / "data" / "greynoise_snapshots.db")
-)
-
-
-def _ensure_db() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), timeout=10)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS greynoise_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conflict TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            greynoise_score REAL NOT NULL DEFAULT 0,
-            absolute_score REAL NOT NULL DEFAULT 0,
-            total_events INTEGER NOT NULL DEFAULT 0,
-            data_json TEXT NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_gn_conflict_ts
-        ON greynoise_snapshots (conflict, timestamp DESC)
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS greynoise_ips (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            conflict TEXT NOT NULL,
-            direction TEXT NOT NULL,
-            ip TEXT NOT NULL,
-            classification TEXT,
-            tags_json TEXT,
-            metadata_json TEXT,
-            snapshot_timestamp TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_gn_ips_conflict_ts
-        ON greynoise_ips (conflict, snapshot_timestamp DESC)
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS greynoise_pending_tags (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tag_name TEXT NOT NULL,
-            conflict TEXT NOT NULL,
-            matched_category TEXT,
-            discovered_at TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending'
-        )
-    """)
-    conn.commit()
-    return conn
-
-
-def save_snapshot(result: GreynoiseResult) -> None:
-    conn = _ensure_db()
-    try:
-        total_events = result.outbound_count + result.inbound_count
-        conn.execute(
-            "INSERT INTO greynoise_snapshots (conflict, timestamp, greynoise_score, absolute_score, total_events, data_json) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                result.conflict,
-                result.fetched_at,
-                result.greynoise_score,
-                result.absolute_score,
-                total_events,
-                json.dumps(result.model_dump(mode="json")),
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def get_latest_snapshot(conflict: str) -> Optional[Dict[str, Any]]:
-    conn = _ensure_db()
-    try:
-        row = conn.execute(
-            "SELECT data_json FROM greynoise_snapshots WHERE LOWER(conflict) = LOWER(?) ORDER BY timestamp DESC LIMIT 1",
-            (conflict,),
-        ).fetchone()
-        if row:
-            return json.loads(row[0])
-        return None
-    finally:
-        conn.close()
-
-
-def get_trend_data(conflict: str, days: int = 7) -> List[Dict[str, Any]]:
-    conn = _ensure_db()
-    try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        rows = conn.execute(
-            "SELECT timestamp, greynoise_score, absolute_score, total_events FROM greynoise_snapshots WHERE LOWER(conflict) = LOWER(?) AND timestamp >= ? ORDER BY timestamp ASC",
-            (conflict, cutoff),
-        ).fetchall()
-        return [
-            {"timestamp": r[0], "greynoise_score": r[1], "absolute_score": r[2], "total_events": r[3]} for r in rows
-        ]
-    finally:
-        conn.close()
-
-
-def _get_historical_avg(conflict: str, days: int = 7) -> Optional[float]:
-    conn = _ensure_db()
-    try:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        row = conn.execute(
-            "SELECT AVG(total_events) FROM greynoise_snapshots WHERE LOWER(conflict) = LOWER(?) AND timestamp >= ?",
-            (conflict, cutoff),
-        ).fetchone()
-        if row and row[0] is not None:
-            return float(row[0])
-        return None
-    finally:
-        conn.close()
-
-
 # ── GreyNoise API helpers ────────────────────────────────────────────────
 
 
@@ -592,39 +476,6 @@ async def _fetch_gnql_results(client: Any, query: str, size: int = 100) -> List[
         return []
 
 
-def _save_gnql_ips(conflict: str, direction: str, ip_records: List[Dict[str, Any]], snapshot_timestamp: str) -> None:
-    """Persist top IPs from GNQL query to greynoise_ips table."""
-    if not ip_records:
-        return
-    conn = _ensure_db()
-    now = utc_now_iso()
-    try:
-        for rec in ip_records[:50]:
-            ip = rec.get("ip") or rec.get("address")
-            if not ip:
-                continue
-            classification = rec.get("classification") or rec.get("trust_level") or ""
-            tags = rec.get("tags") or []
-            metadata = rec.get("metadata") or {}
-            conn.execute(
-                """INSERT INTO greynoise_ips (conflict, direction, ip, classification, tags_json, metadata_json, snapshot_timestamp, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    conflict,
-                    direction,
-                    ip,
-                    classification,
-                    json.dumps(tags) if isinstance(tags, list) else json.dumps([]),
-                    json.dumps(metadata) if isinstance(metadata, dict) else "{}",
-                    snapshot_timestamp,
-                    now,
-                ),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 def get_greynoise_context_for_cyber(conflict: str) -> Optional[Dict[str, Any]]:
     """
     Return GreyNoise scan context from latest snapshot for use by cyber_agent.
@@ -652,39 +503,6 @@ def get_greynoise_context_for_cyber(conflict: str) -> Optional[Dict[str, Any]]:
         "error": None,
         "fetched_at": snapshot.get("fetched_at") or utc_now_iso(),
     }
-
-
-def get_latest_ips(conflict: str, limit: int = 30) -> List[Dict[str, Any]]:
-    """Return latest stored IP records for conflict (from most recent snapshot)."""
-    conn = _ensure_db()
-    try:
-        row = conn.execute(
-            "SELECT snapshot_timestamp FROM greynoise_ips WHERE LOWER(conflict) = LOWER(?) ORDER BY snapshot_timestamp DESC LIMIT 1",
-            (conflict,),
-        ).fetchone()
-        if not row:
-            return []
-        ts = row[0]
-        rows = conn.execute(
-            """SELECT ip, direction, classification, tags_json, metadata_json FROM greynoise_ips
-               WHERE LOWER(conflict) = LOWER(?) AND snapshot_timestamp = ? ORDER BY id LIMIT ?""",
-            (conflict, ts, limit),
-        ).fetchall()
-        result = []
-        for r in rows:
-            ip, direction, classification, tags_json, metadata_json = r
-            rec = {"ip": ip, "direction": direction, "classification": classification or ""}
-            try:
-                if tags_json:
-                    rec["tags"] = json.loads(tags_json)
-                if metadata_json:
-                    rec["metadata"] = json.loads(metadata_json)
-            except (json.JSONDecodeError, TypeError):
-                pass
-            result.append(rec)
-        return result
-    finally:
-        conn.close()
 
 
 # ── Core pipeline ────────────────────────────────────────────────────────
@@ -1041,27 +859,6 @@ async def _run_tag_discovery(client: Any) -> List[str]:
                 discovered.append(str(t.get("name") or t.get("tag") or ""))
                 break
     return discovered[:50]
-
-
-def _save_pending_tags(tags: List[str], conflict: str) -> None:
-    if not tags:
-        return
-    conn = _ensure_db()
-    try:
-        now = utc_now_iso()
-        for tag in tags:
-            exists = conn.execute(
-                "SELECT 1 FROM greynoise_pending_tags WHERE tag_name = ? AND LOWER(conflict) = LOWER(?)",
-                (tag, conflict),
-            ).fetchone()
-            if not exists:
-                conn.execute(
-                    "INSERT INTO greynoise_pending_tags (tag_name, conflict, discovered_at, status) VALUES (?, ?, ?, 'pending')",
-                    (tag, conflict, now),
-                )
-        conn.commit()
-    finally:
-        conn.close()
 
 
 # ── Main pipeline ────────────────────────────────────────────────────────

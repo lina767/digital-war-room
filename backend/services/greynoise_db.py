@@ -7,7 +7,6 @@ REST and agents read snapshots from here (no live GreyNoise in the request path)
 from __future__ import annotations
 
 import json
-import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -15,8 +14,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from services.pg_sync import connection, use_postgres
-
-logger = logging.getLogger(__name__)
 
 DB_PATH = Path(
     os.getenv("GREYNOISE_DB_PATH", Path(__file__).resolve().parent.parent / "data" / "greynoise_snapshots.db")

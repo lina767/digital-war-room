@@ -13,11 +13,9 @@ from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from api.http_errors import conflict_bad_request
-from agents.supervisor import analyze_conflict
 from agents.pattern_anomalies import attach_pattern_flags
-from services.request_context import RequestContext, reset_request_context, set_request_context
-from services.tenant_constants import get_default_tenant_id
+from agents.supervisor import analyze_conflict
+from api.http_errors import conflict_bad_request
 from middleware.rate_limit import limiter
 from middleware.tenant_context import get_request_ctx
 from services.newsletter_sender import send_confirmation_email, send_daily_briefing
@@ -34,6 +32,7 @@ from services.newsletter_store import (
     remove_unconfirmed_subscriber,
     try_acquire_daily_newsletter_lock,
 )
+from services.request_context import RequestContext, reset_request_context, set_request_context
 from services.resend_contacts import (
     fetch_contacts_from_resend,
     mark_contact_unsubscribed,
@@ -41,6 +40,7 @@ from services.resend_contacts import (
     upsert_pending_contact,
     upsert_subscribed_contact,
 )
+from services.tenant_constants import get_default_tenant_id
 from utils.sanitize import sanitize_conflict
 
 from .state_helpers import (
@@ -193,7 +193,7 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
     Run analysis for each conflict that has confirmed subscribers, then send daily briefing emails.
     Returns (conflicts, emails_sent, skipped_duplicate).
 
-    Optional SQLite mutex (NEWSLETTER_DAILY_DEDUPE): one completed run per UTC calendar day to avoid
+    Optional daily mutex (NEWSLETTER_DAILY_DEDUPE): one completed run per UTC calendar day to avoid
     duplicate mail when both in-process scheduler and external cron call this endpoint.
     """
     conflicts = get_conflicts_with_subscribers()
@@ -278,7 +278,7 @@ async def newsletter_status(
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
 ) -> JSONResponse:
     """
-    GET /api/newsletter/status – SQLite subscriber counts (confirmed vs pending) and DB path.
+    GET /api/newsletter/status – subscriber counts (confirmed vs pending) and DB backend/path.
     Same auth as send-daily: NEWSLETTER_CRON_SECRET via X-Newsletter-Secret when set.
     """
     secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
@@ -295,7 +295,7 @@ async def newsletter_sync_from_resend(
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
 ) -> JSONResponse:
     """
-    POST /api/newsletter/sync-from-resend – list contacts in a Resend segment and mirror into SQLite.
+    POST /api/newsletter/sync-from-resend – list contacts in a Resend segment and mirror into the subscriber store.
 
     - unsubscribed=false → insert confirmed row or confirm pending / update conflict (from Resend first_name).
     - unsubscribed=true → remove local row (aligns DB with “not subscribed” in Resend).
@@ -332,7 +332,7 @@ async def newsletter_sync_from_resend(
     return JSONResponse(
         status_code=200,
         content={
-            "message": "Resend → SQLite sync complete.",
+            "message": "Resend subscriber sync complete.",
             "segment_id": segment_id,
             "fetched": len(contacts),
             **counts,
