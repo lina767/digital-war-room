@@ -3,6 +3,9 @@ Analysis result model – typed response from analyze_conflict (DAG/CEO).
 
 Used at API boundaries and for validation. Per-agent payloads and
 divisions remain as dynamic dicts (extra="allow").
+
+Schema versioning: ``analysis_result_schema_version`` bumps when top-level
+required fields change; keep in sync with CEO output and contract tests.
 """
 
 from typing import Any, Dict, List
@@ -15,6 +18,7 @@ class AnalysisResult(BaseModel):
 
     model_config = ConfigDict(strict=True, extra="allow", validate_assignment=True)
 
+    analysis_result_schema_version: int = 1
     conflict: str = ""
     escalation_score: float = 0.0
     threat_level: str = "MINIMAL"
@@ -32,5 +36,9 @@ class AnalysisResult(BaseModel):
     alerts: List[Dict[str, Any]] = Field(default_factory=list)
     pattern_flags: List[Dict[str, Any]] = Field(default_factory=list)
     satintel: Dict[str, Any] = Field(default_factory=dict)
+    # Data quality (CEO pipeline); optional for older cached payloads
+    data_quality_gate: Dict[str, Any] = Field(default_factory=dict)
+    quality_warnings: List[str] = Field(default_factory=list)
+    dq_calibration_metrics: Dict[str, Any] = Field(default_factory=dict)
 
     # Per-agent results and divisions are stored via extra (finint, sigint, ..., divisions)

@@ -360,6 +360,14 @@ This is a client-side routed SPA via `BrowserRouter`.
 
 ## 11) Quality, Tests, and Tooling
 
+### Data quality (reliability)
+
+- Agent contracts include roll-up fields on `BaseAgentResult` (`dq_confidence`, `data_freshness`, `source_count`, `fallback_used`, `error_summary`, `provenance_refs`); see `backend/agents/dq_contract.py`.
+- After collection, CEO calls `apply_quality_to_all_agents()` and runs `run_cross_agent_quality_gate()`; results appear as `data_quality_gate` and `quality_warnings` on the analysis payload, and in the supervisor LLM user JSON as `data_quality_gate`.
+- Calibration summaries: `dq_calibration_metrics` (see `backend/calibration/dq_calibration.py`).
+- Env: `DQ_QUALITY_GATE_ENABLED` (default on), `DQ_SCORE_SPREAD_WARN_THRESHOLD` (default 55).
+- Monitoring: `GET /api/agents/monitoring` includes `data_quality` aggregates (runs, warnings, last run).
+
 Frontend scripts (`package.json`):
 
 - `npm run dev`

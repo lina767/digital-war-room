@@ -116,3 +116,8 @@ USE_AGENT_HANDOFF = _env_true("USE_AGENT_HANDOFF", default=False)
 NEWS_MAX_PER_SOURCE = int(os.getenv("NEWS_MAX_PER_SOURCE", "5"))
 NEWS_TOP_K = int(os.getenv("NEWS_TOP_K", "20"))
 RELIEFWEB_APPNAME = (os.getenv("RELIEFWEB_APPNAME") or "").strip() or "digital-war-room"
+
+# ── Data quality (cross-agent gate, see agents/quality_gate.py) ───────────
+
+DQ_QUALITY_GATE_ENABLED = _env_true("DQ_QUALITY_GATE_ENABLED", default=True)
+DQ_SCORE_SPREAD_WARN_THRESHOLD = float(os.getenv("DQ_SCORE_SPREAD_WARN_THRESHOLD", "55"))

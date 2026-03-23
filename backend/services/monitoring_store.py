@@ -23,6 +23,11 @@ _fallback_total = 0
 _fallback_by_agent: Dict[str, int] = defaultdict(int)
 _last_fallback_run: Optional[Dict[str, Any]] = None
 
+# Data-quality aggregates (process lifetime, thread-safe)
+_dq_runs_total = 0
+_dq_warning_total = 0
+_dq_last: Optional[Dict[str, Any]] = None
+
 # day (YYYY-MM-DD) -> {spend_usd, input_tokens, output_tokens, by_agent: {agent: {in,out}}}
 _daily_haiku: Dict[str, Dict[str, Any]] = {}
 _daily_order: List[str] = []
@@ -59,6 +64,28 @@ def record_error(
     with _lock:
         _errors.append(entry)
         _prune_errors()
+
+
+def record_dq_from_analysis(conflict: str, result: Dict[str, Any]) -> None:
+    """Record data-quality gate summary from a completed analysis (best-effort)."""
+    global _dq_runs_total, _dq_warning_total, _dq_last
+    if not isinstance(result, dict):
+        return
+    gate = result.get("data_quality_gate")
+    if not isinstance(gate, dict):
+        return
+    warnings = gate.get("quality_warnings") or []
+    n_warn = len(warnings) if isinstance(warnings, list) else 0
+    with _lock:
+        _dq_runs_total += 1
+        _dq_warning_total += n_warn
+        _dq_last = {
+            "conflict": conflict,
+            "at": time.time(),
+            "gate_confidence": gate.get("gate_confidence"),
+            "quality_warning_count": n_warn,
+            "checks": gate.get("checks"),
+        }
 
 
 def record_from_analysis(conflict: str, result: Dict[str, Any]) -> None:
@@ -117,6 +144,11 @@ def record_from_analysis(conflict: str, result: Dict[str, Any]) -> None:
             "agents": fb_agents,
             "count": len(fb_agents),
         }
+
+    try:
+        record_dq_from_analysis(conflict, result)
+    except Exception:
+        pass
 
 
 def record_haiku_daily(
@@ -193,11 +225,21 @@ def get_snapshot() -> Dict[str, Any]:
             today_bucket = row
             break
 
+    with _lock:
+        dq_runs = _dq_runs_total
+        dq_warn = _dq_warning_total
+        dq_last = dict(_dq_last) if _dq_last else None
+
     return {
         "fallback": {
             "total_events": _fallback_total,
             "by_agent": fb_by_agent,
             "last_run": last_fb,
+        },
+        "data_quality": {
+            "runs_recorded": dq_runs,
+            "warnings_total": dq_warn,
+            "last_run": dq_last,
         },
         "errors": err_tail,
         "daily_spend": daily_out,

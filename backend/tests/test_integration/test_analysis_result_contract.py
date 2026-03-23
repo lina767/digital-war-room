@@ -28,3 +28,18 @@ def test_analysis_result_rejects_string_escalation_score_in_strict_mode():
     """Strict mode should reject implicit type coercion."""
     with pytest.raises(ValidationError):
         AnalysisResult.model_validate({"conflict": "Iran", "escalation_score": "75.5"})  # type: ignore[arg-type]
+
+
+def test_analysis_result_schema_version_and_dq_fields():
+    """Governance fields validate and default for older caches."""
+    r = AnalysisResult.model_validate(
+        {
+            "conflict": "Iran",
+            "analysis_result_schema_version": 1,
+            "data_quality_gate": {"gate_version": 1, "quality_warnings": ["x"]},
+            "quality_warnings": ["x"],
+            "dq_calibration_metrics": {"calibration_schema_version": 1},
+        }
+    )
+    assert r.analysis_result_schema_version == 1
+    assert r.data_quality_gate["quality_warnings"] == ["x"]

@@ -5,6 +5,7 @@ Rate limiting and input sanitization applied to all conflict-bearing endpoints.
 
 import asyncio
 import json
+import logging
 import os
 import time
 import traceback
@@ -36,6 +37,7 @@ from .state_helpers import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _run_analyze_in_context(ctx: Any, conflict: str) -> Any:
@@ -57,16 +59,26 @@ async def persist_analysis_side_effects(
         from services.analysis_audit_store import persist_analysis_audit
 
         await persist_analysis_audit(conflict, result)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("persist_analysis_audit failed for %s: %s", conflict, e)
+        try:
+            from services.monitoring_store import record_error
+
+            record_error(
+                message=f"analysis_audit persist failed: {e!s}"[:2000],
+                severity="warning",
+                conflict=conflict,
+            )
+        except Exception:
+            pass
     try:
         from agents.agent_state_store import get_agent_state_store
 
         sig = result.get("sigint")
         if isinstance(sig, dict):
             get_agent_state_store().set_result(conflict, "sigint", sig, time.time())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("agent_state_store sigint write failed for %s: %s", conflict, e)
     try:
         from services.quality_store import insert_ais_track_samples
 
@@ -87,8 +99,8 @@ async def persist_analysis_side_effects(
             samples.append({"mmsi": str(mmsi), "observed_at": ts, "lat": lat, "lon": lon})
         if samples:
             await insert_ais_track_samples(conflict, samples, tenant_id=tenant_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("insert_ais_track_samples failed for %s: %s", conflict, e)
 
 
 async def _persist_analysis_result(

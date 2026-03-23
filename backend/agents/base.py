@@ -12,7 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
+from typing import Any, Dict, Generic, List, Literal, Optional, Type, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,6 +41,13 @@ class BaseAgentResult(BaseModel):
     summary: str = ""
     content_hash: str = ""
     _meta: Optional[Dict[str, Any]] = None
+    # Data-quality roll-up (see agents/dq_contract.py). Populated explicitly or via sync_agent_quality_from_meta.
+    dq_confidence: float = Field(0.0, ge=0.0, le=100.0)
+    data_freshness: Literal["live", "recent", "stale", "unavailable"] = "unavailable"
+    source_count: int = Field(0, ge=0)
+    fallback_used: bool = False
+    error_summary: Optional[str] = None
+    provenance_refs: List[str] = Field(default_factory=list)
 
 
 class AgentMetrics(BaseModel):

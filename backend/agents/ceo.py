@@ -25,8 +25,12 @@ from .divisions import (
     TechnicalDivision,
 )
 from .entity_registry import EntityRegistry
+from .dq_contract import apply_quality_to_all_agents
+from .quality_gate import quality_gate_enabled, run_cross_agent_quality_gate
 from .registry import AgentRegistry, get_agent_registry
 from .utils import get_analysis_run_id, infer_data_confidence_from_result, reset_analysis_run_id, set_analysis_run_id
+
+from calibration.dq_calibration import compute_calibration_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -456,6 +460,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "chokepoint",
         ]
     }
+    apply_quality_to_all_agents(agent_results)
     acled_refs = store.get("acled_refs") or []
 
     finint_result = agent_results.get("finint") or {}
@@ -528,6 +533,22 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     has_legacy_signal = has_agent_scores and legacy_active_weight > 0
     synthesis_score = legacy_combined if has_legacy_signal else division_composite
 
+    qf = store.get("quality_fusion") or {}
+    if not isinstance(qf, dict):
+        qf = {}
+    if quality_gate_enabled():
+        data_quality_gate = run_cross_agent_quality_gate(
+            conflict, agent_results, quality_fusion=qf, synthesis_score=synthesis_score
+        )
+    else:
+        data_quality_gate = {
+            "gate_version": 1,
+            "quality_warnings": [],
+            "gate_confidence": 0.0,
+            "checks": {},
+            "disabled": True,
+        }
+
     agent_scores_for_predictive = {
         "finint": finint_score,
         "sigint": sigint_score,
@@ -598,6 +619,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         narrative_result,
         chokepoint_result,
         temporal_context,
+        data_quality_gate,
     )
 
     if use_rule_based:
@@ -769,10 +791,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "narrative",
         "chokepoint",
     ]
-    qf = store.get("quality_fusion") or {}
-    if not isinstance(qf, dict):
-        qf = {}
-
     provenance_index: List[Dict[str, Any]] = []
     for pname in provenance_agent_keys:
         raw = agent_results.get(pname) or {}
@@ -824,6 +842,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "analysis_run_id": get_analysis_run_id(),
         "provenance_index": provenance_index,
         "cross_validation": qf,
+        "data_quality_gate": data_quality_gate,
+        "quality_warnings": list(data_quality_gate.get("quality_warnings") or []),
+        "analysis_result_schema_version": 1,
     }
 
     # Include per-agent raw results for API compatibility
@@ -855,6 +876,11 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         record_daily_scores(conflict, agent_scores_for_predictive)
     except Exception:
         pass
+
+    try:
+        response["dq_calibration_metrics"] = compute_calibration_metrics(response)
+    except Exception:
+        response["dq_calibration_metrics"] = {"calibration_schema_version": 1, "error": "compute_failed"}
 
     return response
 
@@ -1023,6 +1049,7 @@ def _build_supervisor_user_payload(
     narrative_result: Dict[str, Any],
     chokepoint_result: Dict[str, Any],
     temporal_context: Dict[str, Any] | None = None,
+    data_quality_gate: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Shared compact payload for CEO LLM supervisor and cross-stream narrative synthesis."""
     finint_score = _coerce_float(finint_result.get("escalation_score"), 0.0)
@@ -1082,6 +1109,7 @@ def _build_supervisor_user_payload(
         "narrative": _compact_for_llm("narrative", narrative_result),
         "chokepoint": _compact_for_llm("chokepoint", chokepoint_result),
         "agent_score_temporal": temporal_context or {},
+        "data_quality_gate": data_quality_gate or {},
     }
 
 

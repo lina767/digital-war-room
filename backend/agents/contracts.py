@@ -7,6 +7,12 @@ and the CEO synthesis layer.
 
 Agent run_*_agent() functions return Dict[str, Any] shaped like the corresponding
 *Result model (plus _meta). Use get_agent_fallback(name) for a valid default dict.
+
+Data-quality fields (BaseAgentResult / dq_contract)
+----------------------------------------------------
+``dq_confidence`` (0–100), ``data_freshness``, ``source_count``, ``fallback_used``,
+``error_summary``, ``provenance_refs`` — see ``agents/dq_contract.py`` for semantics.
+Use ``sync_agent_quality_from_meta()`` to populate from ``_meta`` when building dicts.
 """
 
 from typing import Any, Dict, List, Optional
