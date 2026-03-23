@@ -8,6 +8,19 @@ function agentStatusValue(v: unknown): string {
   return typeof v === "string" ? v : "ok";
 }
 
+function confidenceSummary(v: unknown): string | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const conf = o.confidence;
+  if (!conf || typeof conf !== "object") return null;
+  const level = (conf as { level?: string }).level;
+  const dc = o.data_confidence;
+  const parts: string[] = [];
+  if (level) parts.push(`sources ${level}`);
+  if (typeof dc === "string" && dc) parts.push(`data ${dc}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 export function AgentsStatusBar() {
   const [status, setStatus] = useState<Record<string, unknown> | null>(null);
 
@@ -52,10 +65,16 @@ export function AgentsStatusBar() {
           <ul className="space-y-0.5">
             {entries.map(([key, value]) => {
               const s = agentStatusValue(value);
+              const confLine = confidenceSummary(value);
               return (
-                <li key={key} className="flex justify-between gap-2">
-                  <span>{key}</span>
-                  <span className={s === "ok" ? "text-emerald-400" : "text-destructive"}>{s}</span>
+                <li key={key} className="space-y-0.5">
+                  <div className="flex justify-between gap-2">
+                    <span>{key}</span>
+                    <span className={s === "ok" ? "text-emerald-400" : "text-destructive"}>{s}</span>
+                  </div>
+                  {confLine && (
+                    <p className="text-[10px] text-muted-foreground pl-0 font-mono">{confLine}</p>
+                  )}
                 </li>
               );
             })}

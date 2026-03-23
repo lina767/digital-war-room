@@ -2,6 +2,27 @@ import { ChevronRight, AlertTriangle, X } from "lucide-react";
 import { AGENTS_WITH_SOURCES, AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { Dispatch, SetStateAction } from "react";
 import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
+import { getAgentConfidenceFromConflict, type DataQualityLevel } from "@/components/dashboard/agentConfidenceHelpers";
+import { Badge } from "@/components/ui/badge";
+
+const DATA_QUALITY_STYLES: Record<DataQualityLevel, string> = {
+  live: "bg-emerald-500/15 text-emerald-300 border-emerald-500/35",
+  estimated: "bg-amber-500/15 text-amber-200 border-amber-500/35",
+  degraded: "bg-destructive/15 text-destructive/90 border-destructive/35",
+};
+
+function DataQualityBadge({ level }: { level: DataQualityLevel }) {
+  return (
+    <Badge
+      variant="outline"
+      className={`text-[9px] font-mono uppercase tracking-wide px-1.5 py-0 h-5 shrink-0 ${DATA_QUALITY_STYLES[level]}`}
+      title={`Data quality (feed): ${level}`}
+    >
+      {level}
+    </Badge>
+  );
+}
 
 interface DashboardLeftPanelProps {
   leftPanelOpen: boolean;
@@ -39,7 +60,12 @@ export function DashboardLeftPanel({
       aria-label="Agent status and data sources"
     >
       <div className="flex items-center justify-between mb-4 gap-2">
-        <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">AGENT STATUS</h2>
+        <div className="min-w-0">
+          <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">AGENT STATUS</h2>
+          <p className="text-[10px] text-muted-foreground/80 leading-tight mt-0.5">
+            Score = source health · Data = feed quality
+          </p>
+        </div>
         <button
           type="button"
           aria-label="Close panel"
@@ -54,6 +80,7 @@ export function DashboardLeftPanel({
           const status = getAgentStatus(agent.name);
           const agentKey = AGENT_NAME_TO_KEY[agent.name] ?? agent.name.replace(/\s+/g, "-").toLowerCase();
           const sourcesPanelId = `agent-sources-${agentKey}`;
+          const { scoreLevel, dataQuality, tooltip } = getAgentConfidenceFromConflict(conflictData, agentKey);
           return (
           <div key={agent.name} className="rounded-md border border-border/60 bg-card/50 overflow-hidden">
             <button
@@ -62,7 +89,11 @@ export function DashboardLeftPanel({
               aria-controls={agentExpanded === agent.name ? sourcesPanelId : undefined}
               className="w-full flex items-center gap-2 p-3 sm:p-2 text-left hover:bg-muted/50 active:bg-muted/50 transition-colors touch-manipulation min-h-11 sm:min-h-0"
               onClick={() => setAgentExpanded(agentExpanded === agent.name ? null : agent.name)}
-              title={status === "error" ? "Agent failed or timed out – data may be stale" : undefined}
+              title={
+                status === "error"
+                  ? "Agent failed or timed out – data may be stale"
+                  : tooltip || "Expand for data sources"
+              }
             >
               {status === "error" ? (
                 <span className="h-2 w-2 rounded-full flex-shrink-0 bg-destructive" aria-hidden />
@@ -74,6 +105,12 @@ export function DashboardLeftPanel({
                 <div className="text-[11px] text-muted-foreground line-clamp-2">
                   {status === "error" ? "Error / timeout – stale data" : agent.fullName}
                 </div>
+                {(scoreLevel || dataQuality) && status !== "error" && (
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                    {scoreLevel && <FindingConfidenceBadge level={scoreLevel} />}
+                    {dataQuality && <DataQualityBadge level={dataQuality} />}
+                  </div>
+                )}
               </div>
               <ChevronRight
                 className={`h-3 w-3 flex-shrink-0 text-muted-foreground transition-transform ${
@@ -89,6 +126,9 @@ export function DashboardLeftPanel({
                     <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
                     <span>This agent failed or timed out. Data may be from a previous run.</span>
                   </div>
+                )}
+                {tooltip && (
+                  <p className="text-[10px] text-muted-foreground leading-snug font-mono">{tooltip}</p>
                 )}
                 <div className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Data sources</div>
                 {agent.sources.map((src, i) => (

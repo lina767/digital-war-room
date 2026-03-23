@@ -1,26 +1,46 @@
 <div align="center">
 
-# 🛰️ Digital War Room
+# Digital War Room
 
-**AI-Powered Multi-Agent OSINT Intelligence Platform**
+**AI-powered multi-agent OSINT intelligence platform**
 
-The only open-source geopolitical intelligence platform combining 11 specialized AI agents with political science methodology — monitoring global conflicts across GEOINT, SIGINT, SOCMINT, FININT, CYBER & TECHINT in real time.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Node 18+](https://img.shields.io/badge/node-18+-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+
+Real-time conflict monitoring with specialized agents across GEOINT, SIGINT, SOCMINT, FININT, CYBER, and related domains — orchestrated by a single Claude Sonnet supervisor with rule-based routing.
 
 *Built at the intersection of AI engineering, international relations, and OSINT tradecraft.*
+
+[Live site](https://digital-war-room.com) · [Issues](https://github.com/lina767/digital-war-room/issues)
 
 </div>
 
 ---
 
-## 🔍 What is Digital War Room?
+## What is Digital War Room?
 
-Digital War Room is a real-time geopolitical intelligence platform that deploys **11 specialized OSINT agents** — supervised by a single Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from dozens of open sources. Unlike simple dashboards that aggregate news feeds, DWR applies structured analytical frameworks to transform raw signals into actionable intelligence assessments.
+Digital War Room deploys **11 specialized OSINT agents** — supervised by a Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from open sources. The stack applies structured analytical frameworks so raw signals become assessments with source attribution, not just aggregated headlines.
 
-**Why this matters:** Most OSINT dashboards show you what happened. Digital War Room tells you **what it means** — by cross-referencing financial sanctions data with flight patterns, protest activity with internet shutdowns, and diplomatic signals with commodity flows.
+**Why it matters:** Many dashboards show *what happened*. Digital War Room aims to help you interpret *what it may mean* — by cross-referencing domains such as sanctions data, flight patterns, protest activity, and commodity flows.
 
 ---
 
-## 🏗️ Architecture
+## Documentation
+
+| Topic | Repository |
+|--------|----------------|
+| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| How it works (UX & flows) | [docs/how-it-works.md](docs/how-it-works.md) |
+| API overview | [docs/API-REFERENCE.md](docs/API-REFERENCE.md) |
+| Deployment & env | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| API keys & backend config | [docs/API-KEYS.md](docs/API-KEYS.md) |
+| Full project index | [docs/PROJECT-DOCUMENTATION.md](docs/PROJECT-DOCUMENTATION.md) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+---
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -48,59 +68,59 @@ Digital War Room is a real-time geopolitical intelligence platform that deploys 
 
 ---
 
-## Agent Breakdown
+## Agent overview
 
-| Agent | What it does | Key data sources | Communicates with |
-|-------|--------------|------------------|-------------------|
-| **SIGINT** | Monitors flight patterns, airspace closures, and ADS-B anomalies | ADS-B Exchange, Flightradar24 | GEOINT, PROXIMITY |
-| **FININT** | Tracks sanctions compliance (OFAC/EU/UN), ownership chains (50% rule), commodity price signals | OpenSanctions, OFAC SDN, EU Consolidated List | ENERGY, DIPLO |
-| **GEOINT** | Analyzes geographic conflict data, mapping strike events and territorial changes | ACLED, GDELT | SIGINT, NEWS |
-| **SOCMINT** | Processes social media intelligence, narrative tracking, and sentiment analysis | X/Twitter feeds, Telegram channels | PROTEST, NEWS |
-| **NEWS** | Aggregates and classifies breaking news across multilingual sources | RSS feeds, wire services (Reuters, AP) | All agents |
-| **CYBER** | Detects internet disruptions, DDoS campaigns, and hacktivist activity | GreyNoise, OONI, IODA, Cloudflare Radar | SIGINT, TECHINT |
-| **ENERGY** | Monitors energy infrastructure, commodity flows, and Strait of Hormuz shipping | Maritime AIS, Oil price APIs | FININT, GEOINT |
-| **TECHINT** | Tracks military technology deployments, weapons systems, and defense industry signals | SIPRI, defense wire services | SIGINT, DIPLO |
-| **PROTEST** | Maps civil unrest, protest movements, and government crackdowns | ACLED, SOCMINT feeds | SOCMINT, CYBER |
-| **DIPLO** | Analyzes diplomatic statements, UN votes, and treaty activity | Government press offices, UN records | FININT, ENERGY |
-| **PROXIMITY** | Calculates geographic risk scores and proximity-based threat assessments | Aggregated geolocation data | GEOINT, SIGINT |
-
----
-
-## ✨ Key Features
-
-- **🗺️ Interactive Theater Map** — Real-time conflict visualization with multi-layer overlays — strike events, flight paths, naval movements, and protest hotspots on a single interactive map.
-- **📋 Daily Intelligence Briefings** — AI-generated morning briefings synthesizing overnight developments across all 11 agents into a structured assessment with confidence levels and source attribution.
-- **🔮 Predictive Outlook** — Probabilistic forecasting integrating Polymarket prediction data with structured agent assessments for scenario analysis.
-- **📂 Source Directory** — Transparent source attribution for every data point — every claim links back to its original source with reliability grading.
-- **⚓ Strait of Hormuz Monitor** — Dedicated module tracking maritime traffic, commodity flows, and insurance risk through the world's most critical oil chokepoint.
-- **🛡️ Sanctions Compliance Engine** — Automated OFAC/EU/UN sanctions screening with 50% ownership-chain analysis — the same methodology used by compliance departments at major financial institutions.
+| Agent | Role | Key data sources | Often pairs with |
+|-------|------|------------------|------------------|
+| **SIGINT** | Flight patterns, airspace, ADS-B | ADS-B Exchange, Flightradar24 | GEOINT, PROXIMITY |
+| **FININT** | Sanctions, ownership chains, commodities | OpenSanctions, OFAC SDN, EU list | ENERGY, DIPLO |
+| **GEOINT** | Geographic conflict events, mapping | ACLED, GDELT | SIGINT, NEWS |
+| **SOCMINT** | Social narratives, sentiment | X/Twitter, Telegram | PROTEST, NEWS |
+| **NEWS** | Breaking news, multilingual | RSS, wires | All agents |
+| **CYBER** | Outages, DDoS, hacktivism | GreyNoise, OONI, IODA | SIGINT, TECHINT |
+| **ENERGY** | Infrastructure, Hormuz / commodity stress | Maritime AIS, oil APIs | FININT, GEOINT |
+| **TECHINT** | Tech / defense industry signals | SIPRI, defense wires | SIGINT, DIPLO |
+| **PROTEST** | Unrest, crackdowns | ACLED, SOCMINT | SOCMINT, CYBER |
+| **DIPLO** | Diplomatic / legal signals | UN, ICJ, sanctions lists | FININT, ENERGY |
+| **PROXIMITY** | Geographic risk / proximity | FIRMS, OSM | GEOINT, SIGINT |
 
 ---
 
-## 🛠️ Tech Stack
+## Key features
+
+- **Interactive theater map** — Conflict visualization with overlays (events, flights, maritime, protests).
+- **Daily intelligence briefings** — Synthesized assessments with confidence and attribution.
+- **Predictive outlook** — Scenario-style views using market-implied signals (e.g. Polymarket) where configured.
+- **Source directory** — Trace claims back to primary sources with reliability context.
+- **Strait of Hormuz monitor** — Maritime and commodity stress through the chokepoint.
+- **Sanctions-oriented workflows** — OFAC / EU / UN screening patterns where APIs and keys are configured.
+
+---
+
+## Tech stack
 
 | Layer | Technology |
 |-------|------------|
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui |
-| **Backend** | Python 3.12, FastAPI, Pydantic |
-| **AI Orchestration** | Claude Sonnet (single supervisor), rule-based agent routing |
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, shadcn-style UI |
+| **Backend** | Python 3.11+, FastAPI, Pydantic |
+| **AI** | Claude Sonnet (supervisor), rule-based agent dispatch |
 | **Hosting** | Vercel (frontend), Railway (backend) |
 | **Analytics** | Vercel Analytics |
 
 ---
 
-## Why Rule-Based + Claude Supervisor (not LangGraph?)
+## Why rule-based routing + Claude supervisor (not LangGraph)?
 
-DWR originally ran on a full LangGraph multi-agent graph. We migrated to a **hybrid architecture** — rule-based agent dispatch with a single Claude Sonnet supervisor for synthesis — reducing token costs by **~70%** while maintaining analytical quality. The supervisor handles what rules can't: resolving contradictory signals, weighting source reliability, and generating natural-language briefings.
+The project moved from a full LangGraph multi-agent graph to a **hybrid**: rule-based dispatch with one Claude Sonnet supervisor for synthesis. That reduced token cost substantially while keeping analytical quality for contradiction resolution, source weighting, and natural-language briefings.
 
 ---
 
-## 🚀 Getting Started
+## Getting started
 
 ### Prerequisites
 
 - Node.js 18+
-- Python 3.12+
+- Python 3.11+
 
 ### Frontend
 
@@ -117,59 +137,54 @@ npm run dev
 ```bash
 cd backend
 pip install -r requirements.txt
-# optional, for lint/tests/type checks
+# optional: lint, tests, types
 pip install -r requirements-dev.txt
 uvicorn main:app --reload
+# → http://localhost:8000
 ```
 
-### Environment Variables
+### Environment variables
 
-Create a `.env` file in the project root:
+In the **project root**, create `.env` as needed:
 
 ```env
-VITE_API_URL=your_backend_url
+VITE_API_URL=http://localhost:8000
 ```
 
-For environment separation use:
+Copy and fill examples from:
 
-- `.env.development.example`
-- `.env.staging.example`
-- `.env.production.example`
-- `backend/.env.development.example`
-- `backend/.env.staging.example`
-- `backend/.env.production.example`
+- Root: `.env.development.example`, `.env.staging.example`, `.env.production.example`
+- Backend: `backend/.env.example` and `backend/.env.*.example`
 
-Each backend environment file should be completed with the required secrets from `backend/.env.example`.
+Secrets are documented in [docs/API-KEYS.md](docs/API-KEYS.md).
 
-### Local Full-Stack with Docker Compose
+### Docker Compose (full stack)
 
 ```bash
 docker compose up --build
 ```
 
-Services:
-
 - Frontend: `http://localhost:8080`
 - Backend: `http://localhost:8000`
-- Postgres/pgvector: `localhost:5432`
+- Postgres (pgvector): `localhost:5432`
 
 ---
 
-## 🔌 API Quick Reference
+## API quick reference
 
-Backend base URL: `http://localhost:8000`
+Base URL (local): `http://localhost:8000`
 
 | Endpoint | Method | Purpose |
-|---------|--------|---------|
-| `/health` | GET | Liveness probe |
-| `/api/analyze/status?conflict=Iran` | GET | Cache/error status for a conflict |
+|----------|--------|---------|
+| `/health` | GET | Liveness |
+| `/api/analyze/status?conflict=Iran` | GET | Cache / error status |
 | `/api/analyze/latest?conflict=Iran` | GET | Latest cached analysis |
 | `/api/analyze/refresh?conflict=Iran` | GET | Trigger background refresh |
-| `/api/analyze/stream?conflict=Iran` | GET (SSE) | Stream per-agent + supervisor events |
-| `/api/agents/status` | GET | Last per-agent status snapshot |
+| `/api/analyze/stream?conflict=Iran` | GET (SSE) | Stream agent + supervisor events |
+| `/api/agents/status` | GET | Last per-agent snapshot |
 | `/api/agents/history` | GET | Recent run history |
 
-OpenAPI docs are available at `http://localhost:8000/docs` in local development.
+Interactive docs: `http://localhost:8000/docs` (local). See [docs/API-REFERENCE.md](docs/API-REFERENCE.md) for more.
 
 ### Backend request flow
 
@@ -184,19 +199,9 @@ flowchart LR
 
 ---
 
-## ✅ Code Quality & Testing
+## Code quality & tests
 
-Backend test layout:
-
-```text
-backend/tests/
-├── test_agents/        # Unit tests for agent contracts and behavior
-├── test_integration/   # Cross-module and orchestration contract tests
-├── test_api/           # FastAPI endpoint tests
-└── conftest.py         # Shared fixtures and mock payloads
-```
-
-Run backend quality checks:
+Backend tests live under `backend/tests/` (`test_agents/`, `test_integration/`, `test_api/`, `conftest.py`).
 
 ```bash
 cd backend
@@ -205,74 +210,67 @@ mypy .
 ruff check .
 ```
 
-Coverage is enforced with `pytest-cov` and a minimum threshold of **60%**.
+Coverage uses `pytest-cov` with a minimum threshold (see `pytest` config in the backend).
 
-Pre-commit hooks (`.pre-commit-config.yaml`) run:
-- `ruff` (backend)
-- `mypy` (backend)
-- `prettier --check` (frontend/repo)
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml) can run Ruff, mypy, and Prettier — install with `pre-commit install` if you use it locally.
 
 ---
 
-## 🗺️ Roadmap
+## Scripts (frontend)
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Dev server (Vite) |
+| `npm run build` | Production build |
+| `npm run preview` | Preview production build |
+| `npm run lint` | ESLint |
+| `npm run test` | Vitest |
+| `npm run typecheck` | TypeScript check |
+| `npm run version:patch` / `minor` / `major` | SemVer bump |
+
+---
+
+## DevOps & maintenance
+
+- **Dependabot:** [`.github/dependabot.yml`](.github/dependabot.yml) — automated updates for GitHub Actions, npm, and pip.
+- **Versioning:** [CHANGELOG.md](CHANGELOG.md) follows the project’s release notes.
+
+---
+
+## Roadmap
 
 - [ ] Multi-theater support (beyond Middle East)
 - [ ] Collaborative annotation layer
 - [ ] API access for researchers
-- [ ] Webhook-based alert system
+- [ ] Webhook-based alerts
 - [ ] Mobile-optimized briefing view
-- [ ] Integration with Bellingcat verification tools
+- [ ] Integration with Bellingcat-style verification tooling
 
 ---
 
-## 📜 Scripts
+## Contributing
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start frontend dev server |
-| `npm run build` | Production build |
-| `npm run preview` | Preview production build |
-| `npm run lint` | Run ESLint |
-| `npm run test` | Run tests (Vitest) |
-| `npm run typecheck` | Run TypeScript type check |
-| `npm run version:patch` | Bump patch version (SemVer) |
-| `npm run version:minor` | Bump minor version (SemVer) |
-| `npm run version:major` | Bump major version (SemVer) |
+Contributions are welcome — new data pipelines, agent improvements, or UI fixes.
+
+1. Fork the repository  
+2. Branch (`git checkout -b feature/your-feature`)  
+3. Commit with clear messages  
+4. Push and open a Pull Request  
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and how to report issues.
 
 ---
 
-## ⚙️ DevOps
+## License
 
-- CI: `.github/workflows/ci.yml` runs backend lint/tests/coverage, frontend tests, and type checks on push and pull requests.
-- Dependency updates: `.github/dependabot.yml` creates automated update PRs for GitHub Actions, npm, and pip.
-- Versioning: project releases follow Semantic Versioning, tracked in `CHANGELOG.md`.
-
----
-
-## 🤝 Contributing
-
-Digital War Room is open source. Contributions are welcome — whether it's adding a new agent, improving an existing data pipeline, or fixing a UI bug.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/new-agent`)
-3. Commit your changes (`git commit -m 'Add maritime intelligence agent'`)
-4. Push to the branch (`git push origin feature/new-agent`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is open source. See [LICENSE](LICENSE) for details.
+[MIT License](LICENSE) — Copyright (c) 2026 Lina Braun.
 
 ---
 
 <div align="center">
 
-**Built by Lina — Political Science & AI Engineering**
+**Lina Braun** — Political science & AI engineering
 
-*Combining academic rigor with engineering execution at the intersection of geopolitics and artificial intelligence.*
-
-[Live Demo](https://digital-war-room.com) · [Report Bug](https://github.com/lina767/digital-war-room/issues) · [Request Feature](https://github.com/lina767/digital-war-room/issues)
+[Live site](https://digital-war-room.com) · [Report a bug](https://github.com/lina767/digital-war-room/issues) · [Feature request](https://github.com/lina767/digital-war-room/issues)
 
 </div>
