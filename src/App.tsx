@@ -12,7 +12,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AgentMonitor = lazy(() => import("./pages/AgentMonitor"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Impressum = lazy(() => import("./pages/Impressum"));
-const DailyIntelligenceBriefing = lazy(() => import("./pages/DailyIntelligenceBriefing"));
+const DailyBriefingPage = lazy(() => import("./pages/DailyBriefingPage"));
 const Documentation = lazy(() => import("./pages/Documentation"));
 const Newsletter = lazy(() => import("./pages/Newsletter"));
 const NewsletterConfirm = lazy(() => import("./pages/NewsletterConfirm"));
@@ -44,7 +44,7 @@ const App = () => {
           <Route path="/how-it-works" element={<Navigate to={`${DOCS_HUB}?doc=how-it-works`} replace />} />
           <Route path="/methodology" element={<Navigate to={`${DOCS_HUB}?doc=methodology`} replace />} />
           <Route path="/sources" element={<Navigate to={`${DOCS_HUB}?doc=source-directory`} replace />} />
-          <Route path="/daily-briefing" element={<DailyIntelligenceBriefing />} />
+          <Route path="/daily-briefing" element={<DailyBriefingPage />} />
           <Route path="/docs/documentation" element={<Documentation />} />
           <Route path="/docs" element={<Navigate to="/docs/documentation" replace />} />
           <Route path="/newsletter" element={<Newsletter />} />

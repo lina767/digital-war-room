@@ -1,0 +1,88 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --bg-primary: #0b0f14;
+  --bg-secondary: #111820;
+  --bg-tertiary: #1a2230;
+  --bg-card: #151d28;
+  --bg-card-hover: #1c2636;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text-primary: #e8ecf1;
+  --text-secondary: #8a95a5;
+  --text-tertiary: #5a6577;
+  --text-accent: #7eb8ff;
+  --threat-critical: #e5484d;
+  --threat-high: #e5733d;
+  --threat-elevated: #e5a63d;
+  --threat-low: #30a46c;
+  --threat-minimal: #4a90d9;
+  --accent-blue: #3b82f6;
+  --accent-blue-muted: rgba(59, 130, 246, 0.15);
+  --accent-amber: #f59e0b;
+  --agent-finint: #22c55e;
+  --agent-sigint: #3b82f6;
+  --agent-geoint: #ef4444;
+  --agent-socmint: #a855f7;
+  --agent-news: #6366f1;
+  --agent-cyber: #06b6d4;
+  --agent-energy: #f59e0b;
+  --agent-protest: #ec4899;
+  --agent-diplo: #8b5cf6;
+  --agent-proximity: #f97316;
+  --agent-techint: #14b8a6;
+  --agent-chokepoint: #64748b;
+  --agent-greynoise: #84cc16;
+}
+
+.briefing-page {
+  background: linear-gradient(180deg, var(--bg-secondary), var(--bg-primary));
+  color: var(--text-primary);
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.briefing-shell {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.briefing-display {
+  font-family: "DM Serif Display", Georgia, serif;
+}
+
+.briefing-mono {
+  font-family: "JetBrains Mono", monospace;
+}
+
+.briefing-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 0.75rem;
+}
+
+.briefing-card:hover {
+  background: var(--bg-card-hover);
+}
+
+.db-threat-critical { color: var(--threat-critical); }
+.db-threat-high { color: var(--threat-high); }
+.db-threat-elevated { color: var(--threat-elevated); }
+.db-threat-low { color: var(--threat-low); }
+.db-threat-minimal { color: var(--threat-minimal); }
+
+.briefing-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(0, 1.1fr);
+  gap: 24px;
+}
+
+.classification-banner {
+  letter-spacing: 0.2em;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 1200px) {
+  .briefing-grid { grid-template-columns: 1fr; }
+}
