@@ -9,6 +9,20 @@
   --primary-dim: rgba(0, 255, 136, 0.15);
   --radius: 0.5rem;
   --max: 72rem;
+  /* Agent accents (aligned with dashboard / briefing.css) */
+  --agent-finint: #22c55e;
+  --agent-sigint: #3b82f6;
+  --agent-geoint: #ef4444;
+  --agent-socmint: #a855f7;
+  --agent-news: #6366f1;
+  --agent-cyber: #06b6d4;
+  --agent-energy: #f59e0b;
+  --agent-protest: #ec4899;
+  --agent-diplo: #8b5cf6;
+  --agent-proximity: #f97316;
+  --agent-techint: #14b8a6;
+  --agent-chokepoint: #64748b;
+  --agent-greynoise: #84cc16;
 }
 
 *,
@@ -267,4 +281,202 @@ a:hover {
   flex-wrap: wrap;
   gap: 1rem 1.5rem;
   margin-bottom: 1rem;
+}
+
+/* How it works: query → agents → synthesis → BLUF */
+.l-flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+@media (min-width: 960px) {
+  .l-flow {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .l-flow__step {
+    flex: 1 1 0;
+    min-width: 0;
+    position: relative;
+    padding-right: 2rem;
+  }
+
+  .l-flow__step:not(:last-child)::after {
+    content: "→";
+    position: absolute;
+    right: 0.35rem;
+    top: 2.25rem;
+    font-size: 1.15rem;
+    color: var(--muted);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    line-height: 1;
+  }
+}
+
+.l-flow__step {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 1.25rem 1.25rem 1.35rem;
+}
+
+@media (max-width: 959px) {
+  .l-flow__step:not(:last-child)::after {
+    content: "↓";
+    display: block;
+    text-align: center;
+    margin-top: 1rem;
+    font-size: 1rem;
+    color: var(--muted);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+}
+
+.l-flow__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.25rem;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--primary-dim);
+  color: var(--primary);
+  margin-bottom: 0.75rem;
+}
+
+.l-flow__name {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.l-flow__text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+/* Agent feature grid */
+.l-agent-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .l-agent-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 900px) {
+  .l-agent-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1200px) {
+  .l-agent-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.l-agent-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 1rem 1.1rem 1.15rem;
+  border-top: 3px solid var(--agent-accent, var(--primary));
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.l-agent-card__id {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.2rem;
+  color: var(--fg);
+}
+
+.l-agent-card__full {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 0.65rem;
+  font-weight: 500;
+}
+
+.l-agent-card__desc {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+  line-height: 1.5;
+  flex: 1;
+}
+
+.l-agent-card--finint {
+  --agent-accent: var(--agent-finint);
+}
+.l-agent-card--sigint {
+  --agent-accent: var(--agent-sigint);
+}
+.l-agent-card--geoint {
+  --agent-accent: var(--agent-geoint);
+}
+.l-agent-card--socmint {
+  --agent-accent: var(--agent-socmint);
+}
+.l-agent-card--news {
+  --agent-accent: var(--agent-news);
+}
+.l-agent-card--cyber {
+  --agent-accent: var(--agent-cyber);
+}
+.l-agent-card--energy {
+  --agent-accent: var(--agent-energy);
+}
+.l-agent-card--protest {
+  --agent-accent: var(--agent-protest);
+}
+.l-agent-card--diplo {
+  --agent-accent: var(--agent-diplo);
+}
+.l-agent-card--proximity {
+  --agent-accent: var(--agent-proximity);
+}
+.l-agent-card--techint {
+  --agent-accent: var(--agent-techint);
+}
+.l-agent-card--chokepoint {
+  --agent-accent: var(--agent-chokepoint);
+}
+.l-agent-card--greynoise {
+  --agent-accent: var(--agent-greynoise);
+}
+
+.l-agents-foot {
+  margin: 1.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 40rem;
+  line-height: 1.55;
+}
+
+.l-agents-foot strong {
+  color: var(--fg);
+  font-weight: 600;
 }
