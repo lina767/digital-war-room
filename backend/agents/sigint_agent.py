@@ -31,6 +31,7 @@ from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .utils import (
+    ProcessingStep,
     ScoreConfidence,
     SourceResult,
     build_agent_meta,
@@ -1063,6 +1064,10 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                 reg.record_result(sr.name, "sigint", sr)
         error_summary = f"{len(sources_missing)} source(s) missing" if sources_missing else None
         has_data = bool(aircraft or ships or reports or notams)
+        sig_steps = [
+            ProcessingStep(step="fetch_adsb_reports_notams", at=fetched_at),
+            ProcessingStep(step="compute_sigint_score", at=fetched_at),
+        ]
         out["_meta"] = build_agent_meta(
             "sigint",
             fetched_at,
@@ -1070,6 +1075,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             source_results,
             error_summary=error_summary,
             has_any_data=has_data,
+            processing_steps=sig_steps,
         )
         return out
     except Exception as e:
@@ -1087,6 +1093,7 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             fallback_used=True,
             error_summary=str(e),
             has_any_data=False,
+            processing_steps=[ProcessingStep(step="error_fallback", at=fetched_at)],
         )
         return fb
 

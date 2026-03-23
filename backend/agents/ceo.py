@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from .agent_state_store import get_agent_state_store
@@ -25,7 +26,7 @@ from .divisions import (
 )
 from .entity_registry import EntityRegistry
 from .registry import AgentRegistry, get_agent_registry
-from .utils import infer_data_confidence_from_result
+from .utils import get_analysis_run_id, infer_data_confidence_from_result, reset_analysis_run_id, set_analysis_run_id
 
 logger = logging.getLogger(__name__)
 
@@ -728,6 +729,49 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     except Exception:
         narrative_story = ""
 
+    provenance_agent_keys = [
+        "finint",
+        "sigint",
+        "news",
+        "geoint",
+        "satintel",
+        "socmint",
+        "techint",
+        "cyber",
+        "energy",
+        "protest",
+        "diplo",
+        "proximity",
+        "narrative",
+        "chokepoint",
+    ]
+    provenance_index: List[Dict[str, Any]] = []
+    for pname in provenance_agent_keys:
+        raw = agent_results.get(pname) or {}
+        meta = raw.get("_meta") if isinstance(raw, dict) else None
+        if not isinstance(meta, dict):
+            meta = {}
+        sources = meta.get("sources") or []
+        n_src = len(sources) if isinstance(sources, list) else 0
+        ok_n = 0
+        if isinstance(sources, list):
+            for s in sources:
+                if isinstance(s, dict) and s.get("status") in ("ok", "degraded"):
+                    ok_n += 1
+        steps = meta.get("processing_steps") or []
+        n_steps = len(steps) if isinstance(steps, list) else 0
+        provenance_index.append(
+            {
+                "agent": pname,
+                "fetched_at": meta.get("fetched_at"),
+                "duration_ms": meta.get("duration_ms"),
+                "sources_total": n_src,
+                "sources_ok": ok_n,
+                "data_confidence": meta.get("data_confidence"),
+                "processing_steps_count": n_steps,
+            }
+        )
+
     # Build backwards-compatible response
     response = {
         "conflict": conflict,
@@ -749,6 +793,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "agent_data_confidence": agent_data_confidence,
         "degraded_agents": degraded_agents,
         "temporal_context": temporal_context,
+        "analysis_run_id": get_analysis_run_id(),
+        "provenance_index": provenance_index,
     }
 
     # Include per-agent raw results for API compatibility
@@ -1097,61 +1143,67 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
 
     Returns the same response format as the original supervisor.analyze_conflict().
     """
+    run_token = set_analysis_run_id(str(uuid.uuid4()))
     try:
-        from services.source_fetch import clear_run_cache
+        try:
+            from services.source_fetch import clear_run_cache
 
-        clear_run_cache()
-    except ImportError:
-        pass
+            clear_run_cache()
+        except ImportError:
+            pass
 
-    registry = get_agent_registry()
-    divisions = _all_divisions()
+        registry = get_agent_registry()
+        divisions = _all_divisions()
 
-    # Build DAG
-    dag_nodes, division_executors = _build_full_dag(divisions)
-    agent_executors = _build_agent_executors(conflict, registry)
-    infra_executors = _build_infrastructure_executors(conflict)
-    ceo_executors = _build_ceo_executor(conflict, divisions)
+        # Build DAG
+        dag_nodes, division_executors = _build_full_dag(divisions)
+        agent_executors = _build_agent_executors(conflict, registry)
+        infra_executors = _build_infrastructure_executors(conflict)
+        ceo_executors = _build_ceo_executor(conflict, divisions)
 
-    all_executors = {
-        **agent_executors,
-        **division_executors,
-        **infra_executors,
-        **ceo_executors,
-    }
+        all_executors = {
+            **agent_executors,
+            **division_executors,
+            **infra_executors,
+            **ceo_executors,
+        }
 
-    # Create store and run
-    store_mgr = ResultStoreManager()
-    cycle_id = f"{conflict}_{int(time.time())}"
-    store = store_mgr.create_store(conflict, cycle_id)
+        # Create store and run
+        store_mgr = ResultStoreManager()
+        cycle_id = f"{conflict}_{int(time.time())}"
+        store = store_mgr.create_store(conflict, cycle_id)
 
-    scheduler = DAGScheduler(dag_nodes)
-    scheduler.run(all_executors, store)
+        scheduler = DAGScheduler(dag_nodes)
+        scheduler.run(all_executors, store)
 
-    # Extract CEO result
-    ceo_result = store.get("ceo_synthesis")
-    if isinstance(ceo_result, dict):
-        return ceo_result
+        # Extract CEO result
+        ceo_result = store.get("ceo_synthesis")
+        if isinstance(ceo_result, dict):
+            return ceo_result
 
-    # If the DAG node timed out or returned a non-dict fallback, try one direct
-    # deterministic synthesis pass from collected store data before failing hard.
-    try:
-        recovered = _ceo_synthesize(conflict, divisions, store)
-        if isinstance(recovered, dict):
-            return recovered
-    except Exception as exc:
-        logger.warning("CEO synthesis recovery failed: %s", exc)
+        # If the DAG node timed out or returned a non-dict fallback, try one direct
+        # deterministic synthesis pass from collected store data before failing hard.
+        try:
+            recovered = _ceo_synthesize(conflict, divisions, store)
+            if isinstance(recovered, dict):
+                return recovered
+        except Exception as exc:
+            logger.warning("CEO synthesis recovery failed: %s", exc)
 
-    return {
-        "conflict": conflict,
-        "escalation_score": 0,
-        "threat_level": "MINIMAL",
-        "key_findings": [],
-        "key_findings_confidence": [],
-        "root_cause_suggestions": [],
-        "scenarios": [],
-        "summary": "Analysis failed.",
-    }
+        return {
+            "conflict": conflict,
+            "escalation_score": 0,
+            "threat_level": "MINIMAL",
+            "key_findings": [],
+            "key_findings_confidence": [],
+            "root_cause_suggestions": [],
+            "scenarios": [],
+            "summary": "Analysis failed.",
+            "analysis_run_id": get_analysis_run_id(),
+            "provenance_index": [],
+        }
+    finally:
+        reset_analysis_run_id(run_token)
 
 
 def analyze_conflict_dag_streaming(conflict: str):
@@ -1160,34 +1212,38 @@ def analyze_conflict_dag_streaming(conflict: str):
     Yields (node_id, result) for streamable nodes only.
     Final event is ("ceo_synthesis", full_result).
     """
+    run_token = set_analysis_run_id(str(uuid.uuid4()))
     try:
-        from services.source_fetch import clear_run_cache
+        try:
+            from services.source_fetch import clear_run_cache
 
-        clear_run_cache()
-    except ImportError:
-        pass
+            clear_run_cache()
+        except ImportError:
+            pass
 
-    registry = get_agent_registry()
-    divisions = _all_divisions()
+        registry = get_agent_registry()
+        divisions = _all_divisions()
 
-    dag_nodes, division_executors = _build_full_dag(divisions)
-    agent_executors = _build_agent_executors(conflict, registry)
-    infra_executors = _build_infrastructure_executors(conflict)
-    ceo_executors = _build_ceo_executor(conflict, divisions)
+        dag_nodes, division_executors = _build_full_dag(divisions)
+        agent_executors = _build_agent_executors(conflict, registry)
+        infra_executors = _build_infrastructure_executors(conflict)
+        ceo_executors = _build_ceo_executor(conflict, divisions)
 
-    all_executors = {
-        **agent_executors,
-        **division_executors,
-        **infra_executors,
-        **ceo_executors,
-    }
+        all_executors = {
+            **agent_executors,
+            **division_executors,
+            **infra_executors,
+            **ceo_executors,
+        }
 
-    store_mgr = ResultStoreManager()
-    cycle_id = f"{conflict}_{int(time.time())}"
-    store = store_mgr.create_store(conflict, cycle_id)
+        store_mgr = ResultStoreManager()
+        cycle_id = f"{conflict}_{int(time.time())}"
+        store = store_mgr.create_store(conflict, cycle_id)
 
-    scheduler = DAGScheduler(dag_nodes)
-    yield from scheduler.run_streaming(all_executors, store)
+        scheduler = DAGScheduler(dag_nodes)
+        yield from scheduler.run_streaming(all_executors, store)
+    finally:
+        reset_analysis_run_id(run_token)
 
 
 # ---------------------------------------------------------------------------

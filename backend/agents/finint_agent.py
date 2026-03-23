@@ -27,6 +27,7 @@ from .llm import run_agent_with_fallback
 from .source_fetch import SourceFetch
 from .quality_layer import build_quality_payload, fuse_numeric_observations
 from .utils import (
+    ProcessingStep,
     ScoreConfidence,
     build_agent_meta,
     compute_confidence_from_sources,
@@ -1705,6 +1706,10 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
     if reg:
         for sr in source_results:
             reg.record_result(sr.name, "finint", sr)
+    fin_steps = [
+        ProcessingStep(step="parallel_market_fetch", at=fetched_at, detail="commodities_polymarket_metaculus_ofac_wallets"),
+        ProcessingStep(step="aggregate_escalation_score", at=fetched_at),
+    ]
     out["_meta"] = build_agent_meta(
         "finint",
         fetched_at,
@@ -1713,6 +1718,7 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
         error_summary=error_summary,
         has_any_data=has_finint_data,
         confidence=score_confidence,
+        processing_steps=fin_steps,
     )
     return out
 

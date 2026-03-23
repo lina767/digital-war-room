@@ -8,6 +8,7 @@ import json
 import os
 import time
 import traceback
+import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
@@ -52,6 +53,12 @@ async def _persist_analysis_result(
     push_agent_status(app_state, result)
     push_run_history(app_state, conflict, at_ts, result)
     await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+    try:
+        from services.analysis_audit_store import persist_analysis_audit
+
+        await persist_analysis_audit(conflict, result)
+    except Exception:
+        pass
 
 
 class AnalyzeRequest(BaseModel):
@@ -209,6 +216,24 @@ async def analyze_status(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
     if last_err:
         out["error"] = last_err
     return out
+
+
+@router.get("/analyze/audit/{run_id}")
+async def get_analysis_audit(run_id: str) -> Any:
+    """
+    GET /api/analyze/audit/{run_id}
+    Returns stored provenance snapshot for a completed analysis run (requires DATABASE_URL).
+    """
+    try:
+        uuid.UUID(run_id)
+    except (ValueError, TypeError):
+        return JSONResponse(status_code=400, content={"error": "invalid_run_id"})
+    from services.analysis_audit_store import fetch_analysis_audit
+
+    row = await fetch_analysis_audit(run_id)
+    if not row:
+        return JSONResponse(status_code=404, content={"error": "not_found", "run_id": run_id})
+    return row
 
 
 @router.get("/analyze/latest")

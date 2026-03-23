@@ -52,6 +52,16 @@ export interface SourceResult {
   record_count?: number;
   error?: string;
   cached?: boolean;
+  /** Public article or API documentation URLs for compliance provenance. */
+  reference_urls?: string[];
+  endpoint_kind?: string;
+}
+
+/** One append-only processing step in an agent pipeline. */
+export interface ProcessingStep {
+  step: string;
+  at?: string;
+  detail?: string;
 }
 
 /** Confidence metadata for an agent score. */
@@ -73,10 +83,26 @@ export interface AgentMeta {
   data_confidence?: "live" | "estimated" | "degraded";
   fallback_used?: boolean;
   error_summary?: string | null;
+  processing_steps?: ProcessingStep[];
+  analysis_run_id?: string | null;
+}
+
+export interface ProvenanceIndexEntry {
+  agent: string;
+  fetched_at?: string;
+  duration_ms?: number;
+  sources_total?: number;
+  sources_ok?: number;
+  data_confidence?: string;
+  processing_steps_count?: number;
 }
 
 export interface AnalyzeResponse {
   conflict: string;
+  /** UUID correlating agents, CEO response, and optional DB audit row. */
+  analysis_run_id?: string;
+  /** Summary-level provenance per agent (no full payload duplication). */
+  provenance_index?: ProvenanceIndexEntry[];
   escalation_score?: number;
   threat_level?: string;
   key_findings?: string[];

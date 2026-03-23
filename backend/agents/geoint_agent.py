@@ -24,7 +24,7 @@ from services.acled_auth import get_acled_token_async, has_acled_oauth
 from .config import RELIEFWEB_APPNAME
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
+from .utils import ProcessingStep, SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -1400,6 +1400,7 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
             fallback_used=True,
             error_summary=error_summary or "No data",
             has_any_data=False,
+            processing_steps=[ProcessingStep(step="no_data_fallback", at=fetched_at)],
         ),
     }
 
@@ -1509,6 +1510,11 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         if context and getattr(context, "focus_regions", None):
             n_focus = len(getattr(context, "focus_regions", []))
             handoff_note = f" Handoff: {n_focus} SIGINT-derived focus region(s) included."
+        geo_steps = [
+            ProcessingStep(step="fetch_thermal_and_hotspot_news", at=fetched_at),
+            ProcessingStep(step="eo_browser_gdelt_geo", at=fetched_at),
+            ProcessingStep(step="score_hotspots_clusters", at=fetched_at),
+        ]
         return {
             "conflict": conflict,
             "anomalies": anomalies,
@@ -1529,6 +1535,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
                 source_results,
                 error_summary=error_summary,
                 has_any_data=has_data,
+                processing_steps=geo_steps,
             ),
         }
     except Exception as e:

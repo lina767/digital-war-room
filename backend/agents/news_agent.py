@@ -28,9 +28,32 @@ from .contracts import get_agent_fallback
 from .domain_runner import run_domain_with_analysts
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
+from .utils import (
+    ProcessingStep,
+    SourceResult,
+    build_agent_meta,
+    cap_reference_urls,
+    run_async,
+    utc_now_iso,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _urls_from_articles_by_source_type(articles: List[Dict[str, Any]], source_type: str) -> List[str]:
+    """Collect article URLs for provenance (capped)."""
+    st_low = source_type.lower()
+    urls: List[str] = []
+    for a in articles:
+        if not isinstance(a, dict):
+            continue
+        if (a.get("source_type") or "").lower() != st_low:
+            continue
+        u = a.get("url")
+        if isinstance(u, str) and u.strip():
+            urls.append(u.strip())
+    return cap_reference_urls(urls)
+
 
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 NEWSDATA_LATEST_URL = "https://newsdata.io/api/1/latest"
@@ -1125,19 +1148,43 @@ def _news_manager(
     n_gnews = len(gnews_res.get("articles") or [])
     source_results = [
         SourceResult(
-            name="NewsAPI", status="ok" if n_newsapi else "error", fetched_at=fetched_at, record_count=n_newsapi
+            name="NewsAPI",
+            status="ok" if n_newsapi else "error",
+            fetched_at=fetched_at,
+            record_count=n_newsapi,
+            reference_urls=_urls_from_articles_by_source_type(articles, "newsapi"),
+            endpoint_kind="rest",
         ),
-        SourceResult(name="RSS", status="ok" if n_rss else "error", fetched_at=fetched_at, record_count=n_rss),
+        SourceResult(
+            name="RSS",
+            status="ok" if n_rss else "error",
+            fetched_at=fetched_at,
+            record_count=n_rss,
+            reference_urls=_urls_from_articles_by_source_type(articles, "rss"),
+            endpoint_kind="rss",
+        ),
     ]
     if "newsdata" in analyst_results:
         source_results.append(
             SourceResult(
-                name="NewsData", status="ok" if n_newsdata else "error", fetched_at=fetched_at, record_count=n_newsdata
+                name="NewsData",
+                status="ok" if n_newsdata else "error",
+                fetched_at=fetched_at,
+                record_count=n_newsdata,
+                reference_urls=_urls_from_articles_by_source_type(articles, "newsdata"),
+                endpoint_kind="rest",
             )
         )
     if "gnews" in analyst_results:
         source_results.append(
-            SourceResult(name="GNews", status="ok" if n_gnews else "error", fetched_at=fetched_at, record_count=n_gnews)
+            SourceResult(
+                name="GNews",
+                status="ok" if n_gnews else "error",
+                fetched_at=fetched_at,
+                record_count=n_gnews,
+                reference_urls=_urls_from_articles_by_source_type(articles, "gnews"),
+                endpoint_kind="rest",
+            )
         )
 
     reg = get_health_registry()
@@ -1148,6 +1195,12 @@ def _news_manager(
     error_summary = (
         f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
     )
+    proc_steps = [
+        ProcessingStep(step="parallel_source_analysts", at=fetched_at, detail="newsapi_rss_optional_newsdata_gnews"),
+        ProcessingStep(step="fusion_dedupe_rank", at=fetched_at),
+        ProcessingStep(step="escalation_headlines", at=fetched_at),
+        ProcessingStep(step="ner_entities", at=fetched_at),
+    ]
     meta = build_agent_meta(
         "news",
         fetched_at,
@@ -1155,6 +1208,7 @@ def _news_manager(
         source_results,
         error_summary=error_summary,
         has_any_data=bool(articles),
+        processing_steps=proc_steps,
     )
     bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
     handoff_note = ""
@@ -1210,6 +1264,14 @@ def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None
         duration_ms = int((time.perf_counter() - start) * 1000)
         meta_prev = result.get("_meta") or {}
         sources_round = [SourceResult.model_validate(s) for s in meta_prev.get("sources", [])]
+        prev_steps_raw = meta_prev.get("processing_steps") or []
+        merged_steps: List[ProcessingStep] = []
+        for s in prev_steps_raw:
+            if isinstance(s, dict):
+                merged_steps.append(ProcessingStep.model_validate(s))
+        merged_steps.append(
+            ProcessingStep(step="pipeline_wall_complete", at=utc_now_iso(), detail=f"duration_ms={duration_ms}")
+        )
         result["_meta"] = build_agent_meta(
             "news",
             meta_prev.get("fetched_at", fetched_at),
@@ -1217,6 +1279,7 @@ def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None
             sources_round,
             error_summary=meta_prev.get("error_summary"),
             has_any_data=bool(result.get("articles")),
+            processing_steps=merged_steps,
         )
         if not (result.get("articles") or []):
             logger.warning("NEWS: All %d source(s) returned 0 articles for conflict '%s'", len(analysts), conflict)
