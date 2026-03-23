@@ -147,7 +147,8 @@ class DAGScheduler:
         sorter = TopologicalSorter(dep_graph)
         sorter.prepare()
 
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+        pool = ThreadPoolExecutor(max_workers=self._max_workers)
+        try:
             while sorter.is_active():
                 ready = sorter.get_ready()
                 futures = {}
@@ -187,7 +188,9 @@ class DAGScheduler:
                             nid, node, store, fb, wall_ms, timed_out=False, exec_failed=True
                         )
                     sorter.done(nid)
-
+        finally:
+            # Do not block the whole analysis run on stuck worker threads after timeout fallback.
+            pool.shutdown(wait=False, cancel_futures=True)
         return store
 
     @staticmethod
@@ -233,7 +236,8 @@ class DAGScheduler:
         sorter = TopologicalSorter(dep_graph)
         sorter.prepare()
 
-        with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+        pool = ThreadPoolExecutor(max_workers=self._max_workers)
+        try:
             while sorter.is_active():
                 ready = sorter.get_ready()
                 futures = {}
@@ -274,6 +278,9 @@ class DAGScheduler:
                     sorter.done(nid)
                     if node.streamable:
                         yield (nid, result)
+        finally:
+            # Same behavior as run(): avoid hanging on shutdown when a node thread is stuck.
+            pool.shutdown(wait=False, cancel_futures=True)
 
     @staticmethod
     def _run_node(node: DAGNode, executor: Callable, store: ResultStore) -> Tuple[Any, float]:

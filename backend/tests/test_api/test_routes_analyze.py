@@ -13,6 +13,10 @@ from services.state_service import StateService
 
 @pytest.fixture
 def client():
+    class DummyWsManager:
+        async def broadcast(self, _data):
+            return None
+
     app = FastAPI()
     app.state.limiter = limiter
     app.include_router(analyze_router, prefix="/api")
@@ -22,13 +26,14 @@ def client():
     app.state.escalation_timeline_history = {}
     app.state.agent_status_last = {}
     app.state.analysis_run_history = deque(maxlen=50)
+    app.state.ws_manager = DummyWsManager()
     return TestClient(app)
 
 
 def test_analyze_status_without_cache(client: TestClient):
     response = client.get("/api/analyze/status", params={"conflict": "Iran"})
     assert response.status_code == 200
-    assert response.json() == {"cached": False, "conflict": "Iran"}
+    assert response.json() == {"cached": False, "conflict": "Iran", "running": False}
 
 
 def test_analyze_latest_returns_404_without_cache(client: TestClient):
@@ -61,3 +66,13 @@ def test_agents_monitoring_returns_shape(client: TestClient):
     assert "cost" in body
     assert "month_budget_usd" in body["cost"]
     assert "daily" in body["cost"]
+
+
+def test_refresh_returns_already_running_when_inflight(client: TestClient):
+    # Same scope format as production: "<tenant_id>\\n<conflict>"
+    client.app.state.analysis_inflight = {"00000000-0000-4000-8000-000000000001\nIran": 1.0}
+    response = client.get("/api/analyze/refresh", params={"conflict": "Iran"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "already_running"
+    assert body["conflict"] == "Iran"

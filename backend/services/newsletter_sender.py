@@ -153,6 +153,9 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
         escalation_score=briefing_data.get("escalation_score"),
         view_link=view_link,
         unsubscribe_link=unsub_link,
+        briefing_data=briefing_data,
+        threat_level=briefing_data.get("threat_level"),
+        key_findings_context=briefing_data.get("key_findings_context"),
     )
     text = daily_briefing_email_text(
         conflict=conflict,
@@ -162,6 +165,9 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
         escalation_score=briefing_data.get("escalation_score"),
         view_link=view_link,
         unsubscribe_link=unsub_link,
+        briefing_data=briefing_data,
+        threat_level=briefing_data.get("threat_level"),
+        key_findings_context=briefing_data.get("key_findings_context"),
     )
     return await _send(
         email,

@@ -45,6 +45,7 @@ from agents.config import DEFAULT_CONFLICT
 AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", DEFAULT_CONFLICT)
 # Default: 1x täglich (86400s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
 AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "86400"))  # 24 Stunden
+AUTO_ANALYZE_TIMEOUT_SEC = int(os.getenv("AUTO_ANALYZE_TIMEOUT_SEC", "300"))  # 5 Minuten
 
 
 class ConnectionManager:
@@ -81,6 +82,7 @@ async def lifespan(app: FastAPI):
     # Legacy in-memory fallback when routes don't use state_service (e.g. tests)
     app.state.analysis_cache = {}
     app.state.analysis_last_error = {}
+    app.state.analysis_inflight = {}
     app.state.escalation_timeline_history = {}
     app.state.agent_status_last = {}
     app.state.analysis_run_history = deque(maxlen=50)
@@ -131,9 +133,21 @@ async def lifespan(app: FastAPI):
                     finally:
                         reset_request_context(tok)
 
-                result = await loop.run_in_executor(None, _run_auto)
-                at_ts = time.time()
                 _ntid = get_default_tenant_id()
+                run_key = f"{_ntid}\n{AUTO_ANALYZE_CONFLICT}"
+                if run_key in app.state.analysis_inflight:
+                    logger.info("Periodic analysis skipped for %s: run already in progress.", AUTO_ANALYZE_CONFLICT)
+                    await asyncio.sleep(min(60, AUTO_ANALYZE_INTERVAL_SEC))
+                    continue
+                app.state.analysis_inflight[run_key] = time.time()
+                try:
+                    result = await asyncio.wait_for(
+                        loop.run_in_executor(None, _run_auto),
+                        timeout=float(AUTO_ANALYZE_TIMEOUT_SEC),
+                    )
+                finally:
+                    app.state.analysis_inflight.pop(run_key, None)
+                at_ts = time.time()
                 attach_pattern_flags(app.state.state_service, AUTO_ANALYZE_CONFLICT, result, tenant_id=_ntid)
                 app.state.state_service.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts, tenant_id=_ntid)
                 app.state.state_service.pop_last_error(AUTO_ANALYZE_CONFLICT, tenant_id=_ntid)
@@ -157,6 +171,16 @@ async def lifespan(app: FastAPI):
                 logger.info("Analysis for %s done.", AUTO_ANALYZE_CONFLICT)
                 consecutive_failures = 0
                 await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
+            except asyncio.TimeoutError:
+                consecutive_failures += 1
+                retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)
+                logger.warning(
+                    "Periodic analysis timed out after %ss (attempt %d). Retrying in %ds.",
+                    AUTO_ANALYZE_TIMEOUT_SEC,
+                    consecutive_failures,
+                    retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
             except Exception as e:
                 consecutive_failures += 1
                 retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)

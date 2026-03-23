@@ -131,6 +131,31 @@ class AnalyzeRequest(BaseModel):
 ANALYZE_TIMEOUT_SEC = 300  # 5 minutes
 
 
+def _inflight_key(conflict: str, tenant_id: uuid.UUID | None) -> str:
+    return f"{tenant_id or 'default'}\n{conflict}"
+
+
+def _ensure_inflight_registry(app_state: Any) -> dict[str, float]:
+    registry = getattr(app_state, "analysis_inflight", None)
+    if isinstance(registry, dict):
+        return registry
+    registry = {}
+    setattr(app_state, "analysis_inflight", registry)
+    return registry
+
+
+def _try_mark_inflight(app_state: Any, key: str) -> bool:
+    registry = _ensure_inflight_registry(app_state)
+    if key in registry:
+        return False
+    registry[key] = time.time()
+    return True
+
+
+def _clear_inflight(app_state: Any, key: str) -> None:
+    _ensure_inflight_registry(app_state).pop(key, None)
+
+
 @router.get("/analyze/stream")
 @limiter.limit("10/minute")
 async def analyze_stream(request: Request, conflict: str = DEFAULT_CONFLICT) -> StreamingResponse:
@@ -260,7 +285,11 @@ async def analyze_status(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
         return conflict_bad_request(e)
     entry = get_cache(request, conflict)
     last_err = get_last_error(request, conflict)
+    req_ctx = get_request_ctx(request)
+    run_key = _inflight_key(conflict, req_ctx.tenant_id)
+    inflight = _ensure_inflight_registry(request.app.state)
     out = {"cached": bool(entry), "conflict": conflict}
+    out["running"] = run_key in inflight
     if entry:
         out["at"] = entry.get("at")
     if last_err:
@@ -384,9 +413,15 @@ async def refresh_analysis(
     app_state = request.app.state
     req_ctx = get_request_ctx(request)
     tid = req_ctx.tenant_id
+    run_key = _inflight_key(conflict, tid)
     state.pop_last_error(conflict, tenant_id=tid)
 
     if sync:
+        if not _try_mark_inflight(app_state, run_key):
+            return JSONResponse(
+                status_code=409,
+                content={"status": "already_running", "conflict": conflict, "message": "Analysis is already running."},
+            )
         try:
             loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
@@ -409,6 +444,15 @@ async def refresh_analysis(
         except Exception as e:
             state.set_last_error(conflict, str(e), tenant_id=tid)
             return JSONResponse(status_code=500, content={"error": str(e), "traceback": traceback.format_exc()})
+        finally:
+            _clear_inflight(app_state, run_key)
+
+    if not _try_mark_inflight(app_state, run_key):
+        return {
+            "status": "already_running",
+            "conflict": conflict,
+            "message": "Analysis already running. Poll /api/analyze/status to check.",
+        }
 
     async def _run_in_background() -> None:
         try:
@@ -434,6 +478,8 @@ async def refresh_analysis(
         except Exception as e:
             state.set_last_error(conflict, str(e), tenant_id=tid)
             print(f"[refresh] Analysis for {conflict} failed: {e}")
+        finally:
+            _clear_inflight(app_state, run_key)
 
     asyncio.create_task(_run_in_background())
     return {
@@ -468,10 +514,19 @@ async def trigger_analysis(
                 "error": "Invalid or missing X-Trigger-Secret. Remove ANALYZE_TRIGGER_SECRET from env to disable."
             },
         )
+    req_ctx = get_request_ctx(request)
+    run_key = _inflight_key(conflict, req_ctx.tenant_id)
+    if not _try_mark_inflight(request.app.state, run_key):
+        return JSONResponse(
+            status_code=409,
+            content={"status": "already_running", "conflict": conflict, "message": "Analysis is already running."},
+        )
     try:
         loop = asyncio.get_running_loop()
-        req_ctx = get_request_ctx(request)
-        result = await loop.run_in_executor(None, lambda: _run_analyze_in_context(req_ctx, conflict))
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: _run_analyze_in_context(req_ctx, conflict)),
+            timeout=float(ANALYZE_TIMEOUT_SEC),
+        )
         await _persist_analysis_result(
             conflict=conflict,
             result=result,
@@ -481,5 +536,12 @@ async def trigger_analysis(
             tenant_id=req_ctx.tenant_id,
         )
         return AnalysisResult.model_validate(result)
+    except asyncio.TimeoutError:
+        msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
+        state.set_last_error(conflict, msg, tenant_id=req_ctx.tenant_id)
+        return JSONResponse(status_code=504, content={"error": msg, "conflict": conflict})
     except Exception as e:
+        state.set_last_error(conflict, str(e), tenant_id=req_ctx.tenant_id)
         return JSONResponse(status_code=500, content={"error": str(e)})
+    finally:
+        _clear_inflight(request.app.state, run_key)

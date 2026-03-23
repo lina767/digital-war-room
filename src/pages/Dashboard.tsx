@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
-import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
-import { ChevronDown, Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search } from "lucide-react";
+import { Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
@@ -44,10 +44,9 @@ const Dashboard = () => {
 
 function DashboardContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [conflictDropdownOpen, setConflictDropdownOpen] = useState(false);
-  const conflictDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [selectedConflict, setSelectedConflict] = useState<string>(CONFLICT_OPTIONS[0]?.apiValue ?? "Iran");
+  const selectedConflict = DEFAULT_CONFLICT;
+  const displayConflictLabel = DEFAULT_CONFLICT;
   const [headlineAllowedSources, setHeadlineAllowedSources] = useState<Set<string>>(() => new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const skipHeadlinePersistRef = useRef(false);
@@ -68,9 +67,6 @@ function DashboardContent() {
     conflict: selectedConflict,
     enabled: true,
   });
-  const currentOption = CONFLICT_OPTIONS.find((o) => o.apiValue === selectedConflict);
-  const displayConflictLabel = currentOption?.label ?? selectedConflict;
-
   const searchHits = useMemo(() => buildSearchHits(conflictData), [conflictData]);
 
   useEffect(() => {
@@ -120,14 +116,6 @@ function DashboardContent() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  useEffect(() => {
-    const onOutside = (e: MouseEvent) => {
-      if (conflictDropdownRef.current && !conflictDropdownRef.current.contains(e.target as Node)) setConflictDropdownOpen(false);
-    };
-    document.addEventListener("click", onOutside);
-    return () => document.removeEventListener("click", onOutside);
   }, []);
 
   // Live clock
@@ -276,48 +264,11 @@ function DashboardContent() {
           <div className="hidden lg:block">
             <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} compact />
           </div>
-          <div className="relative" ref={conflictDropdownRef}>
-            <button
-              type="button"
-              id="conflict-theater-trigger"
-              aria-haspopup="listbox"
-              aria-expanded={conflictDropdownOpen}
-              aria-controls="conflict-theater-listbox"
-              aria-label="Select conflict theater"
-              className="flex items-center gap-1 text-xs sm:text-sm font-mono border border-border rounded-md px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-11 sm:min-h-0 hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors touch-manipulation"
-              onClick={() => setConflictDropdownOpen((o) => !o)}
-            >
-              <span className="hidden sm:inline truncate max-w-[120px]">{displayConflictLabel}</span>
-              <span className="sm:hidden truncate max-w-[80px]">{currentOption?.id ?? selectedConflict}</span>
-              <ChevronDown
-                className={`h-3 w-3 flex-shrink-0 transition-transform ${conflictDropdownOpen ? "rotate-180" : ""}`}
-                aria-hidden
-              />
-            </button>
-            {conflictDropdownOpen && (
-              <div
-                id="conflict-theater-listbox"
-                role="listbox"
-                aria-label="Conflict theaters"
-                className="absolute top-full right-0 mt-1 w-52 sm:w-48 max-h-[70vh] overflow-y-auto rounded-md border border-border bg-background shadow-lg z-50 py-1"
-              >
-                {CONFLICT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selectedConflict === opt.apiValue}
-                    className="w-full flex items-center gap-2 px-3 py-3 sm:py-2 text-left text-xs font-mono hover:bg-muted active:bg-muted min-h-11 sm:min-h-0 touch-manipulation"
-                    onClick={() => {
-                      setSelectedConflict(opt.apiValue);
-                      setConflictDropdownOpen(false);
-                    }}
-                  >
-                    <span className={selectedConflict === opt.apiValue ? "text-primary font-medium" : ""}>{opt.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
+          <div
+            className="flex items-center text-xs sm:text-sm font-mono border border-border rounded-md px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-11 sm:min-h-0 text-foreground pointer-events-none select-none"
+            aria-label="Theater"
+          >
+            <span className="truncate max-w-[120px] text-primary font-medium">{displayConflictLabel}</span>
           </div>
           <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}
