@@ -63,7 +63,7 @@ HIERARCHY_WEIGHTS = {
                 "satintel": 0.133,
                 "chokepoint": 0.209,
                 "proximity": 0.171,
-                "pentagon_signals": 0.05,
+                "pentagon": 0.05,
             },
         },
         "financial": {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
@@ -105,7 +105,7 @@ AGENT_TTLS = {
     "protest": 0,
     "proximity": 0,
     # Default 6h cache/TTL to protect SerpAPI quota (2 searches per fresh run).
-    "pentagon_signals": int(os.getenv("AGENT_TTL_PENTAGON_SIGNALS", "21600")),
+    "pentagon": int(os.getenv("AGENT_TTL_PENTAGON", os.getenv("AGENT_TTL_PENTAGON_SIGNALS", "21600"))),
 }
 
 STORE_RETENTION_CYCLES = int(os.getenv("STORE_RETENTION_CYCLES", "5"))

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate TypeScript types from Pydantic models (backend/models/analysis.py).
+# Generate TypeScript types from Pydantic models (backend/agents/contracts.py).
 # Requires: root `npm install` (json-schema-to-typescript); Python venv under backend/.venv.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,6 +10,6 @@ if [[ ! -d .venv ]]; then
 fi
 .venv/bin/pip install -q "pydantic>=2" "pydantic-to-typescript>=2"
 .venv/bin/pydantic2ts \
-  --module models.analysis \
-  --output "$ROOT/frontend/types.ts" \
+  --module agents.contracts \
+  --output "$ROOT/src/types/conflict.generated.ts" \
   --json2ts-cmd "$ROOT/node_modules/.bin/json2ts"

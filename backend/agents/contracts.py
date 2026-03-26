@@ -254,13 +254,13 @@ class NarrativeResult(BaseAgentResult):
 
 
 # ---------------------------------------------------------------------------
-# PENTAGON_SIGNALS (informal DC-area OSINT proxies)
+# PENTAGON (informal DC-area OSINT proxies)
 # ---------------------------------------------------------------------------
 
 
-class PentagonSignalsResult(BaseAgentResult):
+class PentagonResult(BaseAgentResult):
     schema_version: int = 1
-    pentagon_signals_score: float = 0.0
+    pentagon_score: float = 0.0
     venues: List[Dict[str, Any]] = Field(default_factory=list)
     disclaimer: str = ""
     data_confidence: str = "degraded"
@@ -299,7 +299,7 @@ AGENT_RESULT_TYPES: Dict[str, type] = {
     "proximity": ProximityResult,
     "narrative": NarrativeResult,
     "chokepoint": ChokepointResult,
-    "pentagon_signals": PentagonSignalsResult,
+    "pentagon": PentagonResult,
 }
 
 

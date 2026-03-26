@@ -1,4 +1,4 @@
-import type { RootCauseSuggestion } from "@/hooks/useConflictWebSocket";
+import type { RootCauseSuggestion } from "@/types/conflict";
 
 export function RootCauseSuggestions({ items }: { items: RootCauseSuggestion[] }) {
   if (!items?.length) return null;

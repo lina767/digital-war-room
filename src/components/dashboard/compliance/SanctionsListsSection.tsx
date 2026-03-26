@@ -1,4 +1,4 @@
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { LISTS_COVERED_NOTE } from "@/lib/complianceCopy";
 
 export function SanctionsListsSection({

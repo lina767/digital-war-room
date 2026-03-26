@@ -306,13 +306,13 @@ def append_agent_findings(
             "high",
         )
 
-    pentagon_result = agent_results.get("pentagon_signals") or {}
-    ps = pentagon_result.get("pentagon_signals_score")
+    pentagon_result = agent_results.get("pentagon") or {}
+    ps = pentagon_result.get("pentagon_score")
     if isinstance(ps, (int, float)) and float(ps) >= 45:
         _append_finding(
             key_findings,
             confidences,
-            f"PENTAGON_SIGNALS – informal DC-area venue busyness proxy {float(ps):.0f}/100 "
+            f"PENTAGON – informal DC-area venue busyness proxy {float(ps):.0f}/100 "
             "(anecdotal; not verified military activity)",
             "low",
         )

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { filterArticlesBySourceKeys } from "@/lib/headlineSources";
 
 const FALLBACK_ITEMS = [

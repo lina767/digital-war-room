@@ -3,7 +3,7 @@ import { MessageCircle } from "lucide-react";
 import { getApiBase } from "@/lib/api";
 import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import { DOC_QA_DISCLAIMER, DOC_QA_INTRO, DOC_QA_PLACEHOLDER } from "@/lib/complianceCopy";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import type { DocumentQAResponse } from "./shared";
 
 export function DocumentQASection({ data }: { data: ConflictData | null }) {

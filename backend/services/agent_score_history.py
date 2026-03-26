@@ -33,7 +33,7 @@ TRACKED_AGENT_KEYS: Tuple[str, ...] = (
     "diplo",
     "proximity",
     "chokepoint",
-    "pentagon_signals",
+    "pentagon",
 )
 
 DB_PATH = Path(

@@ -1,5 +1,5 @@
 import { Wifi, WifiOff, CloudOff, Database } from "lucide-react";
-import type { ConnectionStatus } from "@/hooks/useConflictWebSocket";
+import type { ConnectionStatus } from "@/types/conflict";
 import { formatTimeAgo } from "@/lib/utils";
 
 interface OfflineStatusBadgeProps {

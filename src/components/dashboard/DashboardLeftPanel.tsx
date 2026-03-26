@@ -1,7 +1,7 @@
 import { ChevronRight, AlertTriangle, X } from "lucide-react";
 import { AGENTS_WITH_SOURCES, AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { Dispatch, SetStateAction } from "react";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
 import { getAgentConfidenceFromConflict, type DataQualityLevel } from "@/components/dashboard/agentConfidenceHelpers";
 import { Badge } from "@/components/ui/badge";

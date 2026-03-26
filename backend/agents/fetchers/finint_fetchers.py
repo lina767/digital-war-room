@@ -18,6 +18,7 @@ DATA_API_BASE = "https://data-api.polymarket.com"
 FEAR_GREED_CNN_API_URL = (os.getenv("FEAR_GREED_CNN_API_URL") or "").strip() or None
 FEAR_GREED_FALLBACK_URL = "https://api.alternative.me/fng/?limit=1"
 METACULUS_API_BASE = "https://www.metaculus.com/api2/questions/"
+KALSHI_API_BASE = os.getenv("KALSHI_API_BASE", "").strip()
 METALS_API_BASE = "https://metals-api.com/api"
 OFAC_SDN_CSV_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 
@@ -69,6 +70,7 @@ METACULUS_CONFLICT_TERMS = [
     "taiwan",
     "china",
 ]
+KALSHI_CONFLICT_TERMS = ["iran", "military", "strike", "nuclear", "israel", "gaza", "ukraine", "russia", "china", "taiwan"]
 
 OFAC_CONFLICT_KEYWORDS: Dict[str, List[str]] = {
     "iran": ["iran", "irgc", "iranian", "tehran", "qods", "khamenei"],
@@ -282,6 +284,57 @@ def get_gold_price() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+def get_vix() -> Dict[str, Any]:
+    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY not set"}
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(ALPHAVANTAGE_URL, params={"function": "VIX", "interval": "daily", "apikey": api_key})
+            resp.raise_for_status()
+            return resp.json()
+
+    try:
+        data = run_async(_fetch())
+        series = data.get("data", [])
+        if len(series) < 2:
+            return {"error": "Insufficient data"}
+        latest, prev = series[0], series[1]
+        price = safe_float(latest.get("value"))
+        prev_price = safe_float(prev.get("value"))
+        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
+        return {"price": f"{price:.2f}" if price is not None else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", "")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_fear_greed() -> Dict[str, Any]:
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if FEAR_GREED_CNN_API_URL:
+                try:
+                    resp = await client.get(FEAR_GREED_CNN_API_URL)
+                    data = resp.json()
+                    if isinstance(data, dict) and data.get("value") is not None:
+                        return {"value": int(data.get("value")), "value_classification": data.get("value_classification")}
+                except Exception:
+                    pass
+            resp = await client.get(FEAR_GREED_FALLBACK_URL)
+            data = resp.json()
+            arr = data.get("data") if isinstance(data, dict) else []
+            if not arr or not isinstance(arr, list):
+                return {"error": "No data"}
+            item = arr[0]
+            value = item.get("value")
+            return {"value": int(value) if value is not None else None, "value_classification": item.get("value_classification")}
+
+    try:
+        return run_async(_fetch())
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
     async def _fetch_tracked():
         headers = _polymarket_headers()
@@ -383,6 +436,52 @@ def get_metaculus_conflict_questions(conflict: str) -> List[Dict[str, Any]]:
                     "probability": round(prob, 3) if prob is not None else None,
                     "url": f"https://www.metaculus.com/questions/{q.get('id', '')}",
                     "resolve_time": q.get("resolve_time"),
+                }
+            )
+        return out[:10]
+
+    try:
+        return run_async(_fetch())
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def get_kalshi_conflict_markets(conflict: str) -> List[Dict[str, Any]]:
+    if not KALSHI_API_BASE:
+        return []
+
+    async def _fetch():
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    f"{KALSHI_API_BASE.rstrip('/')}/events",
+                    params={"limit": 50, "status": "open"},
+                )
+                if resp.status_code != 200:
+                    return [{"error": f"Kalshi API {resp.status_code}"}]
+                data = resp.json()
+        except Exception as e:
+            return [{"error": str(e)}]
+        events = data.get("events") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        if not isinstance(events, list):
+            return []
+        cl = (conflict or "").lower()
+        keywords = [t for t in KALSHI_CONFLICT_TERMS if t in cl] or ["iran", "military", "war"]
+        out: List[Dict[str, Any]] = []
+        for ev in events[:15]:
+            if not isinstance(ev, dict):
+                continue
+            title = (ev.get("title") or ev.get("event_ticker") or "").strip()
+            title_lower = title.lower()
+            if not title or not any(kw in title_lower for kw in keywords):
+                continue
+            prob = safe_float(ev.get("last_price")) or 0.0
+            out.append(
+                {
+                    "question": title[:200],
+                    "probability": round(prob, 3),
+                    "url": f"https://kalshi.com/markets/{ev.get('event_ticker', ev.get('ticker', ''))}",
+                    "volume": safe_float(ev.get("volume")) or 0,
                 }
             )
         return out[:10]

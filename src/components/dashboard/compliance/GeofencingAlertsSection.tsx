@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import type { GeofencingAlert } from "@/hooks/useConflictWebSocket";
+import type { GeofencingAlert } from "@/types/conflict";
 import { CollapsibleSection, ZoneTypeBadge } from "./shared";
 
 export function GeofencingAlertsSection({ alerts }: { alerts: GeofencingAlert[] }) {

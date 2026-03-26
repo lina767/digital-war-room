@@ -1,5 +1,5 @@
 import { RISK_LEVEL_LABELS } from "@/lib/complianceCopy";
-import type { ComplianceRiskScore } from "@/hooks/useConflictWebSocket";
+import type { ComplianceRiskScore } from "@/types/conflict";
 import { DRIVER_SECTION_MAP, RISK_LEVEL_STYLES } from "./shared";
 
 export function RiskScoreDisplay({

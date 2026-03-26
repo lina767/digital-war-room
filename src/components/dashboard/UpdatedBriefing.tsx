@@ -1,4 +1,4 @@
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
 import { RootCauseSuggestions } from "@/components/dashboard/RootCauseSuggestions";
 import { NarrativeBody } from "@/components/dashboard/NarrativeBody";

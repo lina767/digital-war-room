@@ -44,7 +44,7 @@ EXPECTED_RESPONSE_KEYS = {
     "proximity",
     "narrative",
     "chokepoint",
-    "pentagon_signals",
+    "pentagon",
 }
 
 
@@ -62,7 +62,7 @@ def _mock_store():
         "satintel",
         "proximity",
         "chokepoint",
-        "pentagon_signals",
+        "pentagon",
         "finint",
         "energy",
         "news",

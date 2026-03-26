@@ -97,10 +97,10 @@ export default function DemoPage() {
   return (
     <>
       <SEO
-        title="Curated demo – Digital War Room"
-        description="Explore a curated Red Sea / Bab el-Mandeb scenario: escalation score, BLUF narrative, and multi-stream context–without live agent runs."
+        title="Historical demo snapshot – Digital War Room"
+        description="Explore a historical analysis run with real data-quality scoring, BLUF narrative, and multi-stream context."
         path="/demo"
-        imageAlt="Digital War Room demo snapshot"
+        imageAlt="Digital War Room historical snapshot"
       />
       <div className="min-h-screen bg-background text-foreground">
         <header className="border-b border-border">
@@ -120,9 +120,9 @@ export default function DemoPage() {
         </header>
 
         <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
-          <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">Curated scenario</p>
+          <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-muted-foreground">Historical snapshot</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-            {data?.scenario_title ?? "Maritime chokepoint demo"}
+            {data?.scenario_title ?? "Historical analysis run"}
           </h1>
           {data?.scenario_note && (
             <p className="mt-3 text-sm text-muted-foreground">{data.scenario_note}</p>
@@ -131,7 +131,7 @@ export default function DemoPage() {
           {loading && (
             <div className="mt-12 flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-              Loading snapshot…
+              Loading historical run…
             </div>
           )}
 
@@ -274,7 +274,7 @@ export default function DemoPage() {
               {data.precomputed_agent_results && data.precomputed_agent_results.length > 0 && (
                 <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
                   <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                    Precomputed agent results
+                    Agent results
                   </h2>
                   <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                     {data.precomputed_agent_results.map((r, i) => (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";

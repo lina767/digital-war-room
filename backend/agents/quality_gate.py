@@ -95,7 +95,7 @@ def run_cross_agent_quality_gate(
         ("diplo", ("diplo_score",)),
         ("proximity", ("proximity_score",)),
         ("chokepoint", ("chokepoint_score",)),
-        ("pentagon_signals", ("pentagon_signals_score",)),
+        ("pentagon", ("pentagon_score",)),
     ):
         ag = agent_results.get(name) or {}
         if not isinstance(ag, dict):

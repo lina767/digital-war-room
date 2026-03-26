@@ -65,7 +65,7 @@ WAVE2_AGENTS = [
     "protest",
     "proximity",
     "chokepoint",
-    "pentagon_signals",
+    "pentagon",
     "narrative",
 ]
 

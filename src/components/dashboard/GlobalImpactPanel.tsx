@@ -1,4 +1,4 @@
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { Globe } from "lucide-react";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";

@@ -1,6 +1,6 @@
 import { Radio } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { AISAnomaly } from "@/hooks/useConflictWebSocket";
+import type { AISAnomaly } from "@/types/conflict";
 import { CollapsibleSection } from "./shared";
 
 export function AISAnomaliesSection({ anomalies }: { anomalies: AISAnomaly[] }) {

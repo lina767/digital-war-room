@@ -298,7 +298,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
         summary = "PENTAGON_SIGNALS: disabled via PENTAGON_SIGNALS_ENABLED."
         duration_ms = int((time.perf_counter() - t0) * 1000)
         meta = build_agent_meta(
-            "pentagon_signals",
+            "pentagon",
             fetched_at,
             duration_ms,
             sources,
@@ -308,7 +308,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
             data_confidence="degraded",
         )
         return {
-            "pentagon_signals_score": 0.0,
+            "pentagon_score": 0.0,
             "venues": [],
             "summary": summary,
             "data_confidence": "degraded",
@@ -352,7 +352,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
         )
         duration_ms = int((time.perf_counter() - t0) * 1000)
         meta = build_agent_meta(
-            "pentagon_signals",
+            "pentagon",
             fetched_at,
             duration_ms,
             sources,
@@ -362,7 +362,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
             data_confidence="degraded",
         )
         return {
-            "pentagon_signals_score": 0.0,
+            "pentagon_score": 0.0,
             "venues": [],
             "summary": summary,
             "data_confidence": "degraded",
@@ -380,7 +380,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
             )
             duration_ms = int((time.perf_counter() - t0) * 1000)
             meta = build_agent_meta(
-                "pentagon_signals",
+                "pentagon",
                 fetched_at,
                 duration_ms,
                 sources,
@@ -390,7 +390,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
                 data_confidence="degraded",
             )
             return {
-                "pentagon_signals_score": 0.0,
+                "pentagon_score": 0.0,
                 "venues": [],
                 "summary": summary,
                 "data_confidence": "degraded",
@@ -494,7 +494,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
 
     duration_ms = int((time.perf_counter() - t0) * 1000)
     meta = build_agent_meta(
-        "pentagon_signals",
+        "pentagon",
         fetched_at,
         duration_ms,
         sources,
@@ -505,7 +505,7 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
     )
 
     return {
-        "pentagon_signals_score": display_score,
+        "pentagon_score": display_score,
         "venues": venue_rows,
         "summary": summary,
         "data_confidence": "estimated" if scores else "degraded",
@@ -522,7 +522,7 @@ def run_pentagon_signals_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
         return run_async(_run_async_core(conflict))
     except Exception as e:
         logger.exception("PENTAGON_SIGNALS agent error: %s", e)
-        fb = get_agent_fallback("pentagon_signals")
+        fb = get_agent_fallback("pentagon")
         fb["summary"] = f"PENTAGON_SIGNALS error: {e}"
         fb["data_confidence"] = "degraded"
         return fb

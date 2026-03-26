@@ -1,4 +1,4 @@
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { Scale, Building2, Radio } from "lucide-react";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";

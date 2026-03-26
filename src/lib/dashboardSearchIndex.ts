@@ -1,4 +1,4 @@
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 
 export type SearchCategory = "finding" | "headline" | "agent";
 

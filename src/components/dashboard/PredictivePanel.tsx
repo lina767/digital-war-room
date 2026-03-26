@@ -11,7 +11,7 @@ import {
   PREDICTIVE_OUTLOOK_INTRO,
   PREDICTIVE_OUTLOOK_INTRO_SHORT,
 } from "@/lib/predictiveOutlookCopy";
-import type { ConflictData, EscalationForecast, PredictiveBlock } from "@/hooks/useConflictWebSocket";
+import type { ConflictData, EscalationForecast, PredictiveBlock } from "@/types/conflict";
 import { Info } from "lucide-react";
 
 function levelBadgeClass(level: string | undefined): string {

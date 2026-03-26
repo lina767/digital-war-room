@@ -27,7 +27,7 @@ import {
   FEED_DOMAINS,
 } from "@/components/dashboard/feedSectionConfig";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { filterArticlesBySourceKeys } from "@/lib/headlineSources";
 import { Link } from "react-router-dom";
 import { DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE, DOCS_SOURCE_DIRECTORY } from "@/lib/docLinks";

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import type { GeointAnomaly, SigintAircraft, SigintShip } from "./mapConfig";
 import { TheaterMap } from "@/components/dashboard/TheaterMap";
 import { Radio, Rss } from "lucide-react";

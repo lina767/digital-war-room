@@ -128,11 +128,11 @@ DEFAULT_AGENTS: List[AgentDescriptor] = [
         score_field="cyber_score",
     ),
     AgentDescriptor(
-        name="pentagon_signals",
-        module="agents.pentagon_signals_agent",
-        entry_func="run_pentagon_signals_agent",
+        name="pentagon",
+        module="agents.pentagon_agent",
+        entry_func="run_pentagon_agent",
         division="military",
-        score_field="pentagon_signals_score",
+        score_field="pentagon_score",
     ),
 ]
 

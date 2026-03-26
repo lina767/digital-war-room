@@ -4,7 +4,7 @@ import { ArrowLeft, FileDown, RefreshCw, Share2, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getLatestAnalysis } from "@/lib/api";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
 import {
   PREDICTIVE_OUTLOOK_DISCLAIMER,

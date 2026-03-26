@@ -9,7 +9,7 @@ import {
   COMPLIANCE_INTRO_SHORT,
   COMPLIANCE_NO_ALERTS_TEXT,
 } from "@/lib/complianceCopy";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import {
   AISAnomaliesSection,
   ComplianceZonesSection,

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { AgentMetaFooter } from "@/components/dashboard/AgentMetaFooter";
 import { formatTimeAgo } from "@/lib/utils";

@@ -1,5 +1,5 @@
 """
-Military & Maritime Division – SIGINT, GEOINT, PROXIMITY, CHOKEPOINT, PENTAGON_SIGNALS.
+Military & Maritime Division – SIGINT, GEOINT, PROXIMITY, CHOKEPOINT, PENTAGON.
 
 Owns:
 - Tier 2: mil_sigint_chokepoint_enrich
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class MilitaryDivision(DivisionHead):
     name = "military"
-    agent_names = ["sigint", "geoint", "satintel", "proximity", "chokepoint", "pentagon_signals"]
+    agent_names = ["sigint", "geoint", "satintel", "proximity", "chokepoint", "pentagon"]
     enrichment_nodes = [
         "mil_sigint_chokepoint_enrich",
         "geoint_ner_enrich",
@@ -30,7 +30,7 @@ class MilitaryDivision(DivisionHead):
         "satintel": 0.133,
         "chokepoint": 0.209,
         "proximity": 0.171,
-        "pentagon_signals": 0.05,
+        "pentagon": 0.05,
     }
 
     def _get_enrichment_nodes(self) -> List[DAGNode]:
@@ -68,7 +68,7 @@ class MilitaryDivision(DivisionHead):
                 "chokepoint_residual_enrich",
                 "geoint_ner_enrich",
                 "proximity",
-                "pentagon_signals",
+                "pentagon",
             ],
             node_type="division_summary",
             owner_division=self.name,

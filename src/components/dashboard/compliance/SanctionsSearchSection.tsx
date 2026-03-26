@@ -3,7 +3,7 @@ import { Search, Download } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getApiBase } from "@/lib/api";
 import { MATCH_LEVEL_LABELS } from "@/lib/complianceCopy";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import { MATCH_LEVEL_STYLES, type SanctionsBatchResult, type SanctionsResponse } from "./shared";
 
 export function SanctionsSearchSection({ data }: { data: ConflictData | null }) {

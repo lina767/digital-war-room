@@ -1,5 +1,5 @@
 import type { AgentMeta } from "@/lib/api";
-import type { ConflictData } from "@/hooks/useConflictWebSocket";
+import type { ConflictData } from "@/types/conflict";
 import type { FindingConfidenceLevel } from "@/components/dashboard/FindingConfidenceBadge";
 import { normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
 
@@ -26,9 +26,14 @@ export function getAgentConfidenceFromConflict(
 
   let scoreLevel: FindingConfidenceLevel | null = null;
   const conf = meta?.confidence;
+  let sourcesOkCount = 0;
+  let sourcesMissingCount = 0;
   if (conf && typeof conf === "object" && "level" in conf) {
-    const lv = (conf as { level?: string }).level;
+    const c = conf as { level?: string; sources_ok?: string[]; sources_missing?: string[] };
+    const lv = c.level;
     if (lv) scoreLevel = normalizeFindingConfidence(lv);
+    sourcesOkCount = Array.isArray(c.sources_ok) ? c.sources_ok.length : 0;
+    sourcesMissingCount = Array.isArray(c.sources_missing) ? c.sources_missing.length : 0;
   }
 
   let dataQuality: DataQualityLevel | null =
@@ -45,10 +50,13 @@ export function getAgentConfidenceFromConflict(
   const parts: string[] = [];
   if (conf && typeof conf === "object") {
     const c = conf as { level?: string; sources_ok?: string[]; sources_missing?: string[] };
-    if (c.level) parts.push(`Source health: ${c.level}`);
-    if (c.sources_ok?.length) parts.push(`OK: ${c.sources_ok.join(", ")}`);
-    if (c.sources_missing?.length) parts.push(`Missing: ${c.sources_missing.join(", ")}`);
+    if (c.level) parts.push(`confidence: ${c.level}`);
+    parts.push(`sources_ok: ${sourcesOkCount}`);
+    parts.push(`sources_missing: ${sourcesMissingCount}`);
+    if (c.sources_ok?.length) parts.push(`ok_sources: ${c.sources_ok.join(", ")}`);
+    if (c.sources_missing?.length) parts.push(`missing_sources: ${c.sources_missing.join(", ")}`);
   }
+  if (meta?.data_freshness) parts.push(`data_freshness: ${meta.data_freshness}`);
   if (dataQuality) parts.push(`Data quality: ${dataQuality}`);
 
   return {
