@@ -57,7 +57,14 @@ HIERARCHY_WEIGHTS = {
     "divisions": {
         "military": {
             "ceo_weight": 0.30,
-            "agents": {"sigint": 0.26, "geoint": 0.20, "satintel": 0.14, "chokepoint": 0.22, "proximity": 0.18},
+            "agents": {
+                "sigint": 0.247,
+                "geoint": 0.19,
+                "satintel": 0.133,
+                "chokepoint": 0.209,
+                "proximity": 0.171,
+                "pentagon_signals": 0.05,
+            },
         },
         "financial": {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
         "information": {"ceo_weight": 0.22, "agents": {"news": 0.40, "socmint": 0.35, "narrative": 0.25}},
@@ -97,6 +104,8 @@ AGENT_TTLS = {
     "cyber": 0,
     "protest": 0,
     "proximity": 0,
+    # Default 6h cache/TTL to protect SerpAPI quota (2 searches per fresh run).
+    "pentagon_signals": int(os.getenv("AGENT_TTL_PENTAGON_SIGNALS", "21600")),
 }
 
 STORE_RETENTION_CYCLES = int(os.getenv("STORE_RETENTION_CYCLES", "5"))

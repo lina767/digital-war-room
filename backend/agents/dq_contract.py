@@ -130,6 +130,7 @@ def apply_quality_to_all_agents(
         "proximity",
         "narrative",
         "chokepoint",
+        "pentagon_signals",
     )
     for name in names:
         block = agent_results.get(name)

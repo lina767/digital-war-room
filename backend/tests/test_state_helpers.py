@@ -30,6 +30,7 @@ def test_build_agent_status_from_result_empty():
         "proximity",
         "narrative",
         "chokepoint",
+        "pentagon_signals",
     }
 
 

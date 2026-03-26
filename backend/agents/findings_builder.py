@@ -306,6 +306,17 @@ def append_agent_findings(
             "high",
         )
 
+    pentagon_result = agent_results.get("pentagon_signals") or {}
+    ps = pentagon_result.get("pentagon_signals_score")
+    if isinstance(ps, (int, float)) and float(ps) >= 45:
+        _append_finding(
+            key_findings,
+            confidences,
+            f"PENTAGON_SIGNALS – informal DC-area venue busyness proxy {float(ps):.0f}/100 "
+            "(anecdotal; not verified military activity)",
+            "low",
+        )
+
     food_risk = float(energy_result.get("food_security_risk", 0))
     if food_risk >= 50:
         food_items = energy_result.get("food_commodities") or []

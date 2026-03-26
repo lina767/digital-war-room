@@ -154,11 +154,17 @@ def _compute_satintel_score(stats: Dict[str, float], product_count: int) -> Tupl
 
 
 def _fallback_result(conflict: str, reason: str) -> Dict[str, Any]:
+    from .health_registry import get_health_registry
+
     fetched_at = utc_now_iso()
     src = [
         SourceResult(name="Sentinel Hub Process API", status="error", fetched_at=fetched_at, record_count=0),
         SourceResult(name="Copernicus Data Space OData", status="error", fetched_at=fetched_at, record_count=0),
     ]
+    reg = get_health_registry()
+    if reg:
+        for sr in src:
+            reg.record_result(sr.name, "satintel", sr)
     return {
         "conflict": conflict,
         "satintel_score": 15.0,
@@ -247,6 +253,12 @@ def run_satintel_agent(
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         has_data = status["sentinelhub"] == "ok" or status["copernicus"] == "ok"
+        from .health_registry import get_health_registry
+
+        reg = get_health_registry()
+        if reg:
+            for sr in source_results:
+                reg.record_result(sr.name, "satintel", sr)
         return {
             "conflict": conflict,
             "satintel_score": score,

@@ -261,6 +261,17 @@ SOURCE_REFERENCE_DEFAULTS: Dict[str, Dict[str, tuple[List[str], Optional[str]]]]
         "NewsData": (["https://newsdata.io/documentation"], "rest"),
         "GNews": (["https://gnews.io/docs/v4"], "rest"),
     },
+    "satintel": {
+        "Sentinel Hub Process API": (
+            [
+                "https://docs.sentinel-hub.com/api/latest/api/process/",
+                "https://nasa-gibs.github.io/gibs-api-docs/",
+                "https://dataspace.copernicus.eu/analyse/apis/sentinel-hub",
+            ],
+            "rest",
+        ),
+        "Copernicus Data Space OData": (["https://documentation.dataspace.copernicus.eu/APIs/OData.html"], "rest"),
+    },
 }
 
 

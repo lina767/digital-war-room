@@ -27,7 +27,7 @@ class AgentDescriptor(BaseModel):
     enabled: bool = True
 
 
-# Default agent descriptors matching the existing 13 agents
+# Default agent descriptors matching the existing agents (see docs/AGENTS.md)
 DEFAULT_AGENTS: List[AgentDescriptor] = [
     AgentDescriptor(
         name="sigint",
@@ -126,6 +126,13 @@ DEFAULT_AGENTS: List[AgentDescriptor] = [
         entry_func="run_cyber_agent",
         division="technical",
         score_field="cyber_score",
+    ),
+    AgentDescriptor(
+        name="pentagon_signals",
+        module="agents.pentagon_signals_agent",
+        entry_func="run_pentagon_signals_agent",
+        division="military",
+        score_field="pentagon_signals_score",
     ),
 ]
 

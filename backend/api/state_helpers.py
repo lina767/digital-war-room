@@ -31,6 +31,7 @@ AGENT_KEYS = (
     "proximity",
     "narrative",
     "chokepoint",
+    "pentagon_signals",
 )
 
 ANALYSIS_RUN_HISTORY_MAX = 50

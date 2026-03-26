@@ -24,6 +24,7 @@ AGENT_NAMES = (
     "proximity",
     "narrative",
     "chokepoint",
+    "pentagon_signals",
 )
 
 

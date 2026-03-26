@@ -57,7 +57,17 @@ class AgentContext(BaseModel):
 
 # Agent names for two-phase handoff (must match registry).
 WAVE1_AGENTS = ["finint", "sigint", "news", "diplo", "techint", "cyber"]
-WAVE2_AGENTS = ["geoint", "satintel", "socmint", "energy", "protest", "proximity", "chokepoint", "narrative"]
+WAVE2_AGENTS = [
+    "geoint",
+    "satintel",
+    "socmint",
+    "energy",
+    "protest",
+    "proximity",
+    "chokepoint",
+    "pentagon_signals",
+    "narrative",
+]
 
 
 def build_context_from_results(wave1_results: Dict[str, Any]) -> "AgentContext":

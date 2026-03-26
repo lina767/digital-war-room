@@ -43,6 +43,7 @@ class TestAnomalyDetection:
         store.set("satintel", {"satintel_score": 35})
         store.set("proximity", {"proximity_score": 30})
         store.set("chokepoint", {"chokepoint_score": 40})
+        store.set("pentagon_signals", {"pentagon_signals_score": 25})
 
         result = div._execute_summary(store)
         contradictions = [a for a in result.anomalies if a.type == "contradiction"]
@@ -79,6 +80,7 @@ class TestDivisionDAGNodes:
         assert "satintel" in node_ids
         assert "proximity" in node_ids
         assert "chokepoint" in node_ids
+        assert "pentagon_signals" in node_ids
         assert "mil_sigint_chokepoint_enrich" in node_ids
         assert "geoint_ner_enrich" in node_ids
         assert "chokepoint_residual_enrich" in node_ids

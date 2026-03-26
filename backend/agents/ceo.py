@@ -48,7 +48,8 @@ CEO_LEGACY_AGENT_WEIGHTS: Dict[str, float] = {
     "protest": 0.07,
     "diplo": 0.06,
     "proximity": 0.08,
-    "chokepoint": 0.10,
+    "chokepoint": 0.09,
+    "pentagon_signals": 0.02,
 }
 
 # CEO-level division weights
@@ -458,6 +459,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "proximity",
             "narrative",
             "chokepoint",
+            "pentagon_signals",
         ]
     }
     apply_quality_to_all_agents(agent_results)
@@ -477,6 +479,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     proximity_result = agent_results.get("proximity") or {}
     narrative_result = agent_results.get("narrative") or {}
     chokepoint_result = agent_results.get("chokepoint") or {}
+    pentagon_signals_result = agent_results.get("pentagon_signals") or {}
 
     agent_data_confidence: Dict[str, str] = {
         name: infer_data_confidence_from_result(agent_results.get(name)) for name in CEO_LEGACY_AGENT_WEIGHTS
@@ -496,6 +499,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     diplo_score = _coerce_float(diplo_result.get("diplo_score"), 0.0)
     proximity_score = _coerce_float(proximity_result.get("proximity_score"), 0.0)
     chokepoint_score = _coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
+    pentagon_signals_score = _coerce_float(pentagon_signals_result.get("pentagon_signals_score"), 0.0)
 
     scores_by_agent: Dict[str, float] = {
         "finint": finint_score,
@@ -511,6 +515,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "diplo": diplo_score,
         "proximity": proximity_score,
         "chokepoint": chokepoint_score,
+        "pentagon_signals": pentagon_signals_score,
     }
     legacy_combined, legacy_active_weight = _legacy_combined_excluding_degraded(scores_by_agent, agent_data_confidence)
     has_agent_scores = any(
@@ -528,6 +533,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "diplo_score" in diplo_result,
             "proximity_score" in proximity_result,
             "chokepoint_score" in chokepoint_result,
+            "pentagon_signals_score" in pentagon_signals_result,
         )
     )
     has_legacy_signal = has_agent_scores and legacy_active_weight > 0
@@ -563,6 +569,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "diplo": diplo_score,
         "proximity": proximity_score,
         "chokepoint": chokepoint_score,
+        "pentagon_signals": pentagon_signals_score,
     }
 
     temporal_context: Dict[str, Any] = {}
@@ -618,6 +625,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         proximity_result,
         narrative_result,
         chokepoint_result,
+        pentagon_signals_result,
         temporal_context,
         data_quality_gate,
     )
@@ -650,6 +658,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                 diplo_score,
                 proximity_score,
                 chokepoint_score,
+                pentagon_signals_score,
             ]
 
             use_fallback = os.getenv("USE_SUPERVISOR_FALLBACK_MODEL", "false").strip().lower() in ("1", "true", "yes")
@@ -790,6 +799,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "proximity",
         "narrative",
         "chokepoint",
+        "pentagon_signals",
     ]
     provenance_index: List[Dict[str, Any]] = []
     for pname in provenance_agent_keys:
@@ -863,6 +873,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "proximity",
         "narrative",
         "chokepoint",
+        "pentagon_signals",
     ]:
         raw_result = store.get(agent_name)
         response[agent_name] = _as_dict(raw_result) if raw_result else {}
@@ -1022,6 +1033,15 @@ def _compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         dc = result.get("data_confidence")
         if dc in ("live", "estimated", "degraded"):
             out["data_confidence"] = dc
+    if agent_name == "pentagon_signals":
+        out["pentagon_signals_score"] = result.get("pentagon_signals_score", 0.0)
+        out["venues"] = (result.get("venues") or [])[:6]
+        disc = result.get("disclaimer")
+        if isinstance(disc, str) and disc.strip():
+            out["disclaimer"] = disc.strip()[:500]
+        dc2 = result.get("data_confidence")
+        if dc2 in ("live", "estimated", "degraded"):
+            out["data_confidence"] = dc2
     return out
 
 
@@ -1048,6 +1068,7 @@ def _build_supervisor_user_payload(
     proximity_result: Dict[str, Any],
     narrative_result: Dict[str, Any],
     chokepoint_result: Dict[str, Any],
+    pentagon_signals_result: Dict[str, Any],
     temporal_context: Dict[str, Any] | None = None,
     data_quality_gate: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
@@ -1065,6 +1086,7 @@ def _build_supervisor_user_payload(
     diplo_score = _coerce_float(diplo_result.get("diplo_score"), 0.0)
     proximity_score = _coerce_float(proximity_result.get("proximity_score"), 0.0)
     chokepoint_score = _coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
+    pentagon_signals_score = _coerce_float(pentagon_signals_result.get("pentagon_signals_score"), 0.0)
 
     return {
         "conflict": conflict,
@@ -1093,6 +1115,7 @@ def _build_supervisor_user_payload(
             "diplo": diplo_score,
             "proximity": proximity_score,
             "chokepoint": chokepoint_score,
+            "pentagon_signals": pentagon_signals_score,
         },
         "finint": _compact_for_llm("finint", finint_result),
         "sigint": _compact_for_llm("sigint", sigint_result),
@@ -1108,6 +1131,7 @@ def _build_supervisor_user_payload(
         "proximity": _compact_for_llm("proximity", proximity_result),
         "narrative": _compact_for_llm("narrative", narrative_result),
         "chokepoint": _compact_for_llm("chokepoint", chokepoint_result),
+        "pentagon_signals": _compact_for_llm("pentagon_signals", pentagon_signals_result),
         "agent_score_temporal": temporal_context or {},
         "data_quality_gate": data_quality_gate or {},
     }
@@ -1154,7 +1178,7 @@ def _build_ceo_prompt(
     return "\n".join(parts)
 
 
-_CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to 10 intelligence streams:
+_CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to multiple intelligence streams:
 - FININT: Financial markets and oil price indicators
 - SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)
 - NEWS: Open-source media sentiment analysis
@@ -1168,6 +1192,7 @@ _CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to 10 
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 - PROXIMITY: Strike-civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
 - CHOKEPOINT: Maritime chokepoint monitoring (Strait of Hormuz, Bab el-Mandeb, Suez Canal) - tanker density, oil flow estimates, disruption risk scoring, data quality transparency
+- PENTAGON_SIGNALS: Informal DC-area venue busyness proxies (e.g. Pentagon-adjacent pizza + configurable nightlife) from mapped search; anecdotal only — never treat as confirmed military activity; use as weak context with disclaimer
 
 DATA CONFIDENCE (required): The payload includes "agent_data_confidence" per stream: "live" (primary sensors/APIs), "estimated" (proxies or partial feeds), "degraded" (no reliable feed). The list "degraded_agents" names streams whose numeric scores must NOT be read as evidence of safety — low scores there usually mean missing data, not a calm situation. When "degraded_agents" is non-empty, you MUST state explicitly which streams are degraded and warn that the composite may understate risk. Do not imply the theater is quiet based solely on low scores from degraded streams.
 
