@@ -251,14 +251,11 @@ function TheaterMapInner({
     setTooltip(null);
   }, []);
 
-  /** Below this zoom, force pitch to 0 so the basemap stays flat; dense markers read clearer at overview scale. */
-  const ZOOM_FLATTEN_PITCH = 5.5;
-
   const onViewStateChange = useCallback(
     ({ viewState: vs }: { viewState: typeof viewState }) => {
       const z = Math.min(Math.max(vs.zoom, 2), 8);
-      const pitch = z < ZOOM_FLATTEN_PITCH ? 0 : (vs.pitch ?? 0);
-      setViewState({ ...vs, zoom: z, pitch });
+      // Keep theater map in strict 2D to avoid perspective distortion on markers.
+      setViewState({ ...vs, zoom: z, pitch: 0, bearing: 0 });
     },
     [],
   );
@@ -488,9 +485,25 @@ function TheaterMapInner({
         }
       >
         {MAPBOX_TOKEN ? (
-          <MapboxMap mapboxAccessToken={MAPBOX_TOKEN} mapStyle={MAPBOX_STYLE} reuseMaps />
+          <MapboxMap
+            mapboxAccessToken={MAPBOX_TOKEN}
+            mapStyle={MAPBOX_STYLE}
+            reuseMaps
+            dragRotate={false}
+            touchPitch={false}
+            maxPitch={0}
+            pitchWithRotate={false}
+          />
         ) : (
-          <MapLibreMap mapLib={maplibregl} mapStyle={FALLBACK_MAP_STYLE} reuseMaps />
+          <MapLibreMap
+            mapLib={maplibregl}
+            mapStyle={FALLBACK_MAP_STYLE}
+            reuseMaps
+            dragRotate={false}
+            touchPitch={false}
+            maxPitch={0}
+            pitchWithRotate={false}
+          />
         )}
       </DeckGL>
 
