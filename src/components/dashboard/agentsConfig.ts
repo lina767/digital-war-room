@@ -134,6 +134,10 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "AISStream/MT", description: "AISStream (optional AIRSTREAM_API_KEY), MarineTraffic, or AISHub – tanker positions" },
       { name: "GDELT", description: "GDELT DOC API – chokepoint/disruption query hits (24h/72h/6h, ToneChart optional)" },
+      {
+        name: "HDX Iran Port Activity",
+        description: "HDX dataset: Iran daily port activity and shipment estimates (historical context for maritime monitoring)",
+      },
       { name: "EIA baseline", description: "Persian Gulf oil export baseline (optional EIA_API_KEY)" },
       { name: "External status", description: "Optional CHOKEPOINT_STATUS_URL for external status feed" },
       { name: "AISHub", description: "Community AIS (optional AISHUB_USERNAME)" },

@@ -35,6 +35,7 @@ Digital War Room deploys **11 specialized OSINT agents** — supervised by a Cla
 | API overview | [docs/API-REFERENCE.md](docs/API-REFERENCE.md) |
 | Deployment & env | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | API keys & backend config | [docs/API-KEYS.md](docs/API-KEYS.md) |
+| Conflict prioritization | [docs/CONFLICT-PRIORITIZATION.md](docs/CONFLICT-PRIORITIZATION.md) |
 | Full project index | [docs/PROJECT-DOCUMENTATION.md](docs/PROJECT-DOCUMENTATION.md) |
 | Privacy & GDPR governance | [docs/PRIVACY-GDPR-DSGVO.md](docs/PRIVACY-GDPR-DSGVO.md) |
 | Retention policy | [docs/DATA-RETENTION-POLICY.md](docs/DATA-RETENTION-POLICY.md) |

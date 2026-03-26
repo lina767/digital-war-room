@@ -18,6 +18,7 @@ import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
 import { PatternFlagsBanner } from "@/components/dashboard/PatternFlagsBanner";
 import { SEO } from "@/components/SEO";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
+import { CORE_THEATERS } from "@/lib/conflictReadiness";
 const THREAT_BADGE_STYLES: Record<string, string> = {
   LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   ELEVATED: "bg-warning/20 text-warning border-warning/30",
@@ -165,6 +166,10 @@ function DashboardContent() {
   const [selectedConflict, setSelectedConflict] = useState(DEFAULT_CONFLICT);
   const displayConflictLabel = useMemo(
     () => CONFLICT_OPTIONS.find((opt) => opt.apiValue === selectedConflict)?.label ?? selectedConflict,
+    [selectedConflict]
+  );
+  const isCoreTheater = useMemo(
+    () => CORE_THEATERS.includes(selectedConflict as (typeof CORE_THEATERS)[number]),
     [selectedConflict]
   );
   const [headlineAllowedSources, setHeadlineAllowedSources] = useState<Set<string>>(() => new Set());
@@ -381,6 +386,9 @@ function DashboardContent() {
                 </option>
               ))}
             </select>
+            {isCoreTheater ? (
+              <span className="ml-2 hidden md:inline text-[10px] uppercase tracking-wider text-primary/90">core</span>
+            ) : null}
           </div>
           <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}

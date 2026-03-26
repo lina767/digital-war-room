@@ -1,6 +1,6 @@
 """
 Actor model for conflict synthesis: builds actor lists with activity scores from key_findings.
-Supports Iran and Lebanon/Hezbollah theaters.
+Supports Iran/Levant, Red Sea/Horn, Ukraine and Taiwan theaters.
 """
 
 from typing import Any, Dict, List
@@ -40,6 +40,23 @@ RED_SEA_HORN_ACTORS = [
     {"id": "eu_naval_presence", "name": "EU Naval Presence", "role": "defender"},
 ]
 
+UKRAINE_THEATER_ACTORS = [
+    {"id": "ukraine", "name": "Ukraine", "role": "defender"},
+    {"id": "russia", "name": "Russia", "role": "aggressor"},
+    {"id": "nato", "name": "NATO", "role": "defender"},
+    {"id": "european_union", "name": "European Union", "role": "defender"},
+    {"id": "belarus", "name": "Belarus", "role": "neutral"},
+    {"id": "black_sea_fleet", "name": "Black Sea Fleet", "role": "aggressor"},
+]
+
+TAIWAN_STRAIT_ACTORS = [
+    {"id": "taiwan", "name": "Taiwan", "role": "defender"},
+    {"id": "china", "name": "China", "role": "aggressor"},
+    {"id": "united_states", "name": "United States", "role": "defender"},
+    {"id": "japan", "name": "Japan", "role": "defender"},
+    {"id": "philippines", "name": "Philippines", "role": "neutral"},
+]
+
 
 def actor_activity_from_findings(actor_id: str, actor_name: str, key_findings: List[str]) -> int:
     """Compute activity 0–100 from key_findings mention count."""
@@ -68,6 +85,10 @@ def build_actors_for_conflict(conflict: str, key_findings: List[str]) -> List[Di
         actors = LEBANON_THEATER_ACTORS
     elif any(k in conflict_lc for k in ["red sea", "horn", "bab", "mandeb", "houthi"]):
         actors = RED_SEA_HORN_ACTORS
+    elif any(k in conflict_lc for k in ["ukraine", "russia", "black sea"]):
+        actors = UKRAINE_THEATER_ACTORS
+    elif any(k in conflict_lc for k in ["taiwan", "south china sea"]):
+        actors = TAIWAN_STRAIT_ACTORS
     elif "iran" in conflict_lc:
         actors = IRAN_ACTORS
     else:

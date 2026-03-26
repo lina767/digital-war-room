@@ -16,6 +16,7 @@ export const CONFLICT_CENTERS: Record<
   "middle-east": { center: [44, 31], zoom: 3.5 }, // Levante/Golf/Iran
   hezbollah: { center: [35.8, 33.9], zoom: 5.5 }, // Lebanon
   houthis: { center: [46, 15], zoom: 4 }, // Yemen / Red Sea
+  "red-sea": { center: [43, 12], zoom: 4.4 }, // Bab el-Mandeb / Gulf of Aden / Horn
   "red-sea-horn": { center: [43, 12], zoom: 4.4 }, // Bab el-Mandeb / Gulf of Aden / Horn
   "horn-africa": { center: [43, 12], zoom: 4.4 },
   ukraine: { center: [32, 48], zoom: 4 },
@@ -153,6 +154,7 @@ export const OVERLAY_CONFLICT_KEYS = [
   "israel-palestine",
   "lebanon",
   "yemen",
+  "red-sea",
   "red-sea-horn",
   "horn-africa",
   "syria",

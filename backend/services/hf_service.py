@@ -329,6 +329,22 @@ _RANKING_QUERIES: Dict[str, str] = {
         "RANKING_QUERY_UKRAINE",
         "Ukraine Russia military invasion NATO",
     ),
+    "taiwan": os.getenv(
+        "RANKING_QUERY_TAIWAN_STRAIT",
+        "Taiwan Strait PLA naval air incursions South China Sea",
+    ),
+    "red sea": os.getenv(
+        "RANKING_QUERY_RED_SEA_HORN_OF_AFRICA",
+        "Red Sea Bab el-Mandeb shipping attacks Houthis maritime disruption",
+    ),
+    "sahel": os.getenv(
+        "RANKING_QUERY_SAHEL",
+        "Sahel insurgency coups jihadist violence Mali Niger Burkina Faso",
+    ),
+    "sudan": os.getenv(
+        "RANKING_QUERY_SUDAN",
+        "Sudan RSF SAF conflict humanitarian displacement ceasefire",
+    ),
 }
 
 
