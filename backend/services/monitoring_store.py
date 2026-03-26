@@ -29,6 +29,9 @@ _dq_runs_total = 0
 _dq_warning_total = 0
 _dq_last: Optional[Dict[str, Any]] = None
 
+# Last Google web SERP snapshot from monitoring (POST /agents/google-trend-snapshot); process lifetime
+_google_trend_serp: Optional[Dict[str, Any]] = None
+
 # day (YYYY-MM-DD) -> {spend_usd, input_tokens, output_tokens, by_agent: {agent: {in,out}}}
 _daily_haiku: Dict[str, Dict[str, Any]] = {}
 _daily_order: List[str] = []
@@ -152,6 +155,13 @@ def record_from_analysis(conflict: str, result: Dict[str, Any]) -> None:
         pass
 
 
+def set_google_trend_serp(payload: Optional[Dict[str, Any]]) -> None:
+    """Store last Google trend SerpAPI snapshot (success or error payload) for Agent Monitor."""
+    global _google_trend_serp
+    with _lock:
+        _google_trend_serp = dict(payload) if isinstance(payload, dict) else None
+
+
 def record_haiku_daily(
     *,
     day: str,
@@ -230,6 +240,7 @@ def get_snapshot() -> Dict[str, Any]:
         dq_runs = _dq_runs_total
         dq_warn = _dq_warning_total
         dq_last = dict(_dq_last) if _dq_last else None
+        gts = dict(_google_trend_serp) if _google_trend_serp else None
 
     return {
         "fallback": {
@@ -245,4 +256,5 @@ def get_snapshot() -> Dict[str, Any]:
         "errors": err_tail,
         "daily_spend": daily_out,
         "today_spend": today_bucket,
+        "google_trend_serp": gts,
     }

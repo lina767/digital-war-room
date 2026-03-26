@@ -93,6 +93,35 @@ export interface MonitoringErrorEntry {
   detail?: string | null;
 }
 
+export interface GoogleTrendSerpOrganic {
+  title: string;
+  link: string;
+  snippet: string;
+  position: number | null;
+}
+
+export interface GoogleTrendSerpQuota {
+  hour_bucket?: string;
+  hour_count?: number;
+  hourly_cap?: number;
+  month_bucket?: string;
+  month_count?: number;
+  monthly_cap?: number;
+}
+
+export interface GoogleTrendSerpSnapshot {
+  ok: boolean;
+  conflict?: string;
+  query?: string;
+  fetched_at?: string;
+  engine?: string;
+  organic?: GoogleTrendSerpOrganic[];
+  search_information?: Record<string, unknown>;
+  quota?: GoogleTrendSerpQuota;
+  error?: string;
+  message?: string;
+}
+
 export interface AgentsMonitoringResponse {
   fallback: {
     total_events: number;
@@ -100,6 +129,7 @@ export interface AgentsMonitoringResponse {
     last_run: { conflict: string; at: number; agents: string[]; count: number } | null;
   };
   errors: MonitoringErrorEntry[];
+  google_trend_serp?: GoogleTrendSerpSnapshot | null;
   cost: {
     provider?: string;
     model?: string;
@@ -137,6 +167,22 @@ export async function getAgentsMonitoring(): Promise<AgentsMonitoringResponse | 
     const res = await apiFetch(apiUrl("agents/monitoring"), { method: "GET", timeoutMs: 15_000 });
     if (!res.ok) return null;
     return (await res.json()) as AgentsMonitoringResponse;
+  } catch {
+    return null;
+  }
+}
+
+/** POST /api/agents/google-trend-snapshot — one SerpAPI Google web search (budget-capped on backend). */
+export async function postGoogleTrendSnapshot(conflict: string): Promise<GoogleTrendSerpSnapshot | null> {
+  try {
+    const res = await apiFetch(apiUrl("agents/google-trend-snapshot"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conflict }),
+      timeoutMs: 25_000,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as GoogleTrendSerpSnapshot;
   } catch {
     return null;
   }

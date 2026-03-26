@@ -70,6 +70,9 @@ export type {
   TokenInOut,
   MonitoringErrorEntry,
   AgentsMonitoringResponse,
+  GoogleTrendSerpSnapshot,
+  GoogleTrendSerpOrganic,
+  GoogleTrendSerpQuota,
   AgentsOpsHeartbeatRow,
   AgentsOpsAgentRow,
   AgentsOpsStatusResponse,
@@ -80,6 +83,7 @@ export {
   getAgentsMonitoring,
   getAgentsOpsStatus,
   getAgentsStatus,
+  postGoogleTrendSnapshot,
 } from "./agents";
 
 export {

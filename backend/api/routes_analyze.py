@@ -205,7 +205,7 @@ async def agents_monitoring() -> Any:
     """
     GET /api/agents/monitoring
     Fallback usage totals, recent error log (with optional detail), Haiku token/cost metrics,
-    and per-day spend rollups (in-memory, process lifetime).
+    per-day spend rollups (in-memory, process lifetime), and optional cached Google SERP snapshot.
     """
     from services.haiku_service import get_haiku_metrics_for_api
     from services.monitoring_store import get_snapshot
@@ -220,7 +220,26 @@ async def agents_monitoring() -> Any:
             "daily": snap["daily_spend"],
             "today": snap["today_spend"],
         },
+        "google_trend_serp": snap.get("google_trend_serp"),
     }
+
+
+@router.post("/agents/google-trend-snapshot")
+async def agents_google_trend_snapshot(body: AnalyzeRequest) -> Any:
+    """
+    POST /api/agents/google-trend-snapshot
+    One SerpAPI Google web search for the conflict's ranking query (see RANKING_QUERY_* / hf_service).
+    Hard-capped via MONITORING_GOOGLE_SERPAPI_HOURLY_CAP and MONITORING_GOOGLE_SERPAPI_MONTHLY_CAP (separate file from Pentagon).
+    Requires SERPAPI_KEY. Updates cached payload returned by GET /api/agents/monitoring.
+    """
+    from services.google_trend_serp import fetch_google_trend_snapshot
+    from services.hf_service import _get_ranking_query
+    from services.monitoring_store import set_google_trend_serp
+
+    query = _get_ranking_query(body.conflict)
+    result = await fetch_google_trend_snapshot(conflict=body.conflict, query=query)
+    set_google_trend_serp(result)
+    return result
 
 
 @router.get("/agents/history")

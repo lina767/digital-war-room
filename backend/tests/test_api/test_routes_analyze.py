@@ -66,6 +66,18 @@ def test_agents_monitoring_returns_shape(client: TestClient):
     assert "cost" in body
     assert "month_budget_usd" in body["cost"]
     assert "daily" in body["cost"]
+    assert "google_trend_serp" in body
+
+
+def test_google_trend_snapshot_without_serpapi_key(client: TestClient, monkeypatch):
+    monkeypatch.delenv("SERPAPI_KEY", raising=False)
+    response = client.post("/api/agents/google-trend-snapshot", json={"conflict": "Iran"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body.get("ok") is False
+    assert body.get("error") == "missing SERPAPI_KEY"
+    mon = client.get("/api/agents/monitoring").json()
+    assert mon.get("google_trend_serp", {}).get("error") == "missing SERPAPI_KEY"
 
 
 def test_refresh_returns_already_running_when_inflight(client: TestClient):

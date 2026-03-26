@@ -12,6 +12,7 @@ import {
   getAgentsOpsStatus,
   getAnalyzeStatus,
   triggerRefreshAnalysis,
+  postGoogleTrendSnapshot,
   type AgentsHealthResponse,
   type AgentsMonitoringResponse,
   type AgentsOpsAgentRow,
@@ -38,6 +39,7 @@ import {
   EyeOff,
   Layers,
   ScrollText,
+  Search,
 } from "lucide-react";
 import {
   LineChart,
@@ -231,6 +233,7 @@ function AgentMonitorContent() {
   const [error, setError] = useState<string | null>(null);
   const [runAgainLoading, setRunAgainLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [googleSnapshotLoading, setGoogleSnapshotLoading] = useState(false);
   const [hormuzForm, setHormuzForm] = useState<HormuzFormState>(() => defaultHormuzForm());
   const [hormuzEntries, setHormuzEntries] = useState<HormuzDailyEntry[]>(() => {
     try {
@@ -305,6 +308,27 @@ function AgentMonitorContent() {
       toast.error("Error", { description: msg });
     } finally {
       setRunAgainLoading(false);
+    }
+  }, [fetchAll]);
+
+  const refreshGoogleSerpSnapshot = useCallback(async () => {
+    setGoogleSnapshotLoading(true);
+    try {
+      const res = await postGoogleTrendSnapshot(DEFAULT_CONFLICT);
+      if (!res) {
+        toast.error("Google snapshot failed", { description: "No response from backend." });
+        return;
+      }
+      if (!res.ok) {
+        toast.error("Google snapshot unavailable", { description: res.message || res.error || "Unknown error" });
+      } else {
+        toast.success("Google snapshot updated", { description: res.query?.slice(0, 80) });
+      }
+      await fetchAll();
+    } catch (e) {
+      toast.error("Google snapshot failed", { description: e instanceof Error ? e.message : "Error" });
+    } finally {
+      setGoogleSnapshotLoading(false);
     }
   }, [fetchAll]);
 
@@ -744,6 +768,104 @@ function AgentMonitorContent() {
             )}
             {opsStatus?.quota_note && (
               <p className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">{opsStatus.quota_note}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Google web SERP snapshot (SerpAPI; separate MONITORING_GOOGLE_SERPAPI_* caps) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Google SERP snapshot (conflict query)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              “What does Google show now?” for the same ranking query as cross-encoder ranking (
+              <code className="text-[10px]">RANKING_QUERY_*</code>). One SerpAPI search per refresh; caps:{" "}
+              <code className="text-[10px]">MONITORING_GOOGLE_SERPAPI_HOURLY_CAP</code>,{" "}
+              <code className="text-[10px]">MONITORING_GOOGLE_SERPAPI_MONTHLY_CAP</code> (separate from Pentagon).
+            </p>
+            {monitoring?.google_trend_serp?.quota && (
+              <p className="text-[11px] text-muted-foreground font-mono mt-1">
+                Quota (UTC): {monitoring.google_trend_serp.quota.hour_count ?? "–"}/
+                {monitoring.google_trend_serp.quota.hourly_cap ?? "–"} this hour ·{" "}
+                {monitoring.google_trend_serp.quota.month_count ?? "–"}/
+                {monitoring.google_trend_serp.quota.monthly_cap ?? "–"} this month
+              </p>
+            )}
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={
+                  googleSnapshotLoading || runAgainLoading || refreshing
+                }
+                className="gap-1.5"
+                onClick={() => void refreshGoogleSerpSnapshot()}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${googleSnapshotLoading ? "animate-spin" : ""}`} aria-hidden />
+                {googleSnapshotLoading ? "Fetching…" : "Refresh Google snapshot"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                Conflict: <span className="font-mono">{DEFAULT_CONFLICT}</span>
+              </span>
+            </div>
+            {monitoring?.google_trend_serp &&
+              !monitoring.google_trend_serp.ok &&
+              (monitoring.google_trend_serp.message || monitoring.google_trend_serp.error) && (
+                <p className="text-sm text-destructive">
+                  {monitoring.google_trend_serp.message || monitoring.google_trend_serp.error}
+                </p>
+              )}
+            {monitoring?.google_trend_serp?.ok && monitoring.google_trend_serp.query && (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-mono">Query:</span> {monitoring.google_trend_serp.query}
+                {monitoring.google_trend_serp.fetched_at && (
+                  <span className="ml-2">
+                    · fetched {formatRelativeTime(monitoring.google_trend_serp.fetched_at)}
+                  </span>
+                )}
+              </p>
+            )}
+            {monitoring?.google_trend_serp?.organic && monitoring.google_trend_serp.organic.length > 0 ? (
+              <ul className="space-y-2 max-h-80 overflow-y-auto text-sm border border-border/60 rounded-md p-3">
+                {monitoring.google_trend_serp.organic.map((row, i) => (
+                  <li key={row.link || `${row.title}-${i}`} className="border-b border-border/40 pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-5 shrink-0 pt-0.5">
+                        {row.position ?? i + 1}
+                      </span>
+                      <div className="min-w-0">
+                        {row.link ? (
+                          <a
+                            href={row.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-primary hover:underline break-words"
+                          >
+                            {row.title || row.link}
+                          </a>
+                        ) : (
+                          <span className="font-medium break-words">{row.title || "—"}</span>
+                        )}
+                        {row.snippet ? (
+                          <p className="text-xs text-muted-foreground mt-0.5 leading-snug break-words">{row.snippet}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : monitoring?.google_trend_serp?.ok ? (
+              <p className="text-xs text-muted-foreground">No organic results in the response.</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No snapshot yet. Set <code className="text-[10px]">SERPAPI_KEY</code> and refresh, or check caps /
+                <code className="text-[10px]"> MONITORING_GOOGLE_SERP_ENABLED</code>.
+              </p>
             )}
           </CardContent>
         </Card>
