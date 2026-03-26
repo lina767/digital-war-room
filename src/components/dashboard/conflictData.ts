@@ -19,6 +19,7 @@ export const CONFLICT_OPTIONS = [
   { id: "lebanon", label: "Libanon", apiValue: "Lebanon" },
   { id: "hezbollah", label: "Hezbollah", apiValue: "Hezbollah" },
   { id: "houthis", label: "Houthis", apiValue: "Houthis" },
+  { id: "red-sea-horn", label: "Rotes Meer / Horn von Afrika", apiValue: "Red Sea and Horn of Africa" },
 ] as const;
 
 export const conflicts: ConflictMarker[] = [
@@ -29,6 +30,9 @@ export const conflicts: ConflictMarker[] = [
   { id: "taiwan-strait", label: "Taiwan Strait", coordinates: [120, 24], severity: "medium" },
   { id: "sahel", label: "Sahel Region", coordinates: [2, 15], severity: "medium" },
   { id: "ethiopia", label: "Ethiopia", coordinates: [40, 9], severity: "low" },
+  { id: "somalia", label: "Somalia", coordinates: [46, 6], severity: "medium" },
+  { id: "eritrea", label: "Eritrea", coordinates: [39, 15], severity: "medium" },
+  { id: "djibouti", label: "Djibouti", coordinates: [43.2, 11.8], severity: "medium" },
   { id: "syria", label: "Syria", coordinates: [38, 35], severity: "medium" },
   { id: "yemen", label: "Yemen", coordinates: [48, 15], severity: "high" },
   { id: "drc", label: "DRC", coordinates: [24, -3], severity: "low" },
@@ -46,6 +50,9 @@ export const conflictLinks: ConflictLink[] = [
   { id: "link-5b", from: "israel-palestine", to: "lebanon", label: "Hezbollah" },
   { id: "link-6", from: "sudan", to: "ethiopia", label: "Border dispute" },
   { id: "link-7", from: "ethiopia", to: "drc", label: "Regional instability" },
+  { id: "link-7b", from: "yemen", to: "djibouti", label: "Bab el-Mandeb shipping pressure" },
+  { id: "link-7c", from: "eritrea", to: "ethiopia", label: "Horn border tensions" },
+  { id: "link-7d", from: "djibouti", to: "somalia", label: "Gulf of Aden maritime corridor" },
   { id: "link-8", from: "sahel", to: "sudan", label: "Arms flow" },
   { id: "link-9", from: "taiwan-strait", to: "korea", label: "US alliance" },
   { id: "link-10", from: "myanmar", to: "taiwan-strait", label: "Regional pressure" },

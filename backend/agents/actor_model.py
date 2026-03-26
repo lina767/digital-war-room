@@ -29,6 +29,17 @@ LEBANON_THEATER_ACTORS = [
     {"id": "unifil", "name": "UNIFIL", "role": "defender"},
 ]
 
+RED_SEA_HORN_ACTORS = [
+    {"id": "houthis", "name": "Houthis", "role": "retaliating"},
+    {"id": "yemen", "name": "Yemen", "role": "neutral"},
+    {"id": "somalia", "name": "Somalia", "role": "neutral"},
+    {"id": "ethiopia", "name": "Ethiopia", "role": "neutral"},
+    {"id": "eritrea", "name": "Eritrea", "role": "neutral"},
+    {"id": "djibouti", "name": "Djibouti", "role": "defender"},
+    {"id": "us_naval_presence", "name": "US Naval Presence", "role": "defender"},
+    {"id": "eu_naval_presence", "name": "EU Naval Presence", "role": "defender"},
+]
+
 
 def actor_activity_from_findings(actor_id: str, actor_name: str, key_findings: List[str]) -> int:
     """Compute activity 0–100 from key_findings mention count."""
@@ -55,6 +66,8 @@ def build_actors_for_conflict(conflict: str, key_findings: List[str]) -> List[Di
     conflict_lc = conflict.lower()
     if "lebanon" in conflict_lc or "hezbollah" in conflict_lc:
         actors = LEBANON_THEATER_ACTORS
+    elif any(k in conflict_lc for k in ["red sea", "horn", "bab", "mandeb", "houthi"]):
+        actors = RED_SEA_HORN_ACTORS
     elif "iran" in conflict_lc:
         actors = IRAN_ACTORS
     else:

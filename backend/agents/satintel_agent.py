@@ -26,6 +26,7 @@ REGION_BBOX = {
     "eastern_europe": [22.0, 44.0, 40.0, 55.0],
     "east_asia": [100.0, 20.0, 130.0, 45.0],
     "africa": [20.0, -5.0, 45.0, 25.0],
+    "horn_of_africa": [37.0, 3.0, 51.0, 19.0],
     "lebanon": [35.05, 33.05, 36.65, 34.68],
     "gaza_israel": [34.0, 29.0, 36.0, 34.0],
     "iran": [44.0, 24.0, 64.0, 40.0],
@@ -35,6 +36,8 @@ REGION_BBOX = {
 
 def _region_from_conflict(conflict: str) -> str:
     cl = (conflict or "").lower()
+    if any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "somalia", "eritrea", "djibouti"]):
+        return "horn_of_africa"
     if any(k in cl for k in ["lebanon", "hezbollah"]):
         return "lebanon"
     if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "iraq"]):

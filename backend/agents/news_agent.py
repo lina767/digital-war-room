@@ -195,6 +195,13 @@ RSS_CONFLICT_FEEDS: Dict[str, List[str]] = {
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
     ],
+    "red_sea_horn": [
+        "https://feeds.bbci.co.uk/news/world/africa/rss.xml",
+        "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml",
+        "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
+        "https://www.theguardian.com/world/africa/rss",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+    ],
     "default": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
         "https://rss.dw.com/rdf/rss-en-world",
@@ -242,7 +249,16 @@ DE_ESCALATION_KW_FA = [
 # Chokepoint tagging for CHOKEPOINT agent (single place for NLP logic)
 CHOKEPOINT_KEYWORDS: Dict[str, List[str]] = {
     "Strait of Hormuz": ["hormuz", "hormus", "persian gulf", "irgc", "strait of hormuz"],
-    "Bab el-Mandeb": ["mandeb", "bab el", "bab al-mandab", "houthi", "red sea", "bab el-mandeb"],
+    "Bab el-Mandeb": [
+        "mandeb",
+        "bab el",
+        "bab al-mandab",
+        "houthi",
+        "red sea",
+        "bab el-mandeb",
+        "gulf of aden",
+        "shipping lane",
+    ],
     "Suez Canal": ["suez", "suez canal"],
 }
 DISRUPTION_VERBS = [
@@ -322,6 +338,12 @@ def _build_query(conflict: str) -> str:
             'OR "Iranian military" OR "US Iran" OR "Israel Iran" OR Hormuz OR "Iranian strike" '
             "OR Hezbollah OR Houthi OR Houthis OR IDF OR Yemen OR Lebanon) "
             "AND (attack OR military OR nuclear OR sanctions OR war OR strike OR missile OR deal)"
+        )
+    if any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "shipping"]):
+        return (
+            '("Bab el-Mandeb" OR "Bab al-Mandab" OR "Red Sea" OR "Gulf of Aden" OR Yemen OR Houthi OR Houthis '
+            'OR Eritrea OR Ethiopia OR Somalia OR Djibouti OR maritime OR shipping OR vessel OR container) '
+            "AND (attack OR strike OR drone OR missile OR blockade OR reroute OR military OR disrupted)"
         )
     if "ukraine" in cl:
         return "(Ukraine OR Zelensky OR Kyiv OR Donbas) AND (Russia OR invasion OR NATO OR military OR sanctions)"
@@ -727,6 +749,8 @@ def _rss_feeds_for_conflict(conflict: str) -> List[str]:
     cl = conflict.lower()
     if "iran" in cl:
         conflict_specific = RSS_CONFLICT_FEEDS["iran"]
+    elif any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "somalia", "eritrea", "djibouti"]):
+        conflict_specific = RSS_CONFLICT_FEEDS["red_sea_horn"]
     elif "ukraine" in cl or "russia" in cl:
         conflict_specific = RSS_CONFLICT_FEEDS["ukraine"]
     else:
@@ -777,6 +801,21 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
         ]
     elif "ukraine" in cl or "russia" in cl:
         keywords_en = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
+    elif any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "somalia", "eritrea", "djibouti"]):
+        keywords_en = [
+            "bab el-mandeb",
+            "bab al-mandab",
+            "red sea",
+            "gulf of aden",
+            "shipping",
+            "maritime",
+            "houthi",
+            "yemen",
+            "somalia",
+            "eritrea",
+            "djibouti",
+            "ethiopia",
+        ]
     else:
         keywords_en = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
     results = []
