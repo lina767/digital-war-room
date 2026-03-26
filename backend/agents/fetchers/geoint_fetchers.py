@@ -611,6 +611,68 @@ async def _reliefweb_rss_fallback(countries: list) -> List[Dict[str, Any]]:
     return reports
 
 
+async def _fetch_crisiswatch_reports(conflict: str, countries: List[str]) -> List[Dict[str, Any]]:
+    """
+    Fetch Crisis Group RSS entries and keep those relevant to the active conflict.
+    Used as supplementary contextual reporting for GEOINT hotspot analysis.
+    """
+    try:
+        import feedparser
+    except ImportError:
+        return []
+
+    feeds = [
+        "https://www.crisisgroup.org/rss",
+        "https://www.crisisgroup.org/rss.xml",
+    ]
+    cl = (conflict or "").lower().strip()
+    keywords = {k for k in re.split(r"[\s/\-_,]+", cl) if len(k) >= 3}
+    for c in countries[:4]:
+        c_norm = str(c).strip().lower()
+        if c_norm:
+            keywords.update({k for k in re.split(r"[\s/\-_,]+", c_norm) if len(k) >= 3})
+            keywords.add(c_norm)
+
+    reports: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    try:
+        async with httpx.AsyncClient(timeout=14.0, follow_redirects=True) as client:
+            for feed_url in feeds:
+                try:
+                    resp = await client.get(feed_url)
+                    if resp.status_code != 200 or not (resp.text or "").strip():
+                        continue
+                    feed = feedparser.parse(resp.text)
+                except Exception:
+                    continue
+                for entry in (getattr(feed, "entries", None) or [])[:80]:
+                    title = (entry.get("title") or "").strip()
+                    summary = re.sub(r"<[^>]+>", "", entry.get("summary") or entry.get("description") or "").strip()
+                    combined = f"{title} {summary}".lower()
+                    if keywords and not any(kw in combined for kw in keywords):
+                        continue
+                    link = (entry.get("link") or "").strip()
+                    dedupe_key = f"{title[:140]}|{link[:180]}"
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    reports.append(
+                        {
+                            "title": title[:300],
+                            "date": (entry.get("published") or entry.get("updated") or "")[:40],
+                            "body_excerpt": summary[:200],
+                            "source": "CrisisWatch (Crisis Group)",
+                            "country": countries[0] if countries else "",
+                            "url": link,
+                        }
+                    )
+                    if len(reports) >= 12:
+                        return reports
+    except Exception as e:
+        logger.debug("CrisisWatch feed fetch failed: %s", e)
+    return reports[:12]
+
+
 def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
     """
     Fetch recent geospatial event reports from ReliefWeb API v2 and optionally ACLED.
@@ -752,6 +814,15 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
                 reports.extend(hapi_items)
         except Exception as e:
             logger.debug("GEOINT HDX HAPI fetch failed: %s", e)
+
+    # CrisisWatch / Crisis Group: complementary qualitative conflict monitoring stream.
+    if isinstance(reports, list):
+        try:
+            crisiswatch_items = run_async(_fetch_crisiswatch_reports(conflict, rw_countries))
+            if crisiswatch_items:
+                reports.extend(crisiswatch_items)
+        except Exception as e:
+            logger.debug("GEOINT CrisisWatch fetch failed: %s", e)
 
     acled_ok = has_acled_oauth() or os.getenv("ACLED_API_KEY")
     if acled_ok and isinstance(reports, list):

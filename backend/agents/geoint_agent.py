@@ -151,6 +151,11 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "").startswith("HDX HAPI")
         )
         gdacs_count = sum(1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "") == "GDACS")
+        crisiswatch_count = sum(
+            1
+            for r in reliefweb_reports
+            if isinstance(r, dict) and (r.get("source") or "").startswith("CrisisWatch")
+        )
 
         source_results = [
             SourceResult(
@@ -170,6 +175,12 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
                 status="ok",
                 fetched_at=fetched_at,
                 record_count=gdacs_count,
+            ),
+            SourceResult(
+                name="CrisisWatch",
+                status="ok" if crisiswatch_count else "error",
+                fetched_at=fetched_at,
+                record_count=crisiswatch_count,
             ),
             SourceResult(
                 name="EO Browser",

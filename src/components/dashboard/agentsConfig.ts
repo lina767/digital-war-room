@@ -71,6 +71,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "NASA FIRMS", description: "Thermal anomalies, area API (middle_east, gaza_israel, iran, yemen, etc.)" },
       { name: "ReliefWeb/ACLED", description: "api.reliefweb.int/v2 + ACLED OAuth – humanitarian/conflict reports and events by country" },
+      { name: "CrisisWatch", description: "International Crisis Group RSS stream for conflict trend monitoring and escalation context" },
       { name: "HDX HAPI", description: "hapi.humdata.org – operational presence, conflict events (optional HAPI_APP_IDENTIFIER)" },
       { name: "GDACS", description: "gdacs-api – disaster alerts (earthquakes, cyclones, floods, volcanoes) by region bbox" },
       { name: "EO Browser", description: "Sentinel Hub EO Browser links for satellite imagery (no key)" },

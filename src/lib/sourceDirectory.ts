@@ -52,6 +52,7 @@ const SOURCE_META: Record<
   "NASA FIRMS": { reliability: "official", keyRequired: true, free: true, url: "https://firms.modaps.eosdis.nasa.gov" },
   ReliefWeb: { reliability: "curated", keyRequired: false, free: true, url: "https://api.reliefweb.int" },
   "ReliefWeb/ACLED": { reliability: "curated", keyRequired: false, free: true, url: "https://api.reliefweb.int" },
+  CrisisWatch: { reliability: "curated", keyRequired: false, free: true, url: "https://www.crisisgroup.org/crisiswatch" },
   "HDX HAPI": { reliability: "official", keyRequired: true, free: true, url: "https://data.humdata.org/hapi" },
   GDACS: { reliability: "official", keyRequired: false, free: true, url: "https://www.gdacs.org" },
   "EO Browser": { reliability: "curated", keyRequired: false, free: true, url: "https://apps.sentinel-hub.com/eo-browser" },
