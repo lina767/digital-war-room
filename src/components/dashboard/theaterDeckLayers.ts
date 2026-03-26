@@ -77,11 +77,14 @@ function chokepointZoneData(
   line: [number, number, number, number];
   tooltip: string;
 }> {
+  const statusByKey = new Map<string, ChokepointStatusInput>();
+  for (const cp of statuses) statusByKey.set(normalizeChokepointName(cp.name), cp);
+  const defaultByKey = new Map<string, ChokepointStatusInput>();
+  for (const cp of DEFAULT_CHOKEPOINT_STATUSES) defaultByKey.set(normalizeChokepointName(cp.name), cp);
+
   return zones.map((zone) => {
     const zoneKey = normalizeChokepointName(zone.name);
-    const match =
-      statuses.find((cp) => normalizeChokepointName(cp.name) === zoneKey) ??
-      DEFAULT_CHOKEPOINT_STATUSES.find((cp) => normalizeChokepointName(cp.name) === zoneKey);
+    const match = statusByKey.get(zoneKey) ?? defaultByKey.get(zoneKey);
     const riskFromStatus =
       match?.status === "HOSTILE"
         ? 90
@@ -214,32 +217,27 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
   }
 
   if (lv.heatmap && heatmapEvents.length > 0) {
-    const validHeat = heatmapEvents.filter(
-      (e) => typeof e.lat === "number" && typeof e.lon === "number" && isFinite(e.lat) && isFinite(e.lon),
+    layers.push(
+      new HeatmapLayer({
+        id: "acled-heatmap",
+        data: heatmapEvents,
+        getPosition: (d) => [d.lon, d.lat],
+        getWeight: (d) => 0.2 + (d.intensity ?? 0) * 2,
+        radiusPixels: 28 + s * 8,
+        intensity: 1,
+        threshold: 0.05,
+        aggregation: "SUM",
+        colorRange: [
+          [255, 255, 178, 0],
+          [254, 217, 118, 120],
+          [254, 178, 76, 180],
+          [253, 141, 60, 220],
+          [252, 78, 42, 240],
+          [227, 26, 28, 255],
+        ],
+        pickable: false,
+      }),
     );
-    if (validHeat.length > 0) {
-      layers.push(
-        new HeatmapLayer({
-          id: "acled-heatmap",
-          data: validHeat,
-          getPosition: (d) => [d.lon, d.lat],
-          getWeight: (d) => 0.2 + (d.intensity ?? 0) * 2,
-          radiusPixels: 28 + s * 8,
-          intensity: 1,
-          threshold: 0.05,
-          aggregation: "SUM",
-          colorRange: [
-            [255, 255, 178, 0],
-            [254, 217, 118, 120],
-            [254, 178, 76, 180],
-            [253, 141, 60, 220],
-            [252, 78, 42, 240],
-            [227, 26, 28, 255],
-          ],
-          pickable: false,
-        }),
-      );
-    }
   }
 
   if (lv.militaryBases && overlayOk) {
@@ -351,29 +349,11 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
   }
 
   if (lv.geoint) {
-    const withCoords = geointAnomalies
-      .map((a) => {
-        const lat =
-          typeof a.latitude === "number"
-            ? a.latitude
-            : typeof (a as { lat?: number }).lat === "number"
-              ? (a as { lat: number }).lat
-              : NaN;
-        const lon =
-          typeof a.longitude === "number"
-            ? a.longitude
-            : typeof (a as { lon?: number }).lon === "number"
-              ? (a as { lon: number }).lon
-              : NaN;
-        return { a, lat, lon };
-      })
-      .filter(({ lat, lon }) => isFinite(lat) && isFinite(lon));
-    const valid = withCoords.map(({ a, lat, lon }) => ({ ...a, latitude: lat, longitude: lon }));
-    if (valid.length > 0) {
+    if (geointAnomalies.length > 0) {
       layers.push(
         new ScatterplotLayer({
           id: "geoint-anomalies",
-          data: valid.map((a) => ({
+          data: geointAnomalies.map((a) => ({
             position: [a.longitude, a.latitude] as [number, number],
             r: Math.min(3 + (a.frp ?? 0) / 200, 10) * s,
             tooltip: `${(a.classification || (a as { type?: string }).type) ?? "thermal"} · FRP ${Math.round(a.frp ?? 0)} MW`,
@@ -396,14 +376,11 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
   }
 
   if (lv.sigint) {
-    const ac = sigintAircraft.filter(
-      (a) => typeof a.lat === "number" && typeof a.lon === "number" && isFinite(a.lat) && isFinite(a.lon),
-    );
-    if (ac.length > 0) {
+    if (sigintAircraft.length > 0) {
       layers.push(
         new ScatterplotLayer({
           id: "sigint-air",
-          data: ac.map((a) => ({
+          data: sigintAircraft.map((a) => ({
             position: [a.lon, a.lat] as [number, number],
             pick: { kind: "aircraft" as const, data: a },
           })),
@@ -421,14 +398,11 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
       );
     }
 
-    const ships = sigintShips.filter(
-      (sh) => typeof sh.lat === "number" && typeof sh.lon === "number" && isFinite(sh.lat) && isFinite(sh.lon),
-    );
-    if (ships.length > 0) {
+    if (sigintShips.length > 0) {
       layers.push(
         new ScatterplotLayer({
           id: "sigint-sea",
-          data: ships.map((sh) => ({
+          data: sigintShips.map((sh) => ({
             position: [sh.lon, sh.lat] as [number, number],
             pick: { kind: "ship" as const, data: sh },
           })),

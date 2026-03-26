@@ -28,6 +28,22 @@ function getThreatBadgeClass(level: string | null | undefined): string {
   return THREAT_BADGE_STYLES[level ?? "ELEVATED"] ?? THREAT_BADGE_STYLES.ELEVATED;
 }
 
+function UtcClockBadge() {
+  const [utcTime, setUtcTime] = useState(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setUtcTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+  const formattedTime = utcTime.toISOString().slice(11, 19);
+  return (
+    <div className="hidden md:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
+      <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse-dot" />
+      <span className="text-foreground">{formattedTime}</span>
+      <span>UTC</span>
+    </div>
+  );
+}
+
 const Dashboard = () => {
   return (
     <>
@@ -118,15 +134,9 @@ function DashboardContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Live clock
-  const [utcTime, setUtcTime] = useState(() => new Date());
   const [isOffline, setIsOffline] = useState(() =>
     typeof navigator !== "undefined" ? !navigator.onLine : false
   );
-  useEffect(() => {
-    const interval = setInterval(() => setUtcTime(new Date()), 1000);
-    return () => clearInterval(interval);
-  }, []);
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
     const onOffline = () => setIsOffline(true);
@@ -171,8 +181,6 @@ function DashboardContent() {
       prevRightOpen.current = rightPanelOpen;
     }
   }, [rightPanelOpen, isMobileLayout]);
-
-  const formattedTime = utcTime.toISOString().slice(11, 19);
 
   // Live signal counter: real count from analysis (articles, aircraft, reports, findings, etc.)
   const signalCount = useMemo(() => {
@@ -240,11 +248,7 @@ function DashboardContent() {
 
         <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
           {/* Live clock – desktop */}
-          <div className="hidden md:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse-dot" />
-            <span className="text-foreground">{formattedTime}</span>
-            <span>UTC</span>
-          </div>
+          <UtcClockBadge />
           {/* Signal counter (from current analysis data) */}
           <div className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5">
             <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "–"}</span>

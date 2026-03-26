@@ -138,7 +138,9 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
 
   // Every 2 min fetch cached result (shows updates from auto-run)
   useEffect(() => {
+    if (!enabled) return;
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       getLatestAnalysis(conflict).then((result) => {
         if (result.data) {
           setData(normalizeAnalysisResponse(result.data as Record<string, unknown>) as unknown as ConflictData);
@@ -149,7 +151,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       });
     }, 120_000);
     return () => clearInterval(interval);
-  }, [conflict]);
+  }, [conflict, enabled]);
 
   useEffect(() => {
     connect();

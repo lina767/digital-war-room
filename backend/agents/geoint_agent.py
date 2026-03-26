@@ -28,12 +28,10 @@ from .fetchers.geoint_fetchers import (
 )
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
-from .scorers.geoint_scorer import compute_geoint_score
+from .scorers.geoint_scorer import compute_geoint_score, enrich_geoint_with_ner_entities
 from .utils import ProcessingStep, SourceResult, build_agent_meta, safe_float, utc_now_iso
 
 logger = logging.getLogger(__name__)
-
-
 def _safe_float(v: Any, default: float = 0.0) -> float:
     result = safe_float(v)
     return result if result is not None else default
@@ -72,8 +70,6 @@ Return ONLY valid JSON:
   "summary": "<1-2 sentence summary>"
 }
 No markdown, no explanation, just JSON."""
-
-
 def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, Any]:
     fetched_at = utc_now_iso()
     return {
@@ -282,36 +278,7 @@ _GEOINT_TOOL_SCHEMAS = [
 
 
 def enrich_with_ner_entities(geoint_result: Dict[str, Any], entities: List[Dict[str, Any]]) -> Dict[str, Any]:
-    if not entities:
-        return geoint_result
-
-    location_ents = [ent for ent in entities if ent.get("type") == "LOCATION" and ent.get("entity")]
-    if not location_ents:
-        return geoint_result
-
-    location_names = list(dict.fromkeys(ent.get("entity", "").strip() for ent in location_ents if ent.get("entity")))
-    hotspots = geoint_result.get("hotspots", [])
-    anomalies = geoint_result.get("anomalies", [])
-
-    geoint_result["ner_locations"] = location_names[:30]
-
-    matched_locations: List[str] = []
-    hotspot_texts = " ".join(
-        str(h.get("region", "")) + " " + str(h.get("city", "")) + " " + str(h.get("location_name", ""))
-        for h in (hotspots + anomalies[:20])
-    ).lower()
-    for loc in location_names:
-        if loc.lower() in hotspot_texts:
-            matched_locations.append(loc)
-
-    if matched_locations:
-        geoint_result["ner_hotspot_matches"] = matched_locations
-        existing_summary = geoint_result.get("summary", "")
-        geoint_result["summary"] = f"{existing_summary} NER locations near hotspots: {', '.join(matched_locations[:5])}."
-    else:
-        geoint_result["ner_hotspot_matches"] = []
-
-    return geoint_result
+    return enrich_geoint_with_ner_entities(geoint_result, entities)
 
 
 def run_geoint_agent(

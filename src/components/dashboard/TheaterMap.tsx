@@ -262,6 +262,64 @@ function TheaterMapInner({
     [theaterEvents, strikeTimeRange],
   );
 
+  const validHeatmapEvents = useMemo(
+    () =>
+      heatmapEvents.filter(
+        (e) => typeof e.lat === "number" && typeof e.lon === "number" && isFinite(e.lat) && isFinite(e.lon),
+      ),
+    [heatmapEvents],
+  );
+
+  const normalizedGeointAnomalies = useMemo(
+    () =>
+      geointAnomalies
+        .map((a) => {
+          const lat =
+            typeof a.latitude === "number"
+              ? a.latitude
+              : typeof (a as { lat?: number }).lat === "number"
+                ? (a as { lat: number }).lat
+                : NaN;
+          const lon =
+            typeof a.longitude === "number"
+              ? a.longitude
+              : typeof (a as { lon?: number }).lon === "number"
+                ? (a as { lon: number }).lon
+                : NaN;
+          if (!isFinite(lat) || !isFinite(lon)) return null;
+          return { ...a, latitude: lat, longitude: lon };
+        })
+        .filter((a): a is GeointAnomaly => a != null),
+    [geointAnomalies],
+  );
+
+  const validSigintAircraft = useMemo(
+    () =>
+      sigintAircraft.filter(
+        (a) => typeof a.lat === "number" && typeof a.lon === "number" && isFinite(a.lat) && isFinite(a.lon),
+      ),
+    [sigintAircraft],
+  );
+
+  const validSigintShips = useMemo(
+    () =>
+      sigintShips.filter(
+        (sh) => typeof sh.lat === "number" && typeof sh.lon === "number" && isFinite(sh.lat) && isFinite(sh.lon),
+      ),
+    [sigintShips],
+  );
+
+  const theaterEventStats = useMemo(() => {
+    const eventTypeCounts: Record<string, number> = {};
+    const attributionCounts: Record<string, number> = {};
+    for (const event of filteredTheaterEvents) {
+      eventTypeCounts[event.event_type] = (eventTypeCounts[event.event_type] ?? 0) + 1;
+      const attr = inferStrikeAttribution(event);
+      attributionCounts[attr] = (attributionCounts[attr] ?? 0) + 1;
+    }
+    return { eventTypeCounts, attributionCounts };
+  }, [filteredTheaterEvents]);
+
   const theaterDisplayItems = useMemo(
     () =>
       layers.theaterEvents
@@ -284,10 +342,10 @@ function TheaterMapInner({
         key,
         label,
         fill,
-        count: filteredTheaterEvents.filter((e) => e.event_type === key).length,
+        count: theaterEventStats.eventTypeCounts[key] ?? 0,
       }))
       .filter((item) => item.count > 0);
-  }, [filteredTheaterEvents, theaterLoading]);
+  }, [filteredTheaterEvents.length, theaterLoading, theaterEventStats.eventTypeCounts]);
 
   const attributionLegendItems = useMemo(() => {
     if (theaterLoading || filteredTheaterEvents.length === 0) return [];
@@ -297,10 +355,10 @@ function TheaterMapInner({
         key,
         label: STRIKE_ATTRIBUTION_STYLE[key].label,
         fill: STRIKE_ATTRIBUTION_STYLE[key].fill,
-        count: filteredTheaterEvents.filter((e) => inferStrikeAttribution(e) === key).length,
+        count: theaterEventStats.attributionCounts[key] ?? 0,
       }))
       .filter((item) => item.count > 0);
-  }, [filteredTheaterEvents, theaterLoading]);
+  }, [filteredTheaterEvents.length, theaterLoading, theaterEventStats.attributionCounts]);
 
   const deckLayers = useMemo(
     () =>
@@ -310,10 +368,10 @@ function TheaterMapInner({
         layerVisibility: layers,
         samRingLines,
         theaterDisplayItems,
-        heatmapEvents,
-        geointAnomalies,
-        sigintAircraft,
-        sigintShips,
+        heatmapEvents: validHeatmapEvents,
+        geointAnomalies: normalizedGeointAnomalies,
+        sigintAircraft: validSigintAircraft,
+        sigintShips: validSigintShips,
         chokepointStatuses,
       }),
     [
@@ -322,10 +380,10 @@ function TheaterMapInner({
       layers,
       samRingLines,
       theaterDisplayItems,
-      heatmapEvents,
-      geointAnomalies,
-      sigintAircraft,
-      sigintShips,
+      validHeatmapEvents,
+      normalizedGeointAnomalies,
+      validSigintAircraft,
+      validSigintShips,
       chokepointStatuses,
     ],
   );
@@ -467,9 +525,9 @@ function TheaterMapInner({
       <SignalSummaryStrip
         showTheaterEvents={layers.theaterEvents}
         strikeCount={filteredTheaterEvents.length}
-        geointCount={geointAnomalies.length}
-        aircraftCount={sigintAircraft.length}
-        shipCount={sigintShips.length}
+        geointCount={normalizedGeointAnomalies.length}
+        aircraftCount={validSigintAircraft.length}
+        shipCount={validSigintShips.length}
       />
 
       {(theaterError || heatmapError) && (
