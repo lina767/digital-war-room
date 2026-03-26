@@ -4,6 +4,7 @@ Stores last N results per source, computes availability and latency, detects cir
 """
 
 import logging
+import os
 import threading
 from collections import deque
 from typing import Any, Dict, List, Optional
@@ -16,6 +17,29 @@ logger = logging.getLogger(__name__)
 DEFAULT_HISTORY_SIZE = 10
 # Consecutive failures before marking source as "down" (circuit open)
 CIRCUIT_OPEN_THRESHOLD = 3
+_ALLOWED_OVERRIDE_STATUSES = {"ok", "degraded", "down"}
+
+
+def _load_source_status_overrides() -> Dict[str, str]:
+    """
+    Parse SOURCE_STATUS_OVERRIDES from env.
+    Format: "Source A=down;Source B=degraded;Source C=ok"
+    """
+    raw = (os.getenv("SOURCE_STATUS_OVERRIDES") or "").strip()
+    if not raw:
+        return {}
+    overrides: Dict[str, str] = {}
+    for part in raw.split(";"):
+        item = part.strip()
+        if not item or "=" not in item:
+            continue
+        name, status = item.split("=", 1)
+        source_name = name.strip()
+        state = status.strip().lower()
+        if not source_name or state not in _ALLOWED_OVERRIDE_STATUSES:
+            continue
+        overrides[source_name] = state
+    return overrides
 
 
 class HealthRegistry:
@@ -55,6 +79,7 @@ class HealthRegistry:
         - summary: total sources, degraded count, down count
         """
         with self._lock:
+            overrides = _load_source_status_overrides()
             sources: List[Dict[str, Any]] = []
             for key, history in list(self._data.items()):
                 if not history:
@@ -74,6 +99,8 @@ class HealthRegistry:
                 )
                 last_error = recent[-1].get("error") if recent and recent[-1].get("status") == "error" else None
                 current_status = "down" if circuit_open else ("ok" if availability_pct >= 80 else "degraded")
+                if source_name in overrides:
+                    current_status = overrides[source_name]
                 sources.append(
                     {
                         "source": source_name,
