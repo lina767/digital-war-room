@@ -4,14 +4,49 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
 import { apiUrl } from "@/lib/api";
 import type { AnalyzeResponse } from "@/lib/api";
+
+type ConfidenceText = "high" | "medium" | "low" | string;
+
+type VerifiedOutcome = {
+  outcome?: string;
+  verification_status?: string;
+  confidence?: ConfidenceText;
+  as_of?: string;
+  sources?: string[];
+};
+
+type ConfidenceBadgeItem = {
+  label?: string;
+  status?: string;
+  confidence?: ConfidenceText;
+  detail?: string;
+};
+
+type PrecomputedAgentResult = {
+  agent?: string;
+  score?: number;
+  confidence?: ConfidenceText;
+  contribution?: string;
+};
 
 type DemoPayload = AnalyzeResponse & {
   _demo?: boolean;
   scenario_id?: string;
   scenario_title?: string;
   scenario_note?: string;
+  verified_outcomes?: VerifiedOutcome[];
+  cross_validation?: AnalyzeResponse["cross_validation"] & {
+    pipeline_version?: string;
+    overall_confidence?: ConfidenceText;
+    consensus_score?: number;
+    checks_passed?: number;
+    checks_total?: number;
+    confidence_badges?: ConfidenceBadgeItem[];
+  };
+  precomputed_agent_results?: PrecomputedAgentResult[];
 };
 
 const THREAT_BADGE: Record<string, string> = {
@@ -24,6 +59,12 @@ const THREAT_BADGE: Record<string, string> = {
 function threatClass(level: string | null | undefined): string {
   return THREAT_BADGE[level ?? "HIGH"] ?? THREAT_BADGE.HIGH;
 }
+
+const CHECK_BADGE: Record<string, string> = {
+  pass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+  watch: "bg-amber-500/15 text-amber-200 border-amber-500/35",
+  fail: "bg-destructive/20 text-destructive border-destructive/40",
+};
 
 export default function DemoPage() {
   const [data, setData] = useState<DemoPayload | null>(null);
@@ -142,13 +183,113 @@ export default function DemoPage() {
                   <ol className="mt-4 list-decimal space-y-3 pl-5 text-sm leading-relaxed">
                     {data.key_findings.map((k, i) => (
                       <li key={i}>
-                        <span className="text-foreground">{k}</span>
+                        <div className="flex items-start gap-2">
+                          <span className="text-foreground">{k}</span>
+                          <FindingConfidenceBadge level={normalizeFindingConfidence(data.key_findings_confidence?.[i])} />
+                        </div>
                         {data.key_findings_context?.[i] && (
                           <p className="mt-1 text-muted-foreground">{data.key_findings_context[i]}</p>
                         )}
                       </li>
                     ))}
                   </ol>
+                </section>
+              )}
+
+              {data.verified_outcomes && data.verified_outcomes.length > 0 && (
+                <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
+                  <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">Verified outcomes</h2>
+                  <ul className="mt-3 space-y-3 text-sm">
+                    {data.verified_outcomes.map((item, i) => (
+                      <li key={i} className="rounded border border-border/70 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] font-mono uppercase">
+                            {item.verification_status ?? "verified"}
+                          </Badge>
+                          <FindingConfidenceBadge level={normalizeFindingConfidence(item.confidence)} />
+                          {item.as_of && <span className="text-xs text-muted-foreground">as of {item.as_of}</span>}
+                        </div>
+                        {item.outcome && <p className="mt-2 text-foreground">{item.outcome}</p>}
+                        {item.sources && item.sources.length > 0 && (
+                          <p className="mt-1 text-xs text-muted-foreground">Sources: {item.sources.join(" | ")}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {data.cross_validation && (
+                <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
+                  <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    Confidence pipeline
+                  </h2>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                    {data.cross_validation.pipeline_version && (
+                      <Badge variant="outline" className="font-mono text-[10px] uppercase">
+                        {data.cross_validation.pipeline_version}
+                      </Badge>
+                    )}
+                    {data.cross_validation.overall_confidence && (
+                      <FindingConfidenceBadge level={normalizeFindingConfidence(data.cross_validation.overall_confidence)} />
+                    )}
+                    {typeof data.cross_validation.checks_passed === "number" &&
+                      typeof data.cross_validation.checks_total === "number" && (
+                        <span className="text-muted-foreground">
+                          {data.cross_validation.checks_passed}/{data.cross_validation.checks_total} checks passed
+                        </span>
+                      )}
+                    {typeof data.cross_validation.consensus_score === "number" && (
+                      <span className="text-muted-foreground">
+                        consensus {Math.round(data.cross_validation.consensus_score * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  {data.cross_validation.confidence_badges && data.cross_validation.confidence_badges.length > 0 && (
+                    <ul className="mt-4 space-y-2 text-sm">
+                      {data.cross_validation.confidence_badges.map((item, i) => (
+                        <li key={i} className="rounded border border-border/70 p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] font-mono uppercase ${
+                                CHECK_BADGE[item.status ?? "watch"] ?? CHECK_BADGE.watch
+                              }`}
+                            >
+                              {item.status ?? "watch"}
+                            </Badge>
+                            {item.confidence && (
+                              <FindingConfidenceBadge level={normalizeFindingConfidence(item.confidence)} />
+                            )}
+                            <span className="font-medium text-foreground">{item.label ?? "Validation check"}</span>
+                          </div>
+                          {item.detail && <p className="mt-1 text-muted-foreground">{item.detail}</p>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              )}
+
+              {data.precomputed_agent_results && data.precomputed_agent_results.length > 0 && (
+                <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
+                  <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    Precomputed agent results
+                  </h2>
+                  <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    {data.precomputed_agent_results.map((r, i) => (
+                      <li key={i} className="rounded border border-border/70 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-muted-foreground">{r.agent ?? "Agent"}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm">{typeof r.score === "number" ? Math.round(r.score) : "-"}</span>
+                            {r.confidence && <FindingConfidenceBadge level={normalizeFindingConfidence(r.confidence)} />}
+                          </div>
+                        </div>
+                        {r.contribution && <p className="mt-1 text-muted-foreground">{r.contribution}</p>}
+                      </li>
+                    ))}
+                  </ul>
                 </section>
               )}
 

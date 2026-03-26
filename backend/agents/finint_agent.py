@@ -26,6 +26,17 @@ from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .source_fetch import SourceFetch
 from .quality_layer import build_quality_payload, fuse_numeric_observations
+from .fetchers.finint_fetchers import (
+    get_brent_price as fetcher_get_brent_price,
+    get_gold_price as fetcher_get_gold_price,
+    get_metaculus_conflict_questions as fetcher_get_metaculus_conflict_questions,
+    get_ofac_sanctions_highlights as fetcher_get_ofac_sanctions_highlights,
+    get_polymarket_conflict_odds as fetcher_get_polymarket_conflict_odds,
+    get_tracked_chain_wallets as fetcher_get_tracked_chain_wallets,
+    get_tracked_wallet_positions as fetcher_get_tracked_wallet_positions,
+    get_wti_price as fetcher_get_wti_price,
+)
+from .scorers.finint_scorer import compute_finint_escalation_score
 from .utils import (
     ProcessingStep,
     ScoreConfidence,
@@ -1524,60 +1535,15 @@ async def _run_all_parallel(conflict: str) -> Dict[str, Any]:
     if not isinstance(tracked_chain_list, list):
         tracked_chain_list = []
 
-    base = 50.0
-    if isinstance(brent, dict) and "error" not in brent and brent.get("change_pct"):
-        cp = brent.get("change_pct") or "0%"
-        if "+" in cp and "%" in cp:
-            try:
-                v = float(cp.replace("%", "").strip())
-                if v > 5:
-                    base += 15
-                elif v > 2:
-                    base += 8
-            except ValueError:
-                pass
-        if "-" in cp:
-            base -= 10
-    if polymarket_list:
-        max_prob = max(
-            (safe_float(p.get("probability")) or 0) for p in polymarket_list if isinstance(p, dict) and "error" not in p
-        )
-        if max_prob and max_prob > 0.5:
-            base += 20
-        elif max_prob and max_prob > 0.3:
-            base += 10
-    if metaculus_list:
-        meta_probs = [
-            safe_float(p.get("probability"))
-            for p in metaculus_list
-            if isinstance(p, dict) and "error" not in p and p.get("probability") is not None
-        ]
-        if meta_probs:
-            max_meta = max(meta_probs)
-            if max_meta and max_meta > 0.5:
-                base += 8
-            elif max_meta and max_meta > 0.3:
-                base += 4
-    if kalshi_list:
-        kalshi_probs = [
-            safe_float(p.get("probability"))
-            for p in kalshi_list
-            if isinstance(p, dict) and "error" not in p and p.get("probability") is not None
-        ]
-        if kalshi_probs and max(kalshi_probs) > 0.5:
-            base += 5
-    ofac_total = int(ofac.get("total_matches") or 0) if isinstance(ofac, dict) and "error" not in ofac else 0
-    if ofac_total > 200:
-        base += 6
-    elif ofac_total > 50:
-        base += 3
-    vix_price = safe_float(vix.get("price")) if isinstance(vix, dict) and "error" not in vix else None
-    if vix_price is not None and vix_price > 25:
-        base += 2
-    fg_val = fear_greed.get("value") if isinstance(fear_greed, dict) and "error" not in fear_greed else None
-    if fg_val is not None and fg_val <= 25:
-        base += 2
-    score = max(0.0, min(100.0, base))
+    score = compute_finint_escalation_score(
+        brent=brent if isinstance(brent, dict) else {},
+        vix=vix if isinstance(vix, dict) else {},
+        fear_greed=fear_greed if isinstance(fear_greed, dict) else {},
+        polymarket_list=polymarket_list,
+        metaculus_list=metaculus_list,
+        kalshi_list=kalshi_list,
+        ofac=ofac if isinstance(ofac, dict) else {},
+    )
 
     source_keys = [
         "brent",
@@ -1860,14 +1826,14 @@ No markdown, no explanation, just JSON."""
 
 
 _FININT_TOOL_FNS = {
-    "get_brent_price": get_brent_price,
-    "get_wti_price": get_wti_price,
-    "get_gold_price": get_gold_price,
-    "get_polymarket_conflict_odds": get_polymarket_conflict_odds,
-    "get_metaculus_conflict_questions": get_metaculus_conflict_questions,
-    "get_ofac_sanctions_highlights": get_ofac_sanctions_highlights,
-    "get_tracked_wallet_positions": get_tracked_wallet_positions,
-    "get_tracked_chain_wallets": get_tracked_chain_wallets,
+    "get_brent_price": fetcher_get_brent_price,
+    "get_wti_price": fetcher_get_wti_price,
+    "get_gold_price": fetcher_get_gold_price,
+    "get_polymarket_conflict_odds": fetcher_get_polymarket_conflict_odds,
+    "get_metaculus_conflict_questions": fetcher_get_metaculus_conflict_questions,
+    "get_ofac_sanctions_highlights": fetcher_get_ofac_sanctions_highlights,
+    "get_tracked_wallet_positions": fetcher_get_tracked_wallet_positions,
+    "get_tracked_chain_wallets": fetcher_get_tracked_chain_wallets,
 }
 _FININT_TOOL_SCHEMAS = [
     {

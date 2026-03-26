@@ -2,145 +2,145 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://digital-war-room.com/</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/demo</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/daily-briefing</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/newsletter</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/impressum</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/privacy</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/support</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/blog</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=how-it-works</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=architecture</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=agents</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=agent-tool-chain</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=methodology</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=api-reference</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=api-keys</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=source-directory</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=glossary</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=deployment</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=newsletter</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=observability</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=security</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.65</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/blog/weekly-insights-auto-generated-summaries</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
     <loc>https://digital-war-room.com/blog/welcome-to-the-blog</loc>
-    <lastmod>2026-03-23</lastmod>
+    <lastmod>2026-03-26</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

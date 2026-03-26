@@ -14,13 +14,8 @@ router = APIRouter()
 _DEMO_SNAPSHOT_PATH = Path(__file__).resolve().parent.parent / "demo" / "demo_snapshot.json"
 
 
-@router.get("/demo/snapshot")
-@limiter.limit("120/minute")
-async def get_demo_snapshot(request: Request) -> Any:
-    """
-    GET /api/demo/snapshot
-    Returns a curated, versioned analysis JSON (e.g. Red Sea chokepoint scenario).
-    """
+def _load_snapshot() -> Any:
+    """Read and parse the curated demo payload from disk."""
     if not _DEMO_SNAPSHOT_PATH.is_file():
         return JSONResponse(
             status_code=503,
@@ -28,3 +23,23 @@ async def get_demo_snapshot(request: Request) -> Any:
         )
     raw = _DEMO_SNAPSHOT_PATH.read_text(encoding="utf-8")
     return json.loads(raw)
+
+
+@router.get("/demo/snapshot")
+@limiter.limit("120/minute")
+async def get_demo_snapshot(request: Request) -> Any:
+    """
+    GET /api/demo/snapshot
+    Returns a curated, versioned analysis JSON (e.g. Red Sea chokepoint scenario).
+    """
+    return _load_snapshot()
+
+
+@router.get("/demo")
+@limiter.limit("120/minute")
+async def get_demo(request: Request) -> Any:
+    """
+    GET /api/demo
+    Alias for /api/demo/snapshot so GTM demos can use a simpler URL.
+    """
+    return _load_snapshot()

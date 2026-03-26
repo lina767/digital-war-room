@@ -101,7 +101,12 @@ export function getDiscoverabilityRoutes() {
 }
 
 export function getPrerenderRoutes() {
-  return getDiscoverabilityRoutes().filter((r) => r.prerender).map((r) => r.path);
+  // Query-string URLs (e.g. /docs/documentation?doc=...) are valid for discovery/sitemap
+  // but not reliably handled by vite-plugin-seo-prerender output mapping.
+  // Keep them discoverable, skip them for filesystem prerender generation.
+  return getDiscoverabilityRoutes()
+    .filter((r) => r.prerender && !r.path.includes("?"))
+    .map((r) => r.path);
 }
 
 export function getSitemapRoutes() {
