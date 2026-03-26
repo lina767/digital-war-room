@@ -7,21 +7,22 @@ interface ContentPageLayoutProps {
   title: string;
   description?: string;
   icon?: React.ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
   children: React.ReactNode;
   /** Hide back-to-dashboard link when printing (e.g. documentation PDF export). */
   printHideNavigation?: boolean;
 }
 
 const MAX_W_MAP: Record<string, string> = {
-  sm: "max-w-sm",
-  md: "max-w-md",
-  lg: "max-w-lg",
-  xl: "max-w-xl",
-  "2xl": "max-w-2xl",
-  "3xl": "max-w-3xl",
-  "4xl": "max-w-4xl",
-  "5xl": "max-w-5xl",
+  sm: "max-w-none",
+  md: "max-w-none",
+  lg: "max-w-none",
+  xl: "max-w-none",
+  "2xl": "max-w-none",
+  "3xl": "max-w-none",
+  "4xl": "max-w-none",
+  "5xl": "max-w-none",
+  full: "max-w-none",
 };
 
 export function ContentPageLayout({
@@ -29,13 +30,13 @@ export function ContentPageLayout({
   title,
   description,
   icon,
-  maxWidth = "4xl",
+  maxWidth = "full",
   children,
   printHideNavigation = false,
 }: ContentPageLayoutProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className={cn("mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10", MAX_W_MAP[maxWidth])}>
+      <div className={cn("w-full px-4 sm:px-6 lg:px-8 py-6 sm:py-10", MAX_W_MAP[maxWidth])}>
         <div
           className={cn(
             "mb-6 sm:mb-8 flex items-center justify-between gap-3",

@@ -94,6 +94,8 @@ Digital War Room deploys **11 specialized OSINT agents** — supervised by a Cla
 - **Source directory** — Trace claims back to primary sources with reliability context.
 - **Strait of Hormuz monitor** — Maritime and commodity stress through the chokepoint.
 - **Sanctions-oriented workflows** — OFAC / EU / UN screening patterns where APIs and keys are configured.
+- **Documentation hub routing** — `/how-it-works`, `/methodology`, and `/sources` redirect to `/docs/documentation` with `doc` query params.
+- **Full-width content pages** — Documentation/legal/blog/newsletter pages use the available desktop width by default.
 
 ---
 

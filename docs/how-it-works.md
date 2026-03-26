@@ -9,6 +9,8 @@ This guide is the canonical **in-product** reference: open [Documentation → Ho
 - [Methodology (documentation)](https://digital-war-room.com/docs/documentation?doc=methodology)
 - [Source Directory (documentation)](https://digital-war-room.com/docs/documentation?doc=source-directory)
 
+In the SPA router, additional utility routes are available: `/docs` redirects to `/docs/documentation`, `/demo` renders the demo page, and `/app/login` provides tenant login.
+
 ## End-to-end flow
 
 1. A conflict context (for example `Iran`) is selected.
@@ -120,6 +122,7 @@ For conflict **Iran**, keywords and synthesis explicitly include Hezbollah–IDF
 - **Conflict map & timeline** — Region map with thermal anomalies, aircraft, ships; optional heatmap (ACLED), SAM rings, air/sea routes; escalation timeline.
 - **Intelligence feed & Global Impact** — Updated briefing, Global Impact (oil/Hormuz when available), headlines, events, proximity analyzer, connectivity, prediction markets.
 - **Sanctions Compliance** — OFAC/EU, geofencing, AIS anomalies, compliance risk score; on-demand sanctions search.
+- **Content pages on desktop** — Documentation, blog, legal, support, and newsletter pages use full available width with responsive side padding.
 
 ## How to read the dashboard
 

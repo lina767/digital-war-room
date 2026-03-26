@@ -140,6 +140,7 @@ On shutdown, the backend cancels tasks and closes the HTTP client cleanly.
   - per-agent panels
   - map and feed components
   - timeline and briefing-style summaries
+- Content pages (`ContentPageLayout`) use full available width by default on desktop (`w-full`, no max-width cap); responsive horizontal padding remains via Tailwind breakpoints.
 
 ---
 
@@ -345,14 +346,18 @@ The orchestration pipeline executes in waves and synthesizes into one final anal
 
 Primary routes registered in `src/App.tsx` include:
 
-- `/` and `/app/dashboard`
+- `/demo`
+- `/app/login`
+- `/app/dashboard`
 - `/app/monitoring`
 - `/how-it-works`, `/methodology`, `/sources` → redirect to `/docs/documentation` with `?doc=how-it-works` | `methodology` | `source-directory`
 - `/daily-briefing`
 - `/docs/documentation`
+- `/docs` → redirect to `/docs/documentation`
 - `/newsletter` + confirm/unsubscribe routes
 - `/support`, `/privacy`, `/impressum`
 - `/blog` and `/blog/:slug`
+- fallback `*` route → `NotFound`
 
 This is a client-side routed SPA via `BrowserRouter`.
 
