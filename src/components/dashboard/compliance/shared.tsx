@@ -1,4 +1,4 @@
-/** @deprecated Import from `@/features/compliance` instead. Re-exports kept for gradual migration. */
+/** Shared compliance UI contracts and helpers. */
 export {
   CollapsibleSection,
   ZoneTypeBadge,

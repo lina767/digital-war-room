@@ -235,8 +235,8 @@ def _kev_cache_set(data: Dict[str, Any]) -> None:
         if not hasattr(_kev_cache_get, "_mem_cache"):
             _kev_cache_get._mem_cache = TTLCache(maxsize=1, ttl=KEV_CACHE_TTL_SEC)
         _kev_cache_get._mem_cache["kev"] = data
-    except Exception:
-        pass
+    except ImportError:
+        logger.debug("CYBER: cachetools not installed; skipping in-memory KEV cache")
 
 
 def _parse_kev_date(s: Optional[str]) -> Optional[datetime]:
@@ -520,8 +520,8 @@ async def _fetch_otx_pulses(client: Any, api_key: str, conflict: str) -> List[Ot
                 body = (e.response.text or "")[:200]
                 if body:
                     logger.warning("CYBER: OTX pulses failed %s – %s", err_msg, body)
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError) as body_exc:
+                logger.debug("CYBER: failed to parse OTX error body: %s", body_exc)
         else:
             logger.warning("CYBER: OTX pulses fetch failed: %s", e)
         return [OtxPulseEntry(name=None, error=err_msg, fetched_at=fetched_at)]

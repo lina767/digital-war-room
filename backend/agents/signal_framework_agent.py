@@ -150,8 +150,8 @@ def _parse_feed_item_published(entry: Any) -> Optional[float]:
 
                 dt = date_parser.parse(raw)
                 return dt.timestamp()
-    except Exception:
-        pass
+    except (TypeError, ValueError, OverflowError):
+        return None
     return None
 
 
@@ -290,8 +290,8 @@ def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
                 body_text = raw_body.decode("utf-8", errors="replace")
                 if "html" in content_type or body_text.lstrip().lower().startswith("<!doctype html"):
                     out = _extract_headlines_from_html(body_text, url, source_name)
-            except Exception:
-                pass
+            except (UnicodeDecodeError, ValueError, TypeError) as exc:
+                logger.debug("SignalFramework: HTML fallback parse failed for %s: %s", source_name, exc)
         return out
 
     items = _do_fetch()

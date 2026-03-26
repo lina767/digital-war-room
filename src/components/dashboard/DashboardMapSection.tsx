@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ConflictData } from "@/types/conflict";
-import type { GeointAnomaly, SigintAircraft, SigintShip } from "./mapConfig";
+import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/types/theaterMap";
 import { TheaterMap } from "@/components/dashboard/TheaterMap";
 import { Radio, Rss } from "lucide-react";
 import { getEscalationTimeline, type EscalationTimelinePoint } from "@/lib/api";

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import type { ConflictData } from "@/types/conflict";
 
 /** Shared derived compliance / conflict context for sanctions search & document QA. */

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
-import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
 import { Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";

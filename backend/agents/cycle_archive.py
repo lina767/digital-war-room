@@ -130,8 +130,8 @@ class CycleArchive:
             try:
                 oldest.unlink()
                 logger.debug("Rotated old archive: %s", oldest)
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.debug("Failed to rotate archive %s: %s", oldest, exc)
 
 
 def _safe_dirname(name: str) -> str:

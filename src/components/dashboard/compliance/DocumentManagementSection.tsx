@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileText } from "lucide-react";
-import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import { getDocuments, postDocumentsIngest, postDocumentsQa } from "@/lib/api";
 import { CollapsibleSection } from "./shared";
 

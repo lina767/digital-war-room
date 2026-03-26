@@ -1,5 +1,5 @@
 import type { AgentMeta } from "@/lib/api";
-import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/components/dashboard/mapConfig";
+import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/types/theaterMap";
 import type {
   ChokepointResult,
   CyberResult,

@@ -206,8 +206,8 @@ class BaseAgent(ABC, Generic[T]):
             try:
                 meta = AgentMetadata(**meta_dict)
                 sources = meta.sources
-            except Exception:
-                pass
+            except (TypeError, ValueError) as exc:
+                logger.debug("Invalid agent metadata payload; ignoring _meta block: %s", exc)
 
         metrics = AgentMetrics(
             latency_ms=latency_ms,

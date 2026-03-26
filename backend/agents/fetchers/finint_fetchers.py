@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -318,7 +319,8 @@ def get_fear_greed() -> Dict[str, Any]:
                     data = resp.json()
                     if isinstance(data, dict) and data.get("value") is not None:
                         return {"value": int(data.get("value")), "value_classification": data.get("value_classification")}
-                except Exception:
+                except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+                    # Fall back to alternative.me source if CNN endpoint fails.
                     pass
             resp = await client.get(FEAR_GREED_FALLBACK_URL)
             data = resp.json()
@@ -368,8 +370,8 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
                     )
                     if resp.status_code == 200 and isinstance(resp.json(), list):
                         results.extend(resp.json())
-                except Exception:
-                    pass
+                except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+                    continue
         return results
 
     try:

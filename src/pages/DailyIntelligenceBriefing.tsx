@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { getLatestAnalysis } from "@/lib/api";
 import type { ConflictData } from "@/types/conflict";
-import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import {
   PREDICTIVE_OUTLOOK_DISCLAIMER,
   PREDICTIVE_OUTLOOK_INTRO_SHORT,

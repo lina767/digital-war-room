@@ -18,7 +18,7 @@ import {
   type AnalysisRunSummary,
   type MonitoringErrorEntry,
 } from "@/lib/api";
-import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { toast } from "sonner";
 import {

@@ -6,11 +6,9 @@ import type { ConflictEventForHeatmap, TheaterEvent } from "@/lib/api";
 import {
   THEATER_STRIKE_LIKE_TYPES,
   strikeMarkerColors,
-  type GeointAnomaly,
-  type SigintAircraft,
-  type SigintShip,
   hasOverlayDataForConflict,
 } from "./mapConfig";
+import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/types/theaterMap";
 import {
   AIR_ROUTES,
   CHOKEPOINT_ZONES,

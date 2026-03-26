@@ -418,8 +418,8 @@ async def _fetch_shodan_activity(api_key: str, conflict: str) -> Dict[str, Any]:
                     )
                     r.raise_for_status()
                     vuln_count = int(r.json().get("total", 0))
-                except Exception:
-                    pass
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    logger.debug("TECHINT: failed to fetch Shodan vuln count: %s", exc)
         out: Dict[str, Any] = {
             "countries": countries,
             "total_count": total,

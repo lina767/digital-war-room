@@ -10,29 +10,11 @@ from typing import Any, Dict, Optional
 from fastapi import Request
 
 from middleware.tenant_context import get_request_ctx
+from models.analysis_contract import AGENT_KEYS
 from services.state_service import StateService
 
 # Escalation timeline: keep last N points per conflict for "escalation over the day" UI.
 ESCALATION_TIMELINE_MAX_POINTS = int(os.getenv("ESCALATION_TIMELINE_MAX_POINTS", "24"))
-
-# Agent keys present in supervisor result (for status recording).
-AGENT_KEYS = (
-    "finint",
-    "sigint",
-    "news",
-    "geoint",
-    "satintel",
-    "socmint",
-    "techint",
-    "cyber",
-    "energy",
-    "protest",
-    "diplo",
-    "proximity",
-    "narrative",
-    "chokepoint",
-    "pentagon",
-)
 
 ANALYSIS_RUN_HISTORY_MAX = 50
 

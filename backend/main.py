@@ -1,8 +1,6 @@
 import logging
 import os
 import asyncio
-from typing import Any
-import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -24,28 +22,22 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from middleware.rate_limit import limiter
 from middleware.tenant_context import TenantContextMiddleware
-from api.routes import router as api_router, push_escalation_timeline, push_agent_status, push_run_history
+from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
-from agents.supervisor import analyze_conflict
-from agents.pattern_anomalies import attach_pattern_flags
 from agents.config import CORS_ORIGINS, GREYNOISE_API_KEY, GREYNOISE_SCHEDULER_INTERVAL_SEC
 from observability import init as init_observability
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 from services.state_service import StateService
-from services.request_context import RequestContext, reset_request_context, set_request_context
 from services.tenant_constants import get_default_tenant_id
+from app_lifecycle import create_periodic_analysis_task
+from settings import settings
 from agents.socmint_agent import scrape_twitter_nitter, scrape_telegram_channels, search_reddit
 
-# Konflikt, der periodisch automatisch analysiert wird (unabhängig von Aufrufen)
-from agents.config import DEFAULT_CONFLICT
-
-# Standard conflict for periodic analysis (default: Iran)
-AUTO_ANALYZE_CONFLICT = os.getenv("AUTO_ANALYZE_CONFLICT", DEFAULT_CONFLICT)
-# Default: 1x täglich (86400s). Override via env AUTO_ANALYZE_INTERVAL_SEC.
-AUTO_ANALYZE_INTERVAL_SEC = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "86400"))  # 24 Stunden
-AUTO_ANALYZE_TIMEOUT_SEC = int(os.getenv("AUTO_ANALYZE_TIMEOUT_SEC", "300"))  # 5 Minuten
+AUTO_ANALYZE_CONFLICT = settings.auto_analyze_conflict
+AUTO_ANALYZE_INTERVAL_SEC = settings.auto_analyze_interval_sec
+AUTO_ANALYZE_TIMEOUT_SEC = settings.auto_analyze_timeout_sec
 
 
 class ConnectionManager:
@@ -103,93 +95,13 @@ async def lifespan(app: FastAPI):
 
     acled_task = asyncio.create_task(_acled_startup_refresh())
 
-    async def run_periodic_analysis():
-        loop = asyncio.get_running_loop()
-        first_delay = 5
-        await asyncio.sleep(first_delay)
-        consecutive_failures = 0
-        while True:
-            try:
-                # Reset Haiku per-run counters and warm up HF models
-                try:
-                    from services.haiku_service import reset_run_counters, log_run_stats
-
-                    reset_run_counters()
-                except Exception:
-                    pass
-                try:
-                    from services.hf_service import warmup
-
-                    await warmup()
-                except Exception:
-                    pass
-
-                def _run_auto() -> Any:
-                    tid = get_default_tenant_id()
-                    ctx = RequestContext(tenant_id=tid, user_id=None, role="viewer", auth_method="default")
-                    tok = set_request_context(ctx)
-                    try:
-                        return analyze_conflict(AUTO_ANALYZE_CONFLICT)
-                    finally:
-                        reset_request_context(tok)
-
-                _ntid = get_default_tenant_id()
-                run_key = f"{_ntid}\n{AUTO_ANALYZE_CONFLICT}"
-                if run_key in app.state.analysis_inflight:
-                    logger.info("Periodic analysis skipped for %s: run already in progress.", AUTO_ANALYZE_CONFLICT)
-                    await asyncio.sleep(min(60, AUTO_ANALYZE_INTERVAL_SEC))
-                    continue
-                app.state.analysis_inflight[run_key] = time.time()
-                try:
-                    result = await asyncio.wait_for(
-                        loop.run_in_executor(None, _run_auto),
-                        timeout=float(AUTO_ANALYZE_TIMEOUT_SEC),
-                    )
-                finally:
-                    app.state.analysis_inflight.pop(run_key, None)
-                at_ts = time.time()
-                attach_pattern_flags(app.state.state_service, AUTO_ANALYZE_CONFLICT, result, tenant_id=_ntid)
-                app.state.state_service.set_cache(AUTO_ANALYZE_CONFLICT, result, at_ts, tenant_id=_ntid)
-                app.state.state_service.pop_last_error(AUTO_ANALYZE_CONFLICT, tenant_id=_ntid)
-                push_escalation_timeline(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result, tenant_id=_ntid)
-                push_agent_status(app.state, result, tenant_id=_ntid)
-                push_run_history(app.state, AUTO_ANALYZE_CONFLICT, at_ts, result, tenant_id=_ntid)
-                await app.state.ws_manager.broadcast({**result, "status": "ok", "conflict": AUTO_ANALYZE_CONFLICT})
-                try:
-                    from api.routes_analyze import persist_analysis_side_effects
-
-                    await persist_analysis_side_effects(AUTO_ANALYZE_CONFLICT, result)
-                except Exception:
-                    pass
-
-                # Log Haiku usage stats for this run
-                try:
-                    log_run_stats()
-                except Exception:
-                    pass
-
-                logger.info("Analysis for %s done.", AUTO_ANALYZE_CONFLICT)
-                consecutive_failures = 0
-                await asyncio.sleep(AUTO_ANALYZE_INTERVAL_SEC)
-            except asyncio.TimeoutError:
-                consecutive_failures += 1
-                retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)
-                logger.warning(
-                    "Periodic analysis timed out after %ss (attempt %d). Retrying in %ds.",
-                    AUTO_ANALYZE_TIMEOUT_SEC,
-                    consecutive_failures,
-                    retry_delay,
-                )
-                await asyncio.sleep(retry_delay)
-            except Exception as e:
-                consecutive_failures += 1
-                retry_delay = min(60 * (2 ** (consecutive_failures - 1)), AUTO_ANALYZE_INTERVAL_SEC)
-                logger.warning(
-                    "Analysis failed (attempt %d): %s. Retrying in %ds.", consecutive_failures, e, retry_delay
-                )
-                await asyncio.sleep(retry_delay)
-
-    analysis_task = asyncio.create_task(run_periodic_analysis())
+    analysis_task = create_periodic_analysis_task(
+        app,
+        conflict=AUTO_ANALYZE_CONFLICT,
+        interval_sec=AUTO_ANALYZE_INTERVAL_SEC,
+        timeout_sec=AUTO_ANALYZE_TIMEOUT_SEC,
+        logger=logger,
+    )
     worker_task = asyncio.create_task(app.state.job_queue.worker())
 
     # GreyNoise Emerging Threats scheduler (6h cycle + daily tag discovery)
@@ -233,11 +145,7 @@ async def lifespan(app: FastAPI):
             log_newsletter_deliverability_hints()
         except Exception:
             pass
-        in_process = (os.getenv("NEWSLETTER_IN_PROCESS_SCHEDULER", "true") or "").strip().lower() not in (
-            "0",
-            "false",
-            "no",
-        )
+        in_process = settings.newsletter_in_process_scheduler
         if in_process:
             def _seconds_until_next_send() -> float:
                 """
@@ -257,22 +165,14 @@ async def lifespan(app: FastAPI):
                         next_run = next_run + timedelta(days=1)
                     return max(60.0, (next_run - now).total_seconds())
 
-                tz_name = (os.getenv("NEWSLETTER_SEND_TIMEZONE") or "Europe/Berlin").strip() or "Europe/Berlin"
+                tz_name = settings.newsletter_send_timezone
                 try:
                     tz = ZoneInfo(tz_name)
                 except Exception:
                     logger.warning("Invalid NEWSLETTER_SEND_TIMEZONE=%r; using Europe/Berlin", tz_name)
                     tz = ZoneInfo("Europe/Berlin")
-                try:
-                    hour = int(os.getenv("NEWSLETTER_SEND_HOUR", "10"), 10)
-                except ValueError:
-                    hour = 10
-                try:
-                    minute = int(os.getenv("NEWSLETTER_SEND_MINUTE", "0"), 10)
-                except ValueError:
-                    minute = 0
-                hour = max(0, min(23, hour))
-                minute = max(0, min(59, minute))
+                hour = settings.newsletter_send_hour
+                minute = settings.newsletter_send_minute
                 now = datetime.now(tz)
                 next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
                 if next_run <= now:
@@ -287,17 +187,9 @@ async def lifespan(app: FastAPI):
                     _first_delay,
                 )
             else:
-                _tz = (os.getenv("NEWSLETTER_SEND_TIMEZONE") or "Europe/Berlin").strip() or "Europe/Berlin"
-                try:
-                    _h = int(os.getenv("NEWSLETTER_SEND_HOUR", "10"), 10)
-                except ValueError:
-                    _h = 10
-                try:
-                    _m = int(os.getenv("NEWSLETTER_SEND_MINUTE", "0"), 10)
-                except ValueError:
-                    _m = 0
-                _h = max(0, min(23, _h))
-                _m = max(0, min(59, _m))
+                _tz = settings.newsletter_send_timezone
+                _h = settings.newsletter_send_hour
+                _m = settings.newsletter_send_minute
                 logger.info(
                     "Newsletter in-process scheduler: daily send at %02d:%02d %s; first run in %.0f s",
                     _h,

@@ -179,8 +179,8 @@ def _load_history() -> Dict[str, List[float]]:
             data = json.loads(HISTORY_FILE.read_text())
             if isinstance(data, dict):
                 return data
-    except Exception:
-        pass
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.debug("chokepoint: failed to load history: %s", exc)
     return {}
 
 
@@ -198,8 +198,8 @@ def _load_brent_history() -> List[float]:
             data = json.loads(BRENT_HISTORY_FILE.read_text())
             if isinstance(data, list):
                 return [float(x) for x in data if isinstance(x, (int, float))]
-    except Exception:
-        pass
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.debug("chokepoint: failed to load brent history: %s", exc)
     return []
 
 
@@ -222,8 +222,8 @@ def _load_overrides() -> Dict[str, str]:
                     for k, v in data.items()
                     if str(v).upper() in ("OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED")
                 }
-    except Exception:
-        pass
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.debug("chokepoint: failed to load overrides: %s", exc)
     return {}
 
 

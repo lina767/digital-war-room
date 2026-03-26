@@ -347,8 +347,8 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
                     if resp.status_code == 200 and isinstance(resp.json(), list) and resp.json():
                         last = resp.json()[-1]
                         opensky_hint = {"last_callsign": last.get("callsign"), "last_origin": last.get("estDepartureAirport"), "last_destination": last.get("estArrivalAirport"), "last_time": last.get("lastSeen") or last.get("firstSeen")}
-                except Exception:
-                    pass
+                except (httpx.HTTPError, ValueError, TypeError) as exc:
+                    logger.debug("SIGINT: OpenSky lookup failed for %s: %s", target, exc)
             if not latest_adsbx:
                 mil = get_military_aircraft() or []
                 for ac in mil:

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer } from "react";
-import { DEFAULT_CONFLICT } from "@/components/dashboard/conflictData";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import type { ConflictData, PredictiveLevel } from "@/types/conflict";
 import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
 import { formatTimeAgo } from "@/lib/utils";

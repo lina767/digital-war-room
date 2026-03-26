@@ -14,13 +14,11 @@ import {
   AISAnomaliesSection,
   ComplianceZonesSection,
   DocumentManagementSection,
-  DocumentQASection,
   GeofencingAlertsSection,
   RiskScoreDisplay,
-  RouteScreeningSection,
   SanctionsListsSection,
-  SanctionsSearchSection,
 } from "./compliance";
+import { DocumentQASection, RouteScreeningSection, SanctionsSearchSection } from "@/features/compliance";
 
 interface CompliancePanelProps {
   data: ConflictData | null;

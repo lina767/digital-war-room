@@ -485,8 +485,8 @@ def fetch_notams(
                 if resp.status_code == 200:
                     data = resp.json()
                     return data.get("items") or data.get("notamList") or (data if isinstance(data, list) else [])
-            except Exception:
-                pass
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                logger.debug("FAA NOTAM fallback failed: %s", exc)
         return [
             {
                 "id": "FALLBACK",

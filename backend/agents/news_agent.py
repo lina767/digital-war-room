@@ -416,8 +416,8 @@ def _merge_news_results(
         from services.hf_service import _get_ranking_query, deduplicate_items, rank_by_relevance
 
         _hf_available = True
-    except Exception:
-        pass
+    except ImportError:
+        logger.debug("HF ranking unavailable (services.hf_service import failed).")
 
     if _hf_available:
         try:

@@ -1,9 +1,6 @@
 export { RiskScoreDisplay } from "./RiskScoreDisplay";
 export { SanctionsListsSection } from "./SanctionsListsSection";
-export { SanctionsSearchSection } from "./SanctionsSearchSection";
-export { RouteScreeningSection } from "./RouteScreeningSection";
 export { ComplianceZonesSection } from "./ComplianceZonesSection";
-export { DocumentQASection } from "./DocumentQASection";
 export { DocumentManagementSection } from "./DocumentManagementSection";
 export { GeofencingAlertsSection } from "./GeofencingAlertsSection";
 export { AISAnomaliesSection } from "./AISAnomaliesSection";

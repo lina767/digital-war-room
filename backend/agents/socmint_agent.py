@@ -539,8 +539,8 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                         import calendar
 
                         published = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), tz=timezone.utc)
-                    except Exception:
-                        pass
+                    except (TypeError, ValueError, OverflowError):
+                        published = None
                 if published and published < cutoff:
                     continue
                 score = _sentiment(combined)
@@ -617,8 +617,8 @@ def fetch_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                         import calendar
 
                         published = datetime.fromtimestamp(calendar.timegm(entry.published_parsed), tz=timezone.utc)
-                    except Exception:
-                        pass
+                    except (TypeError, ValueError, OverflowError):
+                        published = None
                 if published and published < cutoff:
                     continue
                 score = _sentiment(combined)

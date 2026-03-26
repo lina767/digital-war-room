@@ -11,7 +11,7 @@ import uuid
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from api.state_helpers import AGENT_KEYS
+from models.analysis_contract import AGENT_KEYS
 
 ERROR_LOG_MAX = 400
 DAILY_HISTORY_MAX = 45
