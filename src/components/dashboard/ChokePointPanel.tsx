@@ -121,9 +121,23 @@ export function ChokePointPanel({ data, embedded = false }: ChokePointPanelProps
   const energy = data?.energy;
   const oilCommodities = energy?.commodities ?? [];
   const foodCommodities = energy?.food_commodities ?? [];
+  const fertilizer = (energy?.fertilizer ?? {}) as Record<string, unknown>;
+  const fertilizerCommodities: Array<{ symbol: string; price?: string; change?: string }> = [];
+  const ureaPrice = Number(fertilizer.urea_price);
+  if (Number.isFinite(ureaPrice) && ureaPrice > 0) {
+    fertilizerCommodities.push({ symbol: "UREA", price: `$${ureaPrice.toFixed(2)}`, change: "WB" });
+  }
+  const dapPrice = Number(fertilizer.dap_price);
+  if (Number.isFinite(dapPrice) && dapPrice > 0) {
+    fertilizerCommodities.push({ symbol: "DAP", price: `$${dapPrice.toFixed(2)}`, change: "WB" });
+  }
   const faoFpi = energy?.fao_fpi;
   const foodRisk = Number(energy?.food_security_risk) || 0;
-  const hasFoodData = foodCommodities.length > 0 || (faoFpi != null && faoFpi.index != null) || (energy != null && foodRisk > 0);
+  const hasFoodData =
+    foodCommodities.length > 0 ||
+    fertilizerCommodities.length > 0 ||
+    (faoFpi != null && faoFpi.index != null) ||
+    (energy != null && foodRisk > 0);
 
   if (chokepoints.length === 0 && oilCommodities.length === 0 && !hasFoodData) {
     return null;
@@ -238,6 +252,9 @@ export function ChokePointPanel({ data, embedded = false }: ChokePointPanelProps
                 price={c.price}
                 change={c.change_pct}
               />
+            ))}
+            {fertilizerCommodities.map((c) => (
+              <CommodityRow key={c.symbol} symbol={c.symbol} price={c.price} change={c.change} />
             ))}
             {faoFpi?.index != null && (
               <div className="flex justify-between text-[11px] pt-1">

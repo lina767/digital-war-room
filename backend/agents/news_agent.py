@@ -65,7 +65,7 @@ NEWS_DOMAINS = (
     "reuters.com,apnews.com,bbc.com,aljazeera.com,theguardian.com,"
     "nytimes.com,washingtonpost.com,ft.com,bloomberg.com,politico.com,"
     "foreignpolicy.com,defensenews.com,jpost.com,haaretz.com,irna.ir,"
-    "middleeasteye.net,thehill.com"
+    "middleeasteye.net,thehill.com,dw.com"
 )
 
 # Category-based multi-source RSS aggregation.
@@ -79,6 +79,7 @@ RSS_CATEGORY_FEEDS: Dict[str, List[str]] = {
         "https://feeds.bbci.co.uk/news/world/rss.xml",
         "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
         "https://rss.apnews.com/apf-topnews",
+        "https://rss.dw.com/rdf/rss-en-world",
         "https://www.theguardian.com/world/rss",
         "https://feeds.npr.org/1004/rss.xml",
         "https://www.politico.com/rss/politicopicks.xml",
@@ -196,6 +197,7 @@ RSS_CONFLICT_FEEDS: Dict[str, List[str]] = {
     ],
     "default": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://rss.dw.com/rdf/rss-en-world",
         "https://www.aljazeera.com/xml/rss/all.xml",
         "https://www.theguardian.com/world/rss",
     ],
@@ -262,6 +264,28 @@ DISRUPTION_VERBS = [
     "disrupted",
     "restricted",
     "closure",
+    # German/common non-English verbs used in regional reporting
+    "blockiert",
+    "gesperrt",
+    "unterbrochen",
+    "angriff",
+    "angriffe",
+]
+DISRUPTION_SUPPLY_TERMS = [
+    # Food/fertilizer stress terms frequently linked to chokepoint disruptions
+    "fertilizer",
+    "duenger",
+    "harnstoff",
+    "urea",
+    "dap",
+    "ammonia",
+    "phosphate",
+    "sulfur",
+    "food security",
+    "ernaehrungssicherheit",
+    "supply chain",
+    "shortage",
+    "engpass",
 ]
 
 
@@ -269,7 +293,9 @@ def _tag_chokepoint(article: Dict[str, Any]) -> Dict[str, Any]:
     """Set chokepoint_tags and is_disruption on article for CHOKEPOINT agent consumption."""
     title = (article.get("title") or "").lower()
     url = (article.get("url") or "").lower()
-    text = f"{title} {url}"
+    description = (article.get("description") or article.get("summary") or article.get("snippet") or "").lower()
+    content = (article.get("content") or "").lower()
+    text = f"{title} {url} {description} {content}"
     tags: List[str] = []
     for cp_name, keywords in CHOKEPOINT_KEYWORDS.items():
         for kw in keywords:
@@ -280,8 +306,11 @@ def _tag_chokepoint(article: Dict[str, Any]) -> Dict[str, Any]:
             if cp_name == "Strait of Hormuz" and re.search(r"iran.*strait|strait.*iran", text):
                 tags.append(cp_name)
     has_disruption_verb = any(v in text for v in DISRUPTION_VERBS)
+    has_supply_signal = any(term in text for term in DISRUPTION_SUPPLY_TERMS)
     article["chokepoint_tags"] = list(dict.fromkeys(tags))
-    article["is_disruption"] = bool(tags and has_disruption_verb)
+    # Keep high precision: require chokepoint tag, then either direct disruption verb
+    # or strong supply-chain stress language.
+    article["is_disruption"] = bool(tags and (has_disruption_verb or has_supply_signal))
     return article
 
 
