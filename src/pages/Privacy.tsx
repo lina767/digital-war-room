@@ -10,6 +10,8 @@ const CONTACT = {
   email: "social@linabraun.eu",
 };
 
+const LAST_UPDATED = "26 March 2026";
+
 const Privacy = () => {
   return (
     <>
@@ -29,6 +31,12 @@ const Privacy = () => {
         maxWidth="3xl"
       >
         <div className="space-y-8 text-sm sm:text-[15px] text-muted-foreground leading-relaxed">
+          <section>
+            <p>
+              Last updated: <strong className="text-foreground">{LAST_UPDATED}</strong>
+            </p>
+          </section>
+
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
               1. Controller
@@ -51,7 +59,15 @@ const Privacy = () => {
               2. Data we collect
             </h2>
             <p>
-              No account data or personal user accounts are collected. When you use the platform, access data (e.g. IP address, date/time, pages accessed, browser type) may be transmitted to our hosting or CDN provider. The platform may use analytics tools (e.g. Vercel Analytics) that collect anonymised usage data. The platform’s analysis features use AI (e.g. language models for synthesising situation reports); only the open data used for conflict analysis is processed there, not your personal data.
+              We do not offer personal user accounts. Depending on your use, we process:
+              <br />
+              - Technical access data (e.g. IP address, date/time, URL, user agent, referrer) through our
+              hosting/CDN and server infrastructure.
+              <br />
+              - Newsletter data (email address and consent metadata for double opt-in) if you subscribe.
+              <br />
+              - Security and anti-abuse metadata (e.g. rate-limit or request integrity data) where required to
+              protect the service.
             </p>
           </section>
 
@@ -62,8 +78,8 @@ const Privacy = () => {
             <p>
               If you subscribe to the Daily Briefing newsletter, we store your email address for the sole purpose of
               sending you the daily briefing email. We use double opt-in: you must confirm your subscription via the
-              link in the confirmation email. For delivery, we use Resend as email service provider (processor). You
-              can unsubscribe at any time via the link in each newsletter. We do not sell your email address.
+              link in the confirmation email. For delivery, we use Resend as our processor. You can unsubscribe at any
+              time via the link in each newsletter. We do not sell your email address.
             </p>
           </section>
 
@@ -73,9 +89,13 @@ const Privacy = () => {
             </h2>
             <p>
               Processing is carried out to operate the website, provide the analysis and dashboard features (including
-              AI-assisted synthesis), and ensure security and stability. The legal basis is in particular Art. 6(1)(f)
-              GDPR (legitimate interest in operating the platform). For newsletter delivery, the legal basis is your
-              consent under Art. 6(1)(a) GDPR, which you can withdraw at any time by unsubscribing.
+              AI-assisted synthesis), and ensure security and stability. Legal bases are:
+              <br />
+              - Art. 6(1)(f) GDPR (legitimate interests) for secure and reliable operation, technical logs,
+              performance monitoring, and abuse prevention.
+              <br />
+              - Art. 6(1)(a) GDPR (consent) for newsletter subscriptions (double opt-in), revocable at any time with
+              effect for the future.
             </p>
           </section>
 
@@ -84,9 +104,10 @@ const Privacy = () => {
               5. Storage period
             </h2>
             <p>
-              Personal data are retained only for as long as necessary for the purposes stated above or as required by
-              law. Newsletter subscription data are kept until you unsubscribe. Access and log data are generally
-              deleted or anonymised after a short period.
+              We retain personal data only as long as necessary for the stated purposes or as required by law.
+              Newsletter data are stored until you unsubscribe (plus any legally required proof periods for consent and
+              dispatch). Technical log and security data are retained for a limited period and then deleted or
+              anonymized.
             </p>
           </section>
 
@@ -95,16 +116,28 @@ const Privacy = () => {
               6. Your rights
             </h2>
             <p>
-              You have the right to access (Art. 15 GDPR), rectification (Art. 16 GDPR), erasure (Art. 17 GDPR), restriction of processing (Art. 18 GDPR), data portability (Art. 20 GDPR) and to object (Art. 21 GDPR). Where processing is based on consent, you may withdraw that consent at any time with effect for the future. You also have the right to lodge a complaint with a supervisory authority (Art. 77 GDPR).
+              You have rights to access (Art. 15 GDPR), rectification (Art. 16 GDPR), erasure (Art. 17 GDPR),
+              restriction (Art. 18 GDPR), portability (Art. 20 GDPR), and objection (Art. 21 GDPR). If processing is
+              based on consent, you may withdraw consent at any time with effect for the future. You also have the
+              right to lodge a complaint with a supervisory authority (Art. 77 GDPR).
             </p>
           </section>
 
           <section>
             <h2 className="text-xs font-mono tracking-wider text-foreground uppercase mb-2">
-              7. Cookies, AI and third-party services
+              7. Recipients, third countries, AI and analytics
             </h2>
             <p>
-              The platform may use technically necessary cookies or local storage (e.g. for preferences). For AI-assisted evaluation and synthesis of conflict analyses, third-party services (e.g. providers of language models) are used; the data processed there relates to the platform’s analysis data, not to your personal data. Hosting and analytics services (e.g. Vercel) may also be used. The respective privacy policies of those providers apply to data processed by them.
+              We use service providers (processors) for hosting/CDN and operational services (including analytics and
+              email delivery). Current providers include Vercel (hosting/analytics) and Resend (email delivery). Where
+              providers process data outside the EU/EEA, transfers are based on appropriate safeguards (e.g. adequacy
+              decisions or Standard Contractual Clauses), where applicable.
+              <br /><br />
+              The platform may use technically necessary storage mechanisms (such as local storage) to keep preferences
+              or required app state. If analytics are enabled, they are used to improve reliability and product quality.
+              <br /><br />
+              AI services are used to process open-source intelligence content and generate analyses. We do not require
+              account-based personal profiles for using core features.
             </p>
           </section>
 
