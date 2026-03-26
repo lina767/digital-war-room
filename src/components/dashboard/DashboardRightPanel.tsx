@@ -19,6 +19,7 @@ import { LiveSocialMonitor } from "@/components/dashboard/LiveSocialMonitor";
 import { CollapsiblePanel } from "@/components/dashboard/CollapsiblePanel";
 import { CollapsibleDomainGroup } from "@/components/dashboard/CollapsibleDomainGroup";
 import { CorroboratedPatternsBlock } from "@/components/dashboard/CorroboratedPatternsBlock";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   FEED_VIEW_STORAGE_KEY,
   type FeedSectionId,
@@ -191,46 +192,58 @@ export function DashboardRightPanel({
             title="UPDATED BRIEFING"
             headerRight={<span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>}
           >
-            <UpdatedBriefing
-              data={conflictData}
-              conflictLabel={displayConflictLabel}
-              lastUpdated={lastUpdated}
-              isLoading={analysisLoading}
-              isRunning={analysisRunning}
-              analysisError={analysisError}
-              onRunAnalysis={onRunAnalysis}
-              embedded
-            />
+            <ErrorBoundary sectionLabel="Updated Briefing">
+              <UpdatedBriefing
+                data={conflictData}
+                conflictLabel={displayConflictLabel}
+                lastUpdated={lastUpdated}
+                isLoading={analysisLoading}
+                isRunning={analysisRunning}
+                analysisError={analysisError}
+                onRunAnalysis={onRunAnalysis}
+                embedded
+              />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "signal-framework":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="SIGNAL FRAMEWORK">
-            <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} embedded />
+            <ErrorBoundary sectionLabel="Signal Framework">
+              <SignalFrameworkPanel data={conflictData} activeConflict={activeConflict} embedded />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "predictive":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="PREDICTIVE OUTLOOK">
-            <PredictivePanel data={conflictData} embedded />
+            <ErrorBoundary sectionLabel="Predictive Outlook">
+              <PredictivePanel data={conflictData} embedded />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "compliance":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="SANCTIONS COMPLIANCE">
-            <CompliancePanel data={conflictData} embedded />
+            <ErrorBoundary sectionLabel="Sanctions Compliance">
+              <CompliancePanel data={conflictData} embedded />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "chokepoint":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="CHOKEPOINT MONITOR">
-            <ChokePointPanel data={conflictData} embedded />
+            <ErrorBoundary sectionLabel="Chokepoint Monitor">
+              <ChokePointPanel data={conflictData} embedded />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "global-impact":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="GLOBAL IMPACT">
-            <GlobalImpactPanel data={conflictData} embedded />
+            <ErrorBoundary sectionLabel="Global Impact">
+              <GlobalImpactPanel data={conflictData} embedded />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "headlines": {
@@ -247,51 +260,69 @@ export function DashboardRightPanel({
               </span>
             ) : undefined}
           >
-            <LatestHeadlines
-              data={conflictData}
-              maxItems={5}
-              embedded
-              allowedSourceKeys={headlineAllowedSources}
-              onAllowedSourceKeysChange={onHeadlineAllowedSourcesChange}
-            />
+            <ErrorBoundary sectionLabel="Latest Headlines">
+              <LatestHeadlines
+                data={conflictData}
+                maxItems={5}
+                embedded
+                allowedSourceKeys={headlineAllowedSources}
+                onAllowedSourceKeysChange={onHeadlineAllowedSourcesChange}
+              />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       }
       case "events-timeline":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="EVENTS TIMELINE">
-            <EventsTimeline data={conflictData} embedded />
+            <ErrorBoundary sectionLabel="Events Timeline">
+              <EventsTimeline data={conflictData} embedded />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "proximity":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="PROXIMITY ANALYZER">
-            <ProximityAnalyzerBlock
-              analysisLoading={analysisLoading}
-              proximityEvidence={proximityEvidence}
-              proximitySummary={conflictData?.proximity?.summary}
-              reasonEmpty={conflictData?.proximity?.reason_empty}
-              errorMessage={conflictData?.proximity?.error_message}
-            />
+            <ErrorBoundary sectionLabel="Proximity Analyzer">
+              <ProximityAnalyzerBlock
+                analysisLoading={analysisLoading}
+                proximityEvidence={proximityEvidence}
+                proximitySummary={conflictData?.proximity?.summary}
+                reasonEmpty={conflictData?.proximity?.reason_empty}
+                errorMessage={conflictData?.proximity?.error_message}
+              />
+            </ErrorBoundary>
           </CollapsiblePanel>
         );
       case "activity-connectivity":
         return (
           <CollapsiblePanel key={sectionId} sectionId={sectionId} title="ACTIVITY & CONNECTIVITY">
             <div className="p-3 space-y-3">
-              <GreyNoisePanel conflict={activeConflict || "Iran"} />
-              <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
-              <InternetConnectivity />
-              <FlightRadar sigint={conflictData?.sigint} />
-              <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} polymarketHistory={conflictData?.finint?.polymarket_history} />
-              <LiveSocialMonitor
-                status={socialStream.status}
-                error={socialStream.error}
-                lastUpdated={socialStream.lastUpdated}
-                twitter={socialStream.twitter}
-                telegram={socialStream.telegram}
-                reddit={socialStream.reddit}
-              />
+              <ErrorBoundary sectionLabel="GreyNoise Panel">
+                <GreyNoisePanel conflict={activeConflict || "Iran"} />
+              </ErrorBoundary>
+              <ErrorBoundary sectionLabel="News Sentiment">
+                <NewsSentiment newsScore={conflictData?.news?.news_score} lastUpdated={lastUpdated} />
+              </ErrorBoundary>
+              <ErrorBoundary sectionLabel="Internet Connectivity">
+                <InternetConnectivity />
+              </ErrorBoundary>
+              <ErrorBoundary sectionLabel="FlightRadar">
+                <FlightRadar sigint={conflictData?.sigint} />
+              </ErrorBoundary>
+              <ErrorBoundary sectionLabel="Prediction Markets">
+                <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} polymarketHistory={conflictData?.finint?.polymarket_history} />
+              </ErrorBoundary>
+              <ErrorBoundary sectionLabel="Live Social Monitor">
+                <LiveSocialMonitor
+                  status={socialStream.status}
+                  error={socialStream.error}
+                  lastUpdated={socialStream.lastUpdated}
+                  twitter={socialStream.twitter}
+                  telegram={socialStream.telegram}
+                  reddit={socialStream.reddit}
+                />
+              </ErrorBoundary>
             </div>
           </CollapsiblePanel>
         );
@@ -454,7 +485,9 @@ export function DashboardRightPanel({
           <span className="font-mono text-[11px] text-muted-foreground tracking-wider">WORLD OVERVIEW</span>
         </div>
         <div className="h-36 sm:h-40 md:h-44 relative">
-          <WorldMap />
+          <ErrorBoundary sectionLabel="World Overview Map">
+            <WorldMap />
+          </ErrorBoundary>
         </div>
       </div>
 
@@ -467,16 +500,24 @@ export function DashboardRightPanel({
             <IntelPanelSkeleton lines={2} />
           </>
         ) : feedView === "summary" ? (
-          renderSummaryView()
+          <ErrorBoundary sectionLabel="Summary Feed">
+            {renderSummaryView()}
+          </ErrorBoundary>
         ) : feedView === "focus" ? (
-          renderFocusView()
+          <ErrorBoundary sectionLabel="Focus Feed">
+            {renderFocusView()}
+          </ErrorBoundary>
         ) : (
-          renderFullFeed()
+          <ErrorBoundary sectionLabel="Full Feed">
+            {renderFullFeed()}
+          </ErrorBoundary>
         )}
       </div>
 
       <div className="mt-4 pt-3 border-t border-border">
-        <AgentsStatusBar />
+        <ErrorBoundary sectionLabel="Agents Status Bar">
+          <AgentsStatusBar />
+        </ErrorBoundary>
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
         <Link to={DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE} className="text-primary hover:underline">How to read the dashboard</Link>
