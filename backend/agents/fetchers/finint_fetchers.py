@@ -9,8 +9,6 @@ from typing import Any, Dict, List
 
 import httpx
 
-from services.http_client import get_http_client
-
 from ..utils import run_async, safe_float, utc_now_iso
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
@@ -522,8 +520,12 @@ async def _fetch_ofac_cached(client: Any, conflict: str) -> Dict[str, Any]:
 
 
 def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:
+    async def _run() -> Dict[str, Any]:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            return await _fetch_ofac_cached(client, conflict)
+
     try:
-        return run_async(_fetch_ofac_cached(get_http_client(), conflict))
+        return run_async(_run())
     except Exception as e:
         return {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": datetime.now(timezone.utc).isoformat()}
 
