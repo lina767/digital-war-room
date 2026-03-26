@@ -93,6 +93,13 @@ DEFAULT_AGENTS: List[AgentDescriptor] = [
         score_field="socmint_score",
     ),
     AgentDescriptor(
+        name="mediaint",
+        module="agents.mediaint_agent",
+        entry_func="run_mediaint_agent",
+        division="information",
+        score_field="mediaint_score",
+    ),
+    AgentDescriptor(
         name="narrative",
         module="agents.signal_framework_agent",
         entry_func="run_signal_framework_agent",

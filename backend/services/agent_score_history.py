@@ -26,6 +26,7 @@ TRACKED_AGENT_KEYS: Tuple[str, ...] = (
     "geoint",
     "satintel",
     "socmint",
+    "mediaint",
     "techint",
     "cyber",
     "energy",

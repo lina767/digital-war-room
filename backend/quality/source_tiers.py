@@ -89,7 +89,7 @@ def trust_for_agent_source(agent: str, source_hint: Optional[str] = None) -> flo
     base = 0.55
     if a in ("news", "diplo", "geoint"):
         base = 0.65
-    if a in ("socmint", "narrative"):
+    if a in ("socmint", "narrative", "mediaint"):
         base = 0.4
     if a == "protest":
         base = 0.7

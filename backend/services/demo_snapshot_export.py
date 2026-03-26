@@ -36,6 +36,7 @@ AGENT_KEYS = [
     "geoint",
     "satintel",
     "socmint",
+    "mediaint",
     "techint",
     "cyber",
     "energy",

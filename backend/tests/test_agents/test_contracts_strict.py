@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from agents.contracts import FinintResult, SatintelResult, get_agent_fallback
+from agents.contracts import FinintResult, MediaintResult, SatintelResult, get_agent_fallback
 
 
 def test_get_agent_fallback_finint_shape_is_stable():
@@ -36,3 +36,16 @@ def test_get_agent_fallback_satintel_shape_is_stable():
     assert isinstance(fallback, dict)
     assert "satintel_score" in fallback
     assert "imagery_signals" in fallback
+
+
+def test_mediaint_result_accepts_typed_score():
+    result = MediaintResult(conflict="Iran", mediaint_score=33.0, summary="ok")
+    assert result.mediaint_score == 33.0
+
+
+def test_get_agent_fallback_mediaint_shape_is_stable():
+    fallback = get_agent_fallback("mediaint")
+    assert isinstance(fallback, dict)
+    assert "mediaint_score" in fallback
+    assert "media_assets" in fallback
+    assert "vision_analysis_count" in fallback

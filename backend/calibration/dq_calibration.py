@@ -16,6 +16,7 @@ AGENT_NAMES = (
     "geoint",
     "satintel",
     "socmint",
+    "mediaint",
     "techint",
     "cyber",
     "energy",

@@ -13,6 +13,7 @@ PROVENANCE_AGENT_KEYS = [
     "geoint",
     "satintel",
     "socmint",
+    "mediaint",
     "techint",
     "cyber",
     "energy",
@@ -31,6 +32,7 @@ API_AGENT_NAMES = [
     "geoint",
     "satintel",
     "socmint",
+    "mediaint",
     "techint",
     "cyber",
     "energy",
@@ -39,7 +41,6 @@ API_AGENT_NAMES = [
     "proximity",
     "narrative",
     "chokepoint",
-    "pentagon",
     "pentagon",
 ]
 

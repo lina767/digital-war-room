@@ -21,6 +21,7 @@ AGENT_KEYS_FOR_SNAPSHOT: List[str] = [
     "geoint",
     "satintel",
     "socmint",
+    "mediaint",
     "techint",
     "cyber",
     "energy",

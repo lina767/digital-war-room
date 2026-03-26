@@ -8,6 +8,7 @@ See docs/API-KEYS.md "Warum Telegram oft 0 liefert" for details and alternatives
 """
 
 import asyncio
+import html as html_module
 import logging
 import os
 import re
@@ -180,6 +181,54 @@ def _sentiment(text: str) -> float:
     return max(-3, min(3, score)) / 3.0
 
 
+def _extract_og_image_from_html(fragment: str) -> Optional[str]:
+    """First og:image or twitter:image from an HTML fragment (post page head)."""
+    if not fragment:
+        return None
+    chunk = fragment[:120000]
+    for prop in ("og:image", "og:image:url", "twitter:image"):
+        m = re.search(
+            rf'<meta[^>]+property=["\']{re.escape(prop)}["\'][^>]+content=["\']([^"\']+)["\']',
+            chunk,
+            re.I,
+        )
+        if not m:
+            m = re.search(
+                rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']{re.escape(prop)}["\']',
+                chunk,
+                re.I,
+            )
+        if m:
+            u = html_module.unescape(m.group(1).strip())
+            if u.startswith("http") or u.startswith("//"):
+                return u if u.startswith("http") else "https:" + u[2:]
+    return None
+
+
+def _reddit_image_from_json_post(p: Dict[str, Any]) -> Optional[str]:
+    """Preview / direct image URL from Reddit .json post data."""
+    prev = p.get("preview") if isinstance(p.get("preview"), dict) else None
+    if prev:
+        images = prev.get("images") or []
+        if images and isinstance(images[0], dict):
+            src = (images[0].get("source") or {}) if isinstance(images[0].get("source"), dict) else {}
+            u = src.get("url")
+            if isinstance(u, str) and u.startswith("http"):
+                return html_module.unescape(u)
+    url = (p.get("url") or "").strip()
+    if url.startswith("http") and any(
+        x in url.lower() for x in ("i.redd.it", "i.redditmedia.com", "preview.redd.it", "gfycat.com")
+    ):
+        return url
+    lower = url.lower()
+    if lower.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+        return url
+    thumb = (p.get("thumbnail") or "").strip()
+    if thumb.startswith("http") and thumb != "self" and "redditstatic.com" not in thumb:
+        return thumb
+    return None
+
+
 def _conflict_keywords(conflict: str) -> List[str]:
     cl = conflict.lower()
     # Naher Osten / Middle East: breite Abdeckung
@@ -245,26 +294,92 @@ def _conflict_keywords(conflict: str) -> List[str]:
 
 # ── Tools ──────────────────────────────────────────────────────────────────
 
+_TELEGRAM_MESSAGE_TEXT_PATTERNS = [
+    r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>\s*</div>',
+    r'class="tgme_widget_message_text"[^>]*>(.*?)</div>',
+    r"<div[^>]+js-message-text[^>]*>(.*?)</div>",
+    r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>',
+]
+
+
+def _split_telegram_message_blocks(page_html: str) -> List[tuple]:
+    """Split t.me/s/ channel HTML into (data_post, inner_html) per message."""
+    blocks = re.findall(
+        r'<div[^>]+class="[^"]*tgme_widget_message[^"]*"[^>]+data-post="([^"]+)"[^>]*>(.*?)(?=<div[^>]+class="[^"]*tgme_widget_message[^"]*"[^>]+data-post="|\Z)',
+        page_html,
+        re.DOTALL | re.IGNORECASE,
+    )
+    return blocks
+
+
+def _text_from_telegram_block(block_html: str) -> str:
+    for pattern in _TELEGRAM_MESSAGE_TEXT_PATTERNS:
+        messages = re.findall(pattern, block_html, re.DOTALL)
+        if messages:
+            return re.sub(r"<[^>]+>", "", messages[0]).strip()
+    return ""
+
+
+def _extract_telegram_media_urls(block_html: str) -> List[str]:
+    """Image and video thumbnail URLs from a single message widget (t.me/s HTML)."""
+    urls: List[str] = []
+    for m in re.finditer(r"background-image\s*:\s*url\(\s*['\"]?([^'\"\)]+)", block_html, re.I):
+        u = html_module.unescape(m.group(1).strip())
+        if u.startswith("//"):
+            u = "https:" + u
+        if u.startswith("http"):
+            urls.append(u)
+    for m in re.finditer(
+        r'<img[^>]+class="[^"]*tgme_widget_message_(?:video_thumb|photo|sticker)_thumb[^"]*"[^>]*\bsrc=["\']([^"\']+)',
+        block_html,
+        re.I | re.DOTALL,
+    ):
+        u = html_module.unescape(m.group(1).strip())
+        if u.startswith("//"):
+            u = "https:" + u
+        if u.startswith("http"):
+            urls.append(u)
+    for m in re.finditer(
+        r'<img[^>]*\bsrc=["\']([^"\']+)["\'][^>]*class="[^"]*tgme_widget_message_(?:video_thumb|photo)',
+        block_html,
+        re.I | re.DOTALL,
+    ):
+        u = html_module.unescape(m.group(1).strip())
+        if u.startswith("//"):
+            u = "https:" + u
+        if u.startswith("http"):
+            urls.append(u)
+    for m in re.finditer(
+        r'<a[^>]+class="[^"]*tgme_widget_message_photo_thumb[^"]*"[^>]+style="[^"]*background-image\s*:\s*url\(\s*[\"\\]?([^\"\\)]+)',
+        block_html,
+        re.I | re.DOTALL,
+    ):
+        u = html_module.unescape(m.group(1).strip())
+        if u.startswith("//"):
+            u = "https:" + u
+        if u.startswith("http"):
+            urls.append(u)
+
+    seen: set = set()
+    ordered: List[str] = []
+    for u in urls:
+        if u not in seen and not u.endswith(".svg"):
+            seen.add(u)
+            ordered.append(u)
+    return ordered
+
 
 def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
     """
     Scrape public Telegram channels for conflict-related posts.
-    Returns recent posts with sentiment analysis.
+    Returns recent posts with sentiment analysis plus media_urls (photos, video thumbs).
     """
     region = _conflict_to_region(conflict)
     keywords = _conflict_keywords(conflict)
     channels = TELEGRAM_CHANNELS.get(region, TELEGRAM_CHANNELS["middle_east"])
 
-    # Multiple patterns (Telegram changes HTML periodically)
-    TELEGRAM_MESSAGE_PATTERNS = [
-        r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>\s*</div>',
-        r'class="tgme_widget_message_text"[^>]*>(.*?)</div>',
-        r"<div[^>]+js-message-text[^>]*>(.*?)</div>",
-        r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>',
-    ]
-
-    def _extract_telegram_messages(html: str) -> List[str]:
-        for pattern in TELEGRAM_MESSAGE_PATTERNS:
+    def _extract_telegram_messages_flat(html: str) -> List[str]:
+        for pattern in _TELEGRAM_MESSAGE_TEXT_PATTERNS:
             messages = re.findall(pattern, html, re.DOTALL)
             if messages:
                 return [re.sub(r"<[^>]+>", "", m).strip() for m in messages]
@@ -286,16 +401,49 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
             if resp.status_code != 200:
                 logger.debug("SOCMINT Telegram %s: HTTP %s", channel, resp.status_code)
                 return []
-            html = resp.text
-            messages = _extract_telegram_messages(html)
+            page_html = resp.text
+            blocks = _split_telegram_message_blocks(page_html)
+            results: List[Dict[str, Any]] = []
+
+            if blocks:
+                for _post_id, block_inner in blocks[:18]:
+                    text = _text_from_telegram_block(block_inner)
+                    media_urls = _extract_telegram_media_urls(block_inner)
+                    block_plain = re.sub(r"<[^>]+>", " ", block_inner)
+                    block_plain_l = block_plain.lower()
+                    text_l = text.lower()
+                    if not any(kw in text_l for kw in keywords) and not any(kw in block_plain_l for kw in keywords):
+                        continue
+                    primary = (text or block_plain).strip()
+                    if len(primary) < 8 and not media_urls:
+                        continue
+                    use_text = (text or primary)[:300]
+                    score = _sentiment(use_text or block_plain)
+                    row: Dict[str, Any] = {
+                        "source": f"telegram:{channel}",
+                        "text": use_text,
+                        "sentiment_score": score,
+                        "sentiment_label": "ESCALATORY"
+                        if score > 0.2
+                        else "DE-ESCALATORY"
+                        if score < -0.2
+                        else "NEUTRAL",
+                        "platform": "telegram",
+                    }
+                    if media_urls:
+                        row["media_urls"] = media_urls
+                        row["thumbnail_url"] = media_urls[0]
+                    results.append(row)
+                return results
+
+            messages = _extract_telegram_messages_flat(page_html)
             clean = [m for m in messages if m and len(m) >= 10]
             if not clean:
                 logger.debug(
                     "SOCMINT Telegram %s: 0 messages extracted (HTML len=%s). Telegram may have changed t.me/s layout or serve content via JS.",
                     channel,
-                    len(html),
+                    len(page_html),
                 )
-            results = []
             for text in clean[:15]:
                 if not text or len(text) < 20:
                     continue
@@ -346,9 +494,9 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
     keywords = _conflict_keywords(conflict)
     accounts = CONFLICT_TWITTER_ACCOUNTS.get(region, CONFLICT_TWITTER_ACCOUNTS["middle_east"])
 
-    def _make_post(account: str, text: str) -> Dict[str, Any]:
+    def _make_post(account: str, text: str, media_urls: Optional[List[str]] = None) -> Dict[str, Any]:
         score = _sentiment(text)
-        return {
+        row: Dict[str, Any] = {
             "source": f"twitter:{account}",
             "text": text[:300],
             "sentiment_score": score,
@@ -356,6 +504,10 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             "platform": "twitter",
             "account": account,
         }
+        if media_urls:
+            row["media_urls"] = media_urls
+            row["thumbnail_url"] = media_urls[0]
+        return row
 
     async def _fetch_account_html(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
         for base in NITTER_INSTANCES:
@@ -404,7 +556,27 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                         continue
                     if not any(kw in text.lower() for kw in keywords):
                         continue
-                    results.append(_make_post(account, text))
+                    media_urls: List[str] = []
+                    for link in entry.get("links") or []:
+                        if not isinstance(link, dict):
+                            continue
+                        href = (link.get("href") or "").strip()
+                        typ = (link.get("type") or "").lower()
+                        if not href.startswith("http"):
+                            continue
+                        if typ.startswith("image/") or "twimg.com" in href or "pbs.twimg.com" in href:
+                            media_urls.append(href)
+                    mcontent = entry.get("media_content") if hasattr(entry, "get") else getattr(entry, "media_content", None)
+                    if mcontent:
+                        for mc in mcontent:
+                            if isinstance(mc, dict):
+                                u = mc.get("url") or mc.get("href")
+                                if isinstance(u, str) and u.startswith("http"):
+                                    media_urls.append(u)
+                    if media_urls:
+                        seen_m: set = set()
+                        media_urls = [u for u in media_urls if not (u in seen_m or seen_m.add(u))]
+                    results.append(_make_post(account, text, media_urls=media_urls or None))
                 if results:
                     return results
             except Exception:
@@ -491,23 +663,27 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                 if not any(kw in combined for kw in keywords):
                     continue
                 score = _sentiment(combined)
-                results.append(
-                    {
-                        "source": f"reddit:r/{subreddit}",
-                        "title": title,
-                        "text": text[:200] if text else "",
-                        "url": f"https://reddit.com{p.get('permalink', '')}",
-                        "upvotes": p.get("score", 0),
-                        "sentiment_score": score,
-                        "sentiment_label": "ESCALATORY"
-                        if score > 0.2
-                        else "DE-ESCALATORY"
-                        if score < -0.2
-                        else "NEUTRAL",
-                        "platform": "reddit",
-                        "published_at": created.isoformat(),
-                    }
-                )
+                og_image = _reddit_image_from_json_post(p)
+                row = {
+                    "source": f"reddit:r/{subreddit}",
+                    "title": title,
+                    "text": text[:200] if text else "",
+                    "url": f"https://reddit.com{p.get('permalink', '')}",
+                    "upvotes": p.get("score", 0),
+                    "sentiment_score": score,
+                    "sentiment_label": "ESCALATORY"
+                    if score > 0.2
+                    else "DE-ESCALATORY"
+                    if score < -0.2
+                    else "NEUTRAL",
+                    "platform": "reddit",
+                    "published_at": created.isoformat(),
+                }
+                if og_image:
+                    row["og_image"] = og_image
+                    row["media_urls"] = [og_image]
+                    row["thumbnail_url"] = og_image
+                results.append(row)
             return results
         except Exception:
             return []
@@ -541,26 +717,84 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                 if published and published < cutoff:
                     continue
                 score = _sentiment(combined)
-                results.append(
-                    {
-                        "source": f"reddit:r/{subreddit}",
-                        "title": title,
-                        "text": text[:200] if text else "",
-                        "url": entry.get("link", ""),
-                        "upvotes": 0,
-                        "sentiment_score": score,
-                        "sentiment_label": "ESCALATORY"
-                        if score > 0.2
-                        else "DE-ESCALATORY"
-                        if score < -0.2
-                        else "NEUTRAL",
-                        "platform": "reddit",
-                        "published_at": published.isoformat() if published else "",
-                    }
-                )
+                post_url = entry.get("link", "")
+                og_image: Optional[str] = None
+                mt = entry.get("media_thumbnail") if hasattr(entry, "get") else getattr(entry, "media_thumbnail", None)
+                if mt:
+                    if isinstance(mt, list) and mt:
+                        first = mt[0]
+                        u = None
+                        if isinstance(first, dict):
+                            u = first.get("url")
+                        elif hasattr(first, "get"):
+                            u = first.get("url")
+                        if isinstance(u, str) and u.startswith("http"):
+                            og_image = u
+                    elif isinstance(mt, dict) and mt.get("url"):
+                        og_image = mt["url"]
+                if not og_image and summary:
+                    im = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', summary, re.I)
+                    if im:
+                        cand = html_module.unescape(im.group(1).strip())
+                        if cand.startswith("//"):
+                            cand = "https:" + cand[2:]
+                        if cand.startswith("http") and "redditstatic.com" not in cand:
+                            og_image = cand
+                row = {
+                    "source": f"reddit:r/{subreddit}",
+                    "title": title,
+                    "text": text[:200] if text else "",
+                    "url": post_url,
+                    "upvotes": 0,
+                    "sentiment_score": score,
+                    "sentiment_label": "ESCALATORY"
+                    if score > 0.2
+                    else "DE-ESCALATORY"
+                    if score < -0.2
+                    else "NEUTRAL",
+                    "platform": "reddit",
+                    "published_at": published.isoformat() if published else "",
+                }
+                if og_image:
+                    row["og_image"] = og_image
+                    row["media_urls"] = [og_image]
+                    row["thumbnail_url"] = og_image
+                results.append(row)
             return results
         except Exception:
             return []
+
+    async def _fill_reddit_og_images(client: httpx.AsyncClient, posts: List[Dict[str, Any]]) -> None:
+        sem = asyncio.Semaphore(3)
+
+        async def _one(row: Dict[str, Any]) -> None:
+            if row.get("og_image") or not row.get("url"):
+                return
+            u = row["url"]
+            if not isinstance(u, str) or not u.startswith("http"):
+                return
+            async with sem:
+                try:
+                    r = await client.get(
+                        u,
+                        follow_redirects=True,
+                        timeout=6.0,
+                        headers={"User-Agent": reddit_headers["User-Agent"]},
+                    )
+                    if r.status_code != 200:
+                        return
+                    img = _extract_og_image_from_html(r.text)
+                    if img:
+                        row["og_image"] = img
+                        row["media_urls"] = [img]
+                        row["thumbnail_url"] = img
+                except Exception:
+                    return
+
+        need = [p for p in posts if isinstance(p, dict) and p.get("platform") == "reddit" and not p.get("og_image") and p.get("url")]
+        if not need:
+            return
+        await asyncio.gather(*[_one(p) for p in need[:8]])
 
     async def _fetch_subreddit(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
         results = await _fetch_subreddit_json(client, subreddit)
@@ -576,6 +810,7 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
             for r in results:
                 if isinstance(r, list):
                     posts.extend(r)
+            await _fill_reddit_og_images(client, posts)
             posts.sort(key=lambda x: x.get("upvotes", 0), reverse=True)
             return posts[:20]
 

@@ -6,18 +6,19 @@ from typing import Dict
 CEO_LEGACY_AGENT_WEIGHTS: Dict[str, float] = {
     "finint": 0.09,
     "sigint": 0.11,
-    "news": 0.09,
+    "news": 0.08,
     "geoint": 0.05,
     "satintel": 0.05,
-    "socmint": 0.08,
+    "socmint": 0.07,
+    "mediaint": 0.035,
     "techint": 0.07,
     "cyber": 0.07,
-    "energy": 0.07,
+    "energy": 0.06,
     "protest": 0.07,
     "diplo": 0.06,
     "proximity": 0.08,
-    "chokepoint": 0.09,
-    "pentagon": 0.02,
+    "chokepoint": 0.095,
+    "pentagon": 0.01,
 }
 
 # CEO-level division weights

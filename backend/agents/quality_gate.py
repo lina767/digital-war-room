@@ -88,6 +88,7 @@ def run_cross_agent_quality_gate(
         ("geoint", ("geoint_score",)),
         ("satintel", ("satintel_score",)),
         ("socmint", ("socmint_score",)),
+        ("mediaint", ("mediaint_score",)),
         ("techint", ("techint_score",)),
         ("cyber", ("cyber_score",)),
         ("energy", ("energy_score",)),

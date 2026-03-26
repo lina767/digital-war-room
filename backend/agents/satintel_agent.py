@@ -87,6 +87,36 @@ function evaluatePixel(sample) {
     }
 
 
+def _stats_delta(before: Dict[str, float], after: Dict[str, float]) -> Dict[str, float]:
+    return {
+        "ndvi_delta": round((after.get("ndvi_mean", 0.0) - before.get("ndvi_mean", 0.0)), 4),
+        "nbr_delta": round((after.get("nbr_mean", 0.0) - before.get("nbr_mean", 0.0)), 4),
+        "thermal_delta": round(
+            (after.get("thermal_proxy_mean", 0.0) - before.get("thermal_proxy_mean", 0.0)),
+            4,
+        ),
+    }
+
+
+def _change_detection_signals(delta: Dict[str, float]) -> List[str]:
+    """Heuristic labels from baseline vs recent window (Sentinel-2 L2A composite stats)."""
+    out: List[str] = []
+    d_ndvi = delta.get("ndvi_delta", 0.0)
+    d_nbr = delta.get("nbr_delta", 0.0)
+    d_th = delta.get("thermal_delta", 0.0)
+    if abs(d_ndvi) >= 0.07:
+        out.append(
+            f"NDVI change {d_ndvi:+.2f} (baseline vs recent) — possible vegetation / land-cover or infrastructure shift in AOI."
+        )
+    if abs(d_nbr) >= 0.05:
+        out.append(
+            f"NBR change {d_nbr:+.2f} — possible burn scar, bare soil, or built-up change between windows."
+        )
+    if abs(d_th) >= 0.03:
+        out.append(f"SWIR proxy change {d_th:+.2f} — thermal / moisture signal differed between periods.")
+    return out
+
+
 def _extract_raster_stats(resp_json: Dict[str, Any]) -> Dict[str, float]:
     data = resp_json.get("data")
     if not isinstance(data, list):
@@ -130,7 +160,9 @@ async def _query_copernicus_products_count(bbox: List[float], from_iso: str) -> 
         return 0
 
 
-def _compute_satintel_score(stats: Dict[str, float], product_count: int) -> Tuple[float, List[str]]:
+def _compute_satintel_score(
+    stats: Dict[str, float], product_count: int, change_bonus: float = 0.0
+) -> Tuple[float, List[str]]:
     ndvi = stats.get("ndvi_mean", 0.0)
     nbr = stats.get("nbr_mean", 0.0)
     thermal = stats.get("thermal_proxy_mean", 0.0)
@@ -149,6 +181,8 @@ def _compute_satintel_score(stats: Dict[str, float], product_count: int) -> Tupl
     score += min(25.0, product_count / 2.0)
     if product_count > 0:
         findings.append(f"Copernicus catalogue returned {product_count} Sentinel-2 products in lookback window.")
+    if change_bonus > 0:
+        score += change_bonus
 
     return round(max(0.0, min(100.0, score)), 1), findings
 
@@ -198,10 +232,17 @@ def run_satintel_agent(
     bbox = _bbox_from_context(context) or REGION_BBOX.get(region, REGION_BBOX["middle_east"])
 
     end_dt = datetime.now(timezone.utc)
-    start_dt = end_dt - timedelta(days=10)
-    from_iso = start_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    to_iso = end_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    from_odata = start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    recent_start = end_dt - timedelta(days=10)
+    recent_from_iso = recent_start.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    recent_to_iso = end_dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    # Older window for before/after change detection (~11–22 days ago vs recent 10 days; one day gap reduces overlap).
+    baseline_end = end_dt - timedelta(days=11)
+    baseline_start = end_dt - timedelta(days=22)
+    baseline_from_iso = baseline_start.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    baseline_to_iso = baseline_end.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    from_odata = recent_start.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     async def _run() -> Dict[str, Any]:
         token = await get_sentinelhub_token_async()
@@ -209,22 +250,45 @@ def run_satintel_agent(
             return _fallback_result(conflict, "Sentinel Hub token unavailable")
 
         headers = {"Authorization": f"Bearer {token}"}
-        payload = _sentinelhub_request_payload(bbox=bbox, time_from_iso=from_iso, time_to_iso=to_iso)
+        payload_recent = _sentinelhub_request_payload(
+            bbox=bbox, time_from_iso=recent_from_iso, time_to_iso=recent_to_iso
+        )
+        payload_baseline = _sentinelhub_request_payload(
+            bbox=bbox, time_from_iso=baseline_from_iso, time_to_iso=baseline_to_iso
+        )
 
         source_results: List[SourceResult] = []
         status = {"sentinelhub": "error", "copernicus": "error"}
         imagery_signals: List[Dict[str, Any]] = []
         product_count = 0
         stats: Dict[str, float] = {"ndvi_mean": 0.0, "nbr_mean": 0.0, "thermal_proxy_mean": 0.0}
+        stats_baseline: Dict[str, float] = {"ndvi_mean": 0.0, "nbr_mean": 0.0, "thermal_proxy_mean": 0.0}
+        sh_requests_ok = 0
         error_summary: Optional[str] = None
 
         try:
             client = get_http_client()
-            resp = await client.request("POST", SENTINELHUB_PROCESS_URL, json=payload, headers=headers, retries=1)
-            stats = _extract_raster_stats(resp.json())
+            resp_recent = await client.request(
+                "POST", SENTINELHUB_PROCESS_URL, json=payload_recent, headers=headers, retries=1
+            )
+            stats = _extract_raster_stats(resp_recent.json())
+            sh_requests_ok += 1
+            try:
+                resp_base = await client.request(
+                    "POST", SENTINELHUB_PROCESS_URL, json=payload_baseline, headers=headers, retries=1
+                )
+                stats_baseline = _extract_raster_stats(resp_base.json())
+                sh_requests_ok += 1
+            except Exception as e2:
+                logger.info("SATINTEL baseline Process API failed (recent still ok): %s", e2)
             status["sentinelhub"] = "ok"
             source_results.append(
-                SourceResult(name="Sentinel Hub Process API", status="ok", fetched_at=fetched_at, record_count=1)
+                SourceResult(
+                    name="Sentinel Hub Process API",
+                    status="ok",
+                    fetched_at=fetched_at,
+                    record_count=sh_requests_ok,
+                )
             )
         except Exception as e:
             error_summary = f"sentinelhub_process_failed:{type(e).__name__}"
@@ -247,9 +311,14 @@ def run_satintel_agent(
                 SourceResult(name="Copernicus Data Space OData", status="error", fetched_at=fetched_at, record_count=0)
             )
 
-        score, findings = _compute_satintel_score(stats, product_count)
+        delta = _stats_delta(stats_baseline, stats)
+        change_msgs = _change_detection_signals(delta) if sh_requests_ok >= 2 else []
+        change_bonus = min(18.0, len(change_msgs) * 6.0)
+        score, findings = _compute_satintel_score(stats, product_count, change_bonus=change_bonus)
         for f in findings:
             imagery_signals.append({"signal": f, "confidence": "nominal"})
+        for f in change_msgs:
+            imagery_signals.append({"signal": f, "confidence": "change_detection"})
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         has_data = status["sentinelhub"] == "ok" or status["copernicus"] == "ok"
@@ -259,22 +328,36 @@ def run_satintel_agent(
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "satintel", sr)
+        change_detection: Dict[str, Any] = {
+            "baseline": {
+                "from": baseline_from_iso,
+                "to": baseline_to_iso,
+                "stats": stats_baseline,
+            },
+            "recent": {
+                "from": recent_from_iso,
+                "to": recent_to_iso,
+                "stats": stats,
+            },
+            "delta": delta,
+            "windows_ok": sh_requests_ok >= 2,
+        }
         return {
             "conflict": conflict,
             "satintel_score": score,
             "imagery_signals": imagery_signals,
+            "change_detection": change_detection,
             "aoi": {
                 "region": region,
                 "bbox": {"west": bbox[0], "south": bbox[1], "east": bbox[2], "north": bbox[3]},
-                "time_range": {"from": from_iso, "to": to_iso},
+                "time_range": {"from": recent_from_iso, "to": recent_to_iso},
                 "stats": stats,
             },
             "copernicus_products": [{"dataset": "SENTINEL-2", "lookback_days": 10, "count": product_count}],
             "source_status": status,
             "summary": (
-                f"SATINTEL analyzed Sentinel-2 imagery for {region}: "
-                f"NDVI {stats.get('ndvi_mean', 0):.2f}, NBR {stats.get('nbr_mean', 0):.2f}, "
-                f"products {product_count}. Score {score:.0f}."
+                f"SATINTEL: Sentinel-2 recent window NDVI {stats.get('ndvi_mean', 0):.2f}, NBR {stats.get('nbr_mean', 0):.2f}, "
+                f"ΔNDVI {delta.get('ndvi_delta', 0):+.2f} vs baseline; Copernicus products {product_count}. Score {score:.0f}."
             ),
             "_meta": build_agent_meta(
                 "satintel",

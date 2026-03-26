@@ -19,9 +19,27 @@ logger = logging.getLogger(__name__)
 
 class InformationDivision(DivisionHead):
     name = "information"
-    agent_names = ["news", "socmint", "narrative"]
+    agent_names = ["news", "socmint", "mediaint", "narrative"]
     enrichment_nodes = ["ner_extract", "prefilter_summarize"]
-    weight_map = {"news": 0.40, "socmint": 0.35, "narrative": 0.25}
+    weight_map = {"news": 0.36, "socmint": 0.31, "mediaint": 0.13, "narrative": 0.20}
+
+    def get_dag_nodes(self) -> List[DAGNode]:
+        """Agents plus enrichment; mediaint runs after SOCMINT (media URLs)."""
+        nodes: List[DAGNode] = []
+        for agent_name in self.agent_names:
+            kwargs: Dict[str, Any] = {
+                "id": agent_name,
+                "node_type": "agent",
+                "owner_division": self.name,
+                "streamable": True,
+                "timeout_s": 120.0 if agent_name == "mediaint" else 75.0,
+            }
+            if agent_name == "mediaint":
+                kwargs["dependencies"] = ["socmint"]
+            nodes.append(DAGNode(**kwargs))
+        nodes.extend(self._get_enrichment_nodes())
+        nodes.append(self._get_summary_node())
+        return nodes
 
     def _get_enrichment_nodes(self) -> List[DAGNode]:
         return [
