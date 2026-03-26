@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
-    from .context import AgentContext
+    from ..context import AgentContext
 
 import httpx
 
@@ -938,8 +938,8 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
             return out
 
         events = run_async(_fetch())
-    except Exception:
-        pass
+    except (httpx.HTTPError, RuntimeError, ValueError, TypeError) as exc:
+        logger.warning("GEOINT heatmap ACLED fetch failed for %s: %s", conflict, exc)
     return events
 
 
@@ -1097,8 +1097,8 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
         from services.acled_aggregated import refresh_acled_aggregated
 
         refresh_acled_aggregated()
-    except Exception:
-        pass
+    except (ImportError, RuntimeError, OSError) as exc:
+        logger.warning("Theater: ACLED aggregated refresh failed: %s", exc)
     try:
         agg_events = _load_aggregated_theater_events(conflict, weeks=4)
         out.extend(agg_events)
@@ -1131,8 +1131,8 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
                     "event_date": a.get("acquired"),
                 }
             )
-    except Exception:
-        pass
+    except (httpx.HTTPError, RuntimeError, ValueError, TypeError) as exc:
+        logger.warning("Theater: FIRMS load failed: %s", exc)
 
     # 3) ACLED API events (historical, ~12-month lag on Research level)
     try:
@@ -1162,8 +1162,8 @@ def get_theater_events(conflict: str, limit: int = 400) -> List[Dict[str, Any]]:
                 if e.get(key):
                     evt[key] = e[key]
             out.append(evt)
-    except Exception:
-        pass
+    except (httpx.HTTPError, RuntimeError, ValueError, TypeError) as exc:
+        logger.warning("Theater: ACLED API event load failed: %s", exc)
 
     return out[:limit]
 

@@ -179,8 +179,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         from services.agent_score_history import get_temporal_context
 
         temporal_context = get_temporal_context(conflict, agent_scores_for_predictive)
-    except Exception:
-        pass
+    except ImportError:
+        logger.debug("CEO: agent_score_history unavailable; temporal context disabled.")
 
     threat_level = threat_level_from_score(synthesis_score)
 
@@ -273,8 +273,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             chokepoint_score,
             key_findings_confidence,
         )
-    except Exception:
-        pass
+    except ImportError:
+        logger.debug("CEO: findings_builder unavailable; skipping appended agent findings.")
 
     key_findings_confidence = align_key_findings_confidence(key_findings, key_findings_confidence)
 
@@ -344,8 +344,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         from services.agent_score_history import record_daily_scores
 
         record_daily_scores(conflict, agent_scores_for_predictive)
-    except Exception:
-        pass
+    except (ImportError, OSError, ValueError, TypeError) as exc:
+        logger.warning("CEO: failed to persist daily agent scores: %s", exc)
 
     try:
         response["dq_calibration_metrics"] = compute_calibration_metrics(response)
