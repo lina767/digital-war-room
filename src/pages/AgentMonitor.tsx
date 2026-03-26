@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   getAgentsStatus,
   getAgentsHealth,
@@ -65,6 +66,113 @@ type AgentStatusEntry = {
   error_summary?: string | null;
 };
 
+type HormuzRiskLevel = "low" | "medium" | "high" | "critical";
+type HormuzAmpel = "red" | "yellow" | "green";
+
+type HormuzDailyEntry = {
+  date: string;
+  transitCount: number;
+  tankerCount: number;
+  incidents: number;
+  warRiskPct: number;
+  warRiskCover: boolean;
+  riskLevel: HormuzRiskLevel;
+  severeIncident: boolean;
+};
+
+type HormuzFormState = {
+  date: string;
+  transitCount: string;
+  tankerCount: string;
+  incidents: string;
+  warRiskPct: string;
+  warRiskCover: "yes" | "no";
+  riskLevel: HormuzRiskLevel;
+  severeIncident: "yes" | "no";
+};
+
+const HORMUZ_STORAGE_KEY = "dwr:hormuz-monitor:v1";
+const DEFAULT_BASELINE_TRANSITS = 120;
+const DEFAULT_BASELINE_ETA_WEEKS = 6;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function toIsoDateLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function defaultHormuzForm(): HormuzFormState {
+  return {
+    date: toIsoDateLocal(new Date()),
+    transitCount: "",
+    tankerCount: "",
+    incidents: "",
+    warRiskPct: "",
+    warRiskCover: "yes",
+    riskLevel: "critical",
+    severeIncident: "no",
+  };
+}
+
+function parseFormToEntry(form: HormuzFormState): HormuzDailyEntry | null {
+  const transitCount = Number(form.transitCount);
+  const tankerCount = Number(form.tankerCount);
+  const incidents = Number(form.incidents);
+  const warRiskPct = Number(form.warRiskPct);
+  if (!form.date) return null;
+  if (![transitCount, tankerCount, incidents, warRiskPct].every(Number.isFinite)) return null;
+  return {
+    date: form.date,
+    transitCount: Math.max(0, Math.round(transitCount)),
+    tankerCount: Math.max(0, Math.round(tankerCount)),
+    incidents: Math.max(0, Math.round(incidents)),
+    warRiskPct: clamp(warRiskPct, 0, 500),
+    warRiskCover: form.warRiskCover === "yes",
+    riskLevel: form.riskLevel,
+    severeIncident: form.severeIncident === "yes",
+  };
+}
+
+function getHormuzAmpel(entry: HormuzDailyEntry, baselineTransits: number, entries: HormuzDailyEntry[]): HormuzAmpel {
+  const baseline = Math.max(1, baselineTransits);
+  const transitPct = (entry.transitCount / baseline) * 100;
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  const lastFive = sorted.slice(-5);
+  const incidentsDownFiveDays =
+    lastFive.length >= 5 &&
+    lastFive.every((v, idx, arr) => idx === 0 || v.incidents <= arr[idx - 1].incidents) &&
+    lastFive[lastFive.length - 1].incidents < lastFive[0].incidents;
+
+  if (entry.riskLevel === "critical" || transitPct < 20) return "red";
+  if (transitPct > 60 && entry.riskLevel !== "critical" && entry.warRiskCover) {
+    const lastSeven = sorted.slice(-7);
+    const stableWeek =
+      lastSeven.length >= 7 &&
+      lastSeven.every((v) => (v.transitCount / baseline) * 100 > 60 && v.riskLevel !== "critical" && v.riskLevel !== "high");
+    if (stableWeek) return "green";
+  }
+  if (transitPct >= 20 && transitPct <= 60 && incidentsDownFiveDays) return "yellow";
+  return "red";
+}
+
+function computeEtaWeeks(entry: HormuzDailyEntry, entries: HormuzDailyEntry[]): number {
+  let eta = DEFAULT_BASELINE_ETA_WEEKS;
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  const lastThree = sorted.slice(-3);
+  const improvingThreeDays =
+    lastThree.length >= 3 &&
+    lastThree.every((v, idx, arr) => idx === 0 || (v.transitCount >= arr[idx - 1].transitCount && v.incidents <= arr[idx - 1].incidents));
+  if (improvingThreeDays) eta -= 1;
+  if (entry.severeIncident) eta += 2;
+  if (entry.riskLevel === "critical") eta = Math.max(4, eta);
+  return clamp(eta, 1, 26);
+}
+
 function formatErrorTime(ts: number): string {
   try {
     return new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "medium" });
@@ -122,6 +230,21 @@ function AgentMonitorContent() {
   const [error, setError] = useState<string | null>(null);
   const [runAgainLoading, setRunAgainLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [hormuzForm, setHormuzForm] = useState<HormuzFormState>(() => defaultHormuzForm());
+  const [hormuzEntries, setHormuzEntries] = useState<HormuzDailyEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem(HORMUZ_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as HormuzDailyEntry[];
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .filter((e) => e && typeof e.date === "string")
+        .sort((a, b) => b.date.localeCompare(a.date));
+    } catch {
+      return [];
+    }
+  });
+  const [baselineTransits, setBaselineTransits] = useState<number>(DEFAULT_BASELINE_TRANSITS);
 
   const fetchAll = useCallback(async () => {
     setError(null);
@@ -239,6 +362,14 @@ function AgentMonitorContent() {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(HORMUZ_STORAGE_KEY, JSON.stringify(hormuzEntries));
+    } catch {
+      // ignore
+    }
+  }, [hormuzEntries]);
+
   const lastUpdated = useMemo(() => {
     if (!status) return null;
     let latest = 0;
@@ -280,6 +411,39 @@ function AgentMonitorContent() {
     const b = monitoring?.cost?.month_by_agent ?? {};
     return Object.entries(b).sort((a, b) => b[1].in + b[1].out - (a[1].in + a[1].out));
   }, [monitoring]);
+
+  const latestHormuzEntry = hormuzEntries[0] ?? null;
+  const latestAmpel = useMemo(() => {
+    if (!latestHormuzEntry) return null;
+    return getHormuzAmpel(latestHormuzEntry, baselineTransits, hormuzEntries);
+  }, [latestHormuzEntry, baselineTransits, hormuzEntries]);
+  const latestEtaWeeks = useMemo(() => {
+    if (!latestHormuzEntry) return null;
+    return computeEtaWeeks(latestHormuzEntry, hormuzEntries);
+  }, [latestHormuzEntry, hormuzEntries]);
+
+  function upsertHormuzEntry(entry: HormuzDailyEntry) {
+    setHormuzEntries((prev) => {
+      const next = [...prev.filter((e) => e.date !== entry.date), entry];
+      next.sort((a, b) => b.date.localeCompare(a.date));
+      return next;
+    });
+  }
+
+  function handleSaveHormuzEntry() {
+    const parsed = parseFormToEntry(hormuzForm);
+    if (!parsed) {
+      toast.error("Bitte alle Hormuz-Felder korrekt ausfüllen.");
+      return;
+    }
+    upsertHormuzEntry(parsed);
+    setHormuzForm((prev) => ({ ...defaultHormuzForm(), date: prev.date }));
+    toast.success("Hormuz-Tageswert gespeichert.");
+  }
+
+  function deleteHormuzDate(date: string) {
+    setHormuzEntries((prev) => prev.filter((e) => e.date !== date));
+  }
 
   if (loading && !status) {
     return (
@@ -343,6 +507,161 @@ function AgentMonitorContent() {
             {error}
           </div>
         )}
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <Anchor className="h-4 w-4" />
+              Hormuz Closure Monitor
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Daily tracker for transit disruption, incidents, insurance and risk level. Ampel and ETA are calculated automatically from your entries.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+              <Input
+                type="date"
+                value={hormuzForm.date}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, date: e.target.value }))}
+                aria-label="Date"
+              />
+              <Input
+                type="number"
+                placeholder="Transits/24h"
+                value={hormuzForm.transitCount}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, transitCount: e.target.value }))}
+                aria-label="Transits per day"
+              />
+              <Input
+                type="number"
+                placeholder="Tanker/24h"
+                value={hormuzForm.tankerCount}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, tankerCount: e.target.value }))}
+                aria-label="Tankers per day"
+              />
+              <Input
+                type="number"
+                placeholder="Incidents/24h"
+                value={hormuzForm.incidents}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, incidents: e.target.value }))}
+                aria-label="Incidents per day"
+              />
+              <Input
+                type="number"
+                placeholder="War risk %"
+                value={hormuzForm.warRiskPct}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, warRiskPct: e.target.value }))}
+                aria-label="War risk premium percent"
+              />
+              <select
+                value={hormuzForm.warRiskCover}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, warRiskCover: e.target.value as "yes" | "no" }))}
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Insurance cover available"
+              >
+                <option value="yes">Cover: yes</option>
+                <option value="no">Cover: no</option>
+              </select>
+              <select
+                value={hormuzForm.riskLevel}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, riskLevel: e.target.value as HormuzRiskLevel }))}
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Risk level"
+              >
+                <option value="low">Risk: low</option>
+                <option value="medium">Risk: medium</option>
+                <option value="high">Risk: high</option>
+                <option value="critical">Risk: critical</option>
+              </select>
+              <select
+                value={hormuzForm.severeIncident}
+                onChange={(e) => setHormuzForm((p) => ({ ...p, severeIncident: e.target.value as "yes" | "no" }))}
+                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                aria-label="Severe incident"
+              >
+                <option value="no">Severe: no</option>
+                <option value="yes">Severe: yes</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                type="number"
+                className="w-44"
+                value={baselineTransits}
+                onChange={(e) => setBaselineTransits(Math.max(1, Number(e.target.value) || DEFAULT_BASELINE_TRANSITS))}
+                aria-label="Baseline daily transits"
+              />
+              <span className="text-xs text-muted-foreground">baseline transits/day</span>
+              <Button size="sm" onClick={handleSaveHormuzEntry}>Save daily entry</Button>
+              <Button size="sm" variant="outline" onClick={() => setHormuzForm(defaultHormuzForm())}>Reset form</Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-md border border-border p-3">
+                <p className="text-[11px] font-mono text-muted-foreground uppercase">Current Status</p>
+                <p className="text-lg font-semibold mt-1">
+                  {latestAmpel ? (
+                    <Badge
+                      variant={latestAmpel === "green" ? "secondary" : latestAmpel === "yellow" ? "outline" : "destructive"}
+                      className="text-xs uppercase"
+                    >
+                      {latestAmpel}
+                    </Badge>
+                  ) : "–"}
+                </p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-[11px] font-mono text-muted-foreground uppercase">ETA Reopen</p>
+                <p className="text-lg font-semibold mt-1">{latestEtaWeeks != null ? `${latestEtaWeeks} week(s)` : "–"}</p>
+              </div>
+              <div className="rounded-md border border-border p-3">
+                <p className="text-[11px] font-mono text-muted-foreground uppercase">Latest Transit Share</p>
+                <p className="text-lg font-semibold mt-1">
+                  {latestHormuzEntry ? `${Math.round((latestHormuzEntry.transitCount / Math.max(1, baselineTransits)) * 100)}%` : "–"}
+                </p>
+              </div>
+            </div>
+
+            {hormuzEntries.length > 0 ? (
+              <div className="overflow-x-auto rounded-md border border-border/60">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30 text-left">
+                      <th className="py-2 px-2 font-mono">Date</th>
+                      <th className="py-2 px-2 font-mono text-right">Transits</th>
+                      <th className="py-2 px-2 font-mono text-right">Tankers</th>
+                      <th className="py-2 px-2 font-mono text-right">Incidents</th>
+                      <th className="py-2 px-2 font-mono text-right">War risk</th>
+                      <th className="py-2 px-2 font-mono">Risk</th>
+                      <th className="py-2 px-2 font-mono text-right">ETA</th>
+                      <th className="py-2 px-2 font-mono text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hormuzEntries.map((row) => (
+                      <tr key={row.date} className="border-b border-border/40">
+                        <td className="py-1.5 px-2 font-mono">{row.date}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{row.transitCount}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{row.tankerCount}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{row.incidents}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{row.warRiskPct.toFixed(1)}%</td>
+                        <td className="py-1.5 px-2 uppercase">{row.riskLevel}</td>
+                        <td className="py-1.5 px-2 text-right tabular-nums">{computeEtaWeeks(row, hormuzEntries)}w</td>
+                        <td className="py-1.5 px-2 text-right">
+                          <Button size="sm" variant="ghost" onClick={() => deleteHormuzDate(row.date)}>Delete</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No Hormuz entries yet. Add the first daily datapoint above.</p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Ops heartbeat: 24h error rate + last run (backend process memory) */}
         <Card>
