@@ -251,6 +251,16 @@ rows = data.get("data", [])
 
 ---
 
+## 13. Research-Tier, Lag und Troubleshooting
+
+**Research-Zugang:** Die Read-API kann für die **letzten Monate bis „heute“** (wall-clock) **leer** oder stark reduziert sein: Der Datenstand endet bei diesem Tier oft **mit großem Abstand zur Kalender-Aktualität** (intern im Projekt mit ~12 Monaten Verzug beschrieben für Heatmap/Theater-API-Pfad). Abfragen über **längere Zeiträume** (z. B. 12–18 Monate in der Vergangenheit) liefern häufig trotzdem Zeilen.
+
+**Separater Datenweg:** Wöchentliche **Aggregated-XLSX** (Nahost) mit Session-Login kann **aktuellere Wochenaggregationen** liefern; siehe `backend/services/acled_aggregated.py`.
+
+**Diagnose:** `cd backend && python scripts/check_agents.py --test-acled` (OAuth + drei Zeitfenster). Log-Muster und Fallbacks: [ACLED-TROUBLESHOOTING.md](ACLED-TROUBLESHOOTING.md).
+
+---
+
 ## Integration im Digital War Room
 
 - **OAuth:** `backend/services/acled_auth.py` — nutzt `ACLED_EMAIL` und `ACLED_PASSWORD`, sendet `username` (=E-Mail), `password`, `grant_type=password`, `client_id=acled`. Token wird gecacht und vor Ablauf erneuert.
@@ -261,3 +271,4 @@ rows = data.get("data", [])
   - OAuth: `https://acleddata.com/oauth/token`  
   - Daten: `https://acleddata.com/api/acled/read` (mit `_format=json`, `country`, `limit`; optional `event_date` + `event_date_where=BETWEEN` für aktuelle Zeiträume).
 - **Legacy:** Falls kein OAuth genutzt wird, kann optional die Legacy-API mit `ACLED_API_KEY` und `api.acleddata.com` verwendet werden (siehe Code).
+- **Betrieb / Logs / Lag:** [ACLED-TROUBLESHOOTING.md](ACLED-TROUBLESHOOTING.md)

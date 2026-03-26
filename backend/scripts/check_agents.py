@@ -4,6 +4,7 @@ Check all intelligence agents for functionality.
 Run from backend/ with venv activated:
   cd backend && source venv/bin/activate && python scripts/check_agents.py
 Optional: python scripts/check_agents.py -v   # show data hints (e.g. article count, outages)
+ACLED: python scripts/check_agents.py --test-acled   # OAuth + time-window sample (Research lag)
 """
 
 import os
@@ -212,7 +213,10 @@ def main():
     if not verbose and ok_count == len(results):
         print("Tip: run with -v to see data hints (e.g. article/outage counts).")
     print("Env vars for full data: ALPHAVANTAGE_API_KEY, NEWS_API_KEY, NASA_FIRMS_KEY,")
-    print("  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, GREYNOISE_API_KEY, ACLED_API_KEY")
+    print(
+        "  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, GREYNOISE_API_KEY, "
+        "ACLED_EMAIL+ACLED_PASSWORD (or ACLED_API_KEY legacy)"
+    )
     print("  (see backend/.env.example or .env)")
     return 0 if ok_count == len(results) else 1
 
@@ -266,6 +270,13 @@ def test_acled():
         print(f"\n{label}: count={b.get('count')}, records={len(b.get('data', []))}")
         if b.get("data"):
             print(f"  First date: {b['data'][0].get('event_date')}")
+
+    print("\n--- Summary ---")
+    print(
+        "If OAuth succeeded but 'Recent (90d)' is empty while older windows have rows, "
+        "this matches typical ACLED Research-tier publication lag (not an app bug)."
+    )
+    print("See docs/ACLED-TROUBLESHOOTING.md and docs/ACLED-API-REFERENCE.md §13.")
 
 
 def test_gdelt():
