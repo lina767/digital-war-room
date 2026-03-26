@@ -68,7 +68,7 @@ const Documentation = () => {
         title={activeDoc.title}
         description={seoDescription}
         icon={<Files className="h-5 w-5 text-muted-foreground" />}
-        maxWidth="4xl"
+        maxWidth="full"
         printHideNavigation
       >
         <style>{`

@@ -153,7 +153,11 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     fullName: "Diplomacy / Legal",
     sources: [
       { name: "OFAC SDN", description: "US Treasury SDN list (bulk CSV, free)" },
-      { name: "EU sanctions", description: "EU Consolidated List XML (webgate.ec.europa.eu)" },
+      {
+        name: "EU sanctions",
+        description:
+          "EU Consolidated List dataset (data.europa.eu) – persons, groups, and entities subject to EU financial sanctions",
+      },
       { name: "UN/ICJ", description: "UN Press RSS, ICJ press RSS – resolutions, court updates" },
     ],
   },

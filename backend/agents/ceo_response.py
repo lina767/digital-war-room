@@ -1,0 +1,296 @@
+"""CEO output normalization, rule-based summary, provenance, and API response shape."""
+
+import json
+from typing import Any, Dict, List, Optional
+
+from .ceo_scoring import degraded_streams_caveat
+from .division import DivisionResult
+
+PROVENANCE_AGENT_KEYS = [
+    "finint",
+    "sigint",
+    "news",
+    "geoint",
+    "satintel",
+    "socmint",
+    "techint",
+    "cyber",
+    "energy",
+    "protest",
+    "diplo",
+    "proximity",
+    "narrative",
+    "chokepoint",
+    "pentagon",
+]
+
+API_AGENT_NAMES = [
+    "finint",
+    "sigint",
+    "news",
+    "geoint",
+    "satintel",
+    "socmint",
+    "techint",
+    "cyber",
+    "energy",
+    "protest",
+    "diplo",
+    "proximity",
+    "narrative",
+    "chokepoint",
+    "pentagon",
+    "pentagon",
+]
+
+
+def normalize_finding_confidence(val: Any) -> str:
+    s = str(val).strip().lower()
+    if s in ("high", "h", "3"):
+        return "high"
+    if s in ("low", "l", "1"):
+        return "low"
+    return "medium"
+
+
+def align_key_findings_confidence(findings: List[str], conf: List[str]) -> List[str]:
+    """Pad or trim confidence list to match key_findings length (default medium)."""
+    out = list(conf[: len(findings)])
+    while len(out) < len(findings):
+        out.append("medium")
+    return out
+
+
+def normalize_root_cause_suggestions(raw: Any) -> List[Dict[str, str]]:
+    """Parse CEO JSON root_cause_suggestions: list of objects or 'signal → cause' strings."""
+    out: List[Dict[str, str]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw[:8]:
+        if isinstance(item, str):
+            s = item.strip()
+            sep = "→" if "→" in s else ("->" if "->" in s else "")
+            if sep:
+                parts = s.split(sep, 1)
+                signal = parts[0].strip()
+                likely = parts[1].strip() if len(parts) > 1 else ""
+                if signal and likely:
+                    out.append({"signal": signal, "likely_cause": likely, "confidence": "medium"})
+            continue
+        if isinstance(item, dict):
+            sig = str(item.get("signal") or item.get("observation") or "").strip()
+            cause = str(item.get("likely_cause") or item.get("cause") or item.get("driver") or "").strip()
+            conf = str(item.get("confidence") or "medium").strip().lower()
+            if conf not in ("high", "medium", "low"):
+                conf = "medium"
+            if sig and cause:
+                out.append({"signal": sig, "likely_cause": cause, "confidence": conf})
+    return out[:6]
+
+
+def heuristic_root_causes(
+    energy_result: Dict[str, Any],
+    chokepoint_result: Dict[str, Any],
+) -> List[Dict[str, str]]:
+    """Deterministic hypotheses when the LLM omits root_cause_suggestions."""
+    out: List[Dict[str, str]] = []
+    seen_sig: set[str] = set()
+
+    def add(signal: str, likely_cause: str, confidence: str) -> None:
+        if signal in seen_sig:
+            return
+        seen_sig.add(signal)
+        out.append({"signal": signal, "likely_cause": likely_cause, "confidence": confidence})
+
+    note = energy_result.get("global_impact_note")
+    if isinstance(note, str) and note.strip():
+        lower = note.lower()
+        if any(x in lower for x in ("hormuz", "chokepoint", "brent", "wti", "strait")):
+            add("Elevated oil / energy risk premium", note.strip()[:220], "medium")
+
+    cps = chokepoint_result.get("chokepoints") or []
+    if isinstance(cps, list):
+        for cp in cps:
+            if not isinstance(cp, dict):
+                continue
+            name = str(cp.get("name") or "")
+            risk = cp.get("disruption_risk")
+            if "hormuz" in name.lower() and isinstance(risk, (int, float)) and risk >= 35:
+                add(
+                    f"{name} disruption risk {risk:.0f}/100",
+                    "Tanker traffic density, incident reporting, or closure rhetoric in coverage — see chokepoint panel",
+                    "high" if risk >= 65 else "medium",
+                )
+                break
+
+    commodities = energy_result.get("commodities") or []
+    if isinstance(commodities, list) and not any("move" in x.get("signal", "").lower() for x in out):
+        for c in commodities:
+            if not isinstance(c, dict):
+                continue
+            sym = str(c.get("symbol") or "").upper()
+            raw_ch = c.get("change_pct_raw")
+            if sym in ("BRENT", "WTI", "CL", "BZ") and isinstance(raw_ch, (int, float)) and abs(raw_ch) >= 1.5:
+                add(
+                    f"{sym} {raw_ch:+.1f}% (session)",
+                    "Geopolitical risk premium — cross-check with Hormuz/Bab el-Mandeb and FININT",
+                    "medium",
+                )
+                break
+
+    fsr = energy_result.get("food_security_risk")
+    if isinstance(fsr, (int, float)) and fsr >= 55:
+        add(
+            f"Food security stress {fsr:.0f}/100",
+            "Grain/fertilizer prices and route exposure (incl. chokepoints affecting flows)",
+            "low" if fsr < 70 else "medium",
+        )
+
+    return out[:5]
+
+
+def build_rule_based_ceo_summary(
+    conflict: str,
+    composite: float,
+    threat_level: str,
+    division_results: Dict[str, DivisionResult],
+    *,
+    degraded_agents: Optional[List[str]] = None,
+) -> str:
+    """
+    Build a deterministic 2-3 sentence CEO recap when LLM synthesis is unavailable.
+    """
+    degraded_agents = degraded_agents or []
+    ordered = sorted(division_results.items(), key=lambda x: -x[1].score)
+    top_name, top_result = ordered[0] if ordered else ("overall", None)
+    second_name, second_result = ordered[1] if len(ordered) > 1 else (None, None)
+
+    sentence_1 = (
+        f"{conflict}: overall escalation is {composite:.0f}/100 ({threat_level}), "
+        f"driven primarily by {top_name} signals."
+    )
+
+    sentence_2 = ""
+    if second_name and second_result is not None:
+        sentence_2 = (
+            f"Secondary pressure comes from {second_name} indicators "
+            f"(score {second_result.score:.0f}) while {top_name} remains elevated "
+            f"(score {top_result.score:.0f})."
+        )
+    elif top_result is not None:
+        sentence_2 = f"{top_name.title()} indicators are currently the dominant risk driver."
+
+    anomaly_notes: List[str] = []
+    for name, dr in ordered:
+        if not dr.anomalies:
+            continue
+        # Keep only the first anomaly per division to avoid noisy recaps.
+        first = dr.anomalies[0]
+        anomaly_notes.append(f"{name}: {first.description}")
+        if len(anomaly_notes) >= 2:
+            break
+
+    if anomaly_notes:
+        sentence_3 = f"Watch items: {'; '.join(anomaly_notes)}."
+        body = f"{sentence_1} {sentence_2} {sentence_3}".strip()
+    else:
+        body = f"{sentence_1} {sentence_2}".strip()
+
+    if degraded_agents:
+        return f"{degraded_streams_caveat(degraded_agents)}\n\n{body}".strip()
+    return body
+
+
+def build_provenance_index(agent_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+    provenance_index: List[Dict[str, Any]] = []
+    for pname in PROVENANCE_AGENT_KEYS:
+        raw = agent_results.get(pname) or {}
+        meta = raw.get("_meta") if isinstance(raw, dict) else None
+        if not isinstance(meta, dict):
+            meta = {}
+        sources = meta.get("sources") or []
+        n_src = len(sources) if isinstance(sources, list) else 0
+        ok_n = 0
+        if isinstance(sources, list):
+            for s in sources:
+                if isinstance(s, dict) and s.get("status") in ("ok", "degraded"):
+                    ok_n += 1
+        steps = meta.get("processing_steps") or []
+        n_steps = len(steps) if isinstance(steps, list) else 0
+        provenance_index.append(
+            {
+                "agent": pname,
+                "fetched_at": meta.get("fetched_at"),
+                "duration_ms": meta.get("duration_ms"),
+                "sources_total": n_src,
+                "sources_ok": ok_n,
+                "data_confidence": meta.get("data_confidence"),
+                "processing_steps_count": n_steps,
+            }
+        )
+    return provenance_index
+
+
+def assemble_ceo_response(
+    *,
+    conflict: str,
+    synthesis_score: float,
+    threat_level: str,
+    key_findings: List[str],
+    key_findings_context: List[str],
+    key_findings_confidence: List[str],
+    scenarios: List[Any],
+    summary: str,
+    narrative_story: str,
+    actors: List[Any],
+    predictive: Dict[str, Any],
+    compliance: Dict[str, Any],
+    alerts: List[Any],
+    synthesis_meta: Dict[str, Any],
+    agent_data_confidence: Dict[str, str],
+    degraded_agents: List[str],
+    temporal_context: Dict[str, Any],
+    analysis_run_id: str,
+    provenance_index: List[Dict[str, Any]],
+    qf: Dict[str, Any],
+    data_quality_gate: Dict[str, Any],
+    store: Any,
+    division_results: Dict[str, DivisionResult],
+    as_dict_fn: Any,
+) -> Dict[str, Any]:
+    """Build backwards-compatible CEO API dict and attach per-agent payloads from store."""
+    response: Dict[str, Any] = {
+        "conflict": conflict,
+        "escalation_score": round(synthesis_score, 1),
+        "threat_level": threat_level,
+        "key_findings": key_findings,
+        "key_findings_context": key_findings_context,
+        "key_findings_confidence": key_findings_confidence,
+        "corroborated_patterns": [],
+        "scenarios": scenarios,
+        "summary": summary,
+        "narrative_story": narrative_story,
+        "actors": actors,
+        "predictive": predictive,
+        "compliance": compliance,
+        "alerts": alerts,
+        "pattern_flags": [],
+        "synthesis_meta": synthesis_meta,
+        "agent_data_confidence": agent_data_confidence,
+        "degraded_agents": degraded_agents,
+        "temporal_context": temporal_context,
+        "analysis_run_id": analysis_run_id,
+        "provenance_index": provenance_index,
+        "cross_validation": qf,
+        "data_quality_gate": data_quality_gate,
+        "quality_warnings": list(data_quality_gate.get("quality_warnings") or []),
+        "analysis_result_schema_version": 1,
+    }
+
+    for agent_name in API_AGENT_NAMES:
+        raw_result = store.get(agent_name)
+        response[agent_name] = as_dict_fn(raw_result) if raw_result else {}
+
+    response["divisions"] = {name: dr.model_dump(mode="json") for name, dr in division_results.items()}
+
+    return response
