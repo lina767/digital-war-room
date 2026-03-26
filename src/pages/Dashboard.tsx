@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { memo, useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useIsMobileLayout } from "@/hooks/useMediaQuery";
 import { trackMobileNav, trackMobilePanel } from "@/lib/mobileAnalytics";
 import { buildSearchHits } from "@/lib/dashboardSearchIndex";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
-import { useConflictWebSocket } from "@/hooks/useConflictWebSocket";
+import { useConflictWebSocket, type ConflictData } from "@/hooks/useConflictWebSocket";
 import { Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
@@ -43,6 +43,107 @@ function UtcClockBadge() {
     </div>
   );
 }
+
+const DashboardLiveTicker = memo(function DashboardLiveTicker({
+  conflictData,
+  headlineAllowedSources,
+}: {
+  conflictData: ConflictData | null;
+  headlineAllowedSources: Set<string>;
+}) {
+  return (
+    <div
+      className="flex items-center border-b border-border bg-card/50 min-h-9 sm:min-h-10"
+      role="region"
+      aria-label="Live headline ticker"
+    >
+      <div className="flex-shrink-0 px-3 py-2 sm:py-1.5 bg-destructive/20 text-destructive font-mono text-[11px] sm:text-[11px] font-bold tracking-wider border-r border-border">
+        LIVE
+      </div>
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <LiveTicker conflictData={conflictData} headlineAllowedSources={headlineAllowedSources} />
+      </div>
+    </div>
+  );
+});
+
+const DashboardFooter = memo(function DashboardFooter() {
+  return (
+    <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2" role="contentinfo">
+      <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4 max-lg:[&_a]:min-h-11 max-lg:[&_a]:inline-flex max-lg:[&_a]:items-center">
+        <Link
+          to="/docs/documentation"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          aria-label="Documentation"
+        >
+          <BookOpen className="h-3.5 w-3.5" aria-hidden />
+          <span>docs</span>
+        </Link>
+        <Link
+          to="/blog"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          <Newspaper className="h-3.5 w-3.5" aria-hidden />
+          <span>Blog</span>
+        </Link>
+        <Link
+          to="/daily-briefing"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          <FileText className="h-3.5 w-3.5" aria-hidden />
+          <span>Daily Briefing</span>
+        </Link>
+        <Link
+          to="/app/monitoring"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          <Activity className="h-3.5 w-3.5" aria-hidden />
+          <span>Agent Monitor</span>
+        </Link>
+        <Link
+          to="/support"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          <Heart className="h-3.5 w-3.5" aria-hidden />
+          <span>Support the Mission</span>
+        </Link>
+        <Link
+          to="/newsletter"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          <Mail className="h-3.5 w-3.5" aria-hidden />
+          <span>Subscribe</span>
+        </Link>
+      </div>
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-1.5 sm:mt-1">
+        <a
+          href="https://github.com/lina767/digital-war-room"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+          aria-label="Digital War Room on GitHub"
+        >
+          <Github className="h-3.5 w-3.5" aria-hidden />
+          <span>GitHub</span>
+        </a>
+        <span className="text-border">·</span>
+        <Link
+          to="/impressum"
+          className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          Legal notice
+        </Link>
+        <span className="text-border">·</span>
+        <Link
+          to="/privacy"
+          className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          Privacy
+        </Link>
+      </div>
+    </footer>
+  );
+});
 
 const Dashboard = () => {
   return (
@@ -210,22 +311,12 @@ function DashboardContent() {
     () => (conflictData?.proximity?.evidence ?? []).filter((e): e is ProximityEvidence => e != null && typeof e === "object"),
     [conflictData?.proximity?.evidence]
   );
+  const toggleMobileMenu = useCallback(() => setMobileMenuOpen((prev) => !prev), []);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
 
   return (
     <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
-      {/* Live ticker – Iran Monitor style: BREAKING headlines from analysis when available */}
-      <div
-        className="flex items-center border-b border-border bg-card/50 min-h-9 sm:min-h-10"
-        role="region"
-        aria-label="Live headline ticker"
-      >
-        <div className="flex-shrink-0 px-3 py-2 sm:py-1.5 bg-destructive/20 text-destructive font-mono text-[11px] sm:text-[11px] font-bold tracking-wider border-r border-border">
-          LIVE
-        </div>
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <LiveTicker conflictData={conflictData} headlineAllowedSources={headlineAllowedSources} />
-        </div>
-      </div>
+      <DashboardLiveTicker conflictData={conflictData} headlineAllowedSources={headlineAllowedSources} />
       {conflictData?.pattern_flags != null && conflictData.pattern_flags.length > 0 && (
         <PatternFlagsBanner flags={conflictData.pattern_flags} />
       )}
@@ -237,7 +328,7 @@ function DashboardContent() {
             type="button"
             aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
             className="lg:hidden min-h-11 min-w-11 flex items-center justify-center -m-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 active:bg-muted transition-colors touch-manipulation"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={toggleMobileMenu}
           >
             {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden /> : <Menu className="h-5 w-5" aria-hidden />}
           </button>
@@ -256,7 +347,7 @@ function DashboardContent() {
           </div>
           <button
             type="button"
-            onClick={() => setSearchOpen(true)}
+            onClick={openSearch}
             className="hidden sm:flex items-center gap-1.5 font-mono text-xs text-muted-foreground border border-border rounded px-2 py-1.5 hover:bg-muted/50 hover:text-foreground transition-colors"
             aria-label="Open search"
             title="Search (⌘K / Ctrl+K)"
@@ -310,7 +401,7 @@ function DashboardContent() {
               variant="outline"
               size="sm"
               className="w-full min-h-12 justify-center text-xs touch-manipulation"
-              onClick={() => { setSearchOpen(true); setMobileMenuOpen(false); }}
+              onClick={() => { openSearch(); setMobileMenuOpen(false); }}
               aria-label="Open search"
             >
               <Search className="h-4 w-4 shrink-0" aria-hidden /> Search
@@ -386,80 +477,7 @@ function DashboardContent() {
 
       <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} hits={searchHits} />
 
-      {/* Footer: docs hub (incl. How it works, Methodology, Source Directory), Support, legal */}
-      <footer className="flex-shrink-0 border-t border-border bg-background/80 backdrop-blur-sm px-3 py-2" role="contentinfo">
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4 max-lg:[&_a]:min-h-11 max-lg:[&_a]:inline-flex max-lg:[&_a]:items-center">
-          <Link
-            to="/docs/documentation"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-            aria-label="Documentation"
-          >
-            <BookOpen className="h-3.5 w-3.5" aria-hidden />
-            <span>docs</span>
-          </Link>
-          <Link
-            to="/blog"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <Newspaper className="h-3.5 w-3.5" aria-hidden />
-            <span>Blog</span>
-          </Link>
-          <Link
-            to="/daily-briefing"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <FileText className="h-3.5 w-3.5" aria-hidden />
-            <span>Daily Briefing</span>
-          </Link>
-          <Link
-            to="/app/monitoring"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <Activity className="h-3.5 w-3.5" aria-hidden />
-            <span>Agent Monitor</span>
-          </Link>
-          <Link
-            to="/support"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <Heart className="h-3.5 w-3.5" aria-hidden />
-            <span>Support the Mission</span>
-          </Link>
-          <Link
-            to="/newsletter"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            <Mail className="h-3.5 w-3.5" aria-hidden />
-            <span>Subscribe</span>
-          </Link>
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground mt-1.5 sm:mt-1">
-          <a
-            href="https://github.com/lina767/digital-war-room"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-            aria-label="Digital War Room on GitHub"
-          >
-            <Github className="h-3.5 w-3.5" aria-hidden />
-            <span>GitHub</span>
-          </a>
-          <span className="text-border">·</span>
-          <Link
-            to="/impressum"
-            className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            Legal notice
-          </Link>
-          <span className="text-border">·</span>
-          <Link
-            to="/privacy"
-            className="hover:text-foreground/80 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
-          >
-            Privacy
-          </Link>
-        </div>
-      </footer>
+      <DashboardFooter />
     </div>
   );
 };
