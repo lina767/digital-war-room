@@ -36,6 +36,32 @@ from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
 logger = logging.getLogger(__name__)
 
 
+def _extract_inflation_cpi(wb_country: Optional[Dict[str, Any]]) -> tuple[Optional[float], Optional[str]]:
+    if not isinstance(wb_country, dict):
+        return None, None
+    indicators = wb_country.get("indicators") or []
+    for ind in indicators:
+        if not isinstance(ind, dict):
+            continue
+        if ind.get("key") == "inflation_cpi_pct":
+            val = ind.get("value")
+            raw_date = str(ind.get("date") or "").strip()
+            date_label: Optional[str] = None
+            if raw_date:
+                # WB macro is often yearly (e.g., "2024"); add month context from run.
+                if len(raw_date) == 4 and raw_date.isdigit():
+                    date_label = f"{raw_date}-01"
+                else:
+                    date_label = raw_date[:7]
+            try:
+                if val is None:
+                    return None, date_label
+                return float(val), date_label
+            except (TypeError, ValueError):
+                return None, date_label
+    return None, None
+
+
 async def _generate_haiku_summary_energy(
     conflict: str,
     commodities: List[Dict[str, Any]],
@@ -132,6 +158,7 @@ def run_energy_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> D
             logger.debug("ENERGY: Haiku summary failed, using rule-based: %s", e)
             summary = rule_summary
 
+        inflation_cpi_pct, inflation_date_label = _extract_inflation_cpi(wb_country if wb_country else None)
         return {
             "energy_score": round(energy_score, 1),
             "agsi_storage": {"full": []},
@@ -142,7 +169,13 @@ def run_energy_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> D
             "world_bank_country": wb_country if wb_country else {},
             "food_security_risk": round(food_risk, 1),
             "summary": summary,
-            "global_impact_note": build_global_impact_note(conflict, oil_commodities, food_risk),
+            "global_impact_note": build_global_impact_note(
+                conflict,
+                oil_commodities,
+                food_risk,
+                inflation_cpi_pct=inflation_cpi_pct,
+                inflation_date_label=inflation_date_label,
+            ),
         }
 
     start = time.perf_counter()

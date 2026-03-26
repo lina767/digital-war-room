@@ -88,9 +88,9 @@ class HealthRegistry:
                 source_name = parts[0]
                 agent_name = parts[1] if len(parts) > 1 else ""
                 recent = list(history)
-                ok_count = sum(1 for r in recent if r.get("status") == "ok")
+                ok_weighted = sum(1.0 if r.get("status") == "ok" else 0.5 if r.get("status") == "degraded" else 0.0 for r in recent)
                 total = len(recent)
-                availability_pct = round(100.0 * ok_count / total, 1) if total else 0.0
+                availability_pct = round(100.0 * ok_weighted / total, 1) if total else 0.0
                 latencies = [r["duration_ms"] for r in recent if r.get("duration_ms") is not None]
                 avg_latency_ms = round(sum(latencies) / len(latencies), 0) if latencies else None
                 last_failures = [r for r in reversed(recent) if r.get("status") == "error"][:CIRCUIT_OPEN_THRESHOLD]

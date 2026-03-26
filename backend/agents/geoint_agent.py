@@ -167,7 +167,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             ),
             SourceResult(
                 name="GDACS",
-                status="ok" if gdacs_count > 0 else "degraded",
+                status="ok",
                 fetched_at=fetched_at,
                 record_count=gdacs_count,
             ),

@@ -96,7 +96,13 @@ def build_energy_summary(
     return out
 
 
-def build_global_impact_note(conflict: str, oil_commodities: List[Dict[str, Any]], food_risk: float) -> Optional[str]:
+def build_global_impact_note(
+    conflict: str,
+    oil_commodities: List[Dict[str, Any]],
+    food_risk: float,
+    inflation_cpi_pct: Optional[float] = None,
+    inflation_date_label: Optional[str] = None,
+) -> Optional[str]:
     if not conflict or "iran" not in conflict.lower():
         return None
     valid_c = [
@@ -116,4 +122,11 @@ def build_global_impact_note(conflict: str, oil_commodities: List[Dict[str, Any]
         )
     elif food_risk >= 50 and global_impact_note:
         global_impact_note += f"; Food security risk {food_risk:.0f}/100"
+    if inflation_cpi_pct is not None:
+        date_suffix = f" ({inflation_date_label})" if inflation_date_label else ""
+        inflation_note = f"Inflation (CPI) {inflation_cpi_pct:+.1f}% YoY{date_suffix}"
+        if global_impact_note:
+            global_impact_note += f"; {inflation_note}"
+        else:
+            global_impact_note = inflation_note
     return global_impact_note

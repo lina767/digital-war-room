@@ -131,7 +131,26 @@ def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
         )
         out = result.model_dump(mode="json")
         duration_ms = int((time.perf_counter() - start) * 1000)
-        source_results = [SourceResult(name=k, status=("ok" if k in sources_ok else "error"), fetched_at=fetched_at) for k in ("Brent", "WTI", "Gold", "VIX", "FearGreed", "Polymarket", "Metaculus", "Kalshi", "OFAC", "Wallets")]
+        polymarket_raw = polymarket if isinstance(polymarket, list) else []
+        polymarket_status = "ok"
+        if any(isinstance(item, dict) and item.get("error") for item in polymarket_raw):
+            polymarket_status = "error"
+        elif len(polymarket_raw) == 0:
+            # Empty market set is a soft degradation, not a hard source failure.
+            polymarket_status = "degraded"
+
+        source_results = [
+            SourceResult(name="Brent", status=("ok" if "brent" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="WTI", status=("ok" if "wti" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="Gold", status=("ok" if "gold" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="VIX", status=("ok" if "vix" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="FearGreed", status=("ok" if "fear_greed" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="Polymarket", status=polymarket_status, fetched_at=fetched_at),
+            SourceResult(name="Metaculus", status=("ok" if "metaculus" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="Kalshi", status=("ok" if "kalshi" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="OFAC", status=("ok" if "ofac_sanctions" in sources_ok else "error"), fetched_at=fetched_at),
+            SourceResult(name="Wallets", status=("ok" if "tracked_wallets" in sources_ok else "error"), fetched_at=fetched_at),
+        ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:

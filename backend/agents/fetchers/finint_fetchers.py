@@ -12,6 +12,8 @@ import httpx
 from ..utils import run_async, safe_float, utc_now_iso
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
+EIA_BASE = "https://api.eia.gov/v2/seriesid"
+FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 DATA_API_BASE = "https://data-api.polymarket.com"
 FEAR_GREED_CNN_API_URL = (os.getenv("FEAR_GREED_CNN_API_URL") or "").strip() or None
@@ -85,6 +87,97 @@ _ofac_raw_csv: str | None = None
 _ofac_cache_ts: float = 0.0
 _ofac_previous_keys: set[str] = set()
 OFAC_CACHE_TTL = 6 * 3600
+
+
+def _from_price_points(points: List[tuple[float, str]]) -> Dict[str, Any]:
+    if len(points) < 2:
+        return {"error": "Insufficient data"}
+    latest_price, latest_date = points[0]
+    prev_price, _ = points[1]
+    change_pct = ((latest_price - prev_price) / prev_price * 100) if prev_price else None
+    return {"price": f"{latest_price:.2f}", "change_pct": _format_pct(change_pct), "as_of": latest_date}
+
+
+def _fetch_alpha_series(function_name: str) -> Dict[str, Any]:
+    api_key = (os.getenv("ALPHAVANTAGE_API_KEY") or "").strip()
+    if not api_key:
+        return {"error": "ALPHAVANTAGE_API_KEY not set"}
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(ALPHAVANTAGE_URL, params={"function": function_name, "interval": "daily", "apikey": api_key})
+            resp.raise_for_status()
+            return resp.json()
+
+    data = run_async(_fetch())
+    series = data.get("data", [])
+    points: List[tuple[float, str]] = []
+    for item in series:
+        val = safe_float(item.get("value"))
+        dt = str(item.get("date") or "")
+        if val is None or not dt:
+            continue
+        points.append((val, dt))
+        if len(points) >= 2:
+            break
+    return _from_price_points(points)
+
+
+def _fetch_eia_spot(series_id: str) -> Dict[str, Any]:
+    api_key = (os.getenv("EIA_API_KEY") or "").strip()
+    if not api_key:
+        return {"error": "EIA_API_KEY not set"}
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{EIA_BASE}/{series_id}",
+                params={"api_key": api_key, "sort[0][column]": "period", "sort[0][direction]": "desc", "offset": 0, "length": 5},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    data = run_async(_fetch())
+    rows = (((data or {}).get("response") or {}).get("data") or [])
+    points: List[tuple[float, str]] = []
+    for row in rows:
+        val = safe_float(row.get("value"))
+        period = str(row.get("period") or "")
+        if val is None or not period:
+            continue
+        points.append((val, period))
+        if len(points) >= 2:
+            break
+    return _from_price_points(points)
+
+
+def _fetch_fred_series(series_id: str) -> Dict[str, Any]:
+    fred_key = (os.getenv("FRED_API_KEY") or "").strip()
+    params = {"series_id": series_id, "file_type": "json", "sort_order": "desc", "limit": 5}
+    if fred_key:
+        params["api_key"] = fred_key
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(FRED_BASE, params=params)
+            resp.raise_for_status()
+            return resp.json()
+
+    data = run_async(_fetch())
+    rows = (data or {}).get("observations") or []
+    points: List[tuple[float, str]] = []
+    for row in rows:
+        value = str(row.get("value") or "").strip()
+        if not value or value == ".":
+            continue
+        val = safe_float(value)
+        dt = str(row.get("date") or "")
+        if val is None or not dt:
+            continue
+        points.append((val, dt))
+        if len(points) >= 2:
+            break
+    return _from_price_points(points)
 
 
 def _polymarket_headers() -> Dict[str, str]:
@@ -207,55 +300,33 @@ def _filter_ofac(csv_text: str, conflict: str) -> Dict[str, Any]:
 
 
 def get_brent_price() -> Dict[str, Any]:
-    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
-    if not api_key:
-        return {"error": "ALPHAVANTAGE_API_KEY not set"}
-
-    async def _fetch():
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(ALPHAVANTAGE_URL, params={"function": "BRENT", "interval": "daily", "apikey": api_key})
-            resp.raise_for_status()
-            return resp.json()
-
-    try:
-        data = run_async(_fetch())
-        series = data.get("data", [])
-        if len(series) < 2:
-            return {"error": "Insufficient data"}
-        latest = series[0]
-        prev = series[1]
-        price = safe_float(latest.get("value"))
-        prev_price = safe_float(prev.get("value"))
-        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
-        return {"price": f"{price:.2f}" if price else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", "")}
-    except Exception as e:
-        return {"error": str(e)}
+    for getter in (
+        lambda: _fetch_alpha_series("BRENT"),
+        lambda: _fetch_eia_spot("PET.RBRTE.D"),
+        lambda: _fetch_fred_series("DCOILBRENTEU"),
+    ):
+        try:
+            out = getter()
+            if isinstance(out, dict) and out.get("price") is not None:
+                return out
+        except Exception:
+            continue
+    return {"error": "No Brent source available (Alpha Vantage, EIA, FRED)"}
 
 
 def get_wti_price() -> Dict[str, Any]:
-    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
-    if not api_key:
-        return {"error": "ALPHAVANTAGE_API_KEY not set"}
-
-    async def _fetch():
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(ALPHAVANTAGE_URL, params={"function": "WTI", "interval": "daily", "apikey": api_key})
-            resp.raise_for_status()
-            return resp.json()
-
-    try:
-        data = run_async(_fetch())
-        series = data.get("data", [])
-        if len(series) < 2:
-            return {"error": "Insufficient data"}
-        latest = series[0]
-        prev = series[1]
-        price = safe_float(latest.get("value"))
-        prev_price = safe_float(prev.get("value"))
-        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
-        return {"price": f"{price:.2f}" if price else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", "")}
-    except Exception as e:
-        return {"error": str(e)}
+    for getter in (
+        lambda: _fetch_alpha_series("WTI"),
+        lambda: _fetch_eia_spot("PET.RWTC.D"),
+        lambda: _fetch_fred_series("DCOILWTICO"),
+    ):
+        try:
+            out = getter()
+            if isinstance(out, dict) and out.get("price") is not None:
+                return out
+        except Exception:
+            continue
+    return {"error": "No WTI source available (Alpha Vantage, EIA, FRED)"}
 
 
 def get_gold_price() -> Dict[str, Any]:
@@ -284,28 +355,14 @@ def get_gold_price() -> Dict[str, Any]:
 
 
 def get_vix() -> Dict[str, Any]:
-    api_key = os.getenv("ALPHAVANTAGE_API_KEY")
-    if not api_key:
-        return {"error": "ALPHAVANTAGE_API_KEY not set"}
-
-    async def _fetch():
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(ALPHAVANTAGE_URL, params={"function": "VIX", "interval": "daily", "apikey": api_key})
-            resp.raise_for_status()
-            return resp.json()
-
-    try:
-        data = run_async(_fetch())
-        series = data.get("data", [])
-        if len(series) < 2:
-            return {"error": "Insufficient data"}
-        latest, prev = series[0], series[1]
-        price = safe_float(latest.get("value"))
-        prev_price = safe_float(prev.get("value"))
-        change_pct = ((price - prev_price) / prev_price * 100) if price and prev_price else None
-        return {"price": f"{price:.2f}" if price is not None else None, "change_pct": _format_pct(change_pct), "as_of": latest.get("date", "")}
-    except Exception as e:
-        return {"error": str(e)}
+    for getter in (lambda: _fetch_alpha_series("VIX"), lambda: _fetch_fred_series("VIXCLS")):
+        try:
+            out = getter()
+            if isinstance(out, dict) and out.get("price") is not None:
+                return out
+        except Exception:
+            continue
+    return {"error": "No VIX source available (Alpha Vantage, FRED)"}
 
 
 def get_fear_greed() -> Dict[str, Any]:
