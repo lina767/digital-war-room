@@ -23,6 +23,7 @@ import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { toast } from "sonner";
 import {
+  Anchor,
   ArrowLeft,
   AlertTriangle,
   Activity,
