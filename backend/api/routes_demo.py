@@ -54,6 +54,7 @@ def _historical_snapshot_from_state(state: StateServiceDep, request: Request) ->
         payload: dict[str, Any] = json.loads(json.dumps(result, default=str))
         run_iso = _iso_from_ts(run.get("at"))
         payload["_demo"] = True
+        payload["snapshot_source"] = "historical_run"
         payload["scenario_id"] = f"historical-run-{payload.get('analysis_run_id') or int(run.get('at', 0) or 0)}"
         payload["scenario_title"] = f"Historical analysis run - {conflict}"
         payload["scenario_note"] = (
@@ -71,7 +72,13 @@ async def get_demo_snapshot(request: Request, state: StateServiceDep) -> Any:
     GET /api/demo/snapshot
     Returns a curated, versioned analysis JSON (e.g. Red Sea chokepoint scenario).
     """
-    return _historical_snapshot_from_state(state, request) or _load_snapshot_from_disk()
+    historical = _historical_snapshot_from_state(state, request)
+    if historical is not None:
+        return historical
+    fallback = _load_snapshot_from_disk()
+    if isinstance(fallback, dict):
+        fallback["snapshot_source"] = "fallback_snapshot"
+    return fallback
 
 
 @router.get("/demo")
@@ -81,4 +88,10 @@ async def get_demo(request: Request, state: StateServiceDep) -> Any:
     GET /api/demo
     Alias for /api/demo/snapshot so GTM demos can use a simpler URL.
     """
-    return _historical_snapshot_from_state(state, request) or _load_snapshot_from_disk()
+    historical = _historical_snapshot_from_state(state, request)
+    if historical is not None:
+        return historical
+    fallback = _load_snapshot_from_disk()
+    if isinstance(fallback, dict):
+        fallback["snapshot_source"] = "fallback_snapshot"
+    return fallback

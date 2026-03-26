@@ -34,6 +34,7 @@ type PrecomputedAgentResult = {
 
 type DemoPayload = AnalyzeResponse & {
   _demo?: boolean;
+  snapshot_source?: "historical_run" | "fallback_snapshot" | string;
   scenario_id?: string;
   scenario_title?: string;
   scenario_note?: string;
@@ -146,6 +147,12 @@ export default function DemoPage() {
 
           {!loading && data && (
             <>
+              <div className="mt-6 flex items-center gap-2">
+                <Badge variant="outline" className="font-mono text-[10px] uppercase tracking-wide">
+                  snapshot: {data.snapshot_source === "historical_run" ? "historical run" : "fallback"}
+                </Badge>
+              </div>
+
               <div className="mt-10 flex flex-wrap items-end gap-6">
                 <div>
                   <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Escalation score</p>
