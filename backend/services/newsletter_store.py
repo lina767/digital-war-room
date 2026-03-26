@@ -610,6 +610,39 @@ def remove_subscriber_by_email(email: str, *, tenant_id: Optional[str] = None) -
         conn.close()
 
 
+def purge_pending_subscribers_older_than(days: int) -> int:
+    """Delete newsletter rows that were never confirmed and are older than N days."""
+    d = max(1, int(days))
+    if use_postgres():
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM newsletter_subscribers
+                    WHERE confirmed_at IS NULL
+                      AND subscribed_at < NOW() - (%s::text || ' days')::interval
+                    """,
+                    (d,),
+                )
+                n = cur.rowcount
+            conn.commit()
+            return int(n or 0)
+    conn = _ensure_sqlite()
+    try:
+        cur = conn.execute(
+            """
+            DELETE FROM newsletter_subscribers
+            WHERE confirmed_at IS NULL
+              AND subscribed_at < datetime('now', ?)
+            """,
+            (f"-{d} days",),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+    finally:
+        conn.close()
+
+
 def _ensure_db() -> sqlite3.Connection:
     """SQLite bootstrap; tests may monkeypatch DB_PATH. Not used when DATABASE_URL is set."""
     return _ensure_sqlite()

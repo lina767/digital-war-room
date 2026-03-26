@@ -431,14 +431,14 @@ async def refresh_analysis(
                 ws_manager=ws_manager,
                 tenant_id=tid,
             )
-            print(f"[refresh] Analysis for {conflict} done and cached.")
+            logger.info("Analysis refresh completed and cached for conflict=%s", conflict)
         except asyncio.TimeoutError:
             msg = f"Analysis timed out after {ANALYZE_TIMEOUT_SEC}s."
             state.set_last_error(conflict, msg, tenant_id=tid)
-            print(f"[refresh] Analysis for {conflict} failed: {msg}")
+            logger.warning("Analysis refresh failed for conflict=%s: %s", conflict, msg)
         except Exception as e:
             state.set_last_error(conflict, str(e), tenant_id=tid)
-            print(f"[refresh] Analysis for {conflict} failed: {e}")
+            logger.warning("Analysis refresh failed for conflict=%s: %s", conflict, e)
         finally:
             _clear_inflight(app_state, run_key)
 

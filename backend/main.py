@@ -135,6 +135,25 @@ async def lifespan(app: FastAPI):
         greynoise_task = asyncio.create_task(run_greynoise_scheduler())
         greynoise_discovery_task = asyncio.create_task(run_greynoise_tag_discovery())
 
+    retention_task = None
+    if settings.retention_enabled:
+
+        async def _retention_loop() -> None:
+            from services.retention_worker import run_retention_once
+
+            await asyncio.sleep(30)
+            while True:
+                try:
+                    result = await run_retention_once()
+                    logger.info("Retention job completed: %s", result)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning("Retention job error: %s", e)
+                await asyncio.sleep(settings.retention_interval_sec)
+
+        retention_task = asyncio.create_task(_retention_loop())
+
     # Newsletter daily job: default 10:00 Europe/Berlin (CET/CEST); run analysis then send emails.
     # NEWSLETTER_IN_PROCESS_SCHEDULER=false when using only external cron (POST /api/newsletter/send-daily).
     newsletter_task = None
@@ -234,6 +253,8 @@ async def lifespan(app: FastAPI):
         tasks_to_cancel.append(greynoise_discovery_task)
     if newsletter_task:
         tasks_to_cancel.append(newsletter_task)
+    if retention_task:
+        tasks_to_cancel.append(retention_task)
     for task in tasks_to_cancel:
         task.cancel()
         try:

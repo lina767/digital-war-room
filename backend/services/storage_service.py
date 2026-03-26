@@ -285,3 +285,23 @@ async def close():
         await _pool.close()
         _pool = None
         logger.info("[storage] pgvector pool closed")
+
+
+async def prune_old_embeddings(days: int) -> int:
+    """Best-effort retention cleanup for embeddings by updated_at."""
+    pool = await _get_pool()
+    if not pool:
+        return 0
+    try:
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM embeddings
+                WHERE updated_at < NOW() - ($1::text || ' days')::interval
+                """,
+                max(1, int(days)),
+            )
+        return int((result or "DELETE 0").split()[-1])
+    except Exception as e:
+        logger.warning("[storage] prune_old_embeddings failed: %s", e)
+        return 0

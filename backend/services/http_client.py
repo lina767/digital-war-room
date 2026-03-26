@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 import httpx
+from services.privacy_sanitize import redact_url
 
 logger = logging.getLogger("backend.http")
 
@@ -46,26 +47,34 @@ class HttpClient:
                 try:
                     resp = await self._client.request(method, url, **kwargs)
                     duration_ms = (time.time() - start) * 1000
-                    logger.info("HTTP %s %s -> %s in %.1fms", method.upper(), url, resp.status_code, duration_ms)
+                    safe_url = redact_url(url)
+                    logger.info("HTTP %s %s -> %s in %.1fms", method.upper(), safe_url, resp.status_code, duration_ms)
                     resp.raise_for_status()
                     return resp
                 except httpx.HTTPStatusError as e:
                     status = e.response.status_code
+                    safe_url = redact_url(url)
                     # Retry only on 5xx, everything andere sofort durchreichen
                     if status < 500 or attempt > retries:
-                        logger.warning("HTTP error %s %s: %s", method.upper(), url, e)
+                        logger.warning("HTTP error %s %s: %s", method.upper(), safe_url, e)
                         raise
                     logger.warning(
-                        "HTTP %s %s -> %s, retrying (attempt %s/%s)", method.upper(), url, status, attempt, retries
+                        "HTTP %s %s -> %s, retrying (attempt %s/%s)",
+                        method.upper(),
+                        safe_url,
+                        status,
+                        attempt,
+                        retries,
                     )
                 except httpx.RequestError as e:
+                    safe_url = redact_url(url)
                     if attempt > retries:
-                        logger.error("HTTP request failed %s %s: %s", method.upper(), url, e)
+                        logger.error("HTTP request failed %s %s: %s", method.upper(), safe_url, e)
                         raise
                     logger.warning(
                         "HTTP request error %s %s (%s), retrying (attempt %s/%s)",
                         method.upper(),
-                        url,
+                        safe_url,
                         e,
                         attempt,
                         retries,

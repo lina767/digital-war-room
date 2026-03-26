@@ -1,10 +1,12 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PageSkeleton } from "@/components/ui/skeleton";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 import { MobileAnalyticsBoot } from "@/components/MobileAnalyticsBoot";
+import { AnalyticsConsentBanner } from "@/components/AnalyticsConsentBanner";
+import { getAnalyticsConsent, type AnalyticsConsent } from "@/lib/analyticsConsent";
 
 const DOCS_HUB = "/docs/documentation";
 
@@ -29,6 +31,8 @@ function PageFallback() {
 }
 
 const App = () => {
+  const [analyticsConsent, setAnalyticsConsent] = useState<AnalyticsConsent | null>(() => getAnalyticsConsent());
+
   useEffect(() => {
     void import("./pwa-register").then((m) => m.registerPwaServiceWorker());
   }, []);
@@ -37,7 +41,7 @@ const App = () => {
   <TooltipProvider>
     <Sonner />
     <BrowserRouter>
-      <MobileAnalyticsBoot />
+      {analyticsConsent === "granted" ? <MobileAnalyticsBoot /> : null}
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/demo" element={<DemoPage />} />
@@ -61,8 +65,9 @@ const App = () => {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
+      <AnalyticsConsentBanner onChange={setAnalyticsConsent} />
     </BrowserRouter>
-    <Analytics />
+    {analyticsConsent === "granted" ? <Analytics /> : null}
   </TooltipProvider>
   );
 };

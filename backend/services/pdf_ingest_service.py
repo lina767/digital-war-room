@@ -306,6 +306,20 @@ def list_documents() -> List[Dict[str, Any]]:
     ]
 
 
+def purge_in_memory_documents(max_age_hours: int) -> int:
+    """Remove cached in-memory document payloads older than max_age_hours."""
+    hours = max(1, int(max_age_hours))
+    cutoff = time.time() - (hours * 3600)
+    to_delete: list[str] = []
+    for doc_id, doc in _documents.items():
+        ingested_at = float(doc.get("ingested_at") or 0)
+        if ingested_at and ingested_at < cutoff:
+            to_delete.append(doc_id)
+    for doc_id in to_delete:
+        _documents.pop(doc_id, None)
+    return len(to_delete)
+
+
 # Well-known document URLs for auto-ingest
 OFAC_SDN_PDF_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDNLIST.PDF"
 UN_SC_IRAN_RESOLUTIONS = [

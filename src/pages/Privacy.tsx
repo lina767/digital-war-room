@@ -134,7 +134,8 @@ const Privacy = () => {
               decisions or Standard Contractual Clauses), where applicable.
               <br /><br />
               The platform may use technically necessary storage mechanisms (such as local storage) to keep preferences
-              or required app state. If analytics are enabled, they are used to improve reliability and product quality.
+              or required app state. Analytics collection is consent-based and only enabled after an explicit opt-in in
+              the app UI. If enabled, analytics are used to improve reliability and product quality.
               <br /><br />
               AI services are used to process open-source intelligence content and generate analyses. We do not require
               account-based personal profiles for using core features.

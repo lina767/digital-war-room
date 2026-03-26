@@ -12,6 +12,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from models.analysis_contract import AGENT_KEYS
+from services.privacy_sanitize import mask_emails_in_text
 
 ERROR_LOG_MAX = 400
 DAILY_HISTORY_MAX = 45
@@ -58,8 +59,8 @@ def record_error(
         "agent": agent,
         "source": source,
         "conflict": conflict,
-        "message": str(message).strip()[:2000],
-        "detail": (detail.strip()[:8000] if detail else None),
+        "message": mask_emails_in_text(str(message).strip()[:2000]),
+        "detail": (mask_emails_in_text(detail.strip()[:8000]) if detail else None),
     }
     with _lock:
         _errors.append(entry)

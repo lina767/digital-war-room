@@ -1,4 +1,5 @@
 import { track } from "@vercel/analytics";
+import { hasAnalyticsConsent } from "@/lib/analyticsConsent";
 
 /** Matches Tailwind `lg` (desktop unchanged above this width). */
 const MOBILE_MAX_WIDTH = 1023;
@@ -21,6 +22,7 @@ type MobileEventPayload = Record<string, string | number | boolean | undefined>;
  * Fires Vercel Analytics custom events only on mobile viewports so desktop metrics stay clean.
  */
 export function trackMobileEvent(name: string, payload?: MobileEventPayload): void {
+  if (!hasAnalyticsConsent()) return;
   if (!isMobileViewport()) return;
   track(name, {
     ...payload,

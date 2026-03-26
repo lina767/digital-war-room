@@ -433,6 +433,17 @@ Related docs:
 - `docs/API-KEYS.md`
 - `docs/OBSERVABILITY.md`
 
+## 13.1 Privacy and compliance
+
+Core governance documents:
+
+- `docs/PRIVACY-GDPR-DSGVO.md`
+- `docs/ROPA-RECORD-OF-PROCESSING.md`
+- `docs/DATA-RETENTION-POLICY.md`
+- `docs/AUDIT-TRAIL-POLICY.md`
+- `docs/DSR-RUNBOOK.md`
+- `docs/ANALYTICS-CONSENT.md`
+
 ---
 
 ## 14) Troubleshooting

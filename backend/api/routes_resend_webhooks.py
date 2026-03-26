@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from services.newsletter_store import remove_subscriber_by_email
+from services.privacy_sanitize import mask_email
 from services.resend_contacts import mark_contact_unsubscribed
 
 logger = logging.getLogger(__name__)
@@ -102,17 +103,31 @@ async def resend_webhook(request: Request) -> JSONResponse:
             try:
                 await mark_contact_unsubscribed(email)
             except Exception as ex:
-                logger.debug("Resend contact unsubscribe sync failed for %s: %s", email, ex)
+                logger.debug("Resend contact unsubscribe sync failed for %s: %s", mask_email(email), ex)
+
+    try:
+        from services.audit_events import emit_audit_event
+
+        await emit_audit_event(
+            event_type="newsletter.webhook.unsubscribed",
+            actor_type="service",
+            object_type="subscriber",
+            outcome="success",
+            reason_code=event_type.lower().replace(".", "_"),
+            meta={"received": len(emails), "removed_local": removed},
+        )
+    except Exception:
+        pass
 
     if emails:
         logger.info(
             "Resend webhook %s: processed recipients=%s removed_local=%d",
             event_type,
-            emails,
+            [mask_email(e) for e in emails],
             removed,
         )
 
     return JSONResponse(
         status_code=200,
-        content={"ok": True, "type": event_type, "emails": emails, "removed": removed},
+        content={"ok": True, "type": event_type, "emails": [mask_email(e) for e in emails], "removed": removed},
     )

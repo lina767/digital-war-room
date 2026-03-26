@@ -134,3 +134,32 @@ async def fetch_analysis_audit(run_id: str) -> Optional[Dict[str, Any]]:
         return None
     finally:
         await conn.close()
+
+
+async def prune_analysis_audit(days: int) -> int:
+    """Delete old analysis_audit rows older than N days."""
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return 0
+    try:
+        import asyncpg
+    except ImportError:
+        return 0
+    try:
+        conn = await asyncpg.connect(url, timeout=10.0)
+    except Exception:
+        return 0
+    try:
+        result = await conn.execute(
+            """
+            DELETE FROM analysis_audit
+            WHERE created_at < NOW() - ($1::text || ' days')::interval
+            """,
+            max(1, int(days)),
+        )
+        return int((result or "DELETE 0").split()[-1])
+    except Exception as e:
+        logger.warning("analysis audit prune failed: %s", e)
+        return 0
+    finally:
+        await conn.close()

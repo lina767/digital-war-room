@@ -12,17 +12,39 @@ async def persist_analysis_side_effects(
     """Postgres audit, SIGINT state for compliance deltas, AIS track samples."""
     try:
         from services.analysis_audit_store import persist_analysis_audit
+        from services.audit_events import emit_audit_event
 
         await persist_analysis_audit(conflict, result)
+        await emit_audit_event(
+            event_type="analysis.audit.persisted",
+            actor_type="system",
+            tenant_id=str(tenant_id) if tenant_id else None,
+            object_type="analysis_run",
+            object_id=str(result.get("analysis_run_id") or ""),
+            outcome="success",
+            reason_code="provenance_snapshot",
+            meta={"conflict": conflict},
+        )
     except Exception as e:
         logger.warning("persist_analysis_audit failed for %s: %s", conflict, e)
         try:
             from services.monitoring_store import record_error
+            from services.audit_events import emit_audit_event
 
             record_error(
                 message=f"analysis_audit persist failed: {e!s}"[:2000],
                 severity="warning",
                 conflict=conflict,
+            )
+            await emit_audit_event(
+                event_type="analysis.audit.persisted",
+                actor_type="system",
+                tenant_id=str(tenant_id) if tenant_id else None,
+                object_type="analysis_run",
+                object_id=str(result.get("analysis_run_id") or ""),
+                outcome="failure",
+                reason_code="persist_error",
+                meta={"conflict": conflict},
             )
         except Exception:
             pass
