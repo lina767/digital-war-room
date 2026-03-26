@@ -59,6 +59,21 @@ _NEWSLETTER_SEND_PARALLELISM = max(1, min(20, int(os.getenv("NEWSLETTER_SEND_PAR
 _NEWSLETTER_DAILY_DEDUPE = (os.getenv("NEWSLETTER_DAILY_DEDUPE", "true") or "").strip().lower() not in ("0", "false", "no")
 
 
+def _configured_newsletter_secret() -> str:
+    """
+    Secret for protected newsletter endpoints.
+    Supports legacy env name X-NEWSLETTER-SECRET for backward compatibility.
+    """
+    return (os.getenv("NEWSLETTER_CRON_SECRET") or os.getenv("X-NEWSLETTER-SECRET") or "").strip()
+
+
+def _is_valid_newsletter_secret(*provided: str | None) -> bool:
+    secret = _configured_newsletter_secret()
+    if not secret:
+        return True
+    return any((p or "").strip() == secret for p in provided)
+
+
 class SubscribeBody(BaseModel):
     email: EmailStr = Field(..., description="Subscriber email (double opt-in)")
     # Literal matches utils.sanitize.CONFLICT_MAX_LEN; avoids NameError if imports drift in deploys.
@@ -276,13 +291,13 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
 async def newsletter_status(
     request: Request,
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
 ) -> JSONResponse:
     """
     GET /api/newsletter/status – subscriber counts (confirmed vs pending) and DB backend/path.
     Same auth as send-daily: NEWSLETTER_CRON_SECRET via X-Newsletter-Secret when set.
     """
-    secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
-    if secret and x_newsletter_secret != secret:
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
         return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
     return JSONResponse(status_code=200, content=get_subscriber_stats())
 
@@ -293,6 +308,7 @@ async def newsletter_sync_from_resend(
     request: Request,
     body: SyncFromResendBody,
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
 ) -> JSONResponse:
     """
     POST /api/newsletter/sync-from-resend – list contacts in a Resend segment and mirror into the subscriber store.
@@ -302,8 +318,7 @@ async def newsletter_sync_from_resend(
 
     Same auth as send-daily. Requires segment_id in body or RESEND_NEWSLETTER_SEGMENT_ID / RESEND_AUDIENCE_ID.
     """
-    secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
-    if secret and x_newsletter_secret != secret:
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
         return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
     segment_id = resolve_import_segment_id(body.segment_id)
     if not segment_id:
@@ -344,13 +359,13 @@ async def newsletter_sync_from_resend(
 async def newsletter_send_daily(
     request: Request,
     x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
 ) -> JSONResponse:
     """
     POST /api/newsletter/send-daily – run analysis for conflicts with subscribers, then send daily emails.
     Protected by NEWSLETTER_CRON_SECRET (header X-Newsletter-Secret).
     """
-    secret = (os.getenv("NEWSLETTER_CRON_SECRET") or "").strip()
-    if secret and x_newsletter_secret != secret:
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
         return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
     conflicts, sent_total, skipped_dup = await run_daily_newsletter_job(request.app.state)
     if not conflicts:

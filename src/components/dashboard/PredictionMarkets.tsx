@@ -5,10 +5,48 @@ import { Sparkline } from "@/components/dashboard/Sparkline";
 import { formatTimeAgo } from "@/lib/utils";
 
 const FALLBACK_MARKETS = [
-  { question: "US military strike on Iran in 2025?", probability: 0.34, volume: 0 },
-  { question: "Iran nuclear weapon test by 2026?", probability: 0.12, volume: 0 },
-  { question: "Oil price above $100/bbl by Q2?", probability: 0.47, volume: 0 },
-  { question: "Israel strikes Iran by end of 2026?", probability: 0.35, volume: 0 },
+  {
+    question: "US x Iran ceasefire by deadline?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/us-x-iran-ceasefire-by",
+  },
+  {
+    question: "Will Crude Oil (CL) hit threshold by end of March?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/will-crude-oil-cl-hit-by-end-of-march",
+  },
+  {
+    question: "US forces enter Iran by deadline?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/us-forces-enter-iran-by",
+  },
+  {
+    question: "Kharg Island no longer under Iranian control by March 31?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/kharg-island-no-longer-under-iranian-control-by-march-31",
+  },
+  {
+    question: "Trump announces end of military operations against Iran by deadline?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/trump-announces-end-of-military-operations-against-iran-by",
+  },
+  {
+    question: "Iran x Israel/US conflict ends by deadline?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/iran-x-israelus-conflict-ends-by",
+  },
+  {
+    question: "Will the Iranian regime fall by June 30?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/will-the-iranian-regime-fall-by-june-30",
+  },
 ];
 
 interface PolymarketItem {
@@ -77,7 +115,7 @@ export function PredictionMarkets({ polymarket, fetchedAt, polymarketHistory }: 
   const raw =
     polymarket && polymarket.length > 0
       ? polymarket
-      : FALLBACK_MARKETS.map((m) => ({ ...m, url: undefined as string | undefined, end_date_iso: undefined as string | undefined }));
+      : FALLBACK_MARKETS.map((m) => ({ ...m, end_date_iso: undefined as string | undefined }));
 
   const withIndex = raw.map((m, i) => ({ ...m, _origIndex: i }));
   const sorted = withIndex
