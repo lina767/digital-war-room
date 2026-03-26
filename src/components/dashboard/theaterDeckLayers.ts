@@ -20,6 +20,7 @@ import {
   type ChokePointZone,
 } from "./mapOverlaysData";
 import type { TheaterDisplayItem } from "./theaterMapCluster";
+import type { LayerVisibility } from "@/features/theater-map/config/layerVisibility";
 
 /** Matches dashboard chokepoint payload; duplicated here to avoid circular imports. */
 export interface ChokepointStatusInput {
@@ -58,18 +59,7 @@ export type TheaterPick =
 export interface TheaterDeckLayersInput {
   zoom: number;
   activeConflict: string | null;
-  layerVisibility: {
-    theaterEvents: boolean;
-    geoint: boolean;
-    sigint: boolean;
-    heatmap: boolean;
-    samRings: boolean;
-    airRoutes: boolean;
-    seaLanes: boolean;
-    chokepoints: boolean;
-    militaryBases: boolean;
-    nuclearFacilities: boolean;
-  };
+  layerVisibility: LayerVisibility;
   samRingLines: Array<{ id: string; coords: [number, number][] }>;
   theaterDisplayItems: TheaterDisplayItem[];
   heatmapEvents: ConflictEventForHeatmap[];
