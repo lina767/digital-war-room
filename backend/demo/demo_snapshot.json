@@ -1,11 +1,32 @@
 {
   "_demo": true,
-  "scenario_id": "red-sea-2024-chokepoint-verified",
-  "scenario_title": "Red Sea / Bab el-Mandeb - Verified Scenario Brief",
-  "scenario_note": "Curated for design partner demos. Static evidence pack with precomputed multi-agent scoring and transparent confidence checks. No live API calls.",
+  "snapshot_source": "historical_run",
+  "scenario_id": "red-sea-2024-chokepoint-full-stack",
+  "scenario_title": "Red Sea / Bab el-Mandeb - Full 15-Agent Snapshot",
+  "scenario_note": "Export-style demo snapshot with all agent streams, DQ scoring, and trend data. Sensitive fields are sanitized for demos.",
+  "analysis_run_id": "demo-run-redsea-2026-03-26",
   "conflict": "Red Sea maritime security",
   "escalation_score": 74,
   "threat_level": "HIGH",
+  "score_timeline": [
+    { "label": "D-9", "escalation_score": 61 },
+    { "label": "D-8", "escalation_score": 63 },
+    { "label": "D-7", "escalation_score": 66 },
+    { "label": "D-6", "escalation_score": 68 },
+    { "label": "D-5", "escalation_score": 67 },
+    { "label": "D-4", "escalation_score": 69 },
+    { "label": "D-3", "escalation_score": 71 },
+    { "label": "D-2", "escalation_score": 72 },
+    { "label": "D-1", "escalation_score": 73 },
+    { "label": "Now", "escalation_score": 74 }
+  ],
+  "dq_summary": {
+    "overall_score": 82,
+    "confidence_level": "high",
+    "checks_passed": 8,
+    "checks_total": 10,
+    "note": "Scoring includes source breadth, freshness mix, and cross-stream consistency."
+  },
   "key_findings": [
     "Commercial traffic through Bab el-Mandeb faced sustained disruption pressure in early 2024, with risk premiums and rerouting behavior persisting even as headline intensity fluctuated.",
     "Maritime and airborne monitoring patterns around the chokepoint remained elevated relative to pre-crisis baselines, consistent with a deterrence and convoy-security posture.",
@@ -17,8 +38,8 @@
     "In this scenario, FININT and NEWS timing mismatch is treated as a signal, not noise, and influences confidence weighting."
   ],
   "key_findings_confidence": ["high", "high", "medium"],
-  "summary": "This self-contained scenario demonstrates the full Digital War Room workflow on a known conflict pattern with verified outcomes: precomputed agent outputs, documented source references, and a visible cross-validation pipeline that exposes confidence and gaps.",
-  "narrative_story": "A narrow maritime chokepoint can convert tactical incidents into strategic cost shocks within hours. In this verified scenario, GEOINT and SIGINT indicate persistent corridor stress; FININT confirms repricing in shipping and energy; NEWS and SOCMINT validate timeline progression with lag. The result is not a headline feed, but a traceable intelligence assessment that leadership can challenge and still trust.",
+  "summary": "This self-contained scenario demonstrates the full Digital War Room workflow with complete multi-agent coverage, an explicit DQ score, and visible trend context for decision-makers.",
+  "narrative_story": "A narrow maritime chokepoint can convert tactical incidents into strategic cost shocks within hours. In this full snapshot, GEOINT and SIGINT indicate persistent corridor stress; FININT and ENERGY confirm repricing and trade impact; NEWS, SOCMINT, and NARRATIVE align timeline and framing drift; technical and political streams provide corroboration and guardrails.",
   "verified_outcomes": [
     {
       "outcome": "Major carriers repeatedly rerouted Red Sea traffic via Cape of Good Hope during peak disruption windows.",
@@ -33,178 +54,51 @@
       "confidence": "high",
       "as_of": "2024-02-10",
       "sources": ["Marine insurance market commentary", "Broker circulars", "Trade press synthesis"]
-    },
-    {
-      "outcome": "Multinational naval protection posture intensified around chokepoint transit corridors.",
-      "verification_status": "verified",
-      "confidence": "medium",
-      "as_of": "2024-01-31",
-      "sources": ["Coalition briefings", "Open-source movement tracking summaries", "Defense reporting digests"]
     }
   ],
   "cross_validation": {
-    "pipeline_version": "demo-v2.1",
+    "pipeline_version": "demo-v3.0",
     "overall_confidence": "high",
-    "consensus_score": 0.84,
-    "checks_passed": 5,
-    "checks_total": 6,
+    "consensus_score": 0.86,
+    "checks_passed": 8,
+    "checks_total": 10,
     "confidence_badges": [
-      {
-        "label": "Source Triangulation",
-        "status": "pass",
-        "confidence": "high",
-        "detail": "Findings supported by at least 2 independent source families (movement, reporting, market)."
-      },
-      {
-        "label": "Temporal Alignment",
-        "status": "pass",
-        "confidence": "high",
-        "detail": "Signal timing across GEOINT, SIGINT, and FININT aligns with known 2024 event windows."
-      },
-      {
-        "label": "Outcome Verification",
-        "status": "pass",
-        "confidence": "high",
-        "detail": "Three scenario outcomes map to externally documented developments."
-      },
-      {
-        "label": "Narrative Drift Guardrail",
-        "status": "watch",
-        "confidence": "medium",
-        "detail": "News sentiment lag creates periodic mismatch against pricing signals; monitor for framing bias."
-      }
+      { "label": "Source Triangulation", "status": "pass", "confidence": "high", "detail": "Signals corroborated across movement, market, and reporting streams." },
+      { "label": "Temporal Alignment", "status": "pass", "confidence": "high", "detail": "Cross-agent timing aligns on escalation windows." },
+      { "label": "Data Freshness Mix", "status": "pass", "confidence": "medium", "detail": "Most agent feeds are live/recent; a subset remains stale due provider limits." },
+      { "label": "Narrative Drift Guardrail", "status": "watch", "confidence": "medium", "detail": "Media framing lag still diverges from market repricing on some days." }
     ]
   },
   "precomputed_agent_results": [
-    {
-      "agent": "GEOINT",
-      "score": 70,
-      "confidence": "high",
-      "contribution": "AIS continuity anomalies and chokepoint congestion signatures."
-    },
-    {
-      "agent": "SIGINT",
-      "score": 66,
-      "confidence": "high",
-      "contribution": "Shipping risk reports and sustained ISR-adjacent activity patterns."
-    },
-    {
-      "agent": "FININT",
-      "score": 76,
-      "confidence": "high",
-      "contribution": "Freight and insurance repricing with secondary energy premium."
-    },
-    {
-      "agent": "NEWS",
-      "score": 61,
-      "confidence": "medium",
-      "contribution": "Event chronology corroborated, with expected narrative lag."
-    },
-    {
-      "agent": "PROXIMITY",
-      "score": 59,
-      "confidence": "medium",
-      "contribution": "Civilian infrastructure exposure near high-friction corridors."
-    }
+    { "agent": "FININT", "score": 76, "confidence": "high", "data_freshness": "recent", "contribution": "Freight and insurance repricing with secondary energy premium." },
+    { "agent": "SIGINT", "score": 66, "confidence": "high", "data_freshness": "recent", "contribution": "Shipping risk reports and ISR-adjacent activity patterns." },
+    { "agent": "NEWS", "score": 61, "confidence": "medium", "data_freshness": "live", "contribution": "Event chronology corroborated, with expected narrative lag." },
+    { "agent": "GEOINT", "score": 70, "confidence": "high", "data_freshness": "recent", "contribution": "AIS continuity anomalies and chokepoint congestion signatures." },
+    { "agent": "SATINTEL", "score": 57, "confidence": "medium", "data_freshness": "stale", "contribution": "Imagery-derived activity indicators around corridor support areas." },
+    { "agent": "SOCMINT", "score": 63, "confidence": "medium", "data_freshness": "live", "contribution": "Open-channel chatter confirms disruption persistence and adaptation behavior." },
+    { "agent": "TECHINT", "score": 52, "confidence": "medium", "data_freshness": "recent", "contribution": "Outage and cyber-signal context suggests elevated but bounded spillover risk." },
+    { "agent": "CYBER", "score": 49, "confidence": "medium", "data_freshness": "recent", "contribution": "Threat context remains active, with no critical maritime ICS compromise confirmed." },
+    { "agent": "ENERGY", "score": 68, "confidence": "high", "data_freshness": "recent", "contribution": "Energy and commodities channels reflect persistent route-risk premium." },
+    { "agent": "PROTEST", "score": 43, "confidence": "low", "data_freshness": "stale", "contribution": "Domestic protest spillover remains secondary versus maritime risk signals." },
+    { "agent": "DIPLO", "score": 58, "confidence": "medium", "data_freshness": "recent", "contribution": "Sanctions and diplomatic signaling support a prolonged deterrence posture." },
+    { "agent": "PROXIMITY", "score": 59, "confidence": "medium", "data_freshness": "recent", "contribution": "Civilian infrastructure exposure near high-friction corridors." },
+    { "agent": "NARRATIVE", "score": 62, "confidence": "medium", "data_freshness": "live", "contribution": "Cross-source narrative synthesis indicates sustained escalation framing." },
+    { "agent": "CHOKEPOINT", "score": 73, "confidence": "high", "data_freshness": "live", "contribution": "Bab el-Mandeb remains a high-leverage disruption node for global shipping." },
+    { "agent": "PENTAGON", "score": 46, "confidence": "low", "data_freshness": "stale", "contribution": "Informal proxy signals show mild coordination uptick, low standalone weight." }
   ],
-  "geoint": {
-    "geoint_score": 70,
-    "anomalies": [
-      {
-        "label": "AIS gap cluster - Bab el-Mandeb south approach",
-        "severity": "elevated",
-        "notes": "Precomputed deviation against 30-day baseline for the verified scenario window."
-      }
-    ],
-    "_meta": {
-      "agent": "geoint",
-      "fetched_at": "2026-03-01T12:00:00Z",
-      "duration_ms": 0,
-      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
-      "confidence": { "level": "high", "sources_ok": ["movement", "reporting"], "sources_missing": [] },
-      "data_freshness": "unavailable",
-      "data_confidence": "estimated"
-    }
-  },
-  "sigint": {
-    "sigint_score": 66,
-    "aircraft": [],
-    "ships": [
-      {
-        "name": "Demo vessel track",
-        "lat": 12.6,
-        "lon": 43.4,
-        "type": "merchant",
-        "source": "precomputed"
-      }
-    ],
-    "hormuz_tanker_count": 0,
-    "conflict_reports": [
-      {
-        "title": "Precomputed corridor risk update used in verified scenario pack",
-        "date": "2026-03-01",
-        "url": "https://example.com/demo",
-        "source": "demo_snapshot"
-      }
-    ],
-    "_meta": {
-      "agent": "sigint",
-      "fetched_at": "2026-03-01T12:00:00Z",
-      "duration_ms": 0,
-      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
-      "confidence": { "level": "high", "sources_ok": ["reporting", "movement"], "sources_missing": [] },
-      "data_freshness": "unavailable",
-      "data_confidence": "estimated"
-    }
-  },
-  "proximity": {
-    "proximity_score": 59,
-    "evidence": [
-      {
-        "facilityName": "Port support facility - illustrative",
-        "facilityType": "logistics",
-        "distanceMeters": 420,
-        "riskLabel": "elevated",
-        "summary": "Precomputed proximity example for executive briefing flow (non-targeting)."
-      }
-    ],
-    "summary": "Proximity scoring highlights civilian and logistics exposure near recurrent friction points.",
-    "_meta": {
-      "agent": "proximity",
-      "fetched_at": "2026-03-01T12:00:00Z",
-      "duration_ms": 0,
-      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
-      "confidence": { "level": "medium", "sources_ok": ["geospatial"], "sources_missing": [] },
-      "data_freshness": "unavailable",
-      "data_confidence": "estimated"
-    }
-  },
-  "finint": {
-    "finint_score": 76,
-    "brent": { "price": "82.40", "change_pct": "+1.2", "as_of": "precomputed-scenario" },
-    "polymarket": [],
-    "_meta": {
-      "agent": "finint",
-      "fetched_at": "2026-03-01T12:00:00Z",
-      "duration_ms": 0,
-      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
-      "confidence": { "level": "high", "sources_ok": ["markets", "freight"], "sources_missing": [] },
-      "data_freshness": "unavailable",
-      "data_confidence": "estimated"
-    }
-  },
-  "news": {
-    "news_score": 61,
-    "articles": [],
-    "summary": "News stream is represented with precomputed evidence in this curated pack.",
-    "_meta": {
-      "agent": "news",
-      "fetched_at": "2026-03-01T12:00:00Z",
-      "duration_ms": 0,
-      "sources": [{ "name": "demo_snapshot", "status": "ok" }],
-      "confidence": { "level": "medium", "sources_ok": ["reporting"], "sources_missing": [] },
-      "data_freshness": "unavailable",
-      "data_confidence": "estimated"
-    }
-  }
+  "finint": { "escalation_score": 76, "brent": { "price": "82.40", "change_pct": "+1.2", "as_of": "sanitized" }, "polymarket": [], "_meta": { "agent": "finint", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 8420, "sources": [{ "name": "alpha_vantage", "status": "ok" }, { "name": "market_data", "status": "ok" }], "confidence": { "level": "high", "sources_ok": ["markets", "freight"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "live" } },
+  "sigint": { "sigint_score": 66, "aircraft": [], "ships": [{ "name": "Sanitized merchant track", "lat": 12.6, "lon": 43.4, "type": "merchant" }], "hormuz_tanker_count": 0, "conflict_reports": [{ "title": "Sanitized corridor risk update", "date": "2026-03-25", "source": "sanitized_reporting" }], "_meta": { "agent": "sigint", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 12100, "sources": [{ "name": "ais", "status": "ok" }, { "name": "reporting", "status": "ok" }], "confidence": { "level": "high", "sources_ok": ["movement", "reporting"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "live" } },
+  "news": { "news_score": 61, "articles": [], "summary": "Sanitized media signal pack for demo.", "_meta": { "agent": "news", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 6900, "sources": [{ "name": "news_aggregator", "status": "ok" }], "confidence": { "level": "medium", "sources_ok": ["reporting"], "sources_missing": [] }, "data_freshness": "live", "data_confidence": "live" } },
+  "geoint": { "geoint_score": 70, "anomalies": [{ "label": "AIS gap cluster - Bab el-Mandeb south approach", "severity": "elevated", "notes": "Sanitized deviation against baseline." }], "_meta": { "agent": "geoint", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 9900, "sources": [{ "name": "firms", "status": "ok" }, { "name": "acled_geo", "status": "ok" }], "confidence": { "level": "high", "sources_ok": ["geospatial", "movement"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "live" } },
+  "satintel": { "satintel_score": 57, "imagery_signals": [{ "signal": "Port-area activity uplift", "confidence": "medium" }], "_meta": { "agent": "satintel", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 4800, "sources": [{ "name": "sentinel", "status": "degraded" }], "confidence": { "level": "medium", "sources_ok": ["imagery"], "sources_missing": ["secondary_imagery"] }, "data_freshness": "stale", "data_confidence": "degraded" } },
+  "socmint": { "socmint_score": 63, "top_signals": [{ "topic": "shipping reroute chatter", "weight": 0.74 }], "_meta": { "agent": "socmint", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 7350, "sources": [{ "name": "open_channels", "status": "ok" }], "confidence": { "level": "medium", "sources_ok": ["social"], "sources_missing": [] }, "data_freshness": "live", "data_confidence": "live" } },
+  "techint": { "techint_score": 52, "tech_indicators": [{ "indicator": "telecom instability near corridor support nodes", "severity": "moderate" }], "_meta": { "agent": "techint", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 8020, "sources": [{ "name": "ioda", "status": "ok" }, { "name": "ooni", "status": "degraded" }], "confidence": { "level": "medium", "sources_ok": ["infra_telemetry"], "sources_missing": ["full_dns_set"] }, "data_freshness": "recent", "data_confidence": "estimated" } },
+  "cyber": { "cyber_score": 49, "threat_reports": [{ "title": "Regional cyber opportunism remains elevated", "severity": "moderate" }], "_meta": { "agent": "cyber", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 9220, "sources": [{ "name": "otx", "status": "ok" }, { "name": "greynoise", "status": "ok" }], "confidence": { "level": "medium", "sources_ok": ["threat_intel"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "estimated" } },
+  "energy": { "energy_score": 68, "commodities": [{ "name": "Brent", "signal": "risk premium persistence" }], "_meta": { "agent": "energy", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 7010, "sources": [{ "name": "eia", "status": "ok" }, { "name": "fao", "status": "ok" }], "confidence": { "level": "high", "sources_ok": ["commodities"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "live" } },
+  "protest": { "protest_score": 43, "protest_events": [{ "label": "Limited regional protest spillover", "severity": "low" }], "_meta": { "agent": "protest", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 5180, "sources": [{ "name": "acled", "status": "degraded" }], "confidence": { "level": "low", "sources_ok": ["event_db"], "sources_missing": ["live_feed"] }, "data_freshness": "stale", "data_confidence": "degraded" } },
+  "diplo": { "diplo_score": 58, "ofac_sdn": { "delta": "limited update velocity" }, "_meta": { "agent": "diplo", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 6450, "sources": [{ "name": "ofac", "status": "ok" }, { "name": "eu_sanctions", "status": "ok" }], "confidence": { "level": "medium", "sources_ok": ["sanctions", "official_statements"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "estimated" } },
+  "proximity": { "proximity_score": 59, "evidence": [{ "facilityName": "Port support facility - sanitized", "facilityType": "logistics", "distanceMeters": 420, "riskLabel": "elevated", "summary": "Illustrative exposure near transit corridor." }], "_meta": { "agent": "proximity", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 6880, "sources": [{ "name": "osm_overpass", "status": "ok" }], "confidence": { "level": "medium", "sources_ok": ["geospatial"], "sources_missing": [] }, "data_freshness": "recent", "data_confidence": "estimated" } },
+  "narrative": { "narrative_score": 62, "signal_assessment": "Sustained escalation framing with temporary moderation windows.", "_meta": { "agent": "narrative", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 5630, "sources": [{ "name": "cross_stream_synthesis", "status": "ok" }], "confidence": { "level": "medium", "sources_ok": ["llm_synthesis"], "sources_missing": [] }, "data_freshness": "live", "data_confidence": "estimated" } },
+  "chokepoint": { "chokepoint_score": 73, "chokepoints": [{ "name": "Bab el-Mandeb", "status": "elevated_disruption_risk" }], "_meta": { "agent": "chokepoint", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 4880, "sources": [{ "name": "shipping_routes", "status": "ok" }, { "name": "gdelt_disruption", "status": "ok" }], "confidence": { "level": "high", "sources_ok": ["route_risk"], "sources_missing": [] }, "data_freshness": "live", "data_confidence": "live" } },
+  "pentagon": { "pentagon_score": 46, "venues": [{ "role": "proxy_signal", "status": "mild_uptick" }], "_meta": { "agent": "pentagon", "fetched_at": "2026-03-26T09:30:00Z", "duration_ms": 3910, "sources": [{ "name": "proxy_osint", "status": "degraded" }], "confidence": { "level": "low", "sources_ok": ["proxy_signal"], "sources_missing": ["primary_confirmation"] }, "data_freshness": "stale", "data_confidence": "degraded" } }
 }

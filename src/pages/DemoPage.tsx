@@ -30,6 +30,20 @@ type PrecomputedAgentResult = {
   score?: number;
   confidence?: ConfidenceText;
   contribution?: string;
+  data_freshness?: "live" | "recent" | "stale" | "unavailable" | string;
+};
+
+type DemoTimelinePoint = {
+  label?: string;
+  escalation_score?: number;
+};
+
+type DemoDqSummary = {
+  overall_score?: number;
+  confidence_level?: ConfidenceText;
+  checks_passed?: number;
+  checks_total?: number;
+  note?: string;
 };
 
 type DemoPayload = AnalyzeResponse & {
@@ -48,6 +62,8 @@ type DemoPayload = AnalyzeResponse & {
     confidence_badges?: ConfidenceBadgeItem[];
   };
   precomputed_agent_results?: PrecomputedAgentResult[];
+  score_timeline?: DemoTimelinePoint[];
+  dq_summary?: DemoDqSummary;
 };
 
 const THREAT_BADGE: Record<string, string> = {
@@ -66,6 +82,13 @@ const CHECK_BADGE: Record<string, string> = {
   watch: "bg-amber-500/15 text-amber-200 border-amber-500/35",
   fail: "bg-destructive/20 text-destructive border-destructive/40",
 };
+
+function freshnessBadgeClass(freshness?: string): string {
+  if (freshness === "live") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/35";
+  if (freshness === "recent") return "bg-blue-500/15 text-blue-300 border-blue-500/35";
+  if (freshness === "stale") return "bg-amber-500/15 text-amber-200 border-amber-500/35";
+  return "bg-muted/50 text-muted-foreground border-border";
+}
 
 export default function DemoPage() {
   const [data, setData] = useState<DemoPayload | null>(null);
@@ -281,7 +304,7 @@ export default function DemoPage() {
               {data.precomputed_agent_results && data.precomputed_agent_results.length > 0 && (
                 <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
                   <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                    Agent results
+                    Agent score overview (13+ streams -> 1 score)
                   </h2>
                   <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                     {data.precomputed_agent_results.map((r, i) => (
@@ -293,10 +316,55 @@ export default function DemoPage() {
                             {r.confidence && <FindingConfidenceBadge level={normalizeFindingConfidence(r.confidence)} />}
                           </div>
                         </div>
+                        {r.data_freshness && (
+                          <Badge variant="outline" className={`mt-2 text-[10px] font-mono uppercase ${freshnessBadgeClass(r.data_freshness)}`}>
+                            {r.data_freshness}
+                          </Badge>
+                        )}
                         {r.contribution && <p className="mt-1 text-muted-foreground">{r.contribution}</p>}
                       </li>
                     ))}
                   </ul>
+                </section>
+              )}
+
+              {data.dq_summary && (
+                <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
+                  <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">Data quality score</h2>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                    {typeof data.dq_summary.overall_score === "number" && (
+                      <span className="font-mono text-base text-foreground">DQ {Math.round(data.dq_summary.overall_score)}</span>
+                    )}
+                    {data.dq_summary.confidence_level && (
+                      <FindingConfidenceBadge level={normalizeFindingConfidence(data.dq_summary.confidence_level)} />
+                    )}
+                    {typeof data.dq_summary.checks_passed === "number" && typeof data.dq_summary.checks_total === "number" && (
+                      <span className="text-muted-foreground">
+                        {data.dq_summary.checks_passed}/{data.dq_summary.checks_total} checks passed
+                      </span>
+                    )}
+                  </div>
+                  {data.dq_summary.note && <p className="mt-2 text-sm text-muted-foreground">{data.dq_summary.note}</p>}
+                </section>
+              )}
+
+              {data.score_timeline && data.score_timeline.length > 0 && (
+                <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
+                  <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">Escalation trend</h2>
+                  <div className="mt-4 grid grid-cols-6 gap-2 sm:grid-cols-10">
+                    {data.score_timeline.map((p, i) => {
+                      const score = typeof p.escalation_score === "number" ? p.escalation_score : 0;
+                      const h = Math.max(8, Math.min(100, Math.round(score)));
+                      return (
+                        <div key={`${p.label ?? "t"}-${i}`} className="flex flex-col items-center gap-2">
+                          <div className="flex h-24 w-full items-end rounded bg-muted/30 p-1">
+                            <div className="w-full rounded bg-primary/70" style={{ height: `${h}%` }} />
+                          </div>
+                          <span className="font-mono text-[10px] text-muted-foreground">{p.label ?? `t${i + 1}`}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </section>
               )}
 
