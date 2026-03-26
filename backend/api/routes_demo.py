@@ -196,7 +196,7 @@ async def post_demo_export(
 
 @router.get("/demo/export/status")
 @limiter.limit("30/minute")
-async def get_demo_export_status() -> Any:
+async def get_demo_export_status(request: Request) -> Any:
     """
     GET /api/demo/export/status
     Returns metadata about the current demo snapshot file.

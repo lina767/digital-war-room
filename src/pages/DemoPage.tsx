@@ -304,7 +304,7 @@ export default function DemoPage() {
               {data.precomputed_agent_results && data.precomputed_agent_results.length > 0 && (
                 <section className="mt-10 rounded-lg border border-border bg-card/40 p-5">
                   <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                    Agent score overview (13+ streams -> 1 score)
+                    Agent score overview (13+ streams → 1 score)
                   </h2>
                   <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                     {data.precomputed_agent_results.map((r, i) => (
