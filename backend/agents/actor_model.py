@@ -1,6 +1,6 @@
 """
 Actor model for conflict synthesis: builds actor lists with activity scores from key_findings.
-Currently Iran-specific; structured for future conflict-specific config.
+Supports Iran and Lebanon/Hezbollah theaters.
 """
 
 from typing import Any, Dict, List
@@ -17,6 +17,16 @@ IRAN_ACTORS = [
     {"id": "russia", "name": "Russia", "role": "neutral"},
     {"id": "houthis", "name": "Houthis", "role": "retaliating"},
     {"id": "iraqi_pmf", "name": "Iraqi PMF", "role": "neutral"},
+]
+
+LEBANON_THEATER_ACTORS = [
+    {"id": "lebanon", "name": "Lebanon", "role": "defender"},
+    {"id": "hezbollah", "name": "Hezbollah", "role": "retaliating"},
+    {"id": "israel", "name": "Israel", "role": "aggressor"},
+    {"id": "syria", "name": "Syria", "role": "neutral"},
+    {"id": "iran", "name": "Iran", "role": "retaliating"},
+    {"id": "united_states", "name": "United States", "role": "aggressor"},
+    {"id": "unifil", "name": "UNIFIL", "role": "defender"},
 ]
 
 
@@ -39,11 +49,18 @@ def actor_activity_from_findings(actor_id: str, actor_name: str, key_findings: L
 
 
 def build_actors_for_conflict(conflict: str, key_findings: List[str]) -> List[Dict[str, Any]]:
-    """Build actors list for the conflict with activity from key_findings. Iran only for now."""
-    if not conflict or "iran" not in conflict.lower():
+    """Build actors list for the conflict with activity from key_findings."""
+    if not conflict:
+        return []
+    conflict_lc = conflict.lower()
+    if "lebanon" in conflict_lc or "hezbollah" in conflict_lc:
+        actors = LEBANON_THEATER_ACTORS
+    elif "iran" in conflict_lc:
+        actors = IRAN_ACTORS
+    else:
         return []
     out = []
-    for a in IRAN_ACTORS:
+    for a in actors:
         activity = actor_activity_from_findings(a["id"], a["name"], key_findings)
         out.append(
             {

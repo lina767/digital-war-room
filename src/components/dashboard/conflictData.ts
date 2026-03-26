@@ -16,6 +16,7 @@ export interface ConflictLink {
 export const CONFLICT_OPTIONS = [
   { id: "iran", label: "Iran", apiValue: "Iran" },
   { id: "middle-east", label: "Naher Osten", apiValue: "Middle East" },
+  { id: "lebanon", label: "Libanon", apiValue: "Lebanon" },
   { id: "hezbollah", label: "Hezbollah", apiValue: "Hezbollah" },
   { id: "houthis", label: "Houthis", apiValue: "Houthis" },
 ] as const;

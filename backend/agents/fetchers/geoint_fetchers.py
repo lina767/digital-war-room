@@ -38,6 +38,7 @@ REGION_BBOX = {
     "eastern_europe": "22,44,40,55",
     "east_asia": "100,20,130,45",
     "africa": "20,-5,45,25",
+    "lebanon": "35.05,33.05,36.65,34.68",
     "gaza_israel": "34,29,36,34",
     "iran": "44,24,64,40",
     "yemen": "42,12,56,20",
@@ -68,10 +69,11 @@ REGIONS = {k: _bbox_to_region(v) for k, v in REGION_BBOX.items()}
 
 # When querying middle_east, also fetch these sub-regions and combine
 SUB_REGIONS_FOR_REGION = {
-    "middle_east": ["middle_east", "gaza_israel", "iran", "yemen"],
+    "middle_east": ["middle_east", "gaza_israel", "iran", "yemen", "lebanon"],
     "eastern_europe": ["eastern_europe"],
     "east_asia": ["east_asia"],
     "africa": ["africa"],
+    "lebanon": ["lebanon"],
     "gaza_israel": ["gaza_israel"],
     "iran": ["iran"],
     "yemen": ["yemen"],
@@ -328,7 +330,9 @@ def _fetch_thermal_anomalies_for_focus_regions(
 def get_conflict_region(conflict: str) -> str:
     """Map a conflict name to its geographic region for thermal anomaly detection."""
     cl = conflict.lower()
-    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "iraq", "lebanon"]):
+    if any(k in cl for k in ["lebanon", "hezbollah"]):
+        return "lebanon"
+    if any(k in cl for k in ["iran", "israel", "gaza", "yemen", "syria", "iraq"]):
         return "middle_east"
     if any(k in cl for k in ["ukraine", "russia", "donbas", "belarus"]):
         return "eastern_europe"

@@ -17,6 +17,7 @@ import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel"
 import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
 import { PatternFlagsBanner } from "@/components/dashboard/PatternFlagsBanner";
 import { SEO } from "@/components/SEO";
+import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 const THREAT_BADGE_STYLES: Record<string, string> = {
   LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   ELEVATED: "bg-warning/20 text-warning border-warning/30",
@@ -161,9 +162,11 @@ const Dashboard = () => {
 
 function DashboardContent() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const selectedConflict = DEFAULT_CONFLICT;
-  const displayConflictLabel = DEFAULT_CONFLICT;
+  const [selectedConflict, setSelectedConflict] = useState(DEFAULT_CONFLICT);
+  const displayConflictLabel = useMemo(
+    () => CONFLICT_OPTIONS.find((opt) => opt.apiValue === selectedConflict)?.label ?? selectedConflict,
+    [selectedConflict]
+  );
   const [headlineAllowedSources, setHeadlineAllowedSources] = useState<Set<string>>(() => new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const skipHeadlinePersistRef = useRef(false);
@@ -360,10 +363,24 @@ function DashboardContent() {
             <OfflineStatusBadge isOffline={isOffline} lastUpdated={lastUpdated} wsStatus={status} dataFromCache={dataFromCache} compact />
           </div>
           <div
-            className="flex items-center text-xs sm:text-sm font-mono border border-border rounded-md px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-11 sm:min-h-0 text-foreground pointer-events-none select-none"
-            aria-label="Theater"
+            className="flex items-center text-xs sm:text-sm font-mono border border-border rounded-md px-2 py-1.5 min-h-11 sm:min-h-0 text-foreground"
+            aria-label="Theater-Auswahl"
           >
-            <span className="truncate max-w-[120px] text-primary font-medium">{displayConflictLabel}</span>
+            <label htmlFor="dashboard-conflict-select" className="sr-only">
+              Theater auswählen
+            </label>
+            <select
+              id="dashboard-conflict-select"
+              value={selectedConflict}
+              onChange={(e) => setSelectedConflict(e.target.value)}
+              className="bg-transparent text-primary font-medium max-w-[150px] sm:max-w-[180px] outline-none cursor-pointer"
+            >
+              {CONFLICT_OPTIONS.map((option) => (
+                <option key={option.id} value={option.apiValue} className="bg-background text-foreground">
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
           <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}
