@@ -1098,6 +1098,6 @@ def run_socmint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
             result = json.loads(text)
             result["conflict"] = conflict
             return result
-        except Exception:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.warning("SOCMINT: tool-agent returned invalid JSON, falling back to rule-based parser: %s", exc)
     return _run_rule_based_socmint(conflict)

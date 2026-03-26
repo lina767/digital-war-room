@@ -276,8 +276,8 @@ async def _fetch_fertilizer_prices() -> Dict[str, Any]:
                         if isinstance(data, list) and len(data) > 1 and isinstance(data[1], list) and data[1]:
                             val = _safe_float(data[1][0].get("value"))
                             result[key] = val
-                except Exception:
-                    pass
+                except (httpx.HTTPError, ValueError, TypeError):
+                    continue
     except Exception as e:
         logger.debug("ENERGY: fertilizer price fetch failed: %s", e)
         result["error"] = str(e)
