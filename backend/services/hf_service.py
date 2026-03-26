@@ -26,7 +26,11 @@ logger = logging.getLogger(__name__)
 # ── Configuration ────────────────────────────────────────────────────────────
 
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
-HF_API_BASE = os.getenv("HF_API_BASE", "https://router.huggingface.co/hf-inference/models/")
+# Serverless Inference API host (no trailing path). Pipeline routes disambiguate tasks; see _hf_post_pipeline.
+HF_INFERENCE_API = os.getenv("HF_INFERENCE_API", "https://api-inference.huggingface.co").rstrip("/")
+# Legacy: full URL prefix ending before the model id, e.g. https://router.huggingface.co/hf-inference/models
+# If set, NER/QA still POST to {HF_API_BASE}/{model}. Prefer HF_INFERENCE_API for new deployments.
+HF_API_BASE = os.getenv("HF_API_BASE", "").rstrip("/")
 HF_API_TIMEOUT = int(os.getenv("HF_API_TIMEOUT", "45"))
 HF_CACHE_MAX_SIZE = int(os.getenv("HF_CACHE_MAX_SIZE", "10000"))
 
@@ -84,10 +88,22 @@ def _headers() -> Dict[str, str]:
     return h
 
 
-async def _hf_post(model: str, payload: Dict[str, Any], timeout: int = 0) -> Any:
-    """POST to HF Inference API. Returns parsed JSON or None on failure."""
-    url = f"{HF_API_BASE}{model}"
+def _models_url(model: str) -> str:
+    """URL for /models/{model} inference (token classification, QA, etc.)."""
+    if HF_API_BASE:
+        return f"{HF_API_BASE}/{model}"
+    return f"{HF_INFERENCE_API}/models/{model}"
+
+
+def _pipeline_url(task: str, model: str) -> str:
+    """URL for /pipeline/{task}/{model} (feature-extraction, text-classification, …)."""
+    return f"{HF_INFERENCE_API}/pipeline/{task}/{model}"
+
+
+async def _hf_post_url(url: str, payload: Dict[str, Any], timeout: int = 0, log_name: str = "") -> Any:
+    """POST to a full HF Inference API URL. Returns parsed JSON or None on failure."""
     t = timeout or HF_API_TIMEOUT
+    label = log_name or url.split("/")[-1]
     try:
         async with httpx.AsyncClient(timeout=t) as client:
             resp = await client.post(url, json=payload, headers=_headers())
@@ -98,18 +114,26 @@ async def _hf_post(model: str, payload: Dict[str, Any], timeout: int = 0) -> Any
                     wait = min(int(body.get("estimated_time", 30)), 60)
                 except Exception:
                     pass
-                logger.info("[hf] Model %s loading, waiting %ds...", model, wait)
+                logger.info("[hf] Model %s loading, waiting %ds...", label, wait)
                 import asyncio
 
                 await asyncio.sleep(wait)
                 resp = await client.post(url, json=payload, headers=_headers())
             if resp.status_code != 200:
-                logger.warning("[hf] %s returned %d: %s", model, resp.status_code, resp.text[:200])
+                logger.warning("[hf] %s returned %d: %s", label, resp.status_code, resp.text[:200])
                 return None
             return resp.json()
     except Exception as e:
-        logger.error("[hf] Request to %s failed: %s", model, e)
+        logger.error("[hf] Request to %s failed: %s", label, e)
         return None
+
+
+async def _hf_post_models(model: str, payload: Dict[str, Any], timeout: int = 0) -> Any:
+    return await _hf_post_url(_models_url(model), payload, timeout=timeout, log_name=model)
+
+
+async def _hf_post_pipeline(task: str, model: str, payload: Dict[str, Any], timeout: int = 0) -> Any:
+    return await _hf_post_url(_pipeline_url(task, model), payload, timeout=timeout, log_name=f"{task}/{model}")
 
 
 # ── Pure-Python cosine similarity ────────────────────────────────────────────
@@ -122,6 +146,27 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+def _cross_encoder_relevance_score(item: Any) -> float:
+    """
+    Turn one hf-inference text-classification result element into a scalar relevance score.
+    Cross-encoder Marco models usually return two labels; we use LABEL_1 / *1 as the relevant class.
+    """
+    if isinstance(item, (int, float)):
+        return float(item)
+    if isinstance(item, dict):
+        return float(item.get("score", 0))
+    if isinstance(item, list) and item:
+        if all(isinstance(x, dict) for x in item):
+            for d in item:
+                lab = str(d.get("label", ""))
+                if lab == "LABEL_1" or lab.endswith("1"):
+                    return float(d.get("score", 0))
+            return float(item[-1].get("score", 0))
+        if isinstance(item[0], (int, float)):
+            return float(item[0])
+    return 0.0
 
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
@@ -156,12 +201,34 @@ async def embed(texts: List[str]) -> Optional[List[List[float]]]:
         batch_size = 16
         for start in range(0, len(uncached_texts), batch_size):
             batch = uncached_texts[start : start + batch_size]
-            result = await _hf_post(EMBED_MODEL, {"inputs": batch, "options": {"wait_for_model": True}})
-            if result and isinstance(result, list) and len(result) == len(batch):
-                for j, vec in enumerate(result):
-                    idx = uncached_indices[start + j]
-                    all_embeddings[idx] = vec
-                    _cache_set(_cache_key("embed", batch[j]), vec)
+            result = await _hf_post_pipeline(
+                "feature-extraction",
+                EMBED_MODEL,
+                {"inputs": batch, "options": {"wait_for_model": True}},
+            )
+            if result and isinstance(result, list):
+                if len(result) == len(batch):
+                    for j, vec in enumerate(result):
+                        idx = uncached_indices[start + j]
+                        if not isinstance(vec, list):
+                            logger.warning("[hf] Embedding batch unexpected element shape")
+                            return None
+                        try:
+                            row = [float(x) for x in vec]
+                        except (TypeError, ValueError):
+                            logger.warning("[hf] Embedding batch unexpected element shape")
+                            return None
+                        all_embeddings[idx] = row
+                        _cache_set(_cache_key("embed", batch[j]), row)
+                elif len(batch) == 1 and result and isinstance(result[0], (int, float)):
+                    # Some API versions return a single flat vector for one input string
+                    row = [float(x) for x in result]
+                    idx = uncached_indices[start]
+                    all_embeddings[idx] = row
+                    _cache_set(_cache_key("embed", batch[0]), row)
+                else:
+                    logger.warning("[hf] Embedding batch failed or unexpected shape")
+                    return None
             else:
                 logger.warning("[hf] Embedding batch failed or unexpected shape")
                 return None
@@ -291,24 +358,15 @@ async def rank_by_relevance(
         return [(i, 0.0) for i in range(min(top_k, len(texts)))]
 
     pairs = [[query, t[:512]] for t in texts]
-    result = await _hf_post(
+    result = await _hf_post_pipeline(
+        "text-classification",
         CROSS_ENCODER_MODEL,
         {"inputs": pairs, "options": {"wait_for_model": True}},
         timeout=max(HF_API_TIMEOUT, 60),
     )
 
     if result and isinstance(result, list) and len(result) == len(texts):
-        scores: List[float] = []
-        for item in result:
-            if isinstance(item, (int, float)):
-                scores.append(float(item))
-            elif isinstance(item, dict):
-                scores.append(float(item.get("score", 0)))
-            elif isinstance(item, list) and item:
-                scores.append(float(item[0]) if isinstance(item[0], (int, float)) else 0.0)
-            else:
-                scores.append(0.0)
-
+        scores = [_cross_encoder_relevance_score(item) for item in result]
         indexed = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
         return indexed[:top_k]
 
@@ -345,7 +403,7 @@ async def ner_bulk(texts: List[str]) -> Optional[List[List[Dict[str, Any]]]]:
             uncached_texts.append(t)
 
     for idx, text in zip(uncached_indices, uncached_texts, strict=True):
-        result = await _hf_post(
+        result = await _hf_post_models(
             NER_BULK_MODEL,
             {"inputs": text[:512], "options": {"wait_for_model": True}},
         )
@@ -411,7 +469,7 @@ async def document_qa(
     if cached is not None:
         return cached
 
-    result = await _hf_post(
+    result = await _hf_post_models(
         DOC_QA_MODEL,
         {
             "inputs": {"question": question, "context": context[:2048]},
@@ -464,15 +522,16 @@ async def warmup():
         return
     logger.info("[hf] Warming up models...")
     await embed(["warmup"])
-    await _hf_post(
+    await _hf_post_pipeline(
+        "text-classification",
         CROSS_ENCODER_MODEL,
         {"inputs": [["warmup query", "warmup text"]], "options": {"wait_for_model": True}},
     )
-    await _hf_post(
+    await _hf_post_models(
         NER_BULK_MODEL,
         {"inputs": "warmup text", "options": {"wait_for_model": True}},
     )
-    await _hf_post(
+    await _hf_post_models(
         DOC_QA_MODEL,
         {"inputs": {"question": "warmup", "context": "warmup text"}, "options": {"wait_for_model": True}},
     )
