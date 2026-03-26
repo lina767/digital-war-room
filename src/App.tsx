@@ -5,7 +5,6 @@ import { PageSkeleton } from "@/components/ui/skeleton";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
 import { MobileAnalyticsBoot } from "@/components/MobileAnalyticsBoot";
-import { AnalyticsConsentBanner } from "@/components/AnalyticsConsentBanner";
 import { getAnalyticsConsent, type AnalyticsConsent } from "@/lib/analyticsConsent";
 
 const DOCS_HUB = "/docs/documentation";
@@ -37,6 +36,12 @@ const App = () => {
     void import("./pwa-register").then((m) => m.registerPwaServiceWorker());
   }, []);
 
+  useEffect(() => {
+    const onConsentChange = () => setAnalyticsConsent(getAnalyticsConsent());
+    window.addEventListener("dwr-analytics-consent-changed", onConsentChange);
+    return () => window.removeEventListener("dwr-analytics-consent-changed", onConsentChange);
+  }, []);
+
   return (
   <TooltipProvider>
     <Sonner />
@@ -65,7 +70,6 @@ const App = () => {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
-      <AnalyticsConsentBanner onChange={setAnalyticsConsent} />
     </BrowserRouter>
     {analyticsConsent === "granted" ? <Analytics /> : null}
   </TooltipProvider>

@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { Shield } from "lucide-react";
 import { ContentPageLayout } from "@/components/ContentPageLayout";
 import { SEO } from "@/components/SEO";
+import { Button } from "@/components/ui/button";
+import { getAnalyticsConsent, setAnalyticsConsent, type AnalyticsConsent } from "@/lib/analyticsConsent";
 import { TITLE_PRIVACY, DESCRIPTION_PRIVACY } from "@/lib/seoCopy";
 
 const CONTACT = {
@@ -13,6 +16,8 @@ const CONTACT = {
 const LAST_UPDATED = "26 March 2026";
 
 const Privacy = () => {
+  const [analyticsConsent, setAnalyticsConsentState] = useState<AnalyticsConsent | null>(() => getAnalyticsConsent());
+
   return (
     <>
       <SEO
@@ -140,6 +145,41 @@ const Privacy = () => {
               AI services are used to process open-source intelligence content and generate analyses. We do not require
               account-based personal profiles for using core features.
             </p>
+            <div className="mt-4 rounded-lg border border-border bg-card p-4">
+              <p className="text-foreground font-medium mb-2">Analytics preference</p>
+              <p className="mb-3">
+                Optional analytics help improve reliability and UX. Current status:{" "}
+                <strong className="text-foreground">
+                  {analyticsConsent === "granted"
+                    ? "Allowed"
+                    : analyticsConsent === "denied"
+                    ? "Declined"
+                    : "Not set"}
+                </strong>
+                .
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setAnalyticsConsent("granted");
+                    setAnalyticsConsentState("granted");
+                  }}
+                >
+                  Allow analytics
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setAnalyticsConsent("denied");
+                    setAnalyticsConsentState("denied");
+                  }}
+                >
+                  Decline analytics
+                </Button>
+              </div>
+            </div>
           </section>
 
           <section>

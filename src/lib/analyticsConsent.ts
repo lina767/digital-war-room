@@ -12,6 +12,7 @@ export function getAnalyticsConsent(): AnalyticsConsent | null {
 export function setAnalyticsConsent(value: AnalyticsConsent): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(STORAGE_KEY, value);
+  window.dispatchEvent(new Event("dwr-analytics-consent-changed"));
 }
 
 export function hasAnalyticsConsent(): boolean {
