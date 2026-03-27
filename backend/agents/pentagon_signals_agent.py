@@ -1,18 +1,21 @@
 """
 PENTAGON_SIGNALS – Informal DC-area OSINT proxies (Pizza + configurable nightlife).
 
-Uses SerpAPI's Google Maps engine to read popular-times / live busyness for two
-configurable venues near the Pentagon. This is explicitly a weak, anecdotal
-signal (not verified intelligence); scores are capped and labeled in summaries.
+Uses SerpAPI Google Maps popular-times/live busyness (preferred) and fallback
+Google Places Text Search for configurable venues near the
+Pentagon. This is explicitly a weak, anecdotal signal (not verified
+intelligence); scores are capped and labeled in summaries.
 
-Requires SERPAPI_KEY for live fetches. Without a key (or when disabled), returns
-degraded empty signal so CEO weighting does not treat silence as calm.
+Requires SERPAPI_KEY (preferred for live busyness) or GOOGLE_MAPS_API_KEY.
+Without keys (or when disabled), returns degraded empty signal so CEO weighting
+does not treat silence as calm.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import threading
 import time
@@ -46,6 +49,7 @@ DEFAULT_VENUES: List[Dict[str, str]] = [
 ]
 
 SERPAPI_URL = "https://serpapi.com/search.json"
+GOOGLE_PLACES_TEXTSEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 QUOTA_FILE = Path(__file__).resolve().parent.parent / "data" / "pentagon_signals_quota.json"
 _QUOTA_LOCK = threading.Lock()
 
@@ -165,6 +169,32 @@ def _extract_busy_from_place(place: Dict[str, Any]) -> Tuple[float, str]:
     return 0.0, "no_popular_times"
 
 
+def _serpapi_presence_proxy(place: Dict[str, Any]) -> Tuple[float, str]:
+    """
+    Fallback proxy when popular_times/live text is missing in SerpAPI payload.
+    Keeps score conservative to avoid false confidence.
+    """
+    try:
+        rating = float(place.get("rating") or 0.0)
+    except Exception:
+        rating = 0.0
+    reviews_raw = place.get("reviews") or place.get("reviews_count") or place.get("user_ratings_total")
+    try:
+        reviews = int(reviews_raw or 0)
+    except Exception:
+        reviews = 0
+    open_state = str(place.get("open_state") or place.get("hours") or "").lower()
+
+    rating_component = max(0.0, min(35.0, (rating / 5.0) * 35.0))
+    reviews_component = min(15.0, 4.0 * (0 if reviews <= 0 else math.log10(reviews + 1)))
+    open_component = 6.0 if ("open" in open_state and "closed" not in open_state) else (-3.0 if "closed" in open_state else 0.0)
+    score = max(0.0, min(55.0, rating_component + reviews_component + open_component))
+    if score <= 0:
+        return 0.0, "no_live_no_proxy"
+    note = f"proxy_no_live:rating={rating:.1f},reviews={reviews},open_state={open_state[:48] or 'unknown'}"
+    return round(score, 1), note
+
+
 async def _serpapi_google_maps(query: str, api_key: str) -> Dict[str, Any]:
     params = {
         "engine": "google_maps",
@@ -175,6 +205,38 @@ async def _serpapi_google_maps(query: str, api_key: str) -> Dict[str, Any]:
     url = f"{SERPAPI_URL}?{urlencode(params)}"
     client = get_http_client()
     return await client.get_json(url)
+
+
+async def _google_places_textsearch(query: str, api_key: str) -> Dict[str, Any]:
+    params = {"query": query, "key": api_key, "region": "us"}
+    client = get_http_client()
+    return await client.get_json(GOOGLE_PLACES_TEXTSEARCH_URL, params=params)
+
+
+def _google_place_score(place: Dict[str, Any]) -> Tuple[float, str]:
+    """
+    Convert Google Places fields to a conservative 0–100 activity proxy score.
+    Note: Places API does not expose Google's live popular-times text.
+    """
+    rating = float(place.get("rating") or 0.0)
+    ratings_total = int(place.get("user_ratings_total") or 0)
+    open_now = ((place.get("opening_hours") or {}).get("open_now") if isinstance(place.get("opening_hours"), dict) else None)
+    status = str(place.get("business_status") or "").upper()
+
+    # Weighted proxy:
+    # - quality/popularity from rating + volume,
+    # - small uplift for currently open venues,
+    # - penalty for non-operational records.
+    rating_component = max(0.0, min(60.0, (rating / 5.0) * 60.0))
+    volume_component = min(25.0, 5.0 * (0 if ratings_total <= 0 else math.log10(ratings_total + 1)))
+    open_component = 10.0 if open_now is True else (-5.0 if open_now is False else 0.0)
+    status_component = 5.0 if status == "OPERATIONAL" else (-20.0 if status else 0.0)
+    score = max(0.0, min(100.0, rating_component + volume_component + open_component + status_component))
+    note = (
+        f"places_proxy:rating={rating:.1f},ratings={ratings_total},"
+        f"open_now={open_now},business_status={status or 'unknown'}"
+    )
+    return round(score, 1), note
 
 
 def _pick_place_blocks(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -316,11 +378,15 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
         }
 
     manual = _manual_scores()
+    google_maps_api_key = (os.getenv("GOOGLE_MAPS_API_KEY") or "").strip()
+    google_maps_enabled = _env_true("PENTAGON_SIGNALS_GOOGLE_MAPS_ENABLED", default=True)
     api_key = (os.getenv("SERPAPI_KEY") or "").strip()
     venues_cfg = _load_venues()
 
     venue_rows: List[Dict[str, Any]] = []
     scores: List[float] = []
+    live_signal_hits = 0
+    proxy_signal_hits = 0
 
     if manual:
         for v in venues_cfg:
@@ -346,29 +412,30 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
             )
         )
     elif not api_key:
-        summary = (
-            "PENTAGON_SIGNALS: no SERPAPI_KEY (and no PENTAGON_SIGNALS_MANUAL_SCORES). "
-            "Informal Pentagon-area pizza/nightlife proxy not available."
-        )
-        duration_ms = int((time.perf_counter() - t0) * 1000)
-        meta = build_agent_meta(
-            "pentagon",
-            fetched_at,
-            duration_ms,
-            sources,
-            has_any_data=False,
-            fallback_used=True,
-            error_summary="missing SERPAPI_KEY",
-            data_confidence="degraded",
-        )
-        return {
-            "pentagon_score": 0.0,
-            "venues": [],
-            "summary": summary,
-            "data_confidence": "degraded",
-            "_meta": meta,
-        }
-    else:
+        if not google_maps_enabled or not google_maps_api_key:
+            summary = (
+                "PENTAGON_SIGNALS: no usable live source key. Set SERPAPI_KEY (preferred) or GOOGLE_MAPS_API_KEY "
+                "(and no PENTAGON_SIGNALS_MANUAL_SCORES provided)."
+            )
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            meta = build_agent_meta(
+                "pentagon",
+                fetched_at,
+                duration_ms,
+                sources,
+                has_any_data=False,
+                fallback_used=True,
+                error_summary="missing SERPAPI_KEY/GOOGLE_MAPS_API_KEY",
+                data_confidence="degraded",
+            )
+            return {
+                "pentagon_score": 0.0,
+                "venues": [],
+                "summary": summary,
+                "data_confidence": "degraded",
+                "_meta": meta,
+            }
+    if api_key:
         needed_searches = len(venues_cfg)
         allowed, quota = _quota_try_consume(needed_searches)
         if not allowed:
@@ -433,8 +500,21 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
                         best_sc = sc
                         best_note = note
                         place_title = str(b.get("title") or b.get("name") or "")[:120]
+                if best_sc <= 0 and blocks:
+                    for b in blocks[:8]:
+                        if not isinstance(b, dict):
+                            continue
+                        sc, note = _serpapi_presence_proxy(b)
+                        if sc > best_sc:
+                            best_sc = sc
+                            best_note = note
+                            place_title = str(b.get("title") or b.get("name") or "")[:120]
                 if best_sc > 0:
                     scores.append(best_sc)
+                    if str(best_note).startswith(("live:", "live_obj:", "graph:", "place_live:")):
+                        live_signal_hits += 1
+                    else:
+                        proxy_signal_hits += 1
                 venue_rows.append(
                     {
                         "role": role,
@@ -470,6 +550,84 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
                         reference_urls=[],
                     )
                 )
+    elif google_maps_enabled and google_maps_api_key:
+        for v in venues_cfg:
+            q = v.get("query") or ""
+            label = v.get("label") or q
+            role = v.get("role") or "venue"
+            try:
+                payload = await _google_places_textsearch(q, google_maps_api_key)
+                status = str(payload.get("status") or "")
+                results = payload.get("results") if isinstance(payload.get("results"), list) else []
+                if status not in ("OK", "ZERO_RESULTS"):
+                    err_msg = str(payload.get("error_message") or status or "google_places_error")
+                    venue_rows.append(
+                        {
+                            "role": role,
+                            "label": label,
+                            "score": 0.0,
+                            "source": "google_places",
+                            "error": err_msg[:200],
+                        }
+                    )
+                    sources.append(
+                        SourceResult(
+                            name=f"google_places:{role}",
+                            status="error",
+                            reference_urls=[],
+                        )
+                    )
+                    continue
+                best_sc = 0.0
+                best_note = "no_results"
+                place_title = ""
+                for b in results[:8]:
+                    if not isinstance(b, dict):
+                        continue
+                    sc, note = _google_place_score(b)
+                    if sc > best_sc:
+                        best_sc = sc
+                        best_note = note
+                        place_title = str(b.get("name") or "")[:120]
+                if best_sc > 0:
+                    scores.append(best_sc)
+                    proxy_signal_hits += 1
+                venue_rows.append(
+                    {
+                        "role": role,
+                        "label": label,
+                        "query": q[:200],
+                        "matched_title": place_title,
+                        "score": round(best_sc, 1),
+                        "detail": best_note,
+                        "source": "google_places_textsearch",
+                    }
+                )
+                sources.append(
+                    SourceResult(
+                        name=f"google_places:{role}",
+                        status="ok" if best_sc > 0 else "degraded",
+                        reference_urls=[],
+                    )
+                )
+            except Exception as e:
+                logger.warning("pentagon_signals google places fetch failed (%s): %s", role, e)
+                venue_rows.append(
+                    {
+                        "role": role,
+                        "label": label,
+                        "score": 0.0,
+                        "source": "google_places",
+                        "error": str(e)[:200],
+                    }
+                )
+                sources.append(
+                    SourceResult(
+                        name=f"google_places:{role}",
+                        status="error",
+                        reference_urls=[],
+                    )
+                )
 
     if scores:
         combined = sum(scores) / len(scores)
@@ -478,11 +636,18 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
 
     # Informal signal: dampen so it cannot dominate real intel
     display_score = round(min(75.0, combined * 0.85), 1)
+    has_partial_data = any(isinstance(v, dict) and not v.get("error") for v in venue_rows)
+    data_confidence = "estimated" if (scores or has_partial_data) else "degraded"
+    error_summary = None if (scores or has_partial_data) else "no_busy_signal"
+    if live_signal_hits <= 0 and proxy_signal_hits > 0:
+        error_summary = "no_live_busyness_used_proxy"
 
     parts = [
         "PENTAGON_SIGNALS (informal / anecdotal; not verified intelligence):",
         f"blended proxy {display_score:.0f}/100 from {len(venues_cfg)} venue(s).",
     ]
+    if live_signal_hits <= 0 and proxy_signal_hits > 0:
+        parts.append("live busyness unavailable; using weaker venue-presence proxy.")
     if venue_rows:
         for vr in venue_rows:
             if vr.get("score"):
@@ -498,24 +663,24 @@ async def _run_async_core(conflict: str) -> Dict[str, Any]:
         fetched_at,
         duration_ms,
         sources,
-        has_any_data=bool(scores),
-        fallback_used=not bool(scores) and bool(api_key or manual),
-        error_summary=None if scores else "no_busy_signal",
-        data_confidence="estimated" if scores else "degraded",
+        has_any_data=bool(scores or has_partial_data),
+        fallback_used=not bool(scores or has_partial_data) and bool(api_key or manual or google_maps_api_key),
+        error_summary=error_summary,
+        data_confidence=data_confidence,
     )
 
     return {
         "pentagon_score": display_score,
         "venues": venue_rows,
         "summary": summary,
-        "data_confidence": "estimated" if scores else "degraded",
+        "data_confidence": data_confidence,
         "disclaimer": "Anecdotal DC-area venue busyness proxy; corroborate with primary sources.",
         "_meta": meta,
     }
 
 
 def run_pentagon_signals_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Entry point: SerpAPI Google Maps popular-times / live busyness for configured venues."""
+    """Entry point: Google Places proxy scoring with optional SerpAPI fallback."""
     _ = conflict
     _ = peers
     try:
