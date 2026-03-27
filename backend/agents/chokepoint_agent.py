@@ -116,7 +116,12 @@ GDELT_QUERIES = {
 }
 # Narrow closure-only queries: if hits_closure_24h > 0, force DISRUPTED (hard override)
 GDELT_QUERIES_CLOSURE = {
-    "Strait of Hormuz": '"strait of hormuz" (closed OR shut OR "no transit" OR blockaded)',
+    # Blockade / de facto closure language (not only literal "closed")
+    "Strait of Hormuz": (
+        '"strait of hormuz" (closed OR shut OR "no transit" OR blockade OR blockaded OR '
+        'suspended OR halted OR "shipping suspended" OR "transit suspended" OR '
+        '"maritime exclusion" OR IRGC OR "naval blockade")'
+    ),
     "Bab el-Mandeb": '("bab el-mandeb" OR "bab al-mandab") (closed OR shut OR blockaded OR "no transit")',
     "Suez Canal": '"suez canal" (closed OR shut OR blockaded OR "no transit")',
 }
@@ -323,6 +328,18 @@ def _risk_for_status(status: str) -> float:
     if status == "RESTRICTED":
         return 30.0
     return 0.0
+
+
+_VALID_CP_STATUS = frozenset({"OPEN", "RESTRICTED", "CONTESTED", "DISRUPTED"})
+
+
+def _status_overrides_from_env() -> Dict[str, str]:
+    """Optional ops override, e.g. CHOKEPOINT_STRAIT_OF_HORMUZ_STATUS=DISRUPTED for de facto blockade."""
+    out: Dict[str, str] = {}
+    raw = (os.getenv("CHOKEPOINT_STRAIT_OF_HORMUZ_STATUS") or "").strip().upper()
+    if raw in _VALID_CP_STATUS:
+        out["Strait of Hormuz"] = raw
+    return out
 
 
 # ── Data fetching (tiered) ───────────────────────────────────────────────────
@@ -1050,9 +1067,9 @@ def enrich_chokepoints(
         brent_above_baseline_pct is not None and brent_above_baseline_pct >= 8.0
     )
 
-    # Merge external status (from URL) and manual overrides (from UI); overrides take precedence
+    # Merge external status (from URL), manual overrides (file/API), then env (highest precedence).
     external_status = chokepoint_data.get("external_status") or {}
-    status_overrides = dict(external_status, **_load_overrides())
+    status_overrides = {**external_status, **_load_overrides(), **_status_overrides_from_env()}
 
     for cp in chokepoints:
         cp_name = cp["name"]

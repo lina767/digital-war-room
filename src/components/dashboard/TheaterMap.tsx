@@ -28,6 +28,11 @@ import { MapLoadingSkeleton } from "@/components/ui/skeleton";
 import { SAM_RINGS, circlePoints } from "./mapOverlaysData";
 import { buildTheaterDeckLayers, type TheaterPick } from "./theaterDeckLayers";
 import { buildTheaterDisplayItems } from "./theaterMapCluster";
+import {
+  normalizeSigintAircraftForMap,
+  normalizeSigintShipForMap,
+  viewStateForLonLatPoints,
+} from "@/lib/sigintMapCoords";
 
 /* ------------------------------------------------------------------ */
 /*  Types / helpers                                                    */
@@ -109,7 +114,7 @@ function TheaterMapInner({
   sigintShips = [],
   chokepointStatuses = [],
 }: TheaterMapProps) {
-  const { layers, toggleLayer } = useMapLayers();
+  const { layers, toggleLayer, setLayer } = useMapLayers();
 
   const [selectedEvent, setSelectedEvent] = useState<TheaterEvent | null>(null);
   const [selectedSigint, setSelectedSigint] = useState<
@@ -293,21 +298,32 @@ function TheaterMapInner({
     [geointAnomalies],
   );
 
-  const validSigintAircraft = useMemo(
-    () =>
-      sigintAircraft.filter(
-        (a) => typeof a.lat === "number" && typeof a.lon === "number" && isFinite(a.lat) && isFinite(a.lon),
-      ),
-    [sigintAircraft],
-  );
+  const validSigintAircraft = useMemo(() => {
+    const out: SigintAircraft[] = [];
+    for (const a of sigintAircraft) {
+      const n = normalizeSigintAircraftForMap(a);
+      if (n) out.push(n);
+    }
+    return out;
+  }, [sigintAircraft]);
 
-  const validSigintShips = useMemo(
-    () =>
-      sigintShips.filter(
-        (sh) => typeof sh.lat === "number" && typeof sh.lon === "number" && isFinite(sh.lat) && isFinite(sh.lon),
-      ),
-    [sigintShips],
-  );
+  const validSigintShips = useMemo(() => {
+    const out: SigintShip[] = [];
+    for (const s of sigintShips) {
+      const n = normalizeSigintShipForMap(s);
+      if (n) out.push(n);
+    }
+    return out;
+  }, [sigintShips]);
+
+  const handleFitSigintTracks = useCallback(() => {
+    setLayer("sigint", true);
+    const pts: Array<[number, number]> = [];
+    for (const a of validSigintAircraft) pts.push([a.lon, a.lat]);
+    for (const s of validSigintShips) pts.push([s.lon, s.lat]);
+    const vs = viewStateForLonLatPoints(pts);
+    if (vs) setViewState((prev) => ({ ...prev, ...vs }));
+  }, [validSigintAircraft, validSigintShips, setLayer]);
 
   const theaterEventStats = useMemo(() => {
     const eventTypeCounts: Record<string, number> = {};
@@ -528,6 +544,10 @@ function TheaterMapInner({
         geointCount={normalizedGeointAnomalies.length}
         aircraftCount={validSigintAircraft.length}
         shipCount={validSigintShips.length}
+        sigintLayerOn={layers.sigint}
+        onFitSigintTracks={
+          validSigintAircraft.length + validSigintShips.length > 0 ? handleFitSigintTracks : undefined
+        }
       />
 
       {(theaterError || heatmapError) && (

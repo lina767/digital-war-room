@@ -11,7 +11,10 @@ export function useMapLayers() {
   const toggleLayer = useCallback((layer: keyof LayerVisibility) => {
     dispatch({ type: "TOGGLE", layer } satisfies LayerAction);
   }, []);
-  return { layers, toggleLayer, dispatchLayers: dispatch };
+  const setLayer = useCallback((layer: keyof LayerVisibility, value: boolean) => {
+    dispatch({ type: "SET", layer, value } satisfies LayerAction);
+  }, []);
+  return { layers, toggleLayer, setLayer, dispatchLayers: dispatch };
 }
 
 export type { LayerVisibility };

@@ -11,7 +11,9 @@ export interface LayerVisibility {
   nuclearFacilities: boolean;
 }
 
-export type LayerAction = { type: "TOGGLE"; layer: keyof LayerVisibility };
+export type LayerAction =
+  | { type: "TOGGLE"; layer: keyof LayerVisibility }
+  | { type: "SET"; layer: keyof LayerVisibility; value: boolean };
 
 export const INITIAL_LAYERS: LayerVisibility = {
   theaterEvents: true,
@@ -27,5 +29,8 @@ export const INITIAL_LAYERS: LayerVisibility = {
 };
 
 export function layerReducer(state: LayerVisibility, action: LayerAction): LayerVisibility {
+  if (action.type === "SET") {
+    return { ...state, [action.layer]: action.value };
+  }
   return { ...state, [action.layer]: !state[action.layer] };
 }
