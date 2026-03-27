@@ -23,6 +23,8 @@ from urllib.parse import quote_plus, urlparse
 import feedparser
 import httpx
 
+from services.gdelt_bigquery import fetch_gdelt_event_roots_summary
+
 from .config import NEWS_MAX_PER_SOURCE, NEWS_TOP_K, USER_AGENT
 from .contracts import get_agent_fallback
 from .domain_runner import run_domain_with_analysts
@@ -1195,6 +1197,8 @@ def _news_manager(
     if gnews_res.get("error"):
         gnews_res = {"source": "gnews", "articles": [], "count": 0}
 
+    gdelt_bq = fetch_gdelt_event_roots_summary(conflict)
+
     fusion = _run_news_fusion_agent(
         newsapi_res,
         gdelt_res,
@@ -1254,6 +1258,18 @@ def _news_manager(
                 endpoint_kind="rest",
             )
         )
+    bq_n = int(gdelt_bq.get("total_matched") or 0) if gdelt_bq.get("ok") else 0
+    source_results.append(
+        SourceResult(
+            name="GDELT BigQuery",
+            status="ok"
+            if gdelt_bq.get("ok")
+            else ("error" if gdelt_bq.get("error") else "degraded"),
+            fetched_at=fetched_at,
+            record_count=bq_n,
+            endpoint_kind="bigquery",
+        )
+    )
 
     reg = get_health_registry()
     if reg:
@@ -1265,6 +1281,7 @@ def _news_manager(
     )
     proc_steps = [
         ProcessingStep(step="parallel_source_analysts", at=fetched_at, detail="newsapi_rss_optional_newsdata_gnews"),
+        ProcessingStep(step="gdelt_bigquery_events", at=fetched_at),
         ProcessingStep(step="fusion_dedupe_rank", at=fetched_at),
         ProcessingStep(step="escalation_headlines", at=fetched_at),
         ProcessingStep(step="ner_entities", at=fetched_at),
@@ -1287,6 +1304,8 @@ def _news_manager(
         summary_parts.append(f"{bd.get('newsdata', 0)} NewsData")
     if "gnews" in analyst_results:
         summary_parts.append(f"{bd.get('gnews', 0)} GNews")
+    if gdelt_bq.get("ok") and bq_n:
+        summary_parts.append(f"GDELT BQ {bq_n} coded events ({gdelt_bq.get('lookback_days', '?')}d)")
     return {
         "conflict": conflict,
         "articles": articles,
@@ -1301,6 +1320,7 @@ def _news_manager(
         "escalation_headlines": escalation_meta.get("escalation_headlines", []),
         "escalation_score": esc_score,
         "entities": all_entities,
+        "gdelt_bigquery": gdelt_bq,
         "_meta": meta,
     }
 

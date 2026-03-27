@@ -76,6 +76,10 @@ class NewsResult(BaseAgentResult):
     top_sources: List[Dict[str, Any]] = Field(default_factory=list)
     escalation_headlines: List[str] = Field(default_factory=list)
     escalation_score: float = 0.0
+    gdelt_bigquery: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional GDELT Events aggregates from BigQuery (gdelt-bq.gdeltv2.events).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +122,10 @@ class GeointResult(BaseAgentResult):
     reliefweb_reports: List[Dict[str, Any]] = Field(default_factory=list)
     eo_browser_links: List[Dict[str, Any]] = Field(default_factory=list)
     gdelt_geo_countries: List[Dict[str, Any]] = Field(default_factory=list)
+    gdelt_bigquery: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional GDELT Events (CAMEO/EventRoot) aggregates from BigQuery.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +303,10 @@ class ChokepointResult(BaseAgentResult):
     gdelt_disruption: Dict[str, Any] = Field(default_factory=dict)
     external_status: Dict[str, Any] = Field(default_factory=dict)
     data_confidence: str = "estimated"  # live | estimated | degraded
+    gdelt_bigquery: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional BigQuery GDELT Events slice for maritime chokepoint keywords.",
+    )
 
 
 # ---------------------------------------------------------------------------

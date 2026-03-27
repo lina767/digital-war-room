@@ -17,6 +17,7 @@ fastapi==0.133.1
 feedparser==6.0.12
 firecrawl-py>=1.0.0
 fsspec==2026.2.0
+google-cloud-bigquery>=3.25.0
 gdacs-api>=2.0.0
 h11==0.16.0
 h2==4.3.0

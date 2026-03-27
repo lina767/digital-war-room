@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .context import AgentContext
 
 from services.acled_auth import has_acled_oauth
+from services.gdelt_bigquery import fetch_gdelt_event_roots_summary
 
 from .fetchers.geoint_fetchers import (
     HAPI_APP_IDENTIFIER,
@@ -84,6 +85,7 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
         "reliefweb_reports": [],
         "eo_browser_links": {},
         "gdelt_geo_countries": [],
+        "gdelt_bigquery": {},
         "summary": "No thermal anomaly data available.",
         "_meta": build_agent_meta(
             "geoint",
@@ -136,6 +138,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             eo_links = {}
 
         gdelt_geo_countries = get_gdelt_geo_countries(conflict=conflict)
+        gdelt_bq = fetch_gdelt_event_roots_summary(conflict)
         score, explosion_count, clusters, _ = compute_geoint_score(anomalies)
         high = sum(1 for a in anomalies if a.get("confidence") == "high")
         hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
@@ -143,6 +146,8 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         summary_extra = ""
         if gdelt_geo_countries:
             summary_extra += f" GDELT GEO: {len(gdelt_geo_countries)} countries."
+        if gdelt_bq.get("ok") and gdelt_bq.get("total_matched"):
+            summary_extra += f" GDELT BQ: {gdelt_bq['total_matched']} coded events (lookback {gdelt_bq.get('lookback_days', '?')}d)."
         if has_acled_cfg and not has_acled_reports:
             summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and ReliefWeb."
 
@@ -194,6 +199,15 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
                 fetched_at=fetched_at,
                 record_count=len(gdelt_geo_countries),
             ),
+            SourceResult(
+                name="GDELT BigQuery",
+                status="ok"
+                if gdelt_bq.get("ok")
+                else ("error" if gdelt_bq.get("error") else "degraded"),
+                fetched_at=fetched_at,
+                record_count=int(gdelt_bq.get("total_matched") or 0) if gdelt_bq.get("ok") else 0,
+                endpoint_kind="bigquery",
+            ),
         ]
         if HAPI_APP_IDENTIFIER:
             source_results.append(
@@ -221,7 +235,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
 
         geo_steps = [
             ProcessingStep(step="fetch_thermal_and_hotspot_news", at=fetched_at),
-            ProcessingStep(step="eo_browser_gdelt_geo", at=fetched_at),
+            ProcessingStep(step="eo_browser_gdelt_geo_bq", at=fetched_at),
             ProcessingStep(step="score_hotspots_clusters", at=fetched_at),
         ]
 
@@ -237,6 +251,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             "reliefweb_reports": reliefweb_reports,
             "eo_browser_links": eo_links,
             "gdelt_geo_countries": gdelt_geo_countries,
+            "gdelt_bigquery": gdelt_bq,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included.{handoff_note} Score {score:.0f}.",
             "_meta": build_agent_meta(
                 "geoint",

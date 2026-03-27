@@ -186,11 +186,13 @@ DOC 2.0: Rolling Window ca. 3 Monate, 65 Sprachen (englische Suchbegriffe), Upda
 
 Vollständige Referenz (DOC/GEO, ToneChart, Events, GKG): [docs/GDELT-API-REFERENCE.md](GDELT-API-REFERENCE.md).
 
-**Weitere Optionen laut [GDELT Data](https://www.gdeltproject.org/data.html) (derzeit nicht integriert):**
+**Optional – Google BigQuery (GDELT Events):** Tabelle `gdelt-bq.gdeltv2.events` (öffentlicher Datensatz, Abfrage über eigenes GCP-Projekt mit aktiviertem BigQuery + Billing). Code: [gdelt_bigquery.py](backend/services/gdelt_bigquery.py); angebunden an [news_agent.py](backend/agents/news_agent.py), [geoint_agent.py](backend/agents/geoint_agent.py), [chokepoint_agent.py](backend/agents/chokepoint_agent.py) als Feld `gdelt_bigquery`. Authentifizierung: ADC oder `GOOGLE_APPLICATION_CREDENTIALS`. Ohne Credentials: stilles „degraded“, kein Abbruch der Agenten. Env siehe `backend/.env.example` (`GDELT_BQ_*`).
+
+**Weitere Optionen laut [GDELT Data](https://www.gdeltproject.org/data.html):**
 - **GDELT DOC 2.0** `mode=ToneChart` – Tonalitäts-Zeitreihe für Eskalationsindikatoren (z. B. Strait of Hormuz); optional in [chokepoint_agent.py](backend/agents/chokepoint_agent.py).
 - **GDELT GEO 2.0** weitere Modi: ADM1, PointData, SourceCountry (im Projekt aktuell DOC-Fallback für Länderverteilung, siehe Referenz).
 - **GDELT Analysis Service** – webbasierte Visualisierung/Export (aktuell GDELT 1.0).
-- **Google BigQuery** – Vollständige GDELT-Daten per SQL, 15-Min-Updates; erfordert GCP.
+- **GDELT GKG** in BigQuery – im Projekt noch nicht angebunden (nur Events-Aggregate).
 - **Raw Data Files** – CSV-Downloads (2.5TB+ pro Jahr), für Offline-Analysen.
 
 ---

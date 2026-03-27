@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
+from services.gdelt_bigquery import fetch_chokepoint_maritime_events_summary
+
 from .airstream_client import collect_tankers_by_chokepoint
 from .contracts import get_agent_fallback
 from .health_registry import get_health_registry
@@ -716,8 +718,9 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
         history = _load_history()
         eia_data_task = _fetch_eia_baseline()
         gdelt_task = _fetch_gdelt_chokepoint_events()
+        bq_task = asyncio.to_thread(fetch_chokepoint_maritime_events_summary)
         eia_data = await eia_data_task
-        gdelt_disruption = await gdelt_task
+        gdelt_disruption, gdelt_bq_maritime = await asyncio.gather(gdelt_task, bq_task)
         external_status = await _fetch_external_status()
 
         # AISStream: one WebSocket session for all three chokepoints (if key set)
@@ -867,6 +870,7 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
             "chokepoint_score": chokepoint_score,
             "summary": summary,
             "gdelt_disruption": gdelt_disruption,
+            "gdelt_bigquery": gdelt_bq_maritime,
             "external_status": external_status,
             "data_confidence": data_confidence,
         }
@@ -904,6 +908,17 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
             ),
             SourceResult(
                 name="GDELT", status="ok" if (out.get("gdelt_disruption") or {}) else "error", fetched_at=fetched_at
+            ),
+            SourceResult(
+                name="GDELT BigQuery",
+                status="ok"
+                if (out.get("gdelt_bigquery") or {}).get("ok")
+                else ("error" if (out.get("gdelt_bigquery") or {}).get("error") else "degraded"),
+                fetched_at=fetched_at,
+                record_count=int((out.get("gdelt_bigquery") or {}).get("total_matched") or 0)
+                if (out.get("gdelt_bigquery") or {}).get("ok")
+                else 0,
+                endpoint_kind="bigquery",
             ),
             SourceResult(name="EIA baseline", status="ok", fetched_at=fetched_at),
             SourceResult(
