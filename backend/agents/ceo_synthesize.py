@@ -22,6 +22,7 @@ from .dag_scheduler import ResultStore
 from .division import DivisionHead, DivisionResult
 from .dq_contract import apply_quality_to_all_agents
 from .quality_gate import quality_gate_enabled, run_cross_agent_quality_gate
+from .research_normalizer import apply_research_enrichments_from_raw
 from .utils import get_analysis_run_id, infer_data_confidence_from_result
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     }
     pentagon_raw = as_dict(store.get("pentagon")) or {}
     agent_results["pentagon"] = pentagon_raw
+    research_enrichment = as_dict(store.get("research_enrichment")) or {}
+    if isinstance(research_enrichment, dict):
+        apply_research_enrichments_from_raw(agent_results, research_enrichment.get("enrichments_applied"))
     apply_quality_to_all_agents(agent_results)
     acled_refs = store.get("acled_refs") or []
 
@@ -343,6 +347,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         provenance_index=provenance_index,
         qf=qf,
         data_quality_gate=data_quality_gate,
+        research_enrichment=research_enrichment if isinstance(research_enrichment, dict) else {},
         store=store,
         division_results=division_results,
         as_dict_fn=as_dict,

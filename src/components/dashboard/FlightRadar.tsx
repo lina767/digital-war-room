@@ -31,6 +31,7 @@ interface FlightRadarProps {
     sigint_score?: number;
     target_tracks?: TargetTrack;
     alerts?: string[];
+    haiku_analysis?: string;
   };
 }
 
@@ -94,6 +95,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
     ([, v]) => v && typeof v === "object" && !("error" in v),
   );
   const alerts = sigint?.alerts ?? [];
+  const haikuAnalysis = typeof sigint?.haiku_analysis === "string" ? sigint.haiku_analysis.trim() : "";
 
   const acCount = aircraft.length;
   const shipCount = ships.length;
@@ -296,6 +298,11 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
               {alert}
             </p>
           ))}
+        </div>
+      )}
+      {haikuAnalysis && (
+        <div className="pt-1 border-t border-border/40">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">{haikuAnalysis}</p>
         </div>
       )}
 

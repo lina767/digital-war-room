@@ -70,6 +70,32 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
             timeout_s=45.0,
         )
     )
+    all_nodes.append(
+        DAGNode(
+            id="research_enrichment",
+            dependencies=[
+                "finint",
+                "sigint",
+                "news",
+                "geoint",
+                "satintel",
+                "socmint",
+                "mediaint",
+                "techint",
+                "cyber",
+                "energy",
+                "protest",
+                "diplo",
+                "proximity",
+                "narrative",
+                "chokepoint",
+                "pentagon",
+                "quality_fusion",
+            ],
+            node_type="enrichment",
+            timeout_s=35.0,
+        )
+    )
 
     for div in divisions:
         div_nodes = div.get_dag_nodes()
@@ -93,7 +119,7 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     all_nodes.append(
         DAGNode(
             id="ceo_synthesis",
-            dependencies=summary_ids + ["compliance_build", "acled_refs", "quality_fusion"],
+            dependencies=summary_ids + ["compliance_build", "acled_refs", "quality_fusion", "research_enrichment"],
             node_type="synthesis",
             streamable=True,
             timeout_s=90.0,
@@ -229,10 +255,47 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
             logger.warning("quality_fusion failed: %s", e)
             return {"signals": [], "summary": "", "fusion_meta": {"error": str(e)}}
 
+    def exec_research_enrichment(store: ResultStore) -> Dict[str, Any]:
+        try:
+            from .research_agent import run_research_enrichment
+
+            agent_results = {
+                k: as_dict(store.get(k))
+                for k in (
+                    "finint",
+                    "sigint",
+                    "news",
+                    "geoint",
+                    "satintel",
+                    "socmint",
+                    "mediaint",
+                    "techint",
+                    "cyber",
+                    "energy",
+                    "protest",
+                    "diplo",
+                    "proximity",
+                    "narrative",
+                    "chokepoint",
+                    "pentagon",
+                )
+            }
+            qf = as_dict(store.get("quality_fusion"))
+            gate_hint = {"quality_warnings": qf.get("signals") if isinstance(qf.get("signals"), list) else []}
+            return run_research_enrichment(
+                conflict=conflict,
+                agent_results=agent_results,
+                data_quality_gate=gate_hint,
+            )
+        except Exception as e:
+            logger.warning("research_enrichment failed: %s", e)
+            return {"triggered": False, "error": str(e)}
+
     executors["acled_refs"] = exec_acled
     executors["agent_context"] = exec_agent_context
     executors["compliance_build"] = exec_compliance
     executors["quality_fusion"] = exec_quality_fusion
+    executors["research_enrichment"] = exec_research_enrichment
     return executors
 
 

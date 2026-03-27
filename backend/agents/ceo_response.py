@@ -255,6 +255,7 @@ def assemble_ceo_response(
     provenance_index: List[Dict[str, Any]],
     qf: Dict[str, Any],
     data_quality_gate: Dict[str, Any],
+    research_enrichment: Dict[str, Any],
     store: Any,
     division_results: Dict[str, DivisionResult],
     as_dict_fn: Any,
@@ -285,6 +286,12 @@ def assemble_ceo_response(
         "cross_validation": qf,
         "data_quality_gate": data_quality_gate,
         "quality_warnings": list(data_quality_gate.get("quality_warnings") or []),
+        "research_enrichment": research_enrichment if isinstance(research_enrichment, dict) else {},
+        "review_decision": (
+            "human_review"
+            if str((research_enrichment or {}).get("publish_decision", "")).strip().lower() == "human_review"
+            else "auto_publish"
+        ),
         "analysis_result_schema_version": 1,
     }
 

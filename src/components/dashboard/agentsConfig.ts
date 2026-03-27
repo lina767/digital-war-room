@@ -24,6 +24,7 @@ export const AGENT_NAME_TO_KEY: Record<string, string> = {
   "PROXIMITY": "proximity",
   "PENTAGON": "pentagon",
   "SIGNAL FRAMEWORK": "narrative",
+  "RESEARCH": "research_enrichment",
 };
 
 export interface AgentConfig {
@@ -209,6 +210,24 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       {
         name: "Caps",
         description: "PENTAGON_SIGNALS_SERPAPI_HOURLY_CAP / MONTHLY_CAP and quota file under backend/data",
+      },
+    ],
+  },
+  {
+    name: "RESEARCH",
+    fullName: "Research Enrichment (Gemini)",
+    sources: [
+      {
+        name: "Gemini Developer API",
+        description: "Selective web-style enrichment only when trigger gate detects gaps, staleness, conflicts, or uncertainty",
+      },
+      {
+        name: "Source-cited enrichment contract",
+        description: "Each enriched field must include a direct source URL; unsourced fields are rejected",
+      },
+      {
+        name: "Run budget guardrails",
+        description: "Per-run request/token/cost caps with hard stop when budget thresholds are reached",
       },
     ],
   },

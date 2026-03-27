@@ -215,6 +215,7 @@ async def agents_monitoring() -> Any:
     return {
         "fallback": snap["fallback"],
         "errors": snap["errors"],
+        "research": snap.get("research"),
         "cost": {
             **haiku,
             "daily": snap["daily_spend"],

@@ -57,6 +57,7 @@ class SigintResult(BaseAgentResult):
     conflict_reports: List[Dict[str, Any]] = Field(default_factory=list)
     notams: List[Dict[str, Any]] = Field(default_factory=list)
     alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    haiku_analysis: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

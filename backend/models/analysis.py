@@ -40,5 +40,7 @@ class AnalysisResult(BaseModel):
     data_quality_gate: Dict[str, Any] = Field(default_factory=dict)
     quality_warnings: List[str] = Field(default_factory=list)
     dq_calibration_metrics: Dict[str, Any] = Field(default_factory=dict)
+    research_enrichment: Dict[str, Any] = Field(default_factory=dict)
+    review_decision: str = "auto_publish"
 
     # Per-agent results and divisions are stored via extra (finint, sigint, ..., divisions)

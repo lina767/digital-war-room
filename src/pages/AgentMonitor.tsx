@@ -1078,6 +1078,86 @@ function AgentMonitorContent() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Research enrichment KPIs
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Triggered Gemini research runs with strict source-citation policy and publish gating.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {monitoring?.research ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-md border border-border p-3">
+                    <p className="text-[11px] font-mono text-muted-foreground uppercase">Required fields</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      before {monitoring.research.required_fields_before.filled}/{monitoring.research.required_fields_before.total}
+                    </p>
+                    <p className="text-sm font-mono">
+                      after {monitoring.research.required_fields_after.filled}/{monitoring.research.required_fields_after.total}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border p-3">
+                    <p className="text-[11px] font-mono text-muted-foreground uppercase">Conflict rate</p>
+                    <p className="text-sm font-mono mt-1">
+                      {monitoring.research.cases_total > 0
+                        ? `${((monitoring.research.conflict_cases / monitoring.research.cases_total) * 100).toFixed(1)}%`
+                        : "0.0%"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {monitoring.research.conflict_cases}/{monitoring.research.cases_total} cases
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-border p-3">
+                    <p className="text-[11px] font-mono text-muted-foreground uppercase">Publish split</p>
+                    <p className="text-sm font-mono mt-1">
+                      auto {monitoring.research.auto_publish_total} · review {monitoring.research.human_review_total}
+                    </p>
+                    <p className="text-xs text-muted-foreground">triggered {monitoring.research.triggered_total}</p>
+                  </div>
+                  <div className="rounded-md border border-border p-3">
+                    <p className="text-[11px] font-mono text-muted-foreground uppercase">Research cost/case</p>
+                    <p className="text-sm font-mono mt-1">${(monitoring.research.cost_per_case_usd ?? 0).toFixed(6)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      total ${(monitoring.research.total_cost_usd ?? 0).toFixed(6)}
+                    </p>
+                  </div>
+                </div>
+                {monitoring.research.last_run &&
+                  (monitoring.research.last_run.analysis_en ||
+                    monitoring.research.last_run.air_activity_assessment_en ||
+                    (monitoring.research.last_run.findings?.length ?? 0) > 0) && (
+                    <div className="rounded-md border border-border p-3 space-y-2">
+                      <p className="text-[11px] font-mono text-muted-foreground uppercase">
+                        Last Research Interpretation (EN)
+                      </p>
+                      {monitoring.research.last_run.analysis_en ? (
+                        <p className="text-sm leading-relaxed">{monitoring.research.last_run.analysis_en}</p>
+                      ) : null}
+                      {monitoring.research.last_run.air_activity_assessment_en ? (
+                        <p className="text-sm leading-relaxed">{monitoring.research.last_run.air_activity_assessment_en}</p>
+                      ) : null}
+                      {(monitoring.research.last_run.findings?.length ?? 0) > 0 ? (
+                        <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                          {monitoring.research.last_run.findings.map((f, i) => (
+                            <li key={`${i}-${f.slice(0, 24)}`}>{f}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No research KPI data yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Error log */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
               <ScrollText className="h-4 w-4" />
               Error log
             </CardTitle>

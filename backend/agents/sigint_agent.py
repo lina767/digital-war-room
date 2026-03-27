@@ -6,6 +6,7 @@ Score computation lives in scorers/sigint_scorer.py.
 """
 
 import time
+import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
@@ -30,6 +31,7 @@ from .utils import (
     build_agent_meta,
     utc_now_iso,
 )
+from services.gemini_service import run_gemini_text
 
 
 class SigintResult(BaseModel):
@@ -42,6 +44,7 @@ class SigintResult(BaseModel):
     notams: List[Dict[str, Any]] = Field(default_factory=list)
     sigint_score: float = 0.0
     alerts: List[str] = Field(default_factory=list)
+    haiku_analysis: Optional[str] = None
     summary: str = ""
     score_confidence: ScoreConfidence = Field(default_factory=ScoreConfidence)
     fetched_at: str = Field(default_factory=utc_now_iso)
@@ -150,10 +153,44 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
             notams=notams,
             sigint_score=round(score, 1),
             alerts=alerts,
+            haiku_analysis=None,
             summary=f"SIGINT (rule-based): {len(aircraft)} aircraft, {len(ships)} ships, {len(hormuz_tankers)} Hormuz tankers, {len(reports)} reports, {len(notams)} NOTAMs. Score {score:.0f}.",
             score_confidence=score_confidence,
             target_tracks=target_tracks,
         )
+        by_cat_counts: Dict[str, int] = {}
+        for a in aircraft:
+            cat = str(a.get("category") or "military")
+            by_cat_counts[cat] = by_cat_counts.get(cat, 0) + 1
+        trigger_haiku = (
+            len(aircraft) >= 4
+            or by_cat_counts.get("doomsday", 0) > 0
+            or by_cat_counts.get("iranian_gov", 0) > 0
+        )
+        if trigger_haiku:
+            try:
+                compact = {
+                    "conflict": conflict,
+                    "sigint_score": round(score, 1),
+                    "aircraft_count": len(aircraft),
+                    "ships_count": len(ships),
+                    "reports_count": len(reports),
+                    "notams_count": len(notams),
+                    "category_breakdown": by_cat_counts,
+                    "top_flights": [str(a.get("flight") or "?") for a in aircraft[:8]],
+                }
+                prompt = (
+                    "You are a SIGINT analyst.\n"
+                    "Task: Explain what elevated military aircraft activity can imply for escalation.\n"
+                    "Rules: Write exactly 1-2 short, cautious sentences. Use only the provided data. "
+                    "No markdown, no bullets.\n\n"
+                    f"DATA:\n{json.dumps(compact, ensure_ascii=True)}"
+                )
+                gemini_result = run_gemini_text(prompt)
+                if gemini_result.ok and gemini_result.text:
+                    result.haiku_analysis = gemini_result.text.strip()
+            except Exception:
+                pass
         out = result.model_dump(mode="json")
 
         duration_ms = int((time.perf_counter() - start) * 1000)

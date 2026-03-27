@@ -130,6 +130,26 @@ export interface AgentsMonitoringResponse {
   };
   errors: MonitoringErrorEntry[];
   google_trend_serp?: GoogleTrendSerpSnapshot | null;
+  research?: {
+    cases_total: number;
+    triggered_total: number;
+    conflict_cases: number;
+    auto_publish_total: number;
+    human_review_total: number;
+    total_cost_usd: number;
+    cost_per_case_usd: number;
+    required_fields_before: { filled: number; total: number };
+    required_fields_after: { filled: number; total: number };
+    last_run?: {
+      conflict: string;
+      at: number;
+      triggered: boolean;
+      publish_decision: string;
+      analysis_en: string;
+      air_activity_assessment_en: string;
+      findings: string[];
+    } | null;
+  } | null;
   cost: {
     provider?: string;
     model?: string;

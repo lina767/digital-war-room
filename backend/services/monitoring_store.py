@@ -29,6 +29,19 @@ _dq_runs_total = 0
 _dq_warning_total = 0
 _dq_last: Optional[Dict[str, Any]] = None
 
+# Research enrichment aggregates (process lifetime)
+_research_cases_total = 0
+_research_triggered_total = 0
+_research_conflict_cases = 0
+_research_auto_publish_total = 0
+_research_human_review_total = 0
+_research_cost_total_usd = 0.0
+_research_required_before_filled = 0
+_research_required_before_total = 0
+_research_required_after_filled = 0
+_research_required_after_total = 0
+_research_last_run: Optional[Dict[str, Any]] = None
+
 # Last Google web SERP snapshot from monitoring (POST /agents/google-trend-snapshot); process lifetime
 _google_trend_serp: Optional[Dict[str, Any]] = None
 
@@ -153,6 +166,72 @@ def record_from_analysis(conflict: str, result: Dict[str, Any]) -> None:
         record_dq_from_analysis(conflict, result)
     except Exception:
         pass
+    try:
+        _record_research_from_analysis(conflict, result)
+    except Exception:
+        pass
+
+
+def _record_research_from_analysis(conflict: str, result: Dict[str, Any]) -> None:
+    global _research_cases_total, _research_triggered_total, _research_conflict_cases
+    global _research_auto_publish_total, _research_human_review_total, _research_cost_total_usd
+    global _research_required_before_filled, _research_required_before_total
+    global _research_required_after_filled, _research_required_after_total
+    global _research_last_run
+    research = result.get("research_enrichment")
+    if not isinstance(research, dict):
+        return
+
+    triggered = bool(research.get("triggered"))
+    publish_decision = str(research.get("publish_decision") or result.get("review_decision") or "").strip().lower()
+    reasons = research.get("trigger_decision", {}).get("reasons") if isinstance(research.get("trigger_decision"), dict) else []
+    has_agent_conflict_reason = False
+    if isinstance(reasons, list):
+        for r in reasons:
+            if isinstance(r, dict) and str(r.get("trigger")) == "agent_conflict":
+                has_agent_conflict_reason = True
+                break
+    usage = (research.get("budget_status") or {}).get("usage")
+    cost = 0.0
+    if isinstance(usage, dict):
+        try:
+            cost = float(usage.get("estimated_cost_usd") or 0.0)
+        except Exception:
+            cost = 0.0
+    before = research.get("required_field_coverage_before") if isinstance(research.get("required_field_coverage_before"), dict) else {}
+    after = research.get("required_field_coverage_after") if isinstance(research.get("required_field_coverage_after"), dict) else {}
+    try:
+        before_filled = int(before.get("filled_required_fields") or 0)
+        before_total = int(before.get("total_required_fields") or 0)
+        after_filled = int(after.get("filled_required_fields") or 0)
+        after_total = int(after.get("total_required_fields") or 0)
+    except Exception:
+        before_filled = before_total = after_filled = after_total = 0
+
+    with _lock:
+        _research_cases_total += 1
+        if triggered:
+            _research_triggered_total += 1
+        if has_agent_conflict_reason:
+            _research_conflict_cases += 1
+        if publish_decision == "human_review":
+            _research_human_review_total += 1
+        else:
+            _research_auto_publish_total += 1
+        _research_cost_total_usd += max(0.0, cost)
+        _research_required_before_filled += max(0, before_filled)
+        _research_required_before_total += max(0, before_total)
+        _research_required_after_filled += max(0, after_filled)
+        _research_required_after_total += max(0, after_total)
+        _research_last_run = {
+            "conflict": conflict,
+            "at": time.time(),
+            "triggered": triggered,
+            "publish_decision": publish_decision or "auto_publish",
+            "analysis_en": str(research.get("analysis_en") or "").strip(),
+            "air_activity_assessment_en": str(research.get("air_activity_assessment_en") or "").strip(),
+            "findings": [str(x) for x in (research.get("findings") or [])[:6] if isinstance(x, str)],
+        }
 
 
 def set_google_trend_serp(payload: Optional[Dict[str, Any]]) -> None:
@@ -241,6 +320,17 @@ def get_snapshot() -> Dict[str, Any]:
         dq_warn = _dq_warning_total
         dq_last = dict(_dq_last) if _dq_last else None
         gts = dict(_google_trend_serp) if _google_trend_serp else None
+        r_cases = _research_cases_total
+        r_triggered = _research_triggered_total
+        r_conflicts = _research_conflict_cases
+        r_auto = _research_auto_publish_total
+        r_review = _research_human_review_total
+        r_cost = _research_cost_total_usd
+        rb_filled = _research_required_before_filled
+        rb_total = _research_required_before_total
+        ra_filled = _research_required_after_filled
+        ra_total = _research_required_after_total
+        r_last = dict(_research_last_run) if isinstance(_research_last_run, dict) else None
 
     return {
         "fallback": {
@@ -257,4 +347,16 @@ def get_snapshot() -> Dict[str, Any]:
         "daily_spend": daily_out,
         "today_spend": today_bucket,
         "google_trend_serp": gts,
+        "research": {
+            "cases_total": r_cases,
+            "triggered_total": r_triggered,
+            "conflict_cases": r_conflicts,
+            "auto_publish_total": r_auto,
+            "human_review_total": r_review,
+            "total_cost_usd": round(float(r_cost), 8),
+            "cost_per_case_usd": round(float(r_cost / r_cases), 8) if r_cases > 0 else 0.0,
+            "required_fields_before": {"filled": rb_filled, "total": rb_total},
+            "required_fields_after": {"filled": ra_filled, "total": ra_total},
+            "last_run": r_last,
+        },
     }

@@ -423,6 +423,7 @@ export interface SigintResult {
   alerts?: {
     [k: string]: unknown;
   }[];
+  haiku_analysis?: string | null;
 }
 export interface SocmintResult {
   schema_version?: number;

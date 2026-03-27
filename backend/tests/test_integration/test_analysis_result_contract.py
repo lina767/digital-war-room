@@ -43,3 +43,15 @@ def test_analysis_result_schema_version_and_dq_fields():
     )
     assert r.analysis_result_schema_version == 1
     assert r.data_quality_gate["quality_warnings"] == ["x"]
+
+
+def test_analysis_result_accepts_research_fields():
+    r = AnalysisResult.model_validate(
+        {
+            "conflict": "Iran",
+            "research_enrichment": {"triggered": True, "publish_decision": "human_review"},
+            "review_decision": "human_review",
+        }
+    )
+    assert r.review_decision == "human_review"
+    assert r.research_enrichment["triggered"] is True
