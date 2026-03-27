@@ -136,9 +136,18 @@ export default function DemoPage() {
               <a href="/" className="text-muted-foreground hover:text-foreground">
                 Home
               </a>
-              <Link to="/app/dashboard" className="text-muted-foreground hover:text-foreground">
+              <Link to="/app/dashboard" className="font-medium text-primary hover:text-primary/90">
                 Live dashboard
               </Link>
+              <Link to="/daily-briefing" className="text-muted-foreground hover:text-foreground">
+                Daily briefing
+              </Link>
+              <a
+                href="/docs/documentation?doc=attention-playbook"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Attention playbook
+              </a>
             </nav>
           </div>
         </header>
@@ -151,6 +160,13 @@ export default function DemoPage() {
           {data?.scenario_note && (
             <p className="mt-3 text-sm text-muted-foreground">{data.scenario_note}</p>
           )}
+          <p className="mt-4 text-sm text-muted-foreground">
+            This page is a <strong className="text-foreground">historical snapshot</strong>. For the full live experience—map, agents, ticker, and conflict picker—open the{" "}
+            <Link to="/app/dashboard" className="text-primary hover:underline">
+              live dashboard
+            </Link>
+            .
+          </p>
 
           {loading && (
             <div className="mt-12 flex items-center gap-2 text-muted-foreground">

@@ -532,3 +532,41 @@ a:hover {
   color: var(--fg);
   font-weight: 600;
 }
+
+/* Share / distribution entry points */
+.l-start-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .l-start-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.l-start-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.15rem 1.2rem;
+  background: var(--card);
+}
+
+.l-start-item h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+}
+
+.l-start-item p {
+  margin: 0 0 0.65rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.l-start-item a {
+  font-size: 0.875rem;
+  font-weight: 600;
+}

@@ -2,15 +2,27 @@
 
 # Digital War Room
 
-**AI-powered multi-agent OSINT intelligence platform**
+**AI-native OSINT, built in public**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node 18+](https://img.shields.io/badge/node-18+-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 
+### Pinned one-liner (shareable)
+
+> **Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect.**
+
+Canonical in code as [`PINNED_ONE_LINER`](src/lib/seoCopy.ts) in `src/lib/seoCopy.ts` (update there first, then sync `index.html` meta if you change the wording). Social-ready short line: [`PINNED_ONE_LINER_SOCIAL_SHORT`](src/lib/seoCopy.ts).
+
+### Social bios (copy-paste)
+
+- **Full (site README, LinkedIn “About” lead, long bio):** use the quoted one-liner above.
+- **Short (X, tight bios):**  
+  `Digital War Room — AI-native OSINT: fuse open conflict signals into one visual picture + BLUF briefings. Inspectable methodology · https://digital-war-room.com`
+
 Real-time conflict monitoring with specialized agents across GEOINT, SIGINT, SOCMINT, FININT, CYBER, and related domains — orchestrated by a single Claude Sonnet supervisor with rule-based routing.
 
-*Built at the intersection of AI engineering, international relations, and OSINT tradecraft.*
+*Built at the intersection of AI engineering, international relations, and OSINT tradecraft. This is a serious open pipeline—not a claim to be a finished enterprise intelligence product.*
 
 [Live site](https://digital-war-room.com) · [Issues](https://github.com/lina767/digital-war-room/issues)
 
@@ -30,6 +42,7 @@ Digital War Room deploys **11 specialized OSINT agents** — supervised by a Cla
 
 | Topic | Repository |
 |--------|----------------|
+| **Attention playbook** (audience, content loop, credibility) | [docs/ATTENTION-PLAYBOOK.md](docs/ATTENTION-PLAYBOOK.md) |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | How it works (UX & flows) | [docs/how-it-works.md](docs/how-it-works.md) |
 | API overview | [docs/API-REFERENCE.md](docs/API-REFERENCE.md) |

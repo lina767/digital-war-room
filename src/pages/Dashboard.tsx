@@ -17,6 +17,7 @@ import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel"
 import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
 import { PatternFlagsBanner } from "@/components/dashboard/PatternFlagsBanner";
 import { SEO } from "@/components/SEO";
+import { PINNED_ONE_LINER } from "@/lib/seoCopy";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { CORE_THEATERS } from "@/lib/conflictReadiness";
 const THREAT_BADGE_STYLES: Record<string, string> = {
@@ -152,7 +153,7 @@ const Dashboard = () => {
     <>
       <SEO
         title="Digital War Room – AI-Powered OSINT Intelligence"
-        description="Digital War Room: AI-powered OSINT conflict monitoring. Real-time escalation score, multi-agent intelligence (GEOINT, SIGINT, SOCMINT, FININT, TECHINT) and BLUF-style briefings."
+        description={PINNED_ONE_LINER}
         path="/app/dashboard"
         imageAlt="Digital War Room dashboard showing conflict escalation and intelligence streams"
       />

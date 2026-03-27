@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Digital War Room",
   "short_name": "Digital War Room",
-  "description": "AI-powered OSINT conflict monitoring — multi-agent dashboard across GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROTEST, PROXIMITY, and related streams.",
+  "description": "Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect.",
   "start_url": "/app/dashboard",
   "scope": "/",
   "display": "standalone",

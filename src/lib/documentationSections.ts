@@ -12,11 +12,13 @@ import security from "../../docs/SECURITY.md?raw";
 import apiKeys from "../../docs/API-KEYS.md?raw";
 import newsletterSpec from "../../docs/NEWSLETTER-SPEC.md?raw";
 import glossary from "../../docs/GLOSSARY.md?raw";
+import attentionPlaybook from "../../docs/ATTENTION-PLAYBOOK.md?raw";
 
 const REPO_DOCS_BASE = "https://github.com/lina767/digital-war-room/blob/main/docs";
 
 export const CANONICAL_DOC_LINKS = {
   projectDocumentation: `${REPO_DOCS_BASE}/PROJECT-DOCUMENTATION.md`,
+  attentionPlaybook: `${REPO_DOCS_BASE}/ATTENTION-PLAYBOOK.md`,
   architecture: `${REPO_DOCS_BASE}/ARCHITECTURE.md`,
   apiReference: `${REPO_DOCS_BASE}/API-REFERENCE.md`,
   deployment: `${REPO_DOCS_BASE}/DEPLOYMENT.md`,
@@ -64,6 +66,11 @@ export const DOCUMENTATION_MANIFEST_SECTIONS: DocumentationManifestSection[] = [
     description: "Project orientation, product context, and the main technical entry points.",
   },
   {
+    id: "audience",
+    title: "Audience & visibility",
+    description: "Growing attention and credibility before a commercial offer—distribution, content rhythm, and trust signals.",
+  },
+  {
     id: "documentation",
     title: "Documentation",
     description: "How the platform works, analytical methodology, and source transparency.",
@@ -94,6 +101,15 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
     filePath: "docs/PROJECT-DOCUMENTATION.md",
     githubUrl: `${REPO_DOCS_BASE}/PROJECT-DOCUMENTATION.md`,
     content: projectDocumentation,
+  },
+  {
+    id: "attention-playbook",
+    sectionId: "audience",
+    title: "Attention Playbook",
+    description: "One-line narrative, audience ladder, distribution surfaces, content engine, credibility signals, and a 30-day checklist.",
+    filePath: "docs/ATTENTION-PLAYBOOK.md",
+    githubUrl: `${REPO_DOCS_BASE}/ATTENTION-PLAYBOOK.md`,
+    content: attentionPlaybook,
   },
   {
     id: "how-it-works",

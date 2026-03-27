@@ -29,6 +29,13 @@ export default function Newsletter() {
           <p className="text-muted-foreground text-xs">
             If the confirmation email does not arrive within a few minutes, check your Spam or Promotions folder.
           </p>
+          <p className="text-muted-foreground text-xs">
+            Sharing the project? See the{" "}
+            <Link to="/docs/documentation?doc=attention-playbook" className="text-primary hover:underline">
+              Attention playbook
+            </Link>{" "}
+            for a one-line pitch, audience ladder, and content rhythm.
+          </p>
           <NewsletterSubscribeForm />
           <p className="text-muted-foreground text-xs">
             By subscribing you agree to our{" "}

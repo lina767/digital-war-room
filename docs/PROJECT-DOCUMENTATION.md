@@ -33,6 +33,7 @@ Main user-facing capabilities:
 
 ### Quick links
 
+- **Attention playbook (audience & visibility):** [docs/ATTENTION-PLAYBOOK.md](https://github.com/lina767/digital-war-room/blob/main/docs/ATTENTION-PLAYBOOK.md) — in-app: [Documentation hub](https://digital-war-room.com/docs/documentation?doc=attention-playbook)
 - **Getting Started:** [README setup section](https://github.com/lina767/digital-war-room#getting-started)
 - **Architecture:** [docs/ARCHITECTURE.md](https://github.com/lina767/digital-war-room/blob/main/docs/ARCHITECTURE.md)
 - **Features & Interface:** [docs/how-it-works.md](https://github.com/lina767/digital-war-room/blob/main/docs/how-it-works.md) — in-app: [Documentation hub](https://digital-war-room.com/docs/documentation?doc=how-it-works)
@@ -495,6 +496,7 @@ For deeper domain-specific details, use:
 When updating this document, keep it aligned with:
 
 - `src/App.tsx` route table
+- `docs/ATTENTION-PLAYBOOK.md` and its entry in `src/lib/documentationSections.ts`
 - `backend/main.py` lifecycle and scheduler behavior
 - `backend/api/routes*.py` endpoint inventory
 - `backend/.env.example` variable contract

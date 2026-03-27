@@ -2,6 +2,14 @@
  * Centralized SEO copy (titles, descriptions, share text) for meta tags and structured data.
  */
 
+/** Pinned one-line narrative — keep in sync with `index.html` meta/OG, README, and `docs/ATTENTION-PLAYBOOK.md`. */
+export const PINNED_ONE_LINER =
+  "Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect.";
+
+/** Fits typical short bios (e.g. X ~160 chars). Same narrative, tighter + URL. */
+export const PINNED_ONE_LINER_SOCIAL_SHORT =
+  "Digital War Room — AI-native OSINT: fuse open conflict signals into one visual picture + BLUF briefings. Inspectable methodology · https://digital-war-room.com";
+
 // Agent Monitor
 export const TITLE_AGENT_MONITOR = "Agent Monitor – Digital War Room";
 export const DESCRIPTION_AGENT_MONITOR =
@@ -19,8 +27,7 @@ export const STRUCTURED_DESC_DAILY_BRIEFING =
 export const TITLE_HOW_IT_WORKS = "How It Works – Digital War Room";
 export const DESCRIPTION_HOW_IT_WORKS =
   "How the Digital War Room works: multi-agent OSINT architecture, intelligence streams, escalation scoring, and compliance layer.";
-export const FAQ_ANSWER_WHAT_IS =
-  "Digital War Room is an AI-powered OSINT platform that runs 11+ intelligence agents in parallel and fuses their outputs into a single threat assessment with escalation scores, key findings, and compliance checks.";
+export const FAQ_ANSWER_WHAT_IS = `${PINNED_ONE_LINER} It runs 11+ intelligence agents in parallel and fuses outputs into escalation scores, key findings, and compliance checks where configured.`;
 
 // Source Directory
 export const TITLE_SOURCE_DIRECTORY = "Source Directory – Digital War Room";

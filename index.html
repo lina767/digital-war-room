@@ -7,8 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="robots" content="index, follow" />
     <meta name="google-site-verification" content="3CoH2VCcc1HcPNA3iUOUYz9CHQw1P_I8GLBjfQQIhA0" />
-    <title>Digital War Room — Escalation clarity for OSINT analysts</title>
-    <meta name="description" content="Open-source noise is not a strategy. Fuse 11+ OSINT streams—GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, and more—into one escalation score and BLUF-style briefings—before the headline moves markets." />
+    <title>Digital War Room — AI-native OSINT, built in public</title>
+    <!-- Pinned one-liner: keep in sync with src/lib/seoCopy.ts PINNED_ONE_LINER -->
+    <meta name="description" content="Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect. Open the live dashboard for the full experience; use the curated demo for a zero-setup snapshot." />
     <meta name="author" content="Digital War Room" />
     <link rel="canonical" href="https://digital-war-room.com/" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2" />
@@ -26,12 +27,12 @@
     <meta property="og:locale:alternate" content="de_DE" />
     <meta property="og:url" content="https://digital-war-room.com/" />
     <meta property="og:site_name" content="Digital War Room" />
-    <meta property="og:title" content="Digital War Room — Escalation clarity for OSINT analysts" />
-    <meta property="og:description" content="Open-source noise is not a strategy. Fuse 11+ OSINT streams—GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, and more—into one escalation score and BLUF-style briefings—before the headline moves markets." />
+    <meta property="og:title" content="Digital War Room — AI-native OSINT, built in public" />
+    <meta property="og:description" content="Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect." />
     <meta property="og:image" content="https://digital-war-room.com/og-image.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Digital War Room — Escalation clarity for OSINT analysts" />
-    <meta name="twitter:description" content="Open-source noise is not a strategy. Fuse 11+ OSINT streams—GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, and more—into one escalation score and BLUF-style briefings—before the headline moves markets." />
+    <meta name="twitter:title" content="Digital War Room — AI-native OSINT, built in public" />
+    <meta name="twitter:description" content="Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect." />
     <meta name="twitter:image" content="https://digital-war-room.com/og-image.png" />
     <meta name="twitter:image:alt" content="Digital War Room dashboard showing conflict escalation and intelligence streams" />
 
@@ -44,7 +45,7 @@
           "@id": "https://digital-war-room.com/#website",
           "name": "Digital War Room",
           "url": "https://digital-war-room.com",
-          "description": "Multi-agent OSINT platform: escalation scoring and BLUF briefings across GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROTEST, PROXIMITY, and related streams."
+          "description": "Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect."
         },
         {
           "@type": "Organization",
@@ -63,7 +64,7 @@
           "applicationCategory": "AnalyticsApplication",
           "operatingSystem": "Web",
           "url": "https://digital-war-room.com",
-          "description": "OSINT situational awareness: aggregated open-source signals, composite escalation score, BLUF-style briefings, transparent source directory.",
+          "description": "Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect. Multi-agent fusion across GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, and related streams; transparent source directory.",
           "publisher": {
             "@id": "https://digital-war-room.com/#organization"
           },
@@ -93,9 +94,11 @@
         <nav class="l-nav" aria-label="Primary">
           <a href="#how-it-works">How it works</a>
           <a href="#agents">Agents</a>
-          <a href="/demo">Demo</a>
           <a href="/app/dashboard">Dashboard</a>
+          <a href="/demo">Demo</a>
+          <a href="/daily-briefing">Briefing</a>
           <a href="/docs/documentation">Docs</a>
+          <a href="/blog">Blog</a>
           <a href="/newsletter">Newsletter</a>
         </nav>
       </div>
@@ -103,14 +106,15 @@
 
     <main id="main">
       <section class="l-hero l-wrap" aria-labelledby="hero-title">
-        <p class="l-kicker">Situational awareness</p>
+        <p class="l-kicker">AI-native OSINT · Built in public</p>
         <h1 id="hero-title">Open-source noise is not a strategy.</h1>
         <p class="l-lead">
-          Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROTEST, PROXIMITY, and related streams into one escalation score and BLUF-style briefings—so you see the pattern before the headline.
+          Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROTEST, PROXIMITY, and related streams into one escalation score and BLUF-style briefings—so you see the pattern before the headline. A serious pipeline you can inspect, not vaporware.
         </p>
         <div class="l-cta-row">
-          <a class="l-btn l-btn--primary" href="/demo">View curated demo</a>
-          <a class="l-btn l-btn--ghost" href="/app/dashboard">Open live dashboard</a>
+          <a class="l-btn l-btn--primary" href="/app/dashboard">Open live dashboard</a>
+          <a class="l-btn l-btn--ghost" href="/demo">View curated demo</a>
+          <a class="l-btn l-btn--ghost" href="/daily-briefing">Daily briefing</a>
           <a class="l-btn l-btn--ghost" href="/newsletter">Newsletter</a>
         </div>
         <figure class="l-hero__media">
@@ -254,9 +258,43 @@
         </div>
       </section>
 
+      <section id="share" class="l-section l-wrap" aria-labelledby="share-title">
+        <h2 id="share-title">Share the project</h2>
+        <p class="l-section__intro">
+          One link per post works best. Lead with the live dashboard when you want the full map, agents, and ticker; use the curated demo only when you need a zero-setup historical snapshot.
+        </p>
+        <div class="l-start-grid">
+          <article class="l-start-item">
+            <h3>Live dashboard</h3>
+            <p>Full experience: theater map, live ticker, multi-agent panels, and conflict picker. This is the flagship surface.</p>
+            <a href="/app/dashboard">Open live dashboard →</a>
+          </article>
+          <article class="l-start-item">
+            <h3>Curated demo</h3>
+            <p>Historical snapshot, no API setup. Use when you want a static first impression or embed-friendly link.</p>
+            <a href="/demo">Open /demo →</a>
+          </article>
+          <article class="l-start-item">
+            <h3>Daily briefing</h3>
+            <p>BLUF-style readout and PDF export. Best for recurring content and newsletters.</p>
+            <a href="/daily-briefing">Open daily briefing →</a>
+          </article>
+          <article class="l-start-item">
+            <h3>Documentation</h3>
+            <p>How it works, methodology, agents, and source directory.</p>
+            <a href="/docs/documentation">Open docs hub →</a>
+          </article>
+          <article class="l-start-item">
+            <h3>Attention playbook</h3>
+            <p>Audience ladder, content loop, and credibility checklist for growing visibility.</p>
+            <a href="/docs/documentation?doc=attention-playbook">Read playbook →</a>
+          </article>
+        </div>
+      </section>
+
       <section class="l-proof l-wrap">
         <p>
-          Built in public on GitHub. Designed for analysts who need signal, not another dashboard full of charts.
+          Built in public on GitHub. Start on the live dashboard, then daily briefing and docs—signal and methodology over hype.
         </p>
         <a href="https://github.com/lina767/digital-war-room" rel="noopener noreferrer">View repository</a>
       </section>
@@ -270,6 +308,7 @@
             <a href="/impressum">Impressum</a>
             <a href="/support">Support the mission</a>
             <a href="/blog">Blog</a>
+            <a href="/docs/documentation?doc=attention-playbook">Attention playbook</a>
           </div>
           <p class="l-footer__copy">© Digital War Room</p>
         </div>
