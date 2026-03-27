@@ -96,6 +96,12 @@ async def get_proximity_analyze(region: str = "middle_east", days: int = 3):
                     tunnel_geojson = None
         evidence = await run_correlation_for_events(events, tunnel_sites_geojson=tunnel_geojson)
         out = {"evidence": evidence, "region": region, "days": days}
+        if evidence:
+            out["advanced_metrics"] = {
+                "semantic_enriched": sum(1 for e in evidence if e.get("semanticEventType")),
+                "vision_enriched": sum(1 for e in evidence if e.get("visionVerification")),
+                "dynamic_labels": sum(1 for e in evidence if e.get("riskLabelDynamic")),
+            }
         if len(evidence) == 0:
             if len(events) == 0:
                 out["reason_empty"] = "no_strikes"

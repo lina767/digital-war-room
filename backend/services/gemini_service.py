@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import base64
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
@@ -77,6 +78,16 @@ class GeminiTextResponse:
     error: Optional[str] = None
 
 
+@dataclass
+class GeminiVisionResponse:
+    ok: bool
+    parsed_json: Optional[Dict[str, Any]]
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    error: Optional[str] = None
+
+
 def _extract_text(payload: Dict[str, Any]) -> str:
     candidates = payload.get("candidates")
     if not isinstance(candidates, list) or not candidates:
@@ -119,6 +130,10 @@ def _extract_usage(payload: Dict[str, Any]) -> Tuple[int, int]:
         return 0, 0
 
 
+def _gemini_url(api_key: str) -> str:
+    return f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+
+
 def run_gemini_research(prompt: str) -> GeminiResearchResponse:
     api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if not api_key:
@@ -132,7 +147,7 @@ def run_gemini_research(prompt: str) -> GeminiResearchResponse:
             error="missing_gemini_api_key",
         )
 
-    url = f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    url = _gemini_url(api_key)
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
@@ -183,7 +198,7 @@ def run_gemini_text(prompt: str) -> GeminiTextResponse:
             error="missing_gemini_api_key",
         )
 
-    url = f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+    url = _gemini_url(api_key)
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "text/plain"},
@@ -215,4 +230,68 @@ def run_gemini_text(prompt: str) -> GeminiTextResponse:
         output_tokens=output_tokens,
         cost_usd=cost,
         error=None if text else "empty_text_response",
+    )
+
+
+def run_gemini_vision_json(prompt: str, image_bytes: bytes, mime_type: str = "image/png") -> GeminiVisionResponse:
+    """Run Gemini multimodal request (prompt + inline image) expecting JSON output."""
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        return GeminiVisionResponse(
+            ok=False,
+            parsed_json=None,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            error="missing_gemini_api_key",
+        )
+    if not image_bytes:
+        return GeminiVisionResponse(
+            ok=False,
+            parsed_json=None,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            error="missing_image_bytes",
+        )
+
+    url = _gemini_url(api_key)
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+    payload: Dict[str, Any] = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime_type, "data": encoded}},
+                ]
+            }
+        ],
+        "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+    }
+    try:
+        with httpx.Client(timeout=GEMINI_TIMEOUT_SEC) as client:
+            resp = client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.warning("Gemini vision call failed: %s", exc)
+        return GeminiVisionResponse(
+            ok=False,
+            parsed_json=None,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            error=f"request_failed:{type(exc).__name__}",
+        )
+    text = _extract_text(data)
+    parsed = _parse_json_text(text)
+    input_tokens, output_tokens = _extract_usage(data)
+    cost = estimate_cost_usd(input_tokens, output_tokens)
+    return GeminiVisionResponse(
+        ok=parsed is not None,
+        parsed_json=parsed,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=cost,
+        error=None if parsed is not None else "invalid_json_response",
     )

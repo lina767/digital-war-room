@@ -24,24 +24,37 @@ def _compute_proximity_score(evidence: List[Dict[str, Any]]) -> float:
         return 0.0
     total = 0.0
     for e in evidence:
-        label = (e.get("riskLabel") or "").strip()
+        label = (e.get("riskLabelDynamic") or e.get("riskLabel") or "").strip()
+        confidence = float(e.get("riskConfidence") or 1.0)
         if label == "CRITICAL_PROXIMITY":
-            total += 28
+            total += 28 * max(0.6, confidence)
         elif label == "PROBABLE_HUMAN_SHIELD":
-            total += 22
+            total += 22 * max(0.6, confidence)
         elif label == "HIGH_RISK":
-            total += 14
+            total += 14 * max(0.6, confidence)
         elif label == "ELEVATED":
-            total += 6
+            total += 6 * max(0.6, confidence)
+        elif label == "LOW_CONFIDENCE":
+            total += 3
     return min(100.0, total)
 
 
 def _build_summary(evidence: List[Dict[str, Any]], score: float) -> str:
     if not evidence:
         return "PROXIMITY: No strike–civilian correlations in window (no FIRMS anomalies or no nearby OSM facilities)."
-    critical = sum(1 for e in evidence if (e.get("riskLabel") or "") == "CRITICAL_PROXIMITY")
+    critical = sum(
+        1
+        for e in evidence
+        if ((e.get("riskLabelDynamic") or e.get("riskLabel") or "") == "CRITICAL_PROXIMITY")
+    )
     human_shield = sum(1 for e in evidence if (e.get("riskLabel") or "") == "PROBABLE_HUMAN_SHIELD")
-    high = sum(1 for e in evidence if (e.get("riskLabel") or "") == "HIGH_RISK")
+    high = sum(
+        1
+        for e in evidence
+        if ((e.get("riskLabelDynamic") or e.get("riskLabel") or "") == "HIGH_RISK")
+    )
+    sem_enriched = sum(1 for e in evidence if e.get("semanticEventType"))
+    vision_enriched = sum(1 for e in evidence if isinstance(e.get("visionVerification"), dict) and e.get("visionVerification"))
     parts = [f"{len(evidence)} strike–facility correlation(s)."]
     if critical:
         parts.append(f"{critical} critical proximity.")
@@ -49,6 +62,10 @@ def _build_summary(evidence: List[Dict[str, Any]], score: float) -> str:
         parts.append(f"{human_shield} probable human-shield scenario(s).")
     if high:
         parts.append(f"{high} high-risk.")
+    if sem_enriched:
+        parts.append(f"{sem_enriched} semantically classified.")
+    if vision_enriched:
+        parts.append(f"{vision_enriched} visually verified.")
     return "PROXIMITY: " + " ".join(parts)
 
 

@@ -2,8 +2,11 @@
 Proximity correlation: Overpass (schools/hospitals) + optional tunnel/sites GeoJSON.
 Shared by api routes and PROXIMITY agent. Used for IRGC tunnel vs. civilian infrastructure (human shield).
 
-Overpass: batched union queries per run + in-memory TTL cache (per rounded lat/lon) to avoid one HTTP
-request per strike and repeated identical coordinates.
+V2 upgrades:
+- geometry-aware distance for OSM ways/relations (Shapely with robust fallback),
+- semantic event parsing from description (Gemini),
+- optional visual verification via Google Static + Gemini vision,
+- dynamic risk synthesis while preserving legacy risk labels/fields.
 """
 
 import asyncio
@@ -11,10 +14,21 @@ import logging
 import math
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import httpx
+
+from services.proximity_semantic_analysis import analyze_event_description
+from services.proximity_vision_verification import verify_facility_visual
+
+try:
+    from shapely.geometry import LineString, Point, Polygon
+
+    HAS_SHAPELY = True
+except Exception:  # pragma: no cover - fallback path tested via behavior
+    HAS_SHAPELY = False
 
 logger = logging.getLogger(__name__)
 OVERPASS_URLS = [
@@ -26,6 +40,10 @@ RADIUS_M = 300
 CRITICAL_M = 50
 HIGH_RISK_M = 150
 HUMAN_SHIELD_NEAR_M = 100
+PROXIMITY_ADVANCED_RISK_ENABLED = (os.getenv("PROXIMITY_ADVANCED_RISK_ENABLED", "1").strip().lower() in ("1", "true", "yes"))
+PROXIMITY_SEMANTIC_ENABLED = (os.getenv("PROXIMITY_SEMANTIC_ENABLED", "1").strip().lower() in ("1", "true", "yes"))
+PROXIMITY_VISION_ENABLED = (os.getenv("PROXIMITY_VISION_ENABLED", "1").strip().lower() in ("1", "true", "yes"))
+PROXIMITY_VISION_MIN_RISK = os.getenv("PROXIMITY_VISION_MIN_RISK", "HIGH_RISK").strip().upper()
 # Delay between *batch* Overpass calls when a run needs multiple batches (rate limit courtesy).
 OVERPASS_DELAY_S = 1.1
 # Cache OSM facility lists per strike location (rounded); default 1 h.
@@ -58,15 +76,17 @@ def _overpass_query_batch(coords: List[Tuple[float, float]], radius_m: int) -> s
     for lat, lon in coords:
         lines.append(f'  node(around:{radius_m},{lat},{lon})["amenity"~"school|hospital|place_of_worship"];')
         lines.append(f'  way(around:{radius_m},{lat},{lon})["amenity"~"school|hospital|place_of_worship"];')
+        lines.append(f'  relation(around:{radius_m},{lat},{lon})["amenity"~"school|hospital|place_of_worship"];')
         lines.append(f'  node(around:{radius_m},{lat},{lon})["office"="government"];')
         lines.append(f'  way(around:{radius_m},{lat},{lon})["office"="government"];')
+        lines.append(f'  relation(around:{radius_m},{lat},{lon})["office"="government"];')
     inner = "\n".join(lines)
     return f"""
 [out:json][timeout:25];
 (
 {inner}
 );
-out body center;
+out body geom center;
 """.strip()
 
 
@@ -78,11 +98,26 @@ def _parse_overpass_elements(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     for el in elements:
         tags = el.get("tags") or {}
         name = tags.get("name") or tags.get("name:en") or "Unnamed facility"
+        geometry_points = el.get("geometry") if isinstance(el.get("geometry"), list) else []
+        geometry_latlon: List[Tuple[float, float]] = []
+        for gp in geometry_points:
+            if not isinstance(gp, dict):
+                continue
+            try:
+                geometry_latlon.append((float(gp.get("lat")), float(gp.get("lon"))))
+            except Exception:
+                continue
         if el.get("type") == "node":
             flat, flon = float(el.get("lat", 0)), float(el.get("lon", 0))
+            geometry_type = "point"
         elif el.get("type") == "way" and el.get("center"):
             c = el["center"]
             flat, flon = float(c.get("lat", 0)), float(c.get("lon", 0))
+            geometry_type = "polygon_or_line" if geometry_latlon else "point"
+        elif el.get("type") == "relation" and el.get("center"):
+            c = el["center"]
+            flat, flon = float(c.get("lat", 0)), float(c.get("lon", 0))
+            geometry_type = "relation"
         else:
             continue
         key = f"{flat:.5f}-{flon:.5f}-{name}"
@@ -97,6 +132,9 @@ def _parse_overpass_elements(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "lon": flon,
                 "amenity": tags.get("amenity"),
                 "office": tags.get("office"),
+                "osm_type": el.get("type"),
+                "geometry_type": geometry_type,
+                "geometry": geometry_latlon,
             }
         )
     return facilities
@@ -196,6 +234,37 @@ def _tunnel_sites_from_geojson(fc: Dict[str, Any]) -> List[tuple[float, float]]:
     return out
 
 
+def _distance_to_geometry_m(strike_lat: float, strike_lon: float, fac: Dict[str, Any]) -> Tuple[float, str]:
+    """Distance in meters to facility geometry; fallback to center Haversine."""
+    center_distance = haversine_m(strike_lat, strike_lon, fac["lat"], fac["lon"])
+    if not HAS_SHAPELY:
+        return center_distance, "haversine_center"
+    geometry = fac.get("geometry") or []
+    if not isinstance(geometry, list) or len(geometry) < 2:
+        return center_distance, "haversine_center"
+    coords = []
+    for lat, lon in geometry:
+        try:
+            coords.append((float(lon), float(lat)))
+        except Exception:
+            continue
+    if len(coords) < 2:
+        return center_distance, "haversine_center"
+    try:
+        strike_pt = Point(float(strike_lon), float(strike_lat))
+        shape = None
+        # Closed ring with enough points => polygon boundary distance.
+        if len(coords) >= 4 and coords[0] == coords[-1]:
+            shape = Polygon(coords)
+        else:
+            shape = LineString(coords)
+        nearest_pt = shape.exterior.interpolate(shape.exterior.project(strike_pt)) if isinstance(shape, Polygon) else shape.interpolate(shape.project(strike_pt))
+        geom_distance = haversine_m(strike_lat, strike_lon, float(nearest_pt.y), float(nearest_pt.x))
+        return geom_distance, "shapely_geometry"
+    except Exception:
+        return center_distance, "haversine_center"
+
+
 def _nearest_and_risk(
     strike_lat: float,
     strike_lon: float,
@@ -207,11 +276,13 @@ def _nearest_and_risk(
         return None
     best = None
     best_dist = 1e9
+    best_distance_method = "haversine_center"
     for fac in facilities:
-        d = haversine_m(strike_lat, strike_lon, fac["lat"], fac["lon"])
+        d, distance_method = _distance_to_geometry_m(strike_lat, strike_lon, fac)
         if d < best_dist and d <= RADIUS_M:
             best_dist = d
             best = fac
+            best_distance_method = distance_method
     if not best:
         return None
     if best_dist < CRITICAL_M:
@@ -229,6 +300,7 @@ def _nearest_and_risk(
         "facility": best,
         "distance_meters": round(best_dist, 1),
         "risk_label": risk,
+        "distance_method": best_distance_method,
     }
 
 
@@ -241,6 +313,100 @@ def _summary(facility_name: str, dist_m: float, risk: str) -> str:
     if risk == "HIGH_RISK":
         return f"Strike within {d}m of {facility_name}. High risk of collateral damage or dual-use."
     return f"Strike within {d}m of {facility_name}. Elevated risk; monitor for collateral impact."
+
+
+def _parse_daypart(acquired: Any) -> str:
+    s = str(acquired or "").strip()
+    if not s:
+        return "unknown"
+    # Accept ISO or HHMM-like patterns from FIRMS payloads.
+    hour: Optional[int] = None
+    if "T" in s:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
+            hour = dt.hour
+        except Exception:
+            hour = None
+    if hour is None and s.isdigit() and len(s) in (3, 4):
+        try:
+            hh = int(s[:-2]) if len(s) == 4 else int(s[0])
+            hour = max(0, min(23, hh))
+        except Exception:
+            hour = None
+    if hour is None:
+        return "unknown"
+    if 6 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 18:
+        return "day"
+    if 18 <= hour < 22:
+        return "evening"
+    return "night"
+
+
+def _vision_needed(base_risk: str, semantic: Dict[str, Any]) -> bool:
+    if not PROXIMITY_VISION_ENABLED:
+        return False
+    severity_rank = {"ELEVATED": 1, "HIGH_RISK": 2, "CRITICAL_PROXIMITY": 3, "PROBABLE_HUMAN_SHIELD": 4}
+    min_rank = severity_rank.get(PROXIMITY_VISION_MIN_RISK, 2)
+    base_rank = severity_rank.get(base_risk, 0)
+    sem_intensity = float(semantic.get("intensity", 0.0) or 0.0)
+    return base_rank >= min_rank or sem_intensity >= 0.75
+
+
+def _dynamic_risk_synthesis(
+    base_risk: str,
+    distance_m: float,
+    facility_type: str,
+    semantic: Dict[str, Any],
+    vision: Dict[str, Any],
+    acquired: Any,
+) -> Dict[str, Any]:
+    # Start from legacy risk for backward compatibility.
+    score = 0.2
+    if base_risk == "CRITICAL_PROXIMITY":
+        score = 0.92
+    elif base_risk == "PROBABLE_HUMAN_SHIELD":
+        score = 0.88
+    elif base_risk == "HIGH_RISK":
+        score = 0.73
+    elif base_risk == "ELEVATED":
+        score = 0.5
+    drivers: List[str] = [f"base_risk={base_risk}", f"distance_m={round(distance_m, 1)}"]
+    sem_intensity = float(semantic.get("intensity", 0.0) or 0.0)
+    if sem_intensity > 0:
+        score += min(0.2, sem_intensity * 0.2)
+        drivers.append(f"semantic_intensity={sem_intensity:.2f}")
+    daypart = _parse_daypart(acquired)
+    if "school" in (facility_type or "").lower() and daypart in ("morning", "day"):
+        score += 0.08
+        drivers.append(f"daypart_exposure={daypart}")
+    if daypart == "night" and "school" in (facility_type or "").lower():
+        score -= 0.05
+        drivers.append("night_lower_school_occupancy")
+    supports_tag = vision.get("supports_tag")
+    vision_conf = float(vision.get("confidence", 0.0) or 0.0)
+    if supports_tag is True:
+        score += min(0.08, vision_conf * 0.08)
+        drivers.append("vision_supports_osm_tag")
+    elif supports_tag is False:
+        score -= min(0.12, vision_conf * 0.12)
+        drivers.append("vision_conflicts_with_osm_tag")
+    score = max(0.0, min(1.0, score))
+    if score >= 0.9:
+        label = "CRITICAL_PROXIMITY"
+    elif score >= 0.78:
+        label = "HIGH_RISK"
+    elif score >= 0.58:
+        label = "ELEVATED"
+    else:
+        label = "LOW_CONFIDENCE"
+    return {
+        "risk_label_dynamic": label,
+        "risk_confidence": round(score, 3),
+        "risk_drivers": drivers[:8],
+        "daypart": daypart,
+    }
 
 
 async def run_correlation_for_events(
@@ -262,6 +428,19 @@ async def run_correlation_for_events(
         if lat is None or lon is None:
             continue
         valid.append((float(lat), float(lon), ev))
+
+    semantics_by_desc: Dict[str, Dict[str, Any]] = {}
+    if PROXIMITY_SEMANTIC_ENABLED:
+        descs = sorted(
+            {
+                str(ev.get("description") or "").strip()
+                for _, _, ev in valid
+                if str(ev.get("description") or "").strip()
+            }
+        )
+        sem_results = await asyncio.gather(*[analyze_event_description(d) for d in descs], return_exceptions=True)
+        for desc, sem in zip(descs, sem_results):
+            semantics_by_desc[desc] = sem if isinstance(sem, dict) else {}
 
     # Distinct coordinates that are not yet in TTL cache → batch fetch (union query per chunk).
     need_fetch: List[Tuple[float, float]] = []
@@ -309,12 +488,43 @@ async def run_correlation_for_events(
         if dedupe_key in seen_evidence:
             continue
         seen_evidence.add(dedupe_key)
+        description = str(ev.get("description") or "").strip()
+        semantic = semantics_by_desc.get(description, {}) if description else {}
+        vision = {}
+        if _vision_needed(res["risk_label"], semantic):
+            try:
+                vision = await verify_facility_visual(
+                    facility_name=fac["name"],
+                    facility_type=(fac.get("amenity") or fac.get("office") or "civilian infrastructure"),
+                    facility_lat=float(fac["lat"]),
+                    facility_lon=float(fac["lon"]),
+                )
+            except Exception:
+                vision = {}
+        dynamic = _dynamic_risk_synthesis(
+            base_risk=res["risk_label"],
+            distance_m=float(res["distance_meters"]),
+            facility_type=(fac.get("amenity") or fac.get("office") or ""),
+            semantic=semantic,
+            vision=vision,
+            acquired=ev.get("acquired"),
+        )
         evidence.append(
             {
                 "facilityName": fac["name"],
                 "facilityType": fac.get("amenity") or fac.get("office") or "civilian infrastructure",
                 "distanceMeters": res["distance_meters"],
                 "riskLabel": res["risk_label"],
+                "riskLabelDynamic": dynamic["risk_label_dynamic"] if PROXIMITY_ADVANCED_RISK_ENABLED else res["risk_label"],
+                "riskConfidence": dynamic["risk_confidence"] if PROXIMITY_ADVANCED_RISK_ENABLED else None,
+                "riskDrivers": dynamic["risk_drivers"] if PROXIMITY_ADVANCED_RISK_ENABLED else [],
+                "geometryType": fac.get("geometry_type") or "point",
+                "distanceMethod": res.get("distance_method") or "haversine_center",
+                "semanticEventType": semantic.get("event_type"),
+                "semanticIntensity": semantic.get("intensity"),
+                "semanticConfidence": semantic.get("confidence"),
+                "visionVerification": vision if isinstance(vision, dict) else {},
+                "daypart": dynamic["daypart"] if PROXIMITY_ADVANCED_RISK_ENABLED else _parse_daypart(ev.get("acquired")),
                 "strikeLat": slat,
                 "strikeLon": slon,
                 "facilityLat": fac["lat"],
