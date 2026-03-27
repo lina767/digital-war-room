@@ -10,11 +10,7 @@ Use this when pitching the project in bios, threads, and README intros.
 
 **Pinned in the repo:** the same string is the single source of truth in code as `PINNED_ONE_LINER` in [`src/lib/seoCopy.ts`](../src/lib/seoCopy.ts). Site meta (`index.html`, `app/index.html`), Open Graph/Twitter, JSON-LD, PWA `manifest.json`, dashboard SEO description, and [`README.md`](../README.md) are aligned to it.
 
-### Social bios (copy-paste)
-
-- **Full:** the bold one-liner above (LinkedIn long bio, README, PR descriptions).
-- **Short (~160 chars):** use `PINNED_ONE_LINER_SOCIAL_SHORT` from `src/lib/seoCopy.ts` — or paste:  
-  `Digital War Room — AI-native OSINT: fuse open conflict signals into one visual picture + BLUF briefings. Inspectable methodology · https://digital-war-room.com`
+**Social / author bios** are maintained on the [live site](https://digital-war-room.com) (footer)—not duplicated in this repo.
 
 ## Audience ladder
 
@@ -76,7 +72,7 @@ Lean into what the codebase already supports:
 
 ## 30-day starter checklist
 
-- [ ] Pin the one-liner narrative in README, site meta, and your social bios.
+- [ ] Keep the one-liner aligned in README, site meta, and `PINNED_ONE_LINER` in code; keep author/social bios on the [live site](https://digital-war-room.com) only.
 - [ ] Post 2–3 times per week: **dashboard** link or visual, demo when zero-setup helps, or doc excerpt.
 - [ ] Publish one longer piece (blog or doc update) on methodology or one agent family.
 - [ ] Send or schedule one newsletter that points to `/daily-briefing` or **`/app/dashboard`** (or `/demo` if you stress no-setup).

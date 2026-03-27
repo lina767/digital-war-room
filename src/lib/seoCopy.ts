@@ -6,10 +6,6 @@
 export const PINNED_ONE_LINER =
   "Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect.";
 
-/** Fits typical short bios (e.g. X ~160 chars). Same narrative, tighter + URL. */
-export const PINNED_ONE_LINER_SOCIAL_SHORT =
-  "Digital War Room — AI-native OSINT: fuse open conflict signals into one visual picture + BLUF briefings. Inspectable methodology · https://digital-war-room.com";
-
 // Agent Monitor
 export const TITLE_AGENT_MONITOR = "Agent Monitor – Digital War Room";
 export const DESCRIPTION_AGENT_MONITOR =

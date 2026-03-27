@@ -12,13 +12,7 @@
 
 > **Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect.**
 
-Canonical in code as [`PINNED_ONE_LINER`](src/lib/seoCopy.ts) in `src/lib/seoCopy.ts` (update there first, then sync `index.html` meta if you change the wording). Social-ready short line: [`PINNED_ONE_LINER_SOCIAL_SHORT`](src/lib/seoCopy.ts).
-
-### Social bios (copy-paste)
-
-- **Full (site README, LinkedIn “About” lead, long bio):** use the quoted one-liner above.
-- **Short (X, tight bios):**  
-  `Digital War Room — AI-native OSINT: fuse open conflict signals into one visual picture + BLUF briefings. Inspectable methodology · https://digital-war-room.com`
+Canonical in code: [`PINNED_ONE_LINER`](src/lib/seoCopy.ts) — when you change the wording, sync `index.html` / `app/index.html` meta and JSON-LD. **Author and social bios** live on the [website](https://digital-war-room.com) (footer), not duplicated here.
 
 Real-time conflict monitoring with specialized agents across GEOINT, SIGINT, SOCMINT, FININT, CYBER, and related domains — orchestrated by a single Claude Sonnet supervisor with rule-based routing.
 
