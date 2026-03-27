@@ -37,10 +37,112 @@ _NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED = (
 _NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY = max(
     0, min(6, int(os.getenv("NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY", "0")))
 )
+_NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED = (
+    (os.getenv("NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED", "true") or "").strip().lower() not in ("0", "false", "no")
+)
+_NEWSLETTER_INFOGRAPHIC_MODEL = (
+    os.getenv("NEWSLETTER_INFOGRAPHIC_MODEL") or "gemini-3.1-flash-image-preview"
+).strip()
+_NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC = float(os.getenv("NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC", "45"))
+
+_weekly_infographic_task_cache: dict[str, "asyncio.Task[Optional[str]]"] = {}
+_weekly_infographic_task_lock = asyncio.Lock()
 
 
 def _is_weekly_infographic_day(now_utc: datetime) -> bool:
     return _NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED and now_utc.weekday() == _NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY
+
+
+def _build_weekly_infographic_prompt(conflict: str, date_str: str, briefing_data: Dict[str, Any]) -> str:
+    summary = (briefing_data.get("summary") or "").strip()[:700]
+    findings = briefing_data.get("key_findings") or []
+    findings = [str(x).strip() for x in findings if str(x).strip()][:6]
+    findings_block = "\n".join(f"- {item[:180]}" for item in findings) or "- No major findings available."
+    threat = str(briefing_data.get("threat_level") or "ELEVATED").upper()
+    escalation = briefing_data.get("escalation_score")
+    esc_txt = f"{escalation}/100" if escalation is not None else "n/a"
+    return (
+        "Create a clean intelligence infographic in landscape format (16:9), editorial style, "
+        "high contrast, minimal iconography, no logos.\n"
+        f"Title: Weekly Intelligence Snapshot - {conflict}\n"
+        f"Date: {date_str}\n"
+        f"Threat level: {threat}\n"
+        f"Escalation score: {esc_txt}\n"
+        "Executive summary:\n"
+        f"{summary or 'No summary available.'}\n"
+        "Top findings:\n"
+        f"{findings_block}\n"
+        "Constraints: concise labels, modern dashboard aesthetic, no fake charts, "
+        "no unreadable tiny text, no references to sources not provided."
+    )
+
+
+async def _generate_weekly_infographic_data_uri(
+    *, conflict: str, date_str: str, briefing_data: Dict[str, Any]
+) -> Optional[str]:
+    if not _NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED:
+        return None
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        return None
+    api_base = (os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
+    url = f"{api_base}/models/{_NEWSLETTER_INFOGRAPHIC_MODEL}:generateContent?key={api_key}"
+    prompt = _build_weekly_infographic_prompt(conflict, date_str, briefing_data)
+    payload: Dict[str, Any] = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.35},
+    }
+    try:
+        timeout = httpx.Timeout(_NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.warning("Newsletter weekly infographic generation failed: %s", exc)
+        return None
+
+    candidates = data.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    first = candidates[0] if isinstance(candidates[0], dict) else {}
+    content = first.get("content") if isinstance(first, dict) else {}
+    parts = content.get("parts") if isinstance(content, dict) else []
+    if not isinstance(parts, list):
+        return None
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        inline = part.get("inlineData") if isinstance(part.get("inlineData"), dict) else part.get("inline_data")
+        if not isinstance(inline, dict):
+            continue
+        raw = inline.get("data")
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
+        return f"data:{mime};base64,{raw}"
+    return None
+
+
+async def _get_weekly_infographic_data_uri(
+    *, conflict: str, date_str: str, briefing_data: Dict[str, Any]
+) -> Optional[str]:
+    key = f"{date_str}:{conflict.lower().strip()}"
+    async with _weekly_infographic_task_lock:
+        task = _weekly_infographic_task_cache.get(key)
+        if task is None:
+            task = asyncio.create_task(
+                _generate_weekly_infographic_data_uri(
+                    conflict=conflict,
+                    date_str=date_str,
+                    briefing_data=briefing_data,
+                )
+            )
+            _weekly_infographic_task_cache[key] = task
+    try:
+        return await task
+    except Exception:
+        return None
 
 
 def _is_configured() -> bool:
@@ -160,7 +262,14 @@ async def send_confirmation_email(email: str, conflict: str, confirm_token: str,
     )
 
 
-async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str, Any], unsubscribe_token: str) -> bool:
+async def send_daily_briefing(
+    email: str,
+    conflict: str,
+    briefing_data: Dict[str, Any],
+    unsubscribe_token: str,
+    *,
+    force_weekly_infographic: bool = False,
+) -> bool:
     """
     Send daily briefing email. briefing_data: summary, key_findings (list), escalation_score, etc.
     """
@@ -179,7 +288,13 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
     summary = (briefing_data.get("summary") or "").strip() or "No summary available."
     key_findings = briefing_data.get("key_findings") or []
     briefing_payload = dict(briefing_data or {})
-    briefing_payload["_weekly_infographic_enabled"] = _is_weekly_infographic_day(now_utc)
+    briefing_payload["_weekly_infographic_enabled"] = force_weekly_infographic or _is_weekly_infographic_day(now_utc)
+    if briefing_payload["_weekly_infographic_enabled"]:
+        briefing_payload["_weekly_infographic_data_uri"] = await _get_weekly_infographic_data_uri(
+            conflict=conflict,
+            date_str=date_str,
+            briefing_data=briefing_payload,
+        )
     view_link = _briefing_link(conflict)
     unsub_link = _unsubscribe_link(unsubscribe_token)
     if is_digest:

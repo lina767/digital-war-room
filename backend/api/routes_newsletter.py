@@ -7,6 +7,7 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Header, Request
@@ -58,6 +59,7 @@ NEWSLETTER_DEFAULT_CONFLICT = (os.getenv("NEWSLETTER_DEFAULT_CONFLICT") or "Glob
 # Bounded concurrent Resend calls per conflict batch (daily send)
 _NEWSLETTER_SEND_PARALLELISM = max(1, min(20, int(os.getenv("NEWSLETTER_SEND_PARALLELISM", "5"))))
 _NEWSLETTER_DAILY_DEDUPE = (os.getenv("NEWSLETTER_DAILY_DEDUPE", "true") or "").strip().lower() not in ("0", "false", "no")
+_NEWSLETTER_SEND_WEEKDAY_UTC = (os.getenv("NEWSLETTER_SEND_WEEKDAY_UTC") or "").strip()
 
 
 def _configured_newsletter_secret() -> str:
@@ -73,6 +75,18 @@ def _is_valid_newsletter_secret(*provided: str | None) -> bool:
     if not secret:
         return True
     return any((p or "").strip() == secret for p in provided)
+
+
+def _is_scheduled_send_day_utc(*, now_utc: datetime | None = None) -> bool:
+    raw = _NEWSLETTER_SEND_WEEKDAY_UTC
+    if raw == "":
+        return True
+    try:
+        configured = max(0, min(6, int(raw)))
+    except ValueError:
+        return True
+    now = now_utc or datetime.now(timezone.utc)
+    return now.weekday() == configured
 
 
 class SubscribeBody(BaseModel):
@@ -114,6 +128,28 @@ class SyncFromResendBody(BaseModel):
         max_length=80,
         description="Resend segment UUID; defaults to RESEND_NEWSLETTER_SEGMENT_ID(S) / RESEND_AUDIENCE_ID",
     )
+
+
+class PreviewWeeklyInfographicBody(BaseModel):
+    email: EmailStr = Field(..., description="Target email for preview send")
+    conflict: str | None = Field(None, max_length=80, description="Conflict name (optional)")
+
+    @field_validator("conflict", mode="before")
+    @classmethod
+    def _strip_optional_conflict(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise TypeError("conflict must be a string")
+        s = v.strip()
+        return s if s else None
+
+    @field_validator("conflict")
+    @classmethod
+    def _validate_optional_conflict(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return sanitize_conflict(v)
 
 
 @router.post("/newsletter/subscribe")
@@ -220,6 +256,9 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
     conflicts = get_conflicts_with_subscribers()
     if not conflicts:
         return ([], 0, False)
+    if not _is_scheduled_send_day_utc():
+        logger.info("Newsletter daily: skipped because today is not configured send weekday (UTC)")
+        return (conflicts, 0, False)
 
     acquired_lock = False
     if _NEWSLETTER_DAILY_DEDUPE:
@@ -458,6 +497,11 @@ async def newsletter_send_daily(
     """
     if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
         return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    if not _is_scheduled_send_day_utc():
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Skipped: today is not the configured send weekday (UTC).", "sent": 0, "skipped_weekday": True},
+        )
     conflicts, sent_total, skipped_dup = await run_daily_newsletter_job(request.app.state)
     if not conflicts:
         return JSONResponse(status_code=200, content={"message": "No subscribers.", "sent": 0})
@@ -474,4 +518,56 @@ async def newsletter_send_daily(
     return JSONResponse(
         status_code=200,
         content={"message": "Daily run complete.", "conflicts": conflicts, "sent": sent_total},
+    )
+
+
+@router.post("/newsletter/preview-weekly-infographic")
+@limiter.limit("3/minute")
+async def newsletter_preview_weekly_infographic(
+    request: Request,
+    body: PreviewWeeklyInfographicBody,
+    x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
+) -> JSONResponse:
+    """
+    POST /api/newsletter/preview-weekly-infographic – send one preview email with weekly infographic forced on.
+    Protected by NEWSLETTER_CRON_SECRET.
+    """
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    conflict = body.conflict or NEWSLETTER_DEFAULT_CONFLICT
+    email = (body.email or "").strip().lower()
+    loop = asyncio.get_running_loop()
+
+    def _run_analyze_default(c: str) -> Any:
+        tid = get_default_tenant_id()
+        ctx = RequestContext(tenant_id=tid, user_id=None, role="viewer", auth_method="default")
+        tok = set_request_context(ctx)
+        try:
+            return analyze_conflict(c)
+        finally:
+            reset_request_context(tok)
+
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda c=conflict: _run_analyze_default(c)),
+            timeout=float(ANALYZE_TIMEOUT_SEC),
+        )
+    except asyncio.TimeoutError:
+        return JSONResponse(status_code=504, content={"error": "Preview analysis timed out."})
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": f"Preview analysis failed: {e}"})
+
+    sent = await send_daily_briefing(
+        email,
+        conflict,
+        result if isinstance(result, dict) else {},
+        unsubscribe_token="preview-token",
+        force_weekly_infographic=True,
+    )
+    if not sent:
+        return JSONResponse(status_code=502, content={"error": "Preview email send failed."})
+    return JSONResponse(
+        status_code=200,
+        content={"message": "Weekly infographic preview sent.", "email": email, "conflict": conflict},
     )

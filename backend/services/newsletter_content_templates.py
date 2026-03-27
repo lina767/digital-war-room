@@ -163,8 +163,15 @@ def _agent_score_rows(briefing_data: Dict[str, Any], *, limit: int = 6) -> List[
 def _weekly_infographic_html(briefing_data: Dict[str, Any], key_findings: List[str]) -> str:
     score_rows = _agent_score_rows(briefing_data, limit=6)
     findings = [(f or "").strip() for f in (key_findings or []) if (f or "").strip()][:4]
+    image_data_uri = (briefing_data.get("_weekly_infographic_data_uri") or "").strip()
     if not score_rows and not findings:
         return ""
+    image_html = (
+        f'<p style="margin:0 0 10px 0;"><img src="{image_data_uri}" alt="Weekly intelligence infographic" '
+        'style="display:block;width:100%;max-width:620px;height:auto;border:1px solid #cbd5e1;" /></p>'
+        if image_data_uri.startswith("data:image/")
+        else ""
+    )
     score_html = ""
     for label, score in score_rows:
         score_html += f"""
@@ -183,6 +190,7 @@ def _weekly_infographic_html(briefing_data: Dict[str, Any], key_findings: List[s
                   <tr>
                     <td style="padding:12px 14px;background:#f8fafc;border:1px solid #cbd5e1;">
                       <p style="margin:0 0 8px 0;font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#475569;">Weekly infographic snapshot</p>
+                      {image_html}
                       <table role="presentation" width="100%" style="border-collapse:collapse;">
                         {score_html}
                       </table>
