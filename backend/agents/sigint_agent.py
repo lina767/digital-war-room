@@ -162,13 +162,40 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
         for a in aircraft:
             cat = str(a.get("category") or "military")
             by_cat_counts[cat] = by_cat_counts.get(cat, 0) + 1
-        trigger_haiku = (
-            len(aircraft) >= 4
-            or by_cat_counts.get("doomsday", 0) > 0
-            or by_cat_counts.get("iranian_gov", 0) > 0
+
+        target_status: Dict[str, str] = {}
+        for tname, tdata in target_tracks.items():
+            if not isinstance(tdata, dict) or tdata.get("error"):
+                target_status[tname] = "error"
+                continue
+            if tdata.get("adsbx") or tdata.get("adsbexchange_rapidapi") or tdata.get("opensky") or tdata.get("fallback_sigint"):
+                target_status[tname] = "active_signal"
+            else:
+                target_status[tname] = "no_signal"
+
+        has_sigint_context = bool(
+            aircraft
+            or ships
+            or reports
+            or notams
+            or any(v != "error" for v in target_status.values())
         )
-        if trigger_haiku:
+
+        if has_sigint_context:
             try:
+                report_titles = [
+                    str(r.get("title") or "")[:200]
+                    for r in reports[:8]
+                    if isinstance(r, dict) and r.get("title")
+                ]
+                notam_snippets: List[str] = []
+                for n in notams[:3]:
+                    if not isinstance(n, dict):
+                        continue
+                    txt = (n.get("text") or n.get("summary") or "")[:240]
+                    if txt.strip():
+                        notam_snippets.append(txt.strip())
+
                 compact = {
                     "conflict": conflict,
                     "sigint_score": round(score, 1),
@@ -177,14 +204,29 @@ def _run_rule_based_sigint(conflict: str) -> Dict[str, Any]:
                     "reports_count": len(reports),
                     "notams_count": len(notams),
                     "category_breakdown": by_cat_counts,
-                    "top_flights": [str(a.get("flight") or "?") for a in aircraft[:8]],
+                    "aircraft_detail": [
+                        {
+                            "flight": str(a.get("flight") or "?"),
+                            "category": str(a.get("category") or "military"),
+                            "type": str(a.get("type") or ""),
+                        }
+                        for a in aircraft[:16]
+                    ],
+                    "alerts_summary": alerts[:12],
+                    "intel_report_titles": report_titles,
+                    "notam_excerpts": notam_snippets,
+                    "tracked_targets": target_status,
                 }
                 prompt = (
-                    "You are a SIGINT analyst.\n"
-                    "Task: Explain what elevated military aircraft activity can imply for escalation.\n"
-                    "Rules: Write exactly 1-2 short, cautious sentences. Use only the provided data. "
-                    "No markdown, no bullets.\n\n"
-                    f"DATA:\n{json.dumps(compact, ensure_ascii=True)}"
+                    "You are a SIGINT analyst for military air and maritime indicators.\n"
+                    "Task: Brief assessment of the full dataset (score, aircraft, ships, "
+                    "reports, NOTAMs, target tracks) in the conflict context.\n"
+                    "Rules:\n"
+                    "- Write 2–4 sentences in English, cautious and factual.\n"
+                    "- Use only the provided fields; do not invent facts.\n"
+                    "- No markdown, no bullets, no heading.\n"
+                    "- Briefly interpret what the score broadly suggests without treating it as ground truth.\n\n"
+                    f"DATA (JSON):\n{json.dumps(compact, ensure_ascii=True)}"
                 )
                 gemini_result = run_gemini_text(prompt)
                 if gemini_result.ok and gemini_result.text:
