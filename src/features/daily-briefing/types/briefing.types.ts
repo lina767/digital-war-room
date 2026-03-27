@@ -122,6 +122,8 @@ export interface DailyBriefingData {
   chokepoints: ChokepointStatus[];
   /** Energy-agent note when present (e.g. Hormuz / oil shock). */
   globalImpactNote?: string | null;
+  /** Same asset as the daily email infographic when the backend attached it to cached analysis. */
+  newsletterInfographicDataUri?: string | null;
   generatedAt: Date;
   version: string;
 }

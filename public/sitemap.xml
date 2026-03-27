@@ -55,6 +55,12 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://digital-war-room.com/docs/documentation?doc=attention-playbook</loc>
+    <lastmod>2026-03-27</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.65</priority>
+  </url>
+  <url>
     <loc>https://digital-war-room.com/docs/documentation?doc=how-it-works</loc>
     <lastmod>2026-03-27</lastmod>
     <changefreq>monthly</changefreq>

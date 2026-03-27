@@ -10,6 +10,7 @@ import os
 import random
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 from urllib.parse import urlparse, urlencode
 
 import httpx
@@ -18,11 +19,19 @@ from services.email_templates import (
     confirmation_email_html,
     confirmation_email_text,
 )
-from services.newsletter_content_templates import daily_briefing_email_html, daily_briefing_email_text
 from services.newsletter_content_templates import (
     daily_briefing_digest_html,
     daily_briefing_digest_text,
+    daily_briefing_email_html,
+    daily_briefing_email_text,
+    finding_display_order,
 )
+from services.newsletter_infographic import (
+    compress_data_uri_for_email,
+    max_html_bytes,
+    should_strip_infographic_from_html,
+)
+from services.newsletter_link_builder import build_newsletter_link_bundle, digest_row_url
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +40,9 @@ RESEND_API_URL = "https://api.resend.com/emails"
 _NEWSLETTER_SEND_MAX_RETRIES = max(1, min(8, int(os.getenv("NEWSLETTER_SEND_MAX_RETRIES", "4"))))
 _NEWSLETTER_SEND_BACKOFF_BASE = float(os.getenv("NEWSLETTER_SEND_BACKOFF_BASE", "0.75"))
 _NEWSLETTER_LAYOUT = (os.getenv("NEWSLETTER_LAYOUT") or "single").strip().lower()
+_NEWSLETTER_INFOGRAPHIC_ALWAYS = (
+    (os.getenv("NEWSLETTER_INFOGRAPHIC_ALWAYS", "true") or "").strip().lower() not in ("0", "false", "no")
+)
 _NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED = (
     (os.getenv("NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED", "false") or "").strip().lower() not in ("0", "false", "no")
 )
@@ -45,15 +57,36 @@ _NEWSLETTER_INFOGRAPHIC_MODEL = (
 ).strip()
 _NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC = float(os.getenv("NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC", "45"))
 
-_weekly_infographic_task_cache: dict[str, "asyncio.Task[Optional[str]]"] = {}
-_weekly_infographic_task_lock = asyncio.Lock()
+_daily_infographic_task_cache: dict[str, "asyncio.Task[Optional[str]]"] = {}
+_daily_infographic_task_lock = asyncio.Lock()
+
+
+def newsletter_campaign_date_str(now_utc: Optional[datetime] = None) -> str:
+    """
+    Calendar date (YYYY-MM-DD) in NEWSLETTER_SEND_TIMEZONE for subject lines, UTM campaign, and infographic cache keys.
+    """
+    dt = now_utc or datetime.now(timezone.utc)
+    tz_name = (os.getenv("NEWSLETTER_SEND_TIMEZONE") or "Europe/Berlin").strip() or "Europe/Berlin"
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo("Europe/Berlin")
+    return dt.astimezone(tz).strftime("%Y-%m-%d")
 
 
 def _is_weekly_infographic_day(now_utc: datetime) -> bool:
     return _NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED and now_utc.weekday() == _NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY
 
 
-def _build_weekly_infographic_prompt(conflict: str, date_str: str, briefing_data: Dict[str, Any]) -> str:
+def _infographic_enabled_for_send(now_utc: datetime, *, force: bool) -> bool:
+    if force:
+        return True
+    if _NEWSLETTER_INFOGRAPHIC_ALWAYS:
+        return True
+    return _is_weekly_infographic_day(now_utc)
+
+
+def _build_daily_infographic_prompt(conflict: str, date_str: str, briefing_data: Dict[str, Any]) -> str:
     summary = (briefing_data.get("summary") or "").strip()[:700]
     findings = briefing_data.get("key_findings") or []
     findings = [str(x).strip() for x in findings if str(x).strip()][:6]
@@ -63,8 +96,9 @@ def _build_weekly_infographic_prompt(conflict: str, date_str: str, briefing_data
     esc_txt = f"{escalation}/100" if escalation is not None else "n/a"
     return (
         "Create a clean intelligence infographic in landscape format (16:9), editorial style, "
-        "high contrast, minimal iconography, no logos.\n"
-        f"Title: Weekly Intelligence Snapshot - {conflict}\n"
+        "high contrast, minimal iconography, no logos. Use a light neutral background with dark text "
+        "so the graphic stays readable if email clients apply dark mode color inversion.\n"
+        f"Title: Daily Intelligence Snapshot - {conflict}\n"
         f"Date: {date_str}\n"
         f"Threat level: {threat}\n"
         f"Escalation score: {esc_txt}\n"
@@ -77,7 +111,7 @@ def _build_weekly_infographic_prompt(conflict: str, date_str: str, briefing_data
     )
 
 
-async def _generate_weekly_infographic_data_uri(
+async def _generate_daily_infographic_data_uri(
     *, conflict: str, date_str: str, briefing_data: Dict[str, Any]
 ) -> Optional[str]:
     if not _NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED:
@@ -87,7 +121,7 @@ async def _generate_weekly_infographic_data_uri(
         return None
     api_base = (os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
     url = f"{api_base}/models/{_NEWSLETTER_INFOGRAPHIC_MODEL}:generateContent?key={api_key}"
-    prompt = _build_weekly_infographic_prompt(conflict, date_str, briefing_data)
+    prompt = _build_daily_infographic_prompt(conflict, date_str, briefing_data)
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.35},
@@ -99,7 +133,7 @@ async def _generate_weekly_infographic_data_uri(
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:
-        logger.warning("Newsletter weekly infographic generation failed: %s", exc)
+        logger.warning("Newsletter daily infographic generation failed: %s", exc)
         return None
 
     candidates = data.get("candidates")
@@ -120,29 +154,81 @@ async def _generate_weekly_infographic_data_uri(
         if not isinstance(raw, str) or not raw.strip():
             continue
         mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
-        return f"data:{mime};base64,{raw}"
+        data_uri = f"data:{mime};base64,{raw}"
+        compressed = compress_data_uri_for_email(data_uri)
+        return compressed or data_uri
     return None
 
 
-async def _get_weekly_infographic_data_uri(
+async def _get_daily_infographic_data_uri(
     *, conflict: str, date_str: str, briefing_data: Dict[str, Any]
 ) -> Optional[str]:
     key = f"{date_str}:{conflict.lower().strip()}"
-    async with _weekly_infographic_task_lock:
-        task = _weekly_infographic_task_cache.get(key)
+    async with _daily_infographic_task_lock:
+        task = _daily_infographic_task_cache.get(key)
         if task is None:
             task = asyncio.create_task(
-                _generate_weekly_infographic_data_uri(
+                _generate_daily_infographic_data_uri(
                     conflict=conflict,
                     date_str=date_str,
                     briefing_data=briefing_data,
                 )
             )
-            _weekly_infographic_task_cache[key] = task
+            _daily_infographic_task_cache[key] = task
     try:
         return await task
     except Exception:
         return None
+
+
+async def attach_daily_infographic_to_briefing(
+    briefing_data: Dict[str, Any],
+    conflict: str,
+    date_str: str,
+    *,
+    force: bool = False,
+) -> None:
+    """
+    Mutates briefing_data: sets _newsletter_infographic_enabled and optional _newsletter_infographic_data_uri.
+    Call before caching analysis so the web Daily Briefing can show the same asset.
+    """
+    now_utc = datetime.now(timezone.utc)
+    enabled = _infographic_enabled_for_send(now_utc, force=force)
+    briefing_data["_newsletter_infographic_enabled"] = enabled
+    if not enabled:
+        return
+    if (briefing_data.get("_newsletter_infographic_data_uri") or "").strip().startswith("data:image/"):
+        return
+    uri = await _get_daily_infographic_data_uri(
+        conflict=conflict,
+        date_str=date_str,
+        briefing_data=briefing_data,
+    )
+    if uri:
+        briefing_data["_newsletter_infographic_data_uri"] = uri
+
+
+def _attach_tracked_links(
+    briefing_payload: Dict[str, Any],
+    *,
+    conflict: str,
+    date_str: str,
+    key_findings: list,
+    order_indices: list[int],
+) -> None:
+    base = _base_url()
+    bundle = build_newsletter_link_bundle(
+        base_url=base,
+        conflict=conflict,
+        date_str=date_str,
+        key_findings=list(key_findings or []),
+        finding_display_indices=order_indices[:5],
+    )
+    briefing_payload["_nl_bluf_cta"] = bundle["bluf_cta"]
+    briefing_payload["_nl_infographic_cta"] = bundle["infographic_cta"]
+    briefing_payload["_nl_view_full"] = bundle["view_full"]
+    briefing_payload["_nl_finding_urls"] = bundle["finding_urls"]
+    briefing_payload["_nl_public_fallback"] = bundle["public_briefing_fallback"]
 
 
 def _is_configured() -> bool:
@@ -278,7 +364,7 @@ async def send_daily_briefing(
         return False
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
     now_utc = datetime.now(timezone.utc)
-    date_str = now_utc.strftime("%Y-%m-%d")
+    date_str = newsletter_campaign_date_str(now_utc)
     is_digest = _NEWSLETTER_LAYOUT == "digest"
     subject = (
         f"Daily Briefing Digest – {conflict} – {date_str}"
@@ -288,37 +374,62 @@ async def send_daily_briefing(
     summary = (briefing_data.get("summary") or "").strip() or "No summary available."
     key_findings = briefing_data.get("key_findings") or []
     briefing_payload = dict(briefing_data or {})
-    briefing_payload["_weekly_infographic_enabled"] = force_weekly_infographic or _is_weekly_infographic_day(now_utc)
-    if briefing_payload["_weekly_infographic_enabled"]:
-        briefing_payload["_weekly_infographic_data_uri"] = await _get_weekly_infographic_data_uri(
-            conflict=conflict,
-            date_str=date_str,
-            briefing_data=briefing_payload,
-        )
-    view_link = _briefing_link(conflict)
+
+    infographic_on = _infographic_enabled_for_send(now_utc, force=force_weekly_infographic)
+    briefing_payload["_newsletter_infographic_enabled"] = infographic_on
+    if infographic_on:
+        if not (briefing_payload.get("_newsletter_infographic_data_uri") or "").strip().startswith("data:image/"):
+            briefing_payload["_newsletter_infographic_data_uri"] = await _get_daily_infographic_data_uri(
+                conflict=conflict,
+                date_str=date_str,
+                briefing_data=briefing_payload,
+            )
+
+    kf = list(key_findings or [])
+    conf_list = briefing_payload.get("key_findings_confidence")
+    conf_list = conf_list if isinstance(conf_list, list) else []
+    order = finding_display_order(kf, conf_list if len(conf_list) >= len(kf) else None)
+    _attach_tracked_links(briefing_payload, conflict=conflict, date_str=date_str, key_findings=kf, order_indices=order)
+
+    view_link = briefing_payload.get("_nl_view_full") or _briefing_link(conflict)
     unsub_link = _unsubscribe_link(unsubscribe_token)
+    base = _base_url()
+    digest_view = build_newsletter_link_bundle(
+        base_url=base,
+        conflict=conflict,
+        date_str=date_str,
+        key_findings=kf,
+        finding_display_indices=order[:5],
+    )["view_full"]
+    row_count = len(briefing_payload.get("key_findings") or [])
+    digest_row_links = [digest_row_url(base, date_str, i + 1) for i in range(min(50, row_count))]
+    ctx_list = briefing_payload.get("key_findings_context")
+    ctx_list = ctx_list if isinstance(ctx_list, list) else []
+
     if is_digest:
         html = daily_briefing_digest_html(
             conflict=conflict,
             date_str=date_str,
             summary=summary,
             key_findings=key_findings,
-            view_link=view_link,
+            view_link=digest_view,
             unsubscribe_link=unsub_link,
             briefing_data=briefing_payload,
             threat_level=briefing_payload.get("threat_level"),
-            key_findings_context=briefing_payload.get("key_findings_context"),
+            key_findings_context=ctx_list,
+            row_links=digest_row_links,
         )
         text = daily_briefing_digest_text(
             conflict=conflict,
             date_str=date_str,
             summary=summary,
             key_findings=key_findings,
-            view_link=view_link,
+            view_link=digest_view,
             unsubscribe_link=unsub_link,
             briefing_data=briefing_payload,
             threat_level=briefing_payload.get("threat_level"),
-            key_findings_context=briefing_payload.get("key_findings_context"),
+            key_findings_context=ctx_list,
+            row_links=digest_row_links,
         )
     else:
         html = daily_briefing_email_html(
@@ -331,7 +442,7 @@ async def send_daily_briefing(
             unsubscribe_link=unsub_link,
             briefing_data=briefing_payload,
             threat_level=briefing_payload.get("threat_level"),
-            key_findings_context=briefing_payload.get("key_findings_context"),
+            key_findings_context=ctx_list,
         )
         text = daily_briefing_email_text(
             conflict=conflict,
@@ -343,8 +454,44 @@ async def send_daily_briefing(
             unsubscribe_link=unsub_link,
             briefing_data=briefing_payload,
             threat_level=briefing_payload.get("threat_level"),
-            key_findings_context=briefing_payload.get("key_findings_context"),
+            key_findings_context=ctx_list,
         )
+
+    if should_strip_infographic_from_html(html) and infographic_on:
+        logger.warning(
+            "Newsletter HTML exceeds %s bytes; stripping inline infographic for deliverability",
+            max_html_bytes(),
+        )
+        stripped = dict(briefing_payload)
+        stripped["_newsletter_infographic_data_uri"] = ""
+        stripped["_newsletter_infographic_oversize"] = True
+        if is_digest:
+            html = daily_briefing_digest_html(
+                conflict=conflict,
+                date_str=date_str,
+                summary=summary,
+                key_findings=key_findings,
+                view_link=digest_view,
+                unsubscribe_link=unsub_link,
+                briefing_data=stripped,
+                threat_level=briefing_payload.get("threat_level"),
+                key_findings_context=ctx_list,
+                row_links=digest_row_links,
+            )
+        else:
+            html = daily_briefing_email_html(
+                conflict=conflict,
+                date_str=date_str,
+                summary=summary,
+                key_findings=key_findings,
+                escalation_score=briefing_data.get("escalation_score"),
+                view_link=view_link,
+                unsubscribe_link=unsub_link,
+                briefing_data=stripped,
+                threat_level=briefing_payload.get("threat_level"),
+                key_findings_context=ctx_list,
+            )
+
     return await _send(
         email,
         subject,

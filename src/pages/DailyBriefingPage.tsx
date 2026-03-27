@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { SEO } from "@/components/SEO";
@@ -25,6 +26,7 @@ import {
 
 const NAV_ITEMS = [
   { id: "briefing-summary", label: "Summary" },
+  { id: "briefing-infographic", label: "Infographic" },
   { id: "briefing-developments", label: "Findings" },
   { id: "briefing-predictive", label: "Outlook" },
   { id: "briefing-global", label: "Global" },
@@ -33,9 +35,17 @@ const NAV_ITEMS = [
 ];
 
 export default function DailyBriefingPage() {
+  const [searchParams] = useSearchParams();
   const { state, dispatch, meta } = useBriefingData();
   const exportPdf = useBriefingExport();
   const data = state.data;
+
+  useEffect(() => {
+    const section = searchParams.get("nl_section");
+    if (!section) return;
+    const el = document.getElementById(section);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [searchParams, data]);
   const showLoading = !data && (meta.initialLoadPending || state.isLoading);
   const showError = !data && state.error && !showLoading;
 
@@ -185,6 +195,29 @@ export default function DailyBriefingPage() {
 
           <section id="briefing-summary">
             <BLUFSection summary={data.bluf} contributingAgents={["NEWS", "SIGINT", "FININT"]} threatLevel={data.threatLevel} />
+          </section>
+
+          <section id="briefing-infographic" className="briefing-card mb-4 scroll-mt-20 p-4">
+            <h2 className="briefing-display text-xl">Daily infographic snapshot</h2>
+            <p className="mt-1 text-xs text-[var(--text-secondary)] briefing-mono">
+              Same visual snapshot as the daily briefing email when available from the latest analysis run.
+            </p>
+            {data.newsletterInfographicDataUri ? (
+              <img
+                src={data.newsletterInfographicDataUri}
+                alt="Daily intelligence infographic snapshot"
+                className="mt-3 w-full max-w-3xl rounded-md border border-[var(--border-default)]"
+                width={1200}
+                height={675}
+                loading="lazy"
+                decoding="async"
+              />
+            ) : (
+              <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                No infographic attached to this briefing yet. It appears after the daily newsletter pipeline generates one for
+                this theater.
+              </p>
+            )}
           </section>
 
           <div className="briefing-grid">

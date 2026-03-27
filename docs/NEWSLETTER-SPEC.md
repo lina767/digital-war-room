@@ -35,7 +35,7 @@ Newsletter feature: subscribers receive a daily email with the current Daily Bri
 - **Reference:** [Resend – Managing domains](https://resend.com/docs/dashboard/domains/introduction) (SPF, DKIM, verification).
 - **Module** `backend/services/newsletter_sender.py`:
   - `send_confirmation_email(email: str, conflict: str, confirm_token: str)` – one-time link to `.../newsletter/confirm?token=...`.
-  - `send_daily_briefing(email: str, conflict: str, briefing_data: dict, unsubscribe_token: str)` – subject e.g. `Daily Briefing – [Conflict] – [Date]`; body: summary, key findings (e.g. first 10), link to `/daily-briefing` (Iran-focused page; no conflict query), footer with unsubscribe link `.../newsletter/unsubscribe?token=...`.
+  - `send_daily_briefing(email: str, conflict: str, briefing_data: dict, unsubscribe_token: str)` – subject e.g. `Daily Briefing – [Conflict] – [Date]`; body is **CTR-first** (see §9): short BLUF + primary CTA, daily infographic when generation succeeds, 3–5 key developments with per-item dashboard deep-links and tracked public fallback, footer with unsubscribe link `.../newsletter/unsubscribe?token=...`.
 - All copy in **English**.
 
 ---
@@ -91,6 +91,7 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 ## 7. Env and docs
 
 - **.env.example:** `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL`, optional `RESEND_NEWSLETTER_SEGMENT_ID` / `RESEND_NEWSLETTER_SEGMENT_IDS`, `RESEND_CONTACTS_SYNC`, `NEWSLETTER_CRON_SECRET`, optional `NEWSLETTER_SEND_TIMEZONE` / `NEWSLETTER_SEND_HOUR` / `NEWSLETTER_SEND_MINUTE` (or legacy `NEWSLETTER_SEND_UTC_HOUR`).
+- **Infographic / size (daily default):** `NEWSLETTER_INFOGRAPHIC_ALWAYS` (default `true` — generate for every daily send; set `false` to fall back to weekly-only flags), `NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED`, `NEWSLETTER_INFOGRAPHIC_MODEL`, `NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC`, `NEWSLETTER_INFOGRAPHIC_MAX_IMAGE_BYTES` (decoded image cap before send; JPEG recompress), `NEWSLETTER_MAX_HTML_BYTES` (if full HTML exceeds this after render, inline image is dropped and the mail is re-rendered with a text/link fallback to reduce Gmail clipping). Legacy: `NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED` / `NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY` apply only when `NEWSLETTER_INFOGRAPHIC_ALWAYS=false`.
 
 ### Troubleshooting: „Keine Mail heute“
 
@@ -120,3 +121,42 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 4. Daily job: fixed-time run (asyncio task or cron) → analysis then send.
 5. Frontend: subscribe form, confirm page, unsubscribe page (all English).
 6. Env, docs, privacy text.
+
+---
+
+## 9. CTR-first layout, daily infographic, and link tracking
+
+### Email hierarchy (single layout)
+
+1. **BLUF** — 2–3 short sentences (executive lead).
+2. **Primary CTA** — Opens the live dashboard in the right conflict context (`utm_content=bluf_primary_cta`).
+3. **Infographic** — One inline image (base64) when Gemini generation succeeds; alt text and spacing fixed for clients; on failure or oversize, a compact text block replaces the image without breaking the table layout.
+4. **Key developments** — 3–5 blocks; each has its own **dashboard** deep-link (`utm_content=finding_1` … `finding_5`) with `conflict` and optional `nl_agent` (inferred from finding text) so the app can open the agents panel on the matching row. A **public** tracked link to `/daily-briefing` is provided for cold/unauthenticated readers.
+5. **Footer** — Preferences / unsubscribe unchanged; other links use the same UTM scheme where applicable.
+
+### Digest layout
+
+- Equal-weight rows; each row CTA uses `utm_content=digest_row_{n}` and points at `/daily-briefing` with `nl_section` for scroll targeting.
+
+### UTM contract (all newsletter links)
+
+| Parameter | Value |
+|-----------|--------|
+| `utm_source` | `newsletter` |
+| `utm_medium` | `email` |
+| `utm_campaign` | `daily-briefing-{YYYY-MM-DD}` (calendar date in **`NEWSLETTER_SEND_TIMEZONE`**, default Europe/Berlin, at send time) |
+| `utm_content` | `bluf_primary_cta`, `infographic_cta`, `view_full_briefing`, `finding_1`…`finding_5`, `public_briefing_fallback`, or `digest_row_{n}` |
+
+Implementation: `backend/services/newsletter_link_builder.py` (`build_newsletter_link_bundle`, `build_tracked_url`, `digest_row_url`). Templates and `newsletter_sender.py` must not hand-roll query strings for these CTAs.
+
+### Same infographic on the web Daily Briefing
+
+- After analysis, the API attaches `_newsletter_infographic_data_uri` on the cached briefing payload when generation succeeds (`attach_daily_infographic_to_briefing` in `newsletter_sender.py`, invoked from newsletter/analysis routes before `set_cache`).
+- The public page **`/daily-briefing`** (`DailyBriefingPage.tsx`) renders section `#briefing-infographic` when that field is present; otherwise a short fallback message keeps layout stable.
+- Dashboard entry from email: **`/app/dashboard`** with `conflict` and optional `nl_agent` query params (handled in `Dashboard.tsx`).
+
+### Deliverability and QA operations
+
+- **Size gate:** Keep decoded inline image under `NEWSLETTER_INFOGRAPHIC_MAX_IMAGE_BYTES` (default aligns with ~80 KB target after compression); keep total HTML under `NEWSLETTER_MAX_HTML_BYTES` or strip the inline image automatically.
+- **Dark mode:** Verify infographic legibility in light and dark email previews (Gmail / Outlook-style) before major template or prompt changes.
+- **Metrics:** Record baseline delivery, bounce, complaint, open, and click rates before rollout; after rollout compare by `utm_content` to validate per-slot engagement; define thresholds to switch to a more text-heavy fallback if metrics regress.

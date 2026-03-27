@@ -252,4 +252,6 @@ export interface ConflictData {
   }>;
   predictive?: PredictiveBlock;
   compliance?: ComplianceBlock;
+  /** Inline data URI for daily newsletter infographic (when generated). */
+  _newsletter_infographic_data_uri?: string;
 }

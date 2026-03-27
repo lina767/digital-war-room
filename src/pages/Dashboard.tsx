@@ -3,7 +3,7 @@ import { useIsMobileLayout } from "@/hooks/useMediaQuery";
 import { trackMobileNav, trackMobilePanel } from "@/lib/mobileAnalytics";
 import { buildSearchHits } from "@/lib/dashboardSearchIndex";
 import { GlobalSearchDialog } from "@/components/dashboard/GlobalSearchDialog";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LiveTicker } from "@/components/dashboard/LiveTicker";
@@ -163,6 +163,7 @@ const Dashboard = () => {
 };
 
 function DashboardContent() {
+  const [searchParams] = useSearchParams();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [selectedConflict, setSelectedConflict] = useState(DEFAULT_CONFLICT);
   const displayConflictLabel = useMemo(
@@ -194,6 +195,18 @@ function DashboardContent() {
     enabled: true,
   });
   const searchHits = useMemo(() => buildSearchHits(conflictData), [conflictData]);
+
+  useEffect(() => {
+    const c = searchParams.get("conflict")?.trim();
+    if (c && CONFLICT_OPTIONS.some((opt) => opt.apiValue === c)) {
+      setSelectedConflict(c);
+    }
+    const nlAgent = searchParams.get("nl_agent")?.trim();
+    if (nlAgent && AGENTS_WITH_SOURCES.some((a) => a.name === nlAgent)) {
+      setAgentExpanded(nlAgent);
+      setLeftPanelOpen(true);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     skipHeadlinePersistRef.current = true;

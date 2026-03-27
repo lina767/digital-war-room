@@ -19,7 +19,12 @@ from agents.supervisor import analyze_conflict
 from api.http_errors import conflict_bad_request
 from middleware.rate_limit import limiter
 from middleware.tenant_context import get_request_ctx
-from services.newsletter_sender import send_confirmation_email, send_daily_briefing
+from services.newsletter_sender import (
+    attach_daily_infographic_to_briefing,
+    newsletter_campaign_date_str,
+    send_confirmation_email,
+    send_daily_briefing,
+)
 from services.newsletter_store import (
     add_subscriber,
     apply_resend_contact_sync,
@@ -331,6 +336,8 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
                     len(subscribers),
                 )
                 continue
+        date_str = newsletter_campaign_date_str()
+        await attach_daily_infographic_to_briefing(result, conflict, date_str, force=False)
         at_ts = time.time()
         if state:
             attach_pattern_flags(state, conflict, result, tenant_id=ntid)

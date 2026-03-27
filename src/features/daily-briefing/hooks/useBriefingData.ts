@@ -262,11 +262,16 @@ function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBr
     return acc;
   }, {} as Record<AgentId, AgentDataBlock>);
 
+  const rawUri = (conflict as { _newsletter_infographic_data_uri?: string })._newsletter_infographic_data_uri;
+  const infographicUri =
+    typeof rawUri === "string" && rawUri.startsWith("data:image/") ? rawUri : null;
+
   return {
     conflict: conflict.conflict || DEFAULT_CONFLICT,
     threatLevel: parseThreatLevel(conflict.threat_level),
     escalationScore: escalationRounded,
     bluf: conflict.summary ?? "No executive summary available.",
+    newsletterInfographicDataUri: infographicUri,
     keyFindings,
     scenarios,
     predictiveOutlook: buildPredictiveOutlook(conflict, escalationRounded),
