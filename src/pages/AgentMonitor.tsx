@@ -408,9 +408,11 @@ function AgentMonitorContent() {
   }, [status]);
 
   const agentKeys = Object.keys(AGENT_NAME_TO_KEY);
-  const statusEntries = status
-    ? agentKeys.map((name) => ({ name, key: AGENT_NAME_TO_KEY[name], entry: status[AGENT_NAME_TO_KEY[name]] }))
-    : [];
+  const statusEntries = agentKeys.map((name) => ({
+    name,
+    key: AGENT_NAME_TO_KEY[name],
+    entry: status?.[AGENT_NAME_TO_KEY[name]],
+  }));
   const degradedSources = health?.sources?.filter((s) => s.status === "degraded" || s.status === "down") ?? [];
   const fallbackAgents = statusEntries.filter((e) => e.entry?.fallback_used);
 

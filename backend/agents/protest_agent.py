@@ -12,6 +12,8 @@ Score combines aggregated weekly event counts with GDELT article coverage.
 import asyncio
 import csv
 import logging
+import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 ACLED_API_URL = "https://acleddata.com/api/acled/read"
 GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+HAPI_BASE_URL = "https://hapi.humdata.org/api/v1"
+HAPI_APP_IDENTIFIER = (os.getenv("HAPI_APP_IDENTIFIER") or "").strip()
 ACLED_AGGREGATED_DIR = Path(__file__).resolve().parent.parent / "data" / "acled"
 
 ACLED_COUNTRY_NAMES = {
@@ -43,8 +47,36 @@ ACLED_COUNTRY_NAMES = {
     "default": "Iran",
 }
 
+HAPI_ISO3_BY_CONFLICT = {
+    "iran": ["IRN"],
+    "israel": ["ISR"],
+    "gaza": ["PSE", "ISR"],
+    "yemen": ["YEM"],
+    "lebanon": ["LBN"],
+    "syria": ["SYR"],
+    "iraq": ["IRQ"],
+    "ukraine": ["UKR"],
+    "russia": ["RUS"],
+    "default": ["IRN", "SYR", "YEM", "PSE", "ISR"],
+}
+
 # ACLED event types for civil society / protest focus
 PROTEST_EVENT_TYPES = ["Protests", "Riots", "Violence against civilians"]
+
+# Protest-context escalation weights (weekly aggregated view by event_type).
+W_PROTEST = 1.0
+W_RIOT = 1.35
+W_VAC = 1.8  # Violence against civilians => clear escalation signal.
+
+INTENSITY_KEYWORDS = [
+    "tear gas",
+    "curfew",
+    "state of emergency",
+    "mobilization",
+]
+
+ACLED_STALE_DAYS = int((os.getenv("PROTEST_ACLED_STALE_DAYS") or "120").strip())
+ACLED_AGGREGATED_FRESH_DAYS = int((os.getenv("PROTEST_ACLED_FRESH_DAYS") or "14").strip())
 
 
 def _conflict_to_country(conflict: str) -> str:
@@ -53,6 +85,265 @@ def _conflict_to_country(conflict: str) -> str:
         (v for k, v in ACLED_COUNTRY_NAMES.items() if k != "default" and k in cl),
         ACLED_COUNTRY_NAMES["default"],
     )
+
+
+def _build_gdelt_query(conflict: str) -> str:
+    """Build broader GDELT query to reduce false-empty results."""
+    country = _conflict_to_country(conflict)
+    core_terms = '(protest OR protests OR riot OR riots OR demonstration OR strike OR unrest)'
+    return f'"{country}" AND {core_terms}'
+
+
+def _iso3_from_conflict(conflict: str) -> List[str]:
+    cl = (conflict or "").lower()
+    return next(
+        (v for k, v in HAPI_ISO3_BY_CONFLICT.items() if k != "default" and k in cl),
+        HAPI_ISO3_BY_CONFLICT["default"],
+    )
+
+
+def _result_is_error_blob(rows: List[Dict[str, Any]]) -> bool:
+    return bool(rows and isinstance(rows[0], dict) and rows[0].get("error"))
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _event_escalation_weight(event_type: str, sub_event_type: str) -> float:
+    et = (event_type or "").strip().lower()
+    st = (sub_event_type or "").strip().lower()
+    if et == "violence against civilians":
+        return 2.0
+    if et == "riots":
+        return 1.4
+    if et == "protests":
+        if st == "peaceful protest":
+            return 0.9
+        if st == "protest with intervention":
+            return 1.3
+        if st == "excessive force against protesters":
+            return 1.8
+        return 1.0
+    return 1.0
+
+
+def _compute_event_severity_mix(acled_events: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Count protest subtypes and derive an escalation index from event-level ACLED data."""
+    valid = [e for e in acled_events if isinstance(e, dict) and "error" not in e]
+    if not valid:
+        return {
+            "peaceful_protest_count": 0.0,
+            "protest_with_intervention_count": 0.0,
+            "excessive_force_against_protesters_count": 0.0,
+            "violence_against_civilians_count": 0.0,
+            "escalation_index": 0.0,
+        }
+
+    peaceful = 0
+    intervention = 0
+    excessive_force = 0
+    vac = 0
+    weighted = 0.0
+    for e in valid:
+        et = str(e.get("event_type") or "")
+        st = str(e.get("sub_event_type") or "")
+        et_l = et.lower()
+        st_l = st.lower()
+        if et_l == "protests":
+            if st_l == "peaceful protest":
+                peaceful += 1
+            elif st_l == "protest with intervention":
+                intervention += 1
+            elif st_l == "excessive force against protesters":
+                excessive_force += 1
+        elif et_l == "violence against civilians":
+            vac += 1
+        weighted += _event_escalation_weight(et, st)
+    esc = weighted / max(1.0, float(len(valid)))
+    return {
+        "peaceful_protest_count": float(peaceful),
+        "protest_with_intervention_count": float(intervention),
+        "excessive_force_against_protesters_count": float(excessive_force),
+        "violence_against_civilians_count": float(vac),
+        "escalation_index": round(esc, 3),
+    }
+
+
+def _compute_gdelt_intensity_metrics(gdelt_articles: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Use GDELT tone and escalation keywords as instability signal."""
+    valid = [a for a in gdelt_articles if isinstance(a, dict) and "error" not in a and a.get("title")]
+    if not valid:
+        return {
+            "article_count": 0.0,
+            "avg_tone": 0.0,
+            "negative_tone_score": 0.0,
+            "keyword_hits": 0.0,
+            "keyword_hit_ratio": 0.0,
+            "intensity_index": 0.0,
+        }
+
+    tones = [_safe_float(a.get("tone"), 0.0) for a in valid]
+    avg_tone = sum(tones) / max(1.0, float(len(tones)))
+    # More negative tone => higher score.
+    negative_tone_score = max(0.0, min(10.0, -avg_tone))
+
+    hits = 0
+    for a in valid:
+        title = str(a.get("title") or "").lower()
+        if any(k in title for k in INTENSITY_KEYWORDS):
+            hits += 1
+    hit_ratio = hits / max(1.0, float(len(valid)))
+
+    # Composite intensity: negative tone + keyword density.
+    intensity_index = min(3.0, (negative_tone_score / 4.0) + (hit_ratio * 1.6))
+    return {
+        "article_count": float(len(valid)),
+        "avg_tone": round(avg_tone, 3),
+        "negative_tone_score": round(negative_tone_score, 3),
+        "keyword_hits": float(hits),
+        "keyword_hit_ratio": round(hit_ratio, 3),
+        "intensity_index": round(intensity_index, 3),
+    }
+
+
+def _compute_hdx_intensity_metrics(hdx_events: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Summarize HDX HAPI conflict-events for protest escalation context."""
+    valid = [e for e in hdx_events if isinstance(e, dict) and "error" not in e]
+    if not valid:
+        return {
+            "event_rows": 0.0,
+            "events_sum": 0.0,
+            "fatalities_sum": 0.0,
+            "vac_rows": 0.0,
+            "protest_related_rows": 0.0,
+            "intensity_index": 0.0,
+        }
+    events_sum = 0.0
+    fatalities_sum = 0.0
+    vac_rows = 0
+    protest_rows = 0
+    for row in valid:
+        ev_type = str(row.get("event_type") or "").lower()
+        events_sum += _safe_float(row.get("events"), 0.0)
+        fatalities_sum += _safe_float(row.get("fatalities"), 0.0)
+        if "violence against civilians" in ev_type:
+            vac_rows += 1
+        if any(k in ev_type for k in ("protest", "riot", "demonstration")):
+            protest_rows += 1
+    intensity = min(3.5, (fatalities_sum / 20.0) + (vac_rows * 0.25) + (protest_rows * 0.12))
+    return {
+        "event_rows": float(len(valid)),
+        "events_sum": round(events_sum, 2),
+        "fatalities_sum": round(fatalities_sum, 2),
+        "vac_rows": float(vac_rows),
+        "protest_related_rows": float(protest_rows),
+        "intensity_index": round(intensity, 3),
+    }
+
+
+def _parse_iso_date(value: Any) -> Optional[datetime]:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%fZ"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _parse_week_marker(value: Any) -> Optional[datetime]:
+    """Parse ACLED aggregated latest_week markers into UTC datetime."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    dt = _parse_iso_date(s)
+    if dt is not None:
+        return dt
+    m = re.match(r"^(\d{4})-W(\d{1,2})$", s)
+    if m:
+        year = int(m.group(1))
+        week = int(m.group(2))
+        try:
+            d = datetime.fromisocalendar(year, week, 1)  # Monday
+            return d.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _is_aggregated_fresh(aggregated: Optional[Dict[str, Any]], fresh_days: int = ACLED_AGGREGATED_FRESH_DAYS) -> bool:
+    agg = aggregated or {}
+    latest_week = agg.get("latest_week")
+    dt = _parse_week_marker(latest_week)
+    if dt is None:
+        return False
+    return dt >= (datetime.now(timezone.utc) - timedelta(days=fresh_days))
+
+
+def _is_acled_stale(acled_events: List[Dict[str, Any]], stale_days: int = ACLED_STALE_DAYS) -> bool:
+    valid = [e for e in acled_events if isinstance(e, dict) and "error" not in e]
+    if not valid:
+        return True
+    dates = [_parse_iso_date(e.get("date")) for e in valid]
+    dates_ok = [d for d in dates if d is not None]
+    if not dates_ok:
+        return True
+    newest = max(dates_ok)
+    return newest < (datetime.now(timezone.utc) - timedelta(days=stale_days))
+
+
+async def _fetch_hdx_hapi_protest(conflict: str) -> List[Dict[str, Any]]:
+    """Fetch HDX HAPI conflict-events rows for conflict ISO3 countries."""
+    if not HAPI_APP_IDENTIFIER:
+        return []
+    iso3_codes = _iso3_from_conflict(conflict)
+    out: List[Dict[str, Any]] = []
+    try:
+        async with httpx.AsyncClient(timeout=14.0) as client:
+            for iso3 in iso3_codes[:3]:
+                resp = await client.get(
+                    f"{HAPI_BASE_URL}/coordination-context/conflict-events",
+                    params={
+                        "output_format": "json",
+                        "limit": 100,
+                        "app_identifier": HAPI_APP_IDENTIFIER,
+                        "location_code": iso3.upper(),
+                    },
+                )
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                rows = data if isinstance(data, list) else data.get("data", data.get("results", []))
+                if not isinstance(rows, list):
+                    continue
+                for row in rows[:25]:
+                    if not isinstance(row, dict):
+                        continue
+                    out.append(
+                        {
+                            "source": "HDX HAPI",
+                            "location_code": iso3.upper(),
+                            "location_name": row.get("location_name"),
+                            "event_type": row.get("event_type"),
+                            "events": _safe_float(row.get("events"), 0.0),
+                            "fatalities": _safe_float(row.get("fatalities"), 0.0),
+                            "date": row.get("reference_period_end") or row.get("reference_period_start"),
+                        }
+                    )
+    except Exception as e:
+        logger.warning("HDX HAPI fetch failed: %s", e)
+        return [{"error": str(e)}]
+    return out[:50]
 
 
 def _parse_acled_records(data: Any) -> List[Dict[str, Any]]:
@@ -119,6 +410,7 @@ def _load_acled_aggregated(conflict: str) -> Dict[str, Any]:
             weekly[w]["fatalities"] += fat
 
         sorted_weeks = sorted(weekly.keys())
+        all_weeks = [{"week": w, **weekly[w]} for w in sorted_weeks]
         recent_weeks = sorted_weeks[-4:] if len(sorted_weeks) >= 4 else sorted_weeks
         recent_data = [{"week": w, **weekly[w]} for w in recent_weeks]
         latest = recent_data[-1] if recent_data else {}
@@ -132,6 +424,7 @@ def _load_acled_aggregated(conflict: str) -> Dict[str, Any]:
         )
         return {
             "weeks": recent_data,
+            "weeks_all": all_weeks,
             "latest_week": recent_weeks[-1] if recent_weeks else "",
             "total_events_4w": total_recent,
             "total_fatalities_4w": total_fatalities,
@@ -161,7 +454,7 @@ async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 200) -
         event_date_val = f"{start_d.strftime('%Y-%m-%d')}|{end_d.strftime('%Y-%m-%d')}"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=25.0) as client:
-            for event_type in PROTEST_EVENT_TYPES[:2]:
+            for event_type in PROTEST_EVENT_TYPES:
                 params = {
                     "_format": "json",
                     "limit": limit,
@@ -176,7 +469,7 @@ async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 200) -
                     continue
                 data = resp.json()
                 events.extend(_parse_acled_records(data))
-        logger.info("ACLED: fetched %d events for %s (Protests+Riots, last 18 months)", len(events), country)
+        logger.info("ACLED: fetched %d events for %s (civil-society types, last 18 months)", len(events), country)
     except Exception as e:
         logger.warning("ACLED request failed: %s", e)
         return [{"error": str(e)}]
@@ -186,7 +479,7 @@ async def _fetch_acled_protests(api_key: str, conflict: str, limit: int = 200) -
 async def _fetch_gdelt_protest(conflict: str) -> List[Dict[str, Any]]:
     """Fetch GDELT DOC 2.0 API for protest-related articles (free, no key).
     Retries on 429 (rate limit) with increasing backoff."""
-    query = f"{conflict} protest"
+    query = _build_gdelt_query(conflict)
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -232,6 +525,7 @@ async def _fetch_gdelt_protest(conflict: str) -> List[Dict[str, Any]]:
                     "title": a.get("title"),
                     "url": a.get("url"),
                     "date": a.get("seendate"),
+                    "tone": _safe_float(a.get("tone"), 0.0),
                     "source": a.get("domain")
                     or (a.get("source", {}).get("name") if isinstance(a.get("source"), dict) else None),
                 }
@@ -247,52 +541,252 @@ async def _fetch_gdelt_protest(conflict: str) -> List[Dict[str, Any]]:
     return []
 
 
+def _compute_dynamic_baseline_metrics(aggregated: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    """Compute 12-month baseline and week-over-week velocity from aggregated data."""
+    agg = aggregated or {}
+    weeks_all = agg.get("weeks_all") or agg.get("weeks") or []
+    if not isinstance(weeks_all, list):
+        weeks_all = []
+    rows = [w for w in weeks_all if isinstance(w, dict)]
+    if not rows:
+        return {
+            "latest_total": 0.0,
+            "latest_fatalities": 0.0,
+            "baseline_avg_12m": 0.0,
+            "baseline_fatalities_12m": 0.0,
+            "activity_ratio_vs_12m": 1.0,
+            "velocity_wow_pct": 0.0,
+            "fatality_velocity_wow_pct": 0.0,
+            "weeks_in_baseline": 0.0,
+        }
+
+    latest = rows[-1]
+    prev = rows[-2] if len(rows) >= 2 else {}
+
+    latest_total = float(int(latest.get("protests", 0)) + int(latest.get("riots", 0)) + int(latest.get("vac", 0)))
+    latest_weighted_total = float(
+        int(latest.get("protests", 0)) * W_PROTEST
+        + int(latest.get("riots", 0)) * W_RIOT
+        + int(latest.get("vac", 0)) * W_VAC
+    )
+    latest_fatalities = float(int(latest.get("fatalities", 0)))
+    prev_total = float(int(prev.get("protests", 0)) + int(prev.get("riots", 0)) + int(prev.get("vac", 0))) if prev else 0.0
+    prev_weighted_total = (
+        float(
+            int(prev.get("protests", 0)) * W_PROTEST
+            + int(prev.get("riots", 0)) * W_RIOT
+            + int(prev.get("vac", 0)) * W_VAC
+        )
+        if prev
+        else 0.0
+    )
+    prev_fatalities = float(int(prev.get("fatalities", 0))) if prev else 0.0
+
+    baseline_rows = rows[-52:] if len(rows) > 52 else rows
+    baseline_totals = [
+        float(int(r.get("protests", 0)) + int(r.get("riots", 0)) + int(r.get("vac", 0)))
+        for r in baseline_rows
+    ]
+    baseline_weighted_totals = [
+        float(int(r.get("protests", 0)) * W_PROTEST + int(r.get("riots", 0)) * W_RIOT + int(r.get("vac", 0)) * W_VAC)
+        for r in baseline_rows
+    ]
+    baseline_fatalities = [float(int(r.get("fatalities", 0))) for r in baseline_rows]
+    n = max(1.0, float(len(baseline_rows)))
+    baseline_avg = sum(baseline_totals) / n
+    baseline_weighted_avg = sum(baseline_weighted_totals) / n
+    baseline_fat_avg = sum(baseline_fatalities) / n
+
+    if baseline_weighted_avg > 0:
+        ratio = latest_weighted_total / baseline_weighted_avg
+    else:
+        ratio = 1.0 if latest_weighted_total <= 0 else 2.0
+
+    if prev_weighted_total > 0:
+        wow_pct = ((latest_weighted_total - prev_weighted_total) / prev_weighted_total) * 100.0
+    elif latest_weighted_total > 0:
+        wow_pct = 100.0
+    else:
+        wow_pct = 0.0
+
+    if prev_fatalities > 0:
+        fat_wow_pct = ((latest_fatalities - prev_fatalities) / prev_fatalities) * 100.0
+    elif latest_fatalities > 0:
+        fat_wow_pct = 100.0
+    else:
+        fat_wow_pct = 0.0
+
+    return {
+        "latest_total": round(latest_total, 2),
+        "latest_weighted_total": round(latest_weighted_total, 2),
+        "latest_fatalities": round(latest_fatalities, 2),
+        "baseline_avg_12m": round(baseline_avg, 2),
+        "baseline_weighted_avg_12m": round(baseline_weighted_avg, 2),
+        "baseline_fatalities_12m": round(baseline_fat_avg, 2),
+        "activity_ratio_vs_12m": round(ratio, 3),
+        "velocity_wow_pct": round(wow_pct, 2),
+        "fatality_velocity_wow_pct": round(fat_wow_pct, 2),
+        "weeks_in_baseline": float(len(baseline_rows)),
+    }
+
+
 def _compute_protest_score(
     acled_events: List[Dict],
     gdelt_articles: List[Dict],
+    hdx_events: Optional[List[Dict[str, Any]]] = None,
     aggregated: Optional[Dict] = None,
-) -> float:
-    """Score 0-100 combining aggregated weekly counts, historical events, and GDELT coverage."""
+) -> tuple[float, Dict[str, Any]]:
+    """Score 0-100 using dynamic 12-month baseline and velocity signals."""
     base = 20.0
+    baseline_pts = 0.0
+    velocity_pts = 0.0
+    fatality_velocity_pts = 0.0
+    source_coverage_pts = 0.0
+    severity_pts = 0.0
+    gdelt_intensity_pts = 0.0
+    hdx_intensity_pts = 0.0
 
-    agg = aggregated or {}
-    recent_events = agg.get("total_events_4w", 0)
-    recent_fatalities = agg.get("total_fatalities_4w", 0)
-    if recent_events >= 200:
-        base += 30
-    elif recent_events >= 100:
-        base += 22
-    elif recent_events >= 30:
-        base += 15
-    elif recent_events >= 5:
-        base += 8
-    if recent_fatalities > 50:
-        base += 15
-    elif recent_fatalities > 10:
-        base += 8
+    metrics = _compute_dynamic_baseline_metrics(aggregated)
+    sev = _compute_event_severity_mix(acled_events)
+    gdelt_intensity = _compute_gdelt_intensity_metrics(gdelt_articles)
+    hdx_intensity = _compute_hdx_intensity_metrics(hdx_events or [])
+    acled_stale = _is_acled_stale(acled_events)
+    aggregated_fresh = _is_aggregated_fresh(aggregated)
+    is_acled_fresh = bool(aggregated_fresh and not acled_stale)
+
+    if not is_acled_fresh:
+        gdelt_weight = 0.8
+        acled_weight = 0.2
+    else:
+        gdelt_weight = 0.4
+        acled_weight = 0.6
+
+    gdelt_primary_mode = not is_acled_fresh
+    ratio = metrics.get("activity_ratio_vs_12m", 1.0)
+    wow = metrics.get("velocity_wow_pct", 0.0)
+    fatal_wow = metrics.get("fatality_velocity_wow_pct", 0.0)
+    escalation_index = sev.get("escalation_index", 0.0)
+
+    # Relative activity vs country-specific baseline (ACLED domain).
+    if aggregated_fresh:
+        if ratio >= 2.0:
+            baseline_pts = 25.0
+        elif ratio >= 1.5:
+            baseline_pts = 18.0
+        elif ratio >= 1.2:
+            baseline_pts = 12.0
+        elif ratio >= 1.0:
+            baseline_pts = 6.0
+
+    # Velocity: sudden acceleration is a stronger warning than static high (ACLED domain).
+    if wow >= 50:
+        velocity_pts = 22.0
+    elif wow >= 25:
+        velocity_pts = 12.0
+    elif wow >= 10:
+        velocity_pts = 6.0
+
+    if fatal_wow >= 50:
+        fatality_velocity_pts = 12.0
+    elif fatal_wow >= 25:
+        fatality_velocity_pts = 6.0
+
+    # Event severity mix (ACLED domain).
+    if escalation_index >= 1.6:
+        severity_pts += 14.0
+    elif escalation_index >= 1.35:
+        severity_pts += 9.0
+    elif escalation_index >= 1.15:
+        severity_pts += 5.0
+
+    vac_count = sev.get("violence_against_civilians_count", 0.0)
+    excessive_force_count = sev.get("excessive_force_against_protesters_count", 0.0)
+    if vac_count >= 5:
+        severity_pts += 8.0
+    elif vac_count >= 1:
+        severity_pts += 4.0
+    if excessive_force_count >= 5:
+        severity_pts += 6.0
+    elif excessive_force_count >= 1:
+        severity_pts += 3.0
+
+    # Apply domain weights.
+    base += (baseline_pts + velocity_pts + fatality_velocity_pts + severity_pts) * acled_weight
 
     valid_acled = [e for e in acled_events if isinstance(e, dict) and "error" not in e]
     if len(valid_acled) >= 30:
-        base += 10
+        source_coverage_pts += 10.0
     elif len(valid_acled) >= 5:
-        base += 5
+        source_coverage_pts += 5.0
 
+    # GDELT: combine coverage with tone/keyword-based intensity.
     valid_gdelt = [a for a in gdelt_articles if isinstance(a, dict) and a.get("title") and "error" not in a]
     if len(valid_gdelt) >= 5:
-        base += 15
+        source_coverage_pts += 8.0
     elif len(valid_gdelt) >= 1:
-        base += 5
-    return min(100.0, max(0.0, base))
+        source_coverage_pts += 3.0
+    if gdelt_primary_mode:
+        source_coverage_pts += 8.0 if len(valid_gdelt) >= 5 else (4.0 if len(valid_gdelt) >= 1 else 0.0)
+    valid_hdx = [h for h in (hdx_events or []) if isinstance(h, dict) and "error" not in h]
+    if len(valid_hdx) >= 5:
+        source_coverage_pts += 5.0
+    elif len(valid_hdx) >= 1:
+        source_coverage_pts += 2.0
+    base += source_coverage_pts
+
+    intensity_index = gdelt_intensity.get("intensity_index", 0.0)
+    if intensity_index >= 2.2:
+        gdelt_intensity_pts = 12.0
+    elif intensity_index >= 1.5:
+        gdelt_intensity_pts = 8.0
+    elif intensity_index >= 0.9:
+        gdelt_intensity_pts = 4.0
+    if gdelt_primary_mode:
+        gdelt_intensity_pts += 10.0
+    base += gdelt_intensity_pts * gdelt_weight
+    hdx_idx = hdx_intensity.get("intensity_index", 0.0)
+    if hdx_idx >= 2.2:
+        hdx_intensity_pts = 10.0
+    elif hdx_idx >= 1.4:
+        hdx_intensity_pts = 6.0
+    elif hdx_idx >= 0.8:
+        hdx_intensity_pts = 3.0
+    base += hdx_intensity_pts
+
+    score = min(100.0, max(0.0, base))
+    breakdown: Dict[str, Any] = {
+        "base": 20.0,
+        "baseline": round(baseline_pts * acled_weight, 1),
+        "velocity": round(velocity_pts * acled_weight, 1),
+        "fatality_velocity": round(fatality_velocity_pts * acled_weight, 1),
+        "source_coverage": round(source_coverage_pts, 1),
+        "severity_mix": round(severity_pts * acled_weight, 1),
+        "gdelt_intensity": round(gdelt_intensity_pts * gdelt_weight, 1),
+        "hdx_intensity": round(hdx_intensity_pts, 1),
+        "gdelt_primary_mode": gdelt_primary_mode,
+        "acled_stale": acled_stale,
+        "is_acled_fresh": is_acled_fresh,
+        "acled_weight": acled_weight,
+        "gdelt_weight": gdelt_weight,
+        "total_pre_clamp": round(base, 1),
+        "total": round(score, 1),
+    }
+    return score, breakdown
 
 
 def _build_summary(
     acled_events: List[Dict],
     gdelt_articles: List[Dict],
+    hdx_events: Optional[List[Dict[str, Any]]],
     score: float,
     aggregated: Optional[Dict] = None,
 ) -> str:
     parts = []
     agg = aggregated or {}
+    dyn = _compute_dynamic_baseline_metrics(aggregated)
+    sev = _compute_event_severity_mix(acled_events)
+    gdi = _compute_gdelt_intensity_metrics(gdelt_articles)
+    hdi = _compute_hdx_intensity_metrics(hdx_events or [])
     if agg.get("weeks"):
         latest = agg["weeks"][-1]
         parts.append(
@@ -301,6 +795,24 @@ def _build_summary(
             f"{latest.get('fatalities', 0)} fatalities. "
             f"Last 4 weeks: {agg.get('total_events_4w', 0)} events total."
         )
+    baseline_avg = dyn.get("baseline_avg_12m", 0.0)
+    velocity = dyn.get("velocity_wow_pct", 0.0)
+    ratio = dyn.get("activity_ratio_vs_12m", 1.0)
+    if baseline_avg > 0:
+        parts.append(
+            f"Baseline (12m): avg {baseline_avg:.1f} events/week; current level {ratio:.2f}x normal; WoW velocity {velocity:+.1f}%."
+        )
+        if velocity >= 50:
+            parts.append("Acceleration alert: weekly events jumped >=50% vs previous week.")
+    if sev.get("escalation_index", 0.0) > 0:
+        parts.append(
+            "Escalation mix: "
+            f"peaceful={int(sev.get('peaceful_protest_count', 0))}, "
+            f"intervention={int(sev.get('protest_with_intervention_count', 0))}, "
+            f"excessive_force={int(sev.get('excessive_force_against_protesters_count', 0))}, "
+            f"VAC={int(sev.get('violence_against_civilians_count', 0))} "
+            f"(index {sev.get('escalation_index', 0.0):.2f})."
+        )
     valid_a = [e for e in acled_events if isinstance(e, dict) and "error" not in e]
     if valid_a:
         dates = [e.get("date") for e in valid_a if e.get("date")]
@@ -308,7 +820,20 @@ def _build_summary(
         parts.append(f"ACLED historical: {len(valid_a)} events{date_range}.")
     valid_g = [a for a in gdelt_articles if a.get("title") and "error" not in a]
     if valid_g:
-        parts.append(f"GDELT: {len(valid_g)} protest articles (72h).")
+        parts.append(
+            f"GDELT: {len(valid_g)} protest articles (72h), avg tone {gdi.get('avg_tone', 0.0):+.2f}, "
+            f"keyword hits {int(gdi.get('keyword_hits', 0.0))}."
+        )
+        if gdi.get("intensity_index", 0.0) >= 1.5:
+            parts.append("Media intensity signal elevated (negative tone + escalation keywords).")
+    valid_hdx = [h for h in (hdx_events or []) if isinstance(h, dict) and "error" not in h]
+    if valid_hdx:
+        parts.append(
+            f"HDX HAPI: {len(valid_hdx)} conflict rows, fatalities sum {hdi.get('fatalities_sum', 0.0):.0f}, "
+            f"VAC rows {int(hdi.get('vac_rows', 0.0))}."
+        )
+        if hdi.get("intensity_index", 0.0) >= 1.4:
+            parts.append("HDX conflict-events confirm elevated on-ground intensity.")
     if not parts:
         return "PROTEST: No ACLED or GDELT protest data available."
     return "PROTEST: " + " ".join(parts)
@@ -346,17 +871,83 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
     from .utils import SourceResult, utc_now_iso
 
     async def _run() -> Dict[str, Any]:
-        try:
-            from services.acled_aggregated import refresh_acled_aggregated
+        diagnostics: List[Dict[str, str]] = []
+        # Run refresh + local CSV load + remote fetches concurrently.
+        def _refresh_aggregated_safe() -> None:
+            try:
+                from services.acled_aggregated import refresh_acled_aggregated
 
-            refresh_acled_aggregated()
-        except Exception as e:
-            logger.debug("ACLED aggregated refresh skipped: %s", e)
-        aggregated = _load_acled_aggregated(conflict)
-        acled_events = await _fetch_acled_protests("", conflict)
-        gdelt_articles = await _fetch_gdelt_protest(conflict)
-        protest_score = _compute_protest_score(acled_events, gdelt_articles, aggregated)
-        base_summary = _build_summary(acled_events, gdelt_articles, protest_score, aggregated)
+                refresh_acled_aggregated()
+            except Exception as e:
+                logger.debug("ACLED aggregated refresh skipped: %s", e)
+
+        refresh_task = asyncio.to_thread(_refresh_aggregated_safe)
+        aggregated_task = asyncio.to_thread(_load_acled_aggregated, conflict)
+        acled_task = _fetch_acled_protests("", conflict)
+        gdelt_task = _fetch_gdelt_protest(conflict)
+        hdx_task = _fetch_hdx_hapi_protest(conflict)
+        _, aggregated, acled_events, gdelt_articles, hdx_events = await asyncio.gather(
+            refresh_task,
+            aggregated_task,
+            acled_task,
+            gdelt_task,
+            hdx_task,
+        )
+        if not has_acled_oauth():
+            diagnostics.append(
+                {
+                    "source": "ACLED-API",
+                    "reason": "missing_oauth_credentials",
+                    "fix_hint": "Set ACLED_EMAIL and ACLED_PASSWORD in backend/.env.",
+                }
+            )
+        if not aggregated.get("weeks"):
+            diagnostics.append(
+                {
+                    "source": "ACLED-Aggregated",
+                    "reason": "aggregated_csv_unavailable_or_empty",
+                    "fix_hint": "Refresh ACLED aggregated CSV and verify files in backend/data/acled.",
+                }
+            )
+        if _is_acled_stale(acled_events):
+            diagnostics.append(
+                {
+                    "source": "ACLED-API",
+                    "reason": "stale_data",
+                    "fix_hint": "ACLED API appears older than recent window; scoring shifts to GDELT-primary mode.",
+                }
+            )
+        if _result_is_error_blob(gdelt_articles):
+            raw_err = str(gdelt_articles[0].get("error") or "gdelt_error")
+            diagnostics.append(
+                {
+                    "source": "GDELT",
+                    "reason": "rate_limited" if "429" in raw_err else "request_failed",
+                    "fix_hint": "Retry later for rate limits; otherwise verify outbound access to api.gdeltproject.org.",
+                }
+            )
+        if not HAPI_APP_IDENTIFIER:
+            diagnostics.append(
+                {
+                    "source": "HDX HAPI",
+                    "reason": "missing_hapi_app_identifier",
+                    "fix_hint": "Set HAPI_APP_IDENTIFIER in backend/.env to enable HDX HAPI.",
+                }
+            )
+        elif _result_is_error_blob(hdx_events):
+            diagnostics.append(
+                {
+                    "source": "HDX HAPI",
+                    "reason": "request_failed",
+                    "fix_hint": "Verify app identifier and access to hapi.humdata.org.",
+                }
+            )
+        protest_score, score_breakdown = _compute_protest_score(acled_events, gdelt_articles, hdx_events, aggregated)
+        dynamic_metrics = _compute_dynamic_baseline_metrics(aggregated)
+        severity_mix = _compute_event_severity_mix(acled_events)
+        gdelt_intensity = _compute_gdelt_intensity_metrics(gdelt_articles)
+        hdx_intensity = _compute_hdx_intensity_metrics(hdx_events)
+        base_summary = _build_summary(acled_events, gdelt_articles, hdx_events, protest_score, aggregated)
         cluster_summary = await _cluster_protest_events_haiku(acled_events)
         if cluster_summary:
             summary = f"{base_summary} Clusters: {cluster_summary}"
@@ -364,9 +955,16 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
             summary = base_summary
         return {
             "protest_score": round(protest_score, 1),
+            "score_breakdown": score_breakdown,
             "protest_events": acled_events,
             "protest_articles": gdelt_articles,
+            "hdx_conflict_events": hdx_events,
             "acled_aggregated": aggregated,
+            "dynamic_metrics": dynamic_metrics,
+            "severity_mix": severity_mix,
+            "gdelt_intensity": gdelt_intensity,
+            "hdx_intensity": hdx_intensity,
+            "diagnostics": diagnostics,
             "summary": summary,
         }
 
@@ -377,30 +975,66 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
         duration_ms = int((time.perf_counter() - start) * 1000)
         events = out.get("protest_events") or []
         articles = out.get("protest_articles") or []
+        hdx_rows = out.get("hdx_conflict_events") or []
         agg = out.get("acled_aggregated") or {}
-        acled_ok = bool(
-            events
-            and not (isinstance(events, list) and events and isinstance(events[0], dict) and events[0].get("error"))
-        )
-        gdelt_ok = bool(
-            articles
-            and not (
-                isinstance(articles, list) and articles and isinstance(articles[0], dict) and articles[0].get("error")
-            )
-        )
+        diagnostics = out.get("diagnostics") or []
+
+        acled_error_blob = _result_is_error_blob(events)
+        gdelt_error_blob = _result_is_error_blob(articles)
+        hdx_error_blob = _result_is_error_blob(hdx_rows)
+
+        acled_ok = bool(events and not acled_error_blob)
+        gdelt_ok = bool(articles and not gdelt_error_blob)
+        hdx_ok = bool(hdx_rows and not hdx_error_blob)
         agg_ok = bool(agg.get("weeks"))
         source_results = [
             SourceResult(
                 name="ACLED-Aggregated",
-                status="ok" if agg_ok else "error",
+                status="ok" if agg_ok else "degraded",
                 fetched_at=fetched_at,
                 record_count=agg.get("total_events_4w", 0),
+                error=None if agg_ok else "aggregated_csv_unavailable_or_empty",
             ),
             SourceResult(
-                name="ACLED-API", status="ok" if acled_ok else "error", fetched_at=fetched_at, record_count=len(events)
+                name="ACLED-API",
+                status="ok" if acled_ok else "degraded",
+                fetched_at=fetched_at,
+                record_count=len(events) if not acled_error_blob else 0,
+                error=(
+                    None
+                    if acled_ok
+                    else ("missing_oauth_credentials" if not has_acled_oauth() else "no_events_returned_or_request_failed")
+                ),
             ),
             SourceResult(
-                name="GDELT", status="ok" if gdelt_ok else "error", fetched_at=fetched_at, record_count=len(articles)
+                name="GDELT",
+                status="ok" if gdelt_ok else ("error" if gdelt_error_blob else "degraded"),
+                fetched_at=fetched_at,
+                record_count=len(articles) if not gdelt_error_blob else 0,
+                error=(
+                    None
+                    if gdelt_ok
+                    else (
+                        str(articles[0].get("error") or "gdelt_request_failed")
+                        if gdelt_error_blob
+                        else "no_articles_returned"
+                    )
+                ),
+            ),
+            SourceResult(
+                name="HDX HAPI",
+                status=("ok" if hdx_ok else ("error" if hdx_error_blob else "degraded")),
+                fetched_at=fetched_at,
+                record_count=len(hdx_rows) if not hdx_error_blob else 0,
+                error=(
+                    None
+                    if hdx_ok
+                    else (
+                        str(hdx_rows[0].get("error") or "hdx_request_failed")
+                        if hdx_error_blob
+                        else ("missing_hapi_app_identifier" if not HAPI_APP_IDENTIFIER else "no_rows_returned")
+                    )
+                ),
             ),
         ]
         reg = get_health_registry()
@@ -409,6 +1043,7 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
                 reg.record_result(sr.name, "protest", sr)
         has_data = bool(events or articles or agg.get("weeks"))
         out["_meta"] = build_agent_meta("protest", fetched_at, duration_ms, source_results, has_any_data=has_data)
+        out["diagnostics"] = diagnostics
         return out
     except Exception as e:
         duration_ms = int((time.perf_counter() - start) * 1000)

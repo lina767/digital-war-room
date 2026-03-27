@@ -14,7 +14,7 @@ export const AGENT_NAME_TO_KEY: Record<string, string> = {
   "NEWS": "news",
   "GEOINT": "geoint",
   "SOCMINT": "socmint",
-  "MEDIANT": "mediaint",
+  "MEDIAINT": "mediaint",
   "TECHINT": "techint",
   "CYBER": "cyber",
   "ENERGY": "energy",
@@ -93,7 +93,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     ],
   },
   {
-    name: "MEDIANT",
+    name: "MEDIAINT",
     fullName: "Media Intelligence (SOCMINT images/video)",
     sources: [
       {
