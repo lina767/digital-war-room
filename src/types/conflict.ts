@@ -178,6 +178,21 @@ type NarrativeBlock = GeneratedNarrativeResult & {
   };
   anomalies?: string[];
   reaction_signals?: string[];
+  theme_clusters?: Array<{
+    theme?: string;
+    summary?: string;
+    passage_count?: number;
+    consistency?: "high" | "medium" | "low" | string;
+  }>;
+  quoted_passages?: Array<{
+    quote?: string;
+    source_name?: string;
+    timing?: string;
+    context_note?: string;
+    theme?: string;
+  }>;
+  negotiation_narrative_score?: number;
+  method_notes?: string[];
   fetched_at?: string;
   error?: string;
   _meta?: AgentMeta;

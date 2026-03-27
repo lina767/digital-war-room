@@ -16,6 +16,10 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
   const synthesisText = narrative?.synthesis_text ?? "";
   const probability = narrative?.synthesis_probability;
   const assessment = narrative?.signal_assessment ?? {};
+  const themeClusters = narrative?.theme_clusters ?? [];
+  const quotedPassages = narrative?.quoted_passages ?? [];
+  const negotiationNarrativeScore = narrative?.negotiation_narrative_score;
+  const methodNotes = narrative?.method_notes ?? [];
   const stateCount = narrative?.state_item_count ?? 0;
   const exileCount = narrative?.exile_item_count ?? 0;
   const hasData = table.length > 0 || synthesisText || (stateCount > 0 && exileCount > 0);
@@ -58,6 +62,60 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
             </p>
           )}
         </div>
+      )}
+
+      {(typeof negotiationNarrativeScore === "number" || themeClusters.length > 0) && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Theme Summary</p>
+          {typeof negotiationNarrativeScore === "number" && (
+            <p className="text-xs">
+              <span className="text-muted-foreground">Negotiation narrative score:</span>{" "}
+              {Math.round(negotiationNarrativeScore)}/100
+            </p>
+          )}
+          {themeClusters.length > 0 && (
+            <div className="space-y-1.5">
+              {themeClusters.slice(0, 4).map((theme, idx) => (
+                <div key={idx} className="rounded border border-border bg-muted/20 p-2">
+                  <p className="text-xs font-medium text-foreground">
+                    {theme.theme || `Theme ${idx + 1}`}{" "}
+                    {theme.consistency ? (
+                      <span className="text-[10px] text-muted-foreground">({theme.consistency})</span>
+                    ) : null}
+                  </p>
+                  {theme.summary ? <p className="text-xs text-foreground/90 mt-1">{theme.summary}</p> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {quotedPassages.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Quoted Passages</p>
+          <div className="space-y-2">
+            {quotedPassages.slice(0, 5).map((p, i) => {
+              const quote = (p.quote || "").trim();
+              if (!quote) return null;
+              return (
+                <div key={i} className="rounded border border-border bg-muted/20 p-2.5 space-y-1">
+                  <p className="text-xs leading-relaxed text-foreground/90">"{quote.slice(0, 260)}{quote.length > 260 ? "..." : ""}"</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {p.source_name || "Unknown source"}{p.timing ? ` - ${p.timing}` : ""}
+                    {p.theme ? ` - ${p.theme}` : ""}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {methodNotes.length > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Method: {methodNotes[0]}
+        </p>
       )}
 
       {table.length > 0 && (

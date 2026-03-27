@@ -237,6 +237,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "IRNA / Fars", description: "State-aligned Persian sources (RSS)" },
       { name: "Iran International / Radio Farda", description: "Exile/independent (RSS)" },
+      { name: "Gemini Deep Analysis", description: "Theme clustering + quoted passage extraction for negotiation narratives (feature-flagged)" },
       { name: "Comparison", description: "Synthesis, latency, credibility gaps (Iran conflict)" },
     ],
   },

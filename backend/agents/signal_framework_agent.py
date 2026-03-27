@@ -10,6 +10,7 @@ Output: Source comparison table, signal assessment, synthesis (Bayesian-style), 
 All output in English for frontend.
 """
 
+import json
 import logging
 import os
 import re
@@ -34,6 +35,9 @@ FEED_REQUEST_TIMEOUT = 18
 # State feeds: longer timeout and optional retry; Firecrawl fallback when direct fetch fails
 FEED_REQUEST_TIMEOUT_STATE = int(os.getenv("SIGNAL_FRAMEWORK_STATE_TIMEOUT", "25"))
 SIGNAL_FRAMEWORK_USE_FIRECRAWL = os.getenv("SIGNAL_FRAMEWORK_USE_FIRECRAWL", "").strip().lower() in ("1", "true", "yes")
+SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS = os.getenv("SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS", "true").strip().lower() in ("1", "true", "yes")
+SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS = max(6, min(40, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS", "18"))))
+SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES = max(3, min(20, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES", "8"))))
 
 # ── Source groups (Iran narrative comparison) ────────────────────────────────
 
@@ -438,10 +442,223 @@ class SignalFrameworkReport(BaseModel):
     lexical_state_terms: List[str] = Field(default_factory=list)
     lexical_exile_terms: List[str] = Field(default_factory=list)
     reaction_signals: List[str] = Field(default_factory=list)
+    theme_clusters: List[Dict[str, Any]] = Field(default_factory=list)
+    quoted_passages: List[Dict[str, Any]] = Field(default_factory=list)
+    negotiation_narrative_score: Optional[float] = None
+    method_notes: List[str] = Field(default_factory=list)
     state_item_count: int = 0
     exile_item_count: int = 0
     fetched_at: str = Field(default_factory=_utc_iso)
     error: Optional[str] = None
+
+
+def _prepare_gemini_items(state_items: List[Dict[str, Any]], exile_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    combined = sorted(
+        [*state_items, *exile_items],
+        key=lambda x: -(x.get("published_ts") or 0),
+    )
+    out: List[Dict[str, Any]] = []
+    for row in combined[:SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS]:
+        title = str(row.get("title") or "").strip()
+        text = str(row.get("text") or "").strip()
+        source = str(row.get("source_name") or "").strip()
+        if not title and not text:
+            continue
+        out.append(
+            {
+                "source_name": source[:120] or "unknown",
+                "title": title[:500],
+                "snippet": text[:1200],
+                "published_ts": row.get("published_ts"),
+                "link": str(row.get("link") or "")[:500],
+            }
+        )
+    return out
+
+
+def _build_gemini_prompt(conflict: str, items: List[Dict[str, Any]]) -> str:
+    payload = json.dumps(items, ensure_ascii=False)
+    return (
+        "You are an OSINT media analyst. Return ONLY valid JSON.\n"
+        "Language policy: ALL commentary fields in English.\n"
+        "Task: analyze state-vs-exile narratives related to negotiations, agreements, ceasefire framing, and rhetorical positioning.\n"
+        "Be exhaustive on passages in the provided records. Do not invent quotes.\n"
+        "Output schema:\n"
+        "{\n"
+        '  "theme_clusters": [\n'
+        '    {"theme":"...", "summary":"...", "passage_count":3, "consistency":"high|medium|low"}\n'
+        "  ],\n"
+        '  "quoted_passages": [\n'
+        '    {"quote":"full quote or excerpt", "source_name":"...", "timing":"ISO/unknown", "context_note":"...", "theme":"..."}\n'
+        "  ],\n"
+        '  "negotiation_narrative_score": 0-100,\n'
+        '  "method_notes": ["short methodological note"]\n'
+        "}\n"
+        "Rules:\n"
+        "- quoted_passages must include source_name.\n"
+        "- If timing is unknown, set timing to 'unknown'.\n"
+        "- Do not include markdown code fences.\n"
+        f"Conflict: {conflict}\n"
+        f"MAX_QUOTES: {SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES}\n"
+        f"INPUT_ITEMS_JSON: {payload[:50000]}"
+    )
+
+
+def _deterministic_deep_fallback(
+    state_items: List[Dict[str, Any]],
+    exile_items: List[Dict[str, Any]],
+    reaction_signals: List[str],
+    latency_hours: Optional[float],
+) -> Dict[str, Any]:
+    state_n = len(state_items)
+    exile_n = len(exile_items)
+    score = 50.0
+    if state_n and exile_n:
+        score += 10
+    if latency_hours is not None and latency_hours > 8:
+        score -= 8
+    score -= min(15, len(reaction_signals) * 4)
+    score = max(0.0, min(100.0, round(score, 1)))
+
+    themes: List[Dict[str, Any]] = [
+        {
+            "theme": "State_vs_exile_framing",
+            "summary": "Framing differences indicate contested interpretation of negotiation and ceasefire signals.",
+            "passage_count": min(6, state_n + exile_n),
+            "consistency": "medium" if state_n and exile_n else "low",
+        }
+    ]
+    quotes: List[Dict[str, Any]] = []
+    for row in (state_items[:3] + exile_items[:3])[:SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES]:
+        txt = str(row.get("title") or row.get("text") or "").strip()
+        src = str(row.get("source_name") or "").strip()
+        if not txt or not src:
+            continue
+        quotes.append(
+            {
+                "quote": txt[:420],
+                "source_name": src[:120],
+                "timing": "unknown",
+                "context_note": "Fallback extraction from feed headlines/snippets.",
+                "theme": "State_vs_exile_framing",
+            }
+        )
+    notes = [
+        "Deterministic fallback used (Gemini unavailable or invalid response).",
+        "Quotes are constrained to fetched feed snippets and may be partial.",
+    ]
+    return {
+        "theme_clusters": themes,
+        "quoted_passages": quotes,
+        "negotiation_narrative_score": score,
+        "method_notes": notes,
+    }
+
+
+def _run_gemini_deep_analysis(
+    conflict: str,
+    state_items: List[Dict[str, Any]],
+    exile_items: List[Dict[str, Any]],
+    reaction_signals: List[str],
+    latency_hours: Optional[float],
+) -> Dict[str, Any]:
+    if not SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS:
+        out = _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)
+        out["method_notes"].append("Gemini deep analysis disabled by feature flag.")
+        return out
+    try:
+        from services.gemini_service import run_gemini_research
+    except Exception:
+        return _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)
+
+    items = _prepare_gemini_items(state_items, exile_items)
+    if not items:
+        out = _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)
+        out["method_notes"].append("No feed items available for deep analysis input.")
+        return out
+
+    prompt = _build_gemini_prompt(conflict, items)
+    resp = run_gemini_research(prompt)
+    parsed = resp.parsed_json if isinstance(resp.parsed_json, dict) else {}
+    if not parsed:
+        return _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)
+
+    themes_raw = parsed.get("theme_clusters")
+    quotes_raw = parsed.get("quoted_passages")
+    notes_raw = parsed.get("method_notes")
+    score_raw = parsed.get("negotiation_narrative_score")
+
+    themes: List[Dict[str, Any]] = []
+    if isinstance(themes_raw, list):
+        for t in themes_raw[:8]:
+            if not isinstance(t, dict):
+                continue
+            theme = str(t.get("theme") or "").strip()
+            summary = str(t.get("summary") or "").strip()
+            if not theme or not summary:
+                continue
+            try:
+                passage_count = int(t.get("passage_count") or 0)
+            except Exception:
+                passage_count = 0
+            consistency = str(t.get("consistency") or "medium").lower()
+            if consistency not in ("high", "medium", "low"):
+                consistency = "medium"
+            themes.append(
+                {
+                    "theme": theme[:120],
+                    "summary": summary[:400],
+                    "passage_count": max(0, passage_count),
+                    "consistency": consistency,
+                }
+            )
+
+    quotes: List[Dict[str, Any]] = []
+    if isinstance(quotes_raw, list):
+        for q in quotes_raw[:SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES]:
+            if not isinstance(q, dict):
+                continue
+            source_name = str(q.get("source_name") or "").strip()
+            quote = str(q.get("quote") or "").strip()
+            if not source_name or not quote:
+                continue
+            quotes.append(
+                {
+                    "quote": quote[:900],
+                    "source_name": source_name[:120],
+                    "timing": str(q.get("timing") or "unknown")[:80],
+                    "context_note": str(q.get("context_note") or "")[:300],
+                    "theme": str(q.get("theme") or "")[:120],
+                }
+            )
+
+    notes: List[str] = []
+    if isinstance(notes_raw, list):
+        notes = [str(x)[:220] for x in notes_raw if isinstance(x, str)][:6]
+    if not notes:
+        notes = ["Gemini deep analysis based on fetched state/exile feed snippets."]
+    if resp.error:
+        notes.append(f"Gemini note: {resp.error}")
+
+    try:
+        score = float(score_raw)
+    except Exception:
+        score = _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)[
+            "negotiation_narrative_score"
+        ]
+    score = max(0.0, min(100.0, round(score, 1)))
+
+    if not themes:
+        themes = _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)["theme_clusters"]
+    if not quotes:
+        quotes = _deterministic_deep_fallback(state_items, exile_items, reaction_signals, latency_hours)["quoted_passages"]
+
+    return {
+        "theme_clusters": themes,
+        "quoted_passages": quotes,
+        "negotiation_narrative_score": score,
+        "method_notes": notes,
+    }
 
 
 def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -592,6 +809,7 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
 
         # Synthesis
         prob, synth_text = _synthesis_confidence(state_items, exile_items, latency_hours, reaction_signals)
+        deep = _run_gemini_deep_analysis(conflict, state_items, exile_items, reaction_signals, latency_hours)
 
         # Anomalies: explain state vs exile availability
         anomalies: List[str] = []
@@ -627,6 +845,10 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             lexical_state_terms=state_terms[:15],
             lexical_exile_terms=exile_terms[:15],
             reaction_signals=reaction_signals,
+            theme_clusters=deep.get("theme_clusters") or [],
+            quoted_passages=deep.get("quoted_passages") or [],
+            negotiation_narrative_score=deep.get("negotiation_narrative_score"),
+            method_notes=deep.get("method_notes") or [],
             state_item_count=len(state_items),
             exile_item_count=len(exile_items),
         )
