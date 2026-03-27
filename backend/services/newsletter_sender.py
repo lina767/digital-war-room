@@ -10,15 +10,18 @@ import os
 import random
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
 
 import httpx
 
 from services.email_templates import (
     confirmation_email_html,
     confirmation_email_text,
-    daily_briefing_email_html,
-    daily_briefing_email_text,
+)
+from services.newsletter_content_templates import daily_briefing_email_html, daily_briefing_email_text
+from services.newsletter_content_templates import (
+    daily_briefing_digest_html,
+    daily_briefing_digest_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,6 +30,17 @@ RESEND_API_URL = "https://api.resend.com/emails"
 # Resend / rate-limit courtesy: retries with jitter
 _NEWSLETTER_SEND_MAX_RETRIES = max(1, min(8, int(os.getenv("NEWSLETTER_SEND_MAX_RETRIES", "4"))))
 _NEWSLETTER_SEND_BACKOFF_BASE = float(os.getenv("NEWSLETTER_SEND_BACKOFF_BASE", "0.75"))
+_NEWSLETTER_LAYOUT = (os.getenv("NEWSLETTER_LAYOUT") or "single").strip().lower()
+_NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED = (
+    (os.getenv("NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED", "false") or "").strip().lower() not in ("0", "false", "no")
+)
+_NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY = max(
+    0, min(6, int(os.getenv("NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY", "0")))
+)
+
+
+def _is_weekly_infographic_day(now_utc: datetime) -> bool:
+    return _NEWSLETTER_WEEKLY_INFOGRAPHIC_ENABLED and now_utc.weekday() == _NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY
 
 
 def _is_configured() -> bool:
@@ -76,11 +90,26 @@ def log_newsletter_deliverability_hints() -> None:
     )
 
 
+def _normalize_base_url(value: str) -> str:
+    """
+    Normalize frontend base URL for email links.
+    If scheme is missing, default to https:// to avoid malformed links in email clients.
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    candidate = raw if "://" in raw else f"https://{raw}"
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return ""
+    return candidate.rstrip("/")
+
+
 def _base_url() -> str:
     """Frontend base URL for confirm/unsubscribe and briefing links."""
-    url = (os.getenv("FRONTEND_URL") or os.getenv("NEWSLETTER_BASE_URL") or "").strip()
-    if url:
-        return url.rstrip("/")
+    configured = _normalize_base_url(os.getenv("FRONTEND_URL") or os.getenv("NEWSLETTER_BASE_URL") or "")
+    if configured:
+        return configured
     return "https://digitalwarroom.com"
 
 
@@ -107,7 +136,7 @@ def _mask_email(addr: str) -> str:
     return f"{local[:2]}***@{rest}"
 
 
-async def send_confirmation_email(email: str, conflict: str, confirm_token: str) -> bool:
+async def send_confirmation_email(email: str, conflict: str, confirm_token: str, *, reminder: bool = False) -> bool:
     """
     Send double opt-in confirmation email. Link points to frontend /newsletter/confirm?token=...
     Returns True if sent successfully.
@@ -117,7 +146,7 @@ async def send_confirmation_email(email: str, conflict: str, confirm_token: str)
         return False
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
     link = _confirm_link(confirm_token)
-    subject = "Confirm your Daily Briefing subscription"
+    subject = "Reminder: confirm your Daily Briefing subscription" if reminder else "Confirm your Daily Briefing subscription"
     html = confirmation_email_html(conflict, link)
     text = confirmation_email_text(conflict, link)
     return await _send(
@@ -139,36 +168,68 @@ async def send_daily_briefing(email: str, conflict: str, briefing_data: Dict[str
         logger.warning("Newsletter: daily briefing skipped (%s)", ", ".join(_missing_config_reasons()))
         return False
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    subject = f"Daily Briefing – {conflict} – {date_str}"
+    now_utc = datetime.now(timezone.utc)
+    date_str = now_utc.strftime("%Y-%m-%d")
+    is_digest = _NEWSLETTER_LAYOUT == "digest"
+    subject = (
+        f"Daily Briefing Digest – {conflict} – {date_str}"
+        if is_digest
+        else f"Daily Briefing – {conflict} – {date_str}"
+    )
     summary = (briefing_data.get("summary") or "").strip() or "No summary available."
     key_findings = briefing_data.get("key_findings") or []
+    briefing_payload = dict(briefing_data or {})
+    briefing_payload["_weekly_infographic_enabled"] = _is_weekly_infographic_day(now_utc)
     view_link = _briefing_link(conflict)
     unsub_link = _unsubscribe_link(unsubscribe_token)
-    html = daily_briefing_email_html(
-        conflict=conflict,
-        date_str=date_str,
-        summary=summary,
-        key_findings=key_findings,
-        escalation_score=briefing_data.get("escalation_score"),
-        view_link=view_link,
-        unsubscribe_link=unsub_link,
-        briefing_data=briefing_data,
-        threat_level=briefing_data.get("threat_level"),
-        key_findings_context=briefing_data.get("key_findings_context"),
-    )
-    text = daily_briefing_email_text(
-        conflict=conflict,
-        date_str=date_str,
-        summary=summary,
-        key_findings=key_findings,
-        escalation_score=briefing_data.get("escalation_score"),
-        view_link=view_link,
-        unsubscribe_link=unsub_link,
-        briefing_data=briefing_data,
-        threat_level=briefing_data.get("threat_level"),
-        key_findings_context=briefing_data.get("key_findings_context"),
-    )
+    if is_digest:
+        html = daily_briefing_digest_html(
+            conflict=conflict,
+            date_str=date_str,
+            summary=summary,
+            key_findings=key_findings,
+            view_link=view_link,
+            unsubscribe_link=unsub_link,
+            briefing_data=briefing_payload,
+            threat_level=briefing_payload.get("threat_level"),
+            key_findings_context=briefing_payload.get("key_findings_context"),
+        )
+        text = daily_briefing_digest_text(
+            conflict=conflict,
+            date_str=date_str,
+            summary=summary,
+            key_findings=key_findings,
+            view_link=view_link,
+            unsubscribe_link=unsub_link,
+            briefing_data=briefing_payload,
+            threat_level=briefing_payload.get("threat_level"),
+            key_findings_context=briefing_payload.get("key_findings_context"),
+        )
+    else:
+        html = daily_briefing_email_html(
+            conflict=conflict,
+            date_str=date_str,
+            summary=summary,
+            key_findings=key_findings,
+            escalation_score=briefing_data.get("escalation_score"),
+            view_link=view_link,
+            unsubscribe_link=unsub_link,
+            briefing_data=briefing_payload,
+            threat_level=briefing_payload.get("threat_level"),
+            key_findings_context=briefing_payload.get("key_findings_context"),
+        )
+        text = daily_briefing_email_text(
+            conflict=conflict,
+            date_str=date_str,
+            summary=summary,
+            key_findings=key_findings,
+            escalation_score=briefing_data.get("escalation_score"),
+            view_link=view_link,
+            unsubscribe_link=unsub_link,
+            briefing_data=briefing_payload,
+            threat_level=briefing_payload.get("threat_level"),
+            key_findings_context=briefing_payload.get("key_findings_context"),
+        )
     return await _send(
         email,
         subject,

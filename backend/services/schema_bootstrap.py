@@ -16,6 +16,7 @@ _ORDER = (
     "004_newsletter_postgres.sql",
     "005_agent_score_history.sql",
     "006_greynoise.sql",
+    "007_newsletter_reminder.sql",
 )
 
 

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>{{NEWSLETTER_TITLE}}</title>
+    <style>
+      body { margin: 0; padding: 0; background: #f5f7fa; }
+      table { border-collapse: collapse; }
+      img { border: 0; display: block; max-width: 100%; height: auto; }
+      .preheader { display: none; max-height: 0; overflow: hidden; opacity: 0; color: transparent; }
+      .container { width: 100%; background: #f5f7fa; padding: 24px 12px; }
+      .card { width: 100%; max-width: 680px; background: #ffffff; margin: 0 auto; border: 1px solid #dde3ea; }
+      .inner { padding: 20px; font-family: Arial, Helvetica, sans-serif; color: #17212b; }
+      .masthead { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #5b6774; }
+      .date { font-size: 12px; color: #5b6774; text-align: right; }
+      .title { margin: 14px 0 8px 0; font-size: 24px; line-height: 1.25; color: #0f1720; }
+      .summary { margin: 0 0 14px 0; font-size: 15px; line-height: 1.45; color: #22303e; }
+      .scanline { margin: 0 0 14px 0; font-size: 12px; line-height: 1.35; letter-spacing: 0.03em; text-transform: uppercase; color: #4a5562; }
+      .btn { display: inline-block; background: #0f3f73; color: #ffffff !important; text-decoration: none; font-size: 14px; line-height: 14px; padding: 12px 16px; border: 1px solid #0f3f73; }
+      .text-link { font-size: 13px; line-height: 1.4; color: #0f3f73; text-decoration: underline; }
+      .divider { border-top: 1px solid #e2e8f0; margin: 16px 0 14px 0; }
+      .footer { font-size: 12px; line-height: 1.5; color: #596677; }
+      @media screen and (max-width: 480px) {
+        .inner { padding: 16px 14px !important; }
+        .title { font-size: 21px !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preheader">{{PREHEADER_TEXT}}</div>
+    <table role="presentation" width="100%" class="container">
+      <tr>
+        <td align="center">
+          <table role="presentation" class="card">
+            <tr>
+              <td class="inner">
+                <table role="presentation" width="100%">
+                  <tr>
+                    <td class="masthead">{{MASTHEAD_LABEL}}</td>
+                    <td class="date">{{DATE_LABEL}}</td>
+                  </tr>
+                </table>
+
+                <h1 class="title">{{REPORT_TITLE}}</h1>
+                <p class="summary">{{DAY_AT_A_GLANCE}}</p>
+                <p class="scanline">{{REGION}} | {{PRIORITY}} | {{TOPIC_TAGS}} | {{UPDATED_TIME}}</p>
+
+                <!-- Optional image block: remove entire table if no image -->
+                <table role="presentation" width="100%" style="margin: 0 0 16px 0;">
+                  <tr>
+                    <td>
+                      <img src="{{IMAGE_URL}}" alt="{{IMAGE_ALT}}" />
+                    </td>
+                  </tr>
+                </table>
+
+                <table role="presentation" width="100%" style="margin: 0 0 10px 0;">
+                  <tr>
+                    <td>
+                      <a class="btn" href="{{REPORT_URL}}">Read full report</a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin: 0 0 2px 0;">
+                  <a class="text-link" href="{{WEB_URL}}">Open in browser</a>
+                </p>
+
+                <div class="divider"></div>
+                <p class="footer">
+                  You are receiving this email because you subscribed to Daily Briefing updates.
+                  <a class="text-link" href="{{PREFERENCES_URL}}">Preferences</a> |
+                  <a class="text-link" href="{{UNSUBSCRIBE_URL}}">Unsubscribe</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

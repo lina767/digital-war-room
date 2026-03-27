@@ -43,7 +43,8 @@ def _ensure_sqlite() -> sqlite3.Connection:
             subscribed_at TEXT NOT NULL,
             unsubscribe_token TEXT NOT NULL UNIQUE,
             confirm_token TEXT NOT NULL UNIQUE,
-            confirmed_at TEXT
+            confirmed_at TEXT,
+            reminder_sent_at TEXT
         )
     """)
     try:
@@ -63,6 +64,10 @@ def _ensure_sqlite() -> sqlite3.Connection:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_newsletter_conflict ON newsletter_subscribers(conflict)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_newsletter_confirmed ON newsletter_subscribers(confirmed_at)")
+    try:
+        conn.execute("ALTER TABLE newsletter_subscribers ADD COLUMN reminder_sent_at TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS newsletter_daily_lock (
             day_utc TEXT PRIMARY KEY,
@@ -167,33 +172,233 @@ def confirm_subscription(confirm_token: str) -> dict | None:
         with connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT email, conflict FROM newsletter_subscribers WHERE confirm_token = %s AND confirmed_at IS NULL",
+                    "SELECT email, conflict, confirmed_at FROM newsletter_subscribers WHERE confirm_token = %s",
                     (tok,),
                 )
                 row = cur.fetchone()
                 if not row:
                     return None
+                if row[2] is not None:
+                    return {"email": row[0], "conflict": row[1], "status": "already_confirmed"}
                 cur.execute(
                     "UPDATE newsletter_subscribers SET confirmed_at = %s::timestamptz WHERE confirm_token = %s AND confirmed_at IS NULL",
                     (now.isoformat(), tok),
                 )
             conn.commit()
-            return {"email": row[0], "conflict": row[1]}
+            return {"email": row[0], "conflict": row[1], "status": "confirmed"}
     conn = _ensure_sqlite()
     try:
         cur = conn.execute(
-            "SELECT email, conflict FROM newsletter_subscribers WHERE confirm_token = ? AND confirmed_at IS NULL",
+            "SELECT email, conflict, confirmed_at FROM newsletter_subscribers WHERE confirm_token = ?",
             (tok,),
         )
         row = cur.fetchone()
         if not row:
             return None
+        if row[2] is not None:
+            return {"email": row[0], "conflict": row[1], "status": "already_confirmed"}
         conn.execute(
             "UPDATE newsletter_subscribers SET confirmed_at = ? WHERE confirm_token = ? AND confirmed_at IS NULL",
             (now.isoformat(), tok),
         )
         conn.commit()
-        return {"email": row[0], "conflict": row[1]}
+        return {"email": row[0], "conflict": row[1], "status": "confirmed"}
+    finally:
+        conn.close()
+
+
+def list_pending_reminder_candidates(*, min_age_hours: int = 6, limit: int = 100) -> List[dict]:
+    """
+    Pending (unconfirmed) subscribers older than N hours who have not received a reminder yet.
+    """
+    h = max(1, int(min_age_hours))
+    lim = max(1, min(1000, int(limit)))
+    if use_postgres():
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT tenant_id::text, email, conflict, confirm_token
+                    FROM newsletter_subscribers
+                    WHERE confirmed_at IS NULL
+                      AND reminder_sent_at IS NULL
+                      AND subscribed_at <= NOW() - (%s::text || ' hours')::interval
+                    ORDER BY subscribed_at ASC
+                    LIMIT %s
+                    """,
+                    (h, lim),
+                )
+                rows = cur.fetchall()
+        return [{"tenant_id": r[0], "email": r[1], "conflict": r[2], "confirm_token": r[3]} for r in rows]
+    conn = _ensure_sqlite()
+    try:
+        cur = conn.execute(
+            """
+            SELECT tenant_id, email, conflict, confirm_token
+            FROM newsletter_subscribers
+            WHERE confirmed_at IS NULL
+              AND reminder_sent_at IS NULL
+              AND subscribed_at <= datetime('now', ?)
+            ORDER BY subscribed_at ASC
+            LIMIT ?
+            """,
+            (f"-{h} hours", lim),
+        )
+        rows = cur.fetchall()
+        return [{"tenant_id": r[0], "email": r[1], "conflict": r[2], "confirm_token": r[3]} for r in rows]
+    finally:
+        conn.close()
+
+
+def mark_confirmation_reminder_sent(email: str, confirm_token: str, *, tenant_id: Optional[str] = None) -> bool:
+    em = (email or "").strip().lower()
+    tok = (confirm_token or "").strip()
+    if not em or not tok:
+        return False
+    tid = tenant_id or _default_tenant_str()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if use_postgres():
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE newsletter_subscribers
+                    SET reminder_sent_at = %s::timestamptz
+                    WHERE tenant_id = %s::uuid
+                      AND email = %s
+                      AND confirm_token = %s
+                      AND confirmed_at IS NULL
+                      AND reminder_sent_at IS NULL
+                    """,
+                    (now_iso, tid, em, tok),
+                )
+                n = cur.rowcount
+            conn.commit()
+            return n > 0
+    conn = _ensure_sqlite()
+    try:
+        cur = conn.execute(
+            """
+            UPDATE newsletter_subscribers
+            SET reminder_sent_at = ?
+            WHERE tenant_id = ?
+              AND email = ?
+              AND confirm_token = ?
+              AND confirmed_at IS NULL
+              AND reminder_sent_at IS NULL
+            """,
+            (now_iso, tid, em, tok),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_reminder_status(*, min_age_hours: int = 6, preview_limit: int = 20) -> Dict[str, Any]:
+    """
+    Operational status for one-time confirmation reminders.
+    Returns aggregate counts plus a small preview list of currently eligible recipients.
+    """
+    h = max(1, int(min_age_hours))
+    preview = max(1, min(100, int(preview_limit)))
+    if use_postgres():
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM newsletter_subscribers WHERE confirmed_at IS NULL")
+                pending_total = int(cur.fetchone()[0] or 0)
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM newsletter_subscribers
+                    WHERE confirmed_at IS NULL
+                      AND reminder_sent_at IS NOT NULL
+                    """
+                )
+                reminded_total = int(cur.fetchone()[0] or 0)
+                cur.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM newsletter_subscribers
+                    WHERE confirmed_at IS NULL
+                      AND reminder_sent_at IS NULL
+                      AND subscribed_at <= NOW() - (%s::text || ' hours')::interval
+                    """,
+                    (h,),
+                )
+                eligible_now = int(cur.fetchone()[0] or 0)
+                cur.execute(
+                    """
+                    SELECT email, conflict, subscribed_at
+                    FROM newsletter_subscribers
+                    WHERE confirmed_at IS NULL
+                      AND reminder_sent_at IS NULL
+                      AND subscribed_at <= NOW() - (%s::text || ' hours')::interval
+                    ORDER BY subscribed_at ASC
+                    LIMIT %s
+                    """,
+                    (h, preview),
+                )
+                rows = cur.fetchall()
+        return {
+            "min_age_hours": h,
+            "pending_total": pending_total,
+            "pending_reminded_total": reminded_total,
+            "pending_eligible_now": eligible_now,
+            "eligible_preview": [
+                {"email": r[0], "conflict": r[1], "subscribed_at": r[2].isoformat() if hasattr(r[2], "isoformat") else str(r[2])}
+                for r in rows
+            ],
+        }
+    conn = _ensure_sqlite()
+    try:
+        pending_total = int(
+            conn.execute("SELECT COUNT(*) FROM newsletter_subscribers WHERE confirmed_at IS NULL").fetchone()[0] or 0
+        )
+        reminded_total = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM newsletter_subscribers
+                WHERE confirmed_at IS NULL
+                  AND reminder_sent_at IS NOT NULL
+                """
+            ).fetchone()[0]
+            or 0
+        )
+        eligible_now = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM newsletter_subscribers
+                WHERE confirmed_at IS NULL
+                  AND reminder_sent_at IS NULL
+                  AND subscribed_at <= datetime('now', ?)
+                """,
+                (f"-{h} hours",),
+            ).fetchone()[0]
+            or 0
+        )
+        cur = conn.execute(
+            """
+            SELECT email, conflict, subscribed_at
+            FROM newsletter_subscribers
+            WHERE confirmed_at IS NULL
+              AND reminder_sent_at IS NULL
+              AND subscribed_at <= datetime('now', ?)
+            ORDER BY subscribed_at ASC
+            LIMIT ?
+            """,
+            (f"-{h} hours", preview),
+        )
+        rows = cur.fetchall()
+        return {
+            "min_age_hours": h,
+            "pending_total": pending_total,
+            "pending_reminded_total": reminded_total,
+            "pending_eligible_now": eligible_now,
+            "eligible_preview": [{"email": r[0], "conflict": r[1], "subscribed_at": r[2]} for r in rows],
+        }
     finally:
         conn.close()
 

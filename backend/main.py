@@ -157,6 +157,7 @@ async def lifespan(app: FastAPI):
     # Newsletter daily job: default 10:00 Europe/Berlin (CET/CEST); run analysis then send emails.
     # NEWSLETTER_IN_PROCESS_SCHEDULER=false when using only external cron (POST /api/newsletter/send-daily).
     newsletter_task = None
+    newsletter_reminder_task = None
     if (os.getenv("RESEND_API_KEY") or "").strip() and (os.getenv("NEWSLETTER_FROM") or "").strip():
         try:
             from services.newsletter_sender import log_newsletter_deliverability_hints
@@ -241,6 +242,47 @@ async def lifespan(app: FastAPI):
                 "use cron for POST /api/newsletter/send-daily"
             )
 
+        async def _newsletter_reminder_loop() -> None:
+            from services.newsletter_sender import send_confirmation_email
+            from services.newsletter_store import (
+                list_pending_reminder_candidates,
+                mark_confirmation_reminder_sent,
+            )
+
+            await asyncio.sleep(60)
+            while True:
+                try:
+                    candidates = list_pending_reminder_candidates(
+                        min_age_hours=settings.newsletter_reminder_hours,
+                        limit=settings.newsletter_reminder_batch_size,
+                    )
+                    reminded = 0
+                    for row in candidates:
+                        sent = await send_confirmation_email(
+                            row["email"],
+                            row["conflict"],
+                            row["confirm_token"],
+                            reminder=True,
+                        )
+                        if sent and mark_confirmation_reminder_sent(
+                            row["email"], row["confirm_token"], tenant_id=row.get("tenant_id")
+                        ):
+                            reminded += 1
+                    if candidates:
+                        logger.info(
+                            "Newsletter reminder sweep: candidates=%d reminded=%d (age>= %dh)",
+                            len(candidates),
+                            reminded,
+                            settings.newsletter_reminder_hours,
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning("Newsletter reminder loop error: %s", e)
+                await asyncio.sleep(settings.newsletter_reminder_check_interval_sec)
+
+        newsletter_reminder_task = asyncio.create_task(_newsletter_reminder_loop())
+
     # Ensure shared HTTP client is created early (so DNS pools etc. warm up)
     get_http_client()
 
@@ -253,6 +295,8 @@ async def lifespan(app: FastAPI):
         tasks_to_cancel.append(greynoise_discovery_task)
     if newsletter_task:
         tasks_to_cancel.append(newsletter_task)
+    if newsletter_reminder_task:
+        tasks_to_cancel.append(newsletter_reminder_task)
     if retention_task:
         tasks_to_cancel.append(retention_task)
     for task in tasks_to_cancel:

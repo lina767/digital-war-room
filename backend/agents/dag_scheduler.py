@@ -9,8 +9,7 @@ dependencies deliver None when unavailable; the node decides how to handle that.
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeoutError
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from graphlib import TopologicalSorter
 from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
@@ -148,10 +147,10 @@ class DAGScheduler:
         sorter.prepare()
 
         pool = ThreadPoolExecutor(max_workers=self._max_workers)
+        in_flight: Dict[Future, Tuple[str, float]] = {}
         try:
-            while sorter.is_active():
-                ready = sorter.get_ready()
-                futures = {}
+            while sorter.is_active() or in_flight:
+                ready = sorter.get_ready() if sorter.is_active() else ()
                 for nid in ready:
                     node = self._nodes[nid]
                     executor = executors.get(nid)
@@ -161,32 +160,51 @@ class DAGScheduler:
                         sorter.done(nid)
                         continue
                     t_submit = time.perf_counter()
-                    futures[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
+                    in_flight[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
 
-                for future, (nid, t_submit) in futures.items():
+                if not in_flight:
+                    continue
+
+                done, _ = wait(in_flight.keys(), timeout=0.05, return_when=FIRST_COMPLETED)
+                now = time.perf_counter()
+
+                # Process completed futures immediately so downstream nodes can start ASAP.
+                for future in done:
+                    nid, t_submit = in_flight.pop(future)
                     node = self._nodes[nid]
                     try:
-                        result, inner_ms = future.result(timeout=node.timeout_s)
+                        result, inner_ms = future.result()
                         store.set(nid, result)
                         self._emit_agent_heartbeat(
                             nid, node, store, result, inner_ms, timed_out=False, exec_failed=False
                         )
-                    except FuturesTimeoutError:
-                        logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
-                        wall_ms = (time.perf_counter() - t_submit) * 1000
-                        fb = node.fallback
-                        store.set(nid, fb)
-                        self._emit_agent_heartbeat(
-                            nid, node, store, fb, wall_ms, timed_out=True, exec_failed=False
-                        )
                     except Exception as exc:
                         logger.warning("Node '%s' failed: %s", nid, exc)
-                        wall_ms = (time.perf_counter() - t_submit) * 1000
+                        wall_ms = (now - t_submit) * 1000
                         fb = node.fallback
                         store.set(nid, fb)
                         self._emit_agent_heartbeat(
                             nid, node, store, fb, wall_ms, timed_out=False, exec_failed=True
                         )
+                    sorter.done(nid)
+
+                # Independent timeout handling avoids head-of-line blocking on slow tasks.
+                timed_out: List[Future] = []
+                for future, (nid, t_submit) in in_flight.items():
+                    node = self._nodes[nid]
+                    if (now - t_submit) >= node.timeout_s:
+                        timed_out.append(future)
+                for future in timed_out:
+                    nid, t_submit = in_flight.pop(future)
+                    node = self._nodes[nid]
+                    logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
+                    future.cancel()
+                    wall_ms = (now - t_submit) * 1000
+                    fb = node.fallback
+                    store.set(nid, fb)
+                    self._emit_agent_heartbeat(
+                        nid, node, store, fb, wall_ms, timed_out=True, exec_failed=False
+                    )
                     sorter.done(nid)
         finally:
             # Do not block the whole analysis run on stuck worker threads after timeout fallback.
@@ -237,10 +255,10 @@ class DAGScheduler:
         sorter.prepare()
 
         pool = ThreadPoolExecutor(max_workers=self._max_workers)
+        in_flight: Dict[Future, Tuple[str, float]] = {}
         try:
-            while sorter.is_active():
-                ready = sorter.get_ready()
-                futures = {}
+            while sorter.is_active() or in_flight:
+                ready = sorter.get_ready() if sorter.is_active() else ()
                 for nid in ready:
                     node = self._nodes[nid]
                     executor = executors.get(nid)
@@ -251,29 +269,51 @@ class DAGScheduler:
                             yield (nid, node.fallback)
                         continue
                     t_submit = time.perf_counter()
-                    futures[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
+                    in_flight[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
 
-                for future, (nid, t_submit) in futures.items():
+                if not in_flight:
+                    continue
+
+                done, _ = wait(in_flight.keys(), timeout=0.05, return_when=FIRST_COMPLETED)
+                now = time.perf_counter()
+
+                for future in done:
+                    nid, t_submit = in_flight.pop(future)
                     node = self._nodes[nid]
                     try:
-                        result, inner_ms = future.result(timeout=node.timeout_s)
+                        result, inner_ms = future.result()
                         timed_out = False
-                        exec_failed = False
-                    except FuturesTimeoutError:
-                        logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
-                        result = node.fallback
-                        inner_ms = (time.perf_counter() - t_submit) * 1000
-                        timed_out = True
                         exec_failed = False
                     except Exception as exc:
                         logger.warning("Node '%s' failed: %s", nid, exc)
                         result = node.fallback
-                        inner_ms = (time.perf_counter() - t_submit) * 1000
+                        inner_ms = (now - t_submit) * 1000
                         timed_out = False
                         exec_failed = True
+
                     store.set(nid, result)
                     self._emit_agent_heartbeat(
                         nid, node, store, result, inner_ms, timed_out=timed_out, exec_failed=exec_failed
+                    )
+                    sorter.done(nid)
+                    if node.streamable:
+                        yield (nid, result)
+
+                timed_out: List[Future] = []
+                for future, (nid, t_submit) in in_flight.items():
+                    node = self._nodes[nid]
+                    if (now - t_submit) >= node.timeout_s:
+                        timed_out.append(future)
+                for future in timed_out:
+                    nid, t_submit = in_flight.pop(future)
+                    node = self._nodes[nid]
+                    logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
+                    future.cancel()
+                    result = node.fallback
+                    inner_ms = (now - t_submit) * 1000
+                    store.set(nid, result)
+                    self._emit_agent_heartbeat(
+                        nid, node, store, result, inner_ms, timed_out=True, exec_failed=False
                     )
                     sorter.done(nid)
                     if node.streamable:

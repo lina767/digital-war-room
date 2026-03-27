@@ -26,6 +26,11 @@ class AppSettings(BaseSettings):
     newsletter_send_timezone: str = (os.getenv("NEWSLETTER_SEND_TIMEZONE") or "Europe/Berlin").strip() or "Europe/Berlin"
     newsletter_send_hour: int = max(0, min(23, int(os.getenv("NEWSLETTER_SEND_HOUR", "10"))))
     newsletter_send_minute: int = max(0, min(59, int(os.getenv("NEWSLETTER_SEND_MINUTE", "0"))))
+    newsletter_reminder_hours: int = max(1, int(os.getenv("NEWSLETTER_REMINDER_HOURS", "6")))
+    newsletter_reminder_check_interval_sec: int = max(
+        300, int(os.getenv("NEWSLETTER_REMINDER_CHECK_INTERVAL_SEC", "1800"))
+    )
+    newsletter_reminder_batch_size: int = max(1, min(1000, int(os.getenv("NEWSLETTER_REMINDER_BATCH_SIZE", "100"))))
     retention_enabled: bool = (os.getenv("RETENTION_ENABLED", "true") or "").strip().lower() not in (
         "0",
         "false",

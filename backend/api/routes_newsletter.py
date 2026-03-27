@@ -25,6 +25,7 @@ from services.newsletter_store import (
     clear_daily_newsletter_lock_today,
     confirm_subscription,
     get_conflicts_with_subscribers,
+    get_reminder_status,
     get_subscriber_stats,
     list_confirmed_subscribers,
     mark_daily_newsletter_completed,
@@ -170,7 +171,12 @@ async def newsletter_confirm(request: Request, token: str = "") -> JSONResponse:
     if not confirmed:
         return JSONResponse(
             status_code=404,
-            content={"error": "Invalid or expired confirmation link, or already confirmed."},
+            content={"error": "Invalid or expired confirmation link."},
+        )
+    if confirmed.get("status") == "already_confirmed":
+        return JSONResponse(
+            status_code=200,
+            content={"message": "You're already subscribed. You'll continue receiving the daily briefing by email."},
         )
     synced = await upsert_subscribed_contact(confirmed["email"], confirmed["conflict"])
     if not synced:
@@ -237,15 +243,55 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
 
     ntid = get_default_tenant_id()
     for conflict in conflicts:
+        subscribers = list_confirmed_subscribers(conflict, tenant_id=None)
+        if not subscribers:
+            continue
         try:
             result = await asyncio.wait_for(
                 loop.run_in_executor(None, lambda c=conflict: _run_analyze_default(c)),
                 timeout=float(ANALYZE_TIMEOUT_SEC),
             )
         except asyncio.TimeoutError:
-            continue
-        except Exception:
-            continue
+            logger.warning(
+                "Newsletter daily: analyze_conflict timed out for conflict=%s; trying cached result for %d subscriber(s)",
+                conflict,
+                len(subscribers),
+            )
+            result = None
+        except Exception as e:
+            logger.warning(
+                "Newsletter daily: analyze_conflict failed for conflict=%s (%s); trying cached result for %d subscriber(s)",
+                conflict,
+                e,
+                len(subscribers),
+            )
+            result = None
+
+        if result is None:
+            cached = None
+            try:
+                if state:
+                    cached_entry = state.get_cache(conflict, tenant_id=ntid)
+                    cached = cached_entry["result"] if cached_entry and isinstance(cached_entry, dict) else None
+                else:
+                    legacy_entry = app_state.analysis_cache.get(conflict)
+                    cached = legacy_entry.get("result") if isinstance(legacy_entry, dict) else None
+            except Exception:
+                cached = None
+            if isinstance(cached, dict) and cached:
+                result = cached
+                logger.info(
+                    "Newsletter daily: using cached analysis for conflict=%s (subscribers=%d)",
+                    conflict,
+                    len(subscribers),
+                )
+            else:
+                logger.warning(
+                    "Newsletter daily: no analysis available (fresh or cached) for conflict=%s; skipping %d subscriber(s)",
+                    conflict,
+                    len(subscribers),
+                )
+                continue
         at_ts = time.time()
         if state:
             attach_pattern_flags(state, conflict, result, tenant_id=ntid)
@@ -255,7 +301,6 @@ async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
         push_escalation_timeline(app_state, conflict, at_ts, result, tenant_id=ntid)
         push_agent_status(app_state, result, tenant_id=ntid)
         push_run_history(app_state, conflict, at_ts, result, tenant_id=ntid)
-        subscribers = list_confirmed_subscribers(conflict, tenant_id=None)
 
         async def _send_one(sub: dict, *, res: dict = result) -> bool:
             async with sem:
@@ -300,6 +345,52 @@ async def newsletter_status(
     if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
         return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
     return JSONResponse(status_code=200, content=get_subscriber_stats())
+
+
+@router.get("/newsletter/reminder-status")
+@limiter.limit("30/minute")
+async def newsletter_reminder_status(
+    request: Request,
+    min_age_hours: int = 6,
+    preview_limit: int = 20,
+    x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
+) -> JSONResponse:
+    """
+    GET /api/newsletter/reminder-status – operational status for one-time reminder flow.
+    Protected by NEWSLETTER_CRON_SECRET via X-Newsletter-Secret when set.
+    """
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    return JSONResponse(
+        status_code=200,
+        content=get_reminder_status(min_age_hours=min_age_hours, preview_limit=preview_limit),
+    )
+
+
+@router.get("/newsletter/ops-status")
+@limiter.limit("30/minute")
+async def newsletter_ops_status(
+    request: Request,
+    min_age_hours: int = 6,
+    preview_limit: int = 20,
+    x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
+) -> JSONResponse:
+    """
+    GET /api/newsletter/ops-status – combined newsletter operational snapshot:
+    subscriber stats + reminder status in one response.
+    Protected by NEWSLETTER_CRON_SECRET via X-Newsletter-Secret when set.
+    """
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    return JSONResponse(
+        status_code=200,
+        content={
+            "subscribers": get_subscriber_stats(),
+            "reminders": get_reminder_status(min_age_hours=min_age_hours, preview_limit=preview_limit),
+        },
+    )
 
 
 @router.post("/newsletter/sync-from-resend")
