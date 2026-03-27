@@ -184,5 +184,6 @@ export function matchConflict(name: string): string | null {
   return null;
 }
 
-export const DEFAULT_WORLD_CENTER: [number, number] = [10, 20];
-export const DEFAULT_WORLD_ZOOM = 1;
+/** World overview: centered on Middle East (matches CONFLICT_OPTIONS focus). */
+export const DEFAULT_WORLD_CENTER: [number, number] = [44, 31];
+export const DEFAULT_WORLD_ZOOM = 2.35;

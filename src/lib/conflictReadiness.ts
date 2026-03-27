@@ -46,4 +46,5 @@ export const CONFLICT_READINESS: ConflictReadiness[] = [
   makeReadiness("Korean Peninsula", "tier3", 62, 68, 58, 74),
 ];
 
-export const CORE_THEATERS = ["Middle East", "Ukraine", "Red Sea and Horn of Africa", "Taiwan Strait"] as const;
+/** Dashboard theater selector is Middle East–only; all listed conflicts are treated as core. */
+export const CORE_THEATERS = ["Middle East", "Iran", "Lebanon"] as const;
