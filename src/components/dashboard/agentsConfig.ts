@@ -14,6 +14,7 @@ export const AGENT_NAME_TO_KEY: Record<string, string> = {
   "NEWS": "news",
   "GEOINT": "geoint",
   "SOCMINT": "socmint",
+  "MEDIANT": "mediaint",
   "TECHINT": "techint",
   "CYBER": "cyber",
   "ENERGY": "energy",
@@ -21,6 +22,7 @@ export const AGENT_NAME_TO_KEY: Record<string, string> = {
   "PROTEST": "protest",
   "DIPLO": "diplo",
   "PROXIMITY": "proximity",
+  "PENTAGON": "pentagon",
   "SIGNAL FRAMEWORK": "narrative",
 };
 
@@ -88,6 +90,22 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "Reddit", description: "Subreddits (geopolitics, worldnews, region-specific)" },
       { name: "RSS", description: "CriticalThreats, LongWarJournal, ISW, KyivPost, etc." },
       { name: "ReliefWeb", description: "Conflict reports by country" },
+    ],
+  },
+  {
+    name: "MEDIANT",
+    fullName: "Media Intelligence (SOCMINT images/video)",
+    sources: [
+      {
+        name: "SOCMINT URLs",
+        description: "Image/video links from Telegram, Twitter/X, and Reddit posts collected by SOCMINT",
+      },
+      { name: "EXIF & hashing", description: "Pillow EXIF (GPS, timestamps), perceptual hash for near-duplicate clustering" },
+      { name: "Video keyframes", description: "FFmpeg extracts frames from short clips (optional local ffmpeg)" },
+      {
+        name: "Vision (Haiku)",
+        description: "Claude Haiku on sampled frames stills (MEDIAINT_VISION_MAX_CALLS cap)",
+      },
     ],
   },
   {
@@ -173,6 +191,25 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "NASA FIRMS", description: "Thermal anomalies as strike triggers (VIIRS_SNPP_NRT)" },
       { name: "Overpass/OSM", description: "Schools, hospitals, government within 300 m" },
       { name: "Tunnel / military sites", description: "Optional GeoJSON (TUNNEL_SITES_GEOJSON_URL)" },
+    ],
+  },
+  {
+    name: "PENTAGON",
+    fullName: "Pentagon-area informal signals (SerpAPI)",
+    sources: [
+      {
+        name: "SerpAPI Google Maps",
+        description:
+          "Popular times / live busyness for configured DC-adjacent venues (pizza + nightlife proxies); anecdotal only",
+      },
+      {
+        name: "SERPAPI_KEY",
+        description: "Required for live fetches; optional PENTAGON_SIGNALS_MANUAL_SCORES for tests without API",
+      },
+      {
+        name: "Caps",
+        description: "PENTAGON_SIGNALS_SERPAPI_HOURLY_CAP / MONTHLY_CAP and quota file under backend/data",
+      },
     ],
   },
   {
