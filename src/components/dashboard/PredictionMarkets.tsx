@@ -4,42 +4,61 @@ import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { Sparkline } from "@/components/dashboard/Sparkline";
 import { formatTimeAgo } from "@/lib/utils";
 
+/** Default rows when API data is empty — mirrors Polymarket’s Iran tag listing (gamma-api …/events?tag_slug=iran). */
 const FALLBACK_MARKETS = [
   {
-    question: "US x Iran ceasefire by deadline?",
+    question: "Will the Iranian regime fall before 2027?",
     probability: 0.5,
     volume: 0,
-    url: "https://polymarket.com/event/us-x-iran-ceasefire-by",
+    url: "https://polymarket.com/event/will-the-iranian-regime-fall-by-the-end-of-2026",
   },
   {
-    question: "Will Crude Oil (CL) hit threshold by end of March?",
+    question: "US-Iran nuclear deal before 2027?",
     probability: 0.5,
     volume: 0,
-    url: "https://polymarket.com/event/will-crude-oil-cl-hit-by-end-of-march",
+    url: "https://polymarket.com/event/us-iran-nuclear-deal-before-2027",
   },
   {
-    question: "US forces enter Iran by deadline?",
+    question: "Will the U.S. invade Iran before 2027?",
     probability: 0.5,
     volume: 0,
-    url: "https://polymarket.com/event/us-forces-enter-iran-by",
+    url: "https://polymarket.com/event/will-the-us-invade-iran-before-2027",
   },
   {
-    question: "Kharg Island no longer under Iranian control by March 31?",
+    question: "Iran nuclear test before 2027?",
     probability: 0.5,
     volume: 0,
-    url: "https://polymarket.com/event/kharg-island-no-longer-under-iranian-control-by-march-31",
+    url: "https://polymarket.com/event/iran-nuclear-test-before-2027",
   },
   {
-    question: "Trump announces end of military operations against Iran by deadline?",
+    question: "Will Iran withdraw from the NPT before 2027?",
     probability: 0.5,
     volume: 0,
-    url: "https://polymarket.com/event/trump-announces-end-of-military-operations-against-iran-by",
+    url: "https://polymarket.com/event/will-iran-withdraw-from-the-npt-before-2027",
   },
   {
-    question: "Iran x Israel/US conflict ends by deadline?",
+    question: "Iran Nuke before 2027?",
     probability: 0.5,
     volume: 0,
-    url: "https://polymarket.com/event/iran-x-israelus-conflict-ends-by",
+    url: "https://polymarket.com/event/iran-nuke-before-2027",
+  },
+  {
+    question: "How many different countries will Israel strike in 2026?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/how-many-different-countries-will-israel-strike-in-2026",
+  },
+  {
+    question: "US-Iran nuclear deal by June 30?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/us-iran-nuclear-deal-by-june-30",
+  },
+  {
+    question: "Will the Iranian regime fall by March 31?",
+    probability: 0.5,
+    volume: 0,
+    url: "https://polymarket.com/event/will-the-iranian-regime-fall-by-march-31",
   },
   {
     question: "Will the Iranian regime fall by June 30?",

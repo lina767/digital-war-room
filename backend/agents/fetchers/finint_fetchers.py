@@ -28,14 +28,23 @@ TRACKED_ETH_ADDRESSES: List[tuple[str, str]] = []
 MAX_ETHERSCAN_ADDRESSES_PER_RUN = 20
 ETHERSCAN_RATE_LIMIT_DELAY_SEC = 0.35
 
+# Polymarket “Iran” topic — same order as gamma-api /events?tag_slug=iran&closed=false (site listing).
 TRACKED_POLYMARKET_SLUGS = [
-    "us-x-iran-ceasefire-by",
-    "will-crude-oil-cl-hit-by-end-of-march",
-    "us-forces-enter-iran-by",
-    "kharg-island-no-longer-under-iranian-control-by-march-31",
-    "trump-announces-end-of-military-operations-against-iran-by",
-    "iran-x-israelus-conflict-ends-by",
+    "will-the-iranian-regime-fall-by-the-end-of-2026",
+    "us-iran-nuclear-deal-before-2027",
+    "will-the-us-invade-iran-before-2027",
+    "iran-nuclear-test-before-2027",
+    "will-iran-withdraw-from-the-npt-before-2027",
+    "iran-nuke-before-2027",
+    "how-many-different-countries-will-israel-strike-in-2026",
+    "us-iran-nuclear-deal-by-june-30",
+    "will-the-iranian-regime-fall-by-march-31",
     "will-the-iranian-regime-fall-by-june-30",
+    "will-reza-pahlavi-enter-iran-by-june-30",
+    "us-recognizes-reza-pahlavi-as-leader-of-iran-in2026",
+    "iran-coup-attempt-by-june-30",
+    "masoud-pezeshkian-out-by",
+    "us-forces-enter-iran-by",
 ]
 
 POLYMARKET_INCLUSION_KEYWORDS = {
