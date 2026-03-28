@@ -81,7 +81,10 @@ export function CollapsiblePanel({
   const contentId = `collapse-content-${sectionId}`;
 
   return (
-    <div className={cn("rounded-lg border border-border bg-card overflow-hidden transition-colors duration-200 hover:border-primary/20", className)}>
+    <div
+      id={`dwr-feed-section-${sectionId}`}
+      className={cn("rounded-lg border border-border bg-card overflow-hidden transition-colors duration-200 hover:border-primary/20", className)}
+    >
       <button
         type="button"
         onClick={toggle}

@@ -105,6 +105,9 @@ export interface TheaterMapProps {
   sigintAircraft?: SigintAircraft[];
   sigintShips?: SigintShip[];
   chokepointStatuses?: ChokePointStatus[];
+  /** When set with onStrikeTimeRangeChange, strike time window is controlled by parent (e.g. timeline bar). */
+  strikeTimeRange?: StrikeTimeRange;
+  onStrikeTimeRangeChange?: (range: StrikeTimeRange) => void;
 }
 
 function TheaterMapInner({
@@ -113,6 +116,8 @@ function TheaterMapInner({
   sigintAircraft = [],
   sigintShips = [],
   chokepointStatuses = [],
+  strikeTimeRange: strikeTimeRangeProp,
+  onStrikeTimeRangeChange,
 }: TheaterMapProps) {
   const { layers, toggleLayer, setLayer } = useMapLayers();
 
@@ -120,7 +125,10 @@ function TheaterMapInner({
   const [selectedSigint, setSelectedSigint] = useState<
     { type: "aircraft"; data: SigintAircraft } | { type: "ship"; data: SigintShip } | null
   >(null);
-  const [strikeTimeRange, setStrikeTimeRange] = useState<StrikeTimeRange>("7d");
+  const [strikeTimeRangeUncontrolled, setStrikeTimeRangeUncontrolled] = useState<StrikeTimeRange>("7d");
+  const controlledStrike = strikeTimeRangeProp !== undefined && typeof onStrikeTimeRangeChange === "function";
+  const strikeTimeRange = controlledStrike ? strikeTimeRangeProp! : strikeTimeRangeUncontrolled;
+  const setStrikeTimeRange = controlledStrike ? onStrikeTimeRangeChange! : setStrikeTimeRangeUncontrolled;
   /** Off: no green cluster halos; all strikes render as individual markers (WebGL). */
   const eventClustering = false;
   const [tooltip, setTooltip] = useState<MapTooltipData | null>(null);
@@ -215,8 +223,10 @@ function TheaterMapInner({
   }, [activeConflict]);
 
   useEffect(() => {
-    setStrikeTimeRange("7d");
-  }, [activeConflict]);
+    if (!controlledStrike) {
+      setStrikeTimeRangeUncontrolled("7d");
+    }
+  }, [activeConflict, controlledStrike]);
 
   useEffect(() => {
     if (!layers.heatmap || !activeConflict) {

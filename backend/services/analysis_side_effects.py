@@ -78,3 +78,10 @@ async def persist_analysis_side_effects(
             await insert_ais_track_samples(conflict, samples, tenant_id=tenant_id)
     except Exception as e:
         logger.warning("insert_ais_track_samples failed for %s: %s", conflict, e)
+    try:
+        from services.alert_rules_engine import evaluate_and_notify
+
+        tid_str = str(tenant_id) if tenant_id else None
+        evaluate_and_notify(conflict, result, tenant_id=tid_str)
+    except Exception as e:
+        logger.warning("evaluate_and_notify alerts failed for %s: %s", conflict, e)

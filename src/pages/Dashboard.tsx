@@ -1,4 +1,6 @@
 import { memo, useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { toast } from "sonner";
+import { decodeIntelStoryHash } from "@/features/intel-story/encodeShareLink";
 import { useIsMobileLayout } from "@/hooks/useMediaQuery";
 import { trackMobileNav, trackMobilePanel } from "@/lib/mobileAnalytics";
 import { buildSearchHits } from "@/lib/dashboardSearchIndex";
@@ -10,11 +12,13 @@ import { LiveTicker } from "@/components/dashboard/LiveTicker";
 import type { ProximityEvidence } from "@/lib/proximityAnalyzerService";
 import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import { useConflictWebSocket, type ConflictData } from "@/hooks/useConflictWebSocket";
-import { Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search } from "lucide-react";
+import { Menu, X, Radio, Rss, BookOpen, Heart, FileText, Activity, Github, Newspaper, Mail, Search, Pin } from "lucide-react";
 import { DashboardLeftPanel } from "@/components/dashboard/DashboardLeftPanel";
 import { DashboardMapSection } from "@/components/dashboard/DashboardMapSection";
 import { DashboardRightPanel } from "@/components/dashboard/DashboardRightPanel";
 import { OfflineStatusBadge } from "@/components/dashboard/OfflineStatusBadge";
+import { AlertNotificationCenter } from "@/components/dashboard/AlertNotificationCenter";
+import { IntelStoryExportMenu } from "@/components/dashboard/IntelStoryExportMenu";
 import { PatternFlagsBanner } from "@/components/dashboard/PatternFlagsBanner";
 import { SEO } from "@/components/SEO";
 import { PINNED_ONE_LINER } from "@/lib/seoCopy";
@@ -95,6 +99,13 @@ const DashboardFooter = memo(function DashboardFooter() {
         >
           <FileText className="h-3.5 w-3.5" aria-hidden />
           <span>Daily Briefing</span>
+        </Link>
+        <Link
+          to="/app/investigation"
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/90 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded touch-manipulation"
+        >
+          <Pin className="h-3.5 w-3.5" aria-hidden />
+          <span>Investigation</span>
         </Link>
         <Link
           to="/app/monitoring"
@@ -246,6 +257,18 @@ function DashboardContent() {
   }, [selectedConflict, headlineAllowedSources]);
 
   useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    const imported = decodeIntelStoryHash(hash);
+    if (imported) {
+      toast.info("Shared intel story link loaded", {
+        description: `${imported.conflict} · ${imported.threat_level ?? "—"} · ${imported.key_findings?.length ?? 0} findings`,
+        duration: 8000,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key !== "k") return;
       const el = e.target as HTMLElement | null;
@@ -367,6 +390,10 @@ function DashboardContent() {
             <span className="text-primary">{signalCount !== null ? signalCount.toLocaleString() : "–"}</span>
             <span>signals</span>
           </div>
+          <div className="hidden sm:flex items-center gap-1">
+            <IntelStoryExportMenu conflict={selectedConflict} conflictData={conflictData} />
+            <AlertNotificationCenter />
+          </div>
           <button
             type="button"
             onClick={openSearch}
@@ -444,6 +471,12 @@ function DashboardContent() {
               aria-label="Open search"
             >
               <Search className="h-4 w-4 shrink-0" aria-hidden /> Search
+            </Button>
+            <Button variant="outline" size="sm" className="w-full min-h-12 touch-manipulation" asChild>
+              <Link to="/app/investigation" className="inline-flex items-center justify-center gap-2" onClick={() => setMobileMenuOpen(false)}>
+                <Pin className="h-4 w-4 shrink-0" aria-hidden />
+                <span>Investigation</span>
+              </Link>
             </Button>
             <div className="grid grid-cols-2 gap-2 pt-1">
               <Button variant="outline" size="sm" className="min-h-12 touch-manipulation" asChild>

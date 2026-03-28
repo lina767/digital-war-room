@@ -27,6 +27,15 @@ Newsletter feature: subscribers receive a daily email with the current Daily Bri
 - **Env:** `RESEND_API_KEY`, `NEWSLETTER_FROM` (e.g. `briefing@notifications.yourdomain.com`). If not set, newsletter routes and cron job no-op / log and return.
 - **Sender domain:** Prefer a **subdomain** for the From address (e.g. `notifications.yourdomain.com` or `mail.yourdomain.com`) for [reputation isolation and sending-purpose transparency](https://resend.com/docs/knowledge-base/is-it-better-to-send-emails-from-a-subdomain-or-the-root-domain). Avoid lookalike domains (e.g. `yourdomain-mail.com`).
 
+### Resend Templates (optional)
+
+Instead of rendering all HTML in Python, you can send through **published** [Resend Templates](https://resend.com/docs/dashboard/templates/introduction):
+
+- Set **`RESEND_TEMPLATE_ID_CONFIRM`** for the double opt-in message (variables: `CONFLICT`, `CONFIRM_LINK`, `IS_REMINDER`).
+- Set **`RESEND_TEMPLATE_ID_DAILY`** for the **single** daily layout (`NEWSLETTER_LAYOUT=single`). The backend supplies **20** template variables (max per Resend) plus an optional **inline image** attachment with `content_id` `dwr-daily-infographic` when an infographic is generated. **Digest** layout (`digest`) is not template-mapped; programmatic HTML is used.
+
+Resend limits string variables to **2000** characters each. Full variable list and starter HTML: [docs/RESEND-TEMPLATES.md](RESEND-TEMPLATES.md).
+
 ### Which subdomain to use and does it need to “exist”?
 
 - **What to enter in Resend:** Add a subdomain of a domain you own, e.g. `notifications.yourdomain.com` or `mail.yourdomain.com`. In the Resend dashboard: [Domains](https://resend.com/domains) → Add domain → enter that subdomain (or the root domain if you prefer).

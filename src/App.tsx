@@ -24,6 +24,7 @@ const Blog = lazy(() => import("./pages/Blog"));
 const BlogPost = lazy(() => import("./pages/BlogPost"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
 const Login = lazy(() => import("./pages/Login"));
+const InvestigationWorkspacePage = lazy(() => import("./pages/InvestigationWorkspacePage"));
 
 function PageFallback() {
   return <PageSkeleton />;
@@ -53,6 +54,7 @@ const App = () => {
           <Route path="/app/login" element={<Login />} />
           <Route path="/app/dashboard" element={<Dashboard />} />
           <Route path="/app/monitoring" element={<AgentMonitor />} />
+          <Route path="/app/investigation" element={<InvestigationWorkspacePage />} />
           <Route path="/how-it-works" element={<Navigate to={`${DOCS_HUB}?doc=how-it-works`} replace />} />
           <Route path="/methodology" element={<Navigate to={`${DOCS_HUB}?doc=methodology`} replace />} />
           <Route path="/sources" element={<Navigate to={`${DOCS_HUB}?doc=source-directory`} replace />} />

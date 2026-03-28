@@ -231,6 +231,8 @@ Vollständige Referenz (DOC/GEO, ToneChart, Events, GKG): [docs/GDELT-API-REFERE
 | **NEWSLETTER_CRON_SECRET** | `backend/api/routes_newsletter.py` | If set, `POST /api/newsletter/send-daily`, `GET /api/newsletter/status`, and `POST /api/newsletter/sync-from-resend` require header `X-Newsletter-Secret` to match. Use for external cron (e.g. Railway cron, GitHub Actions). |
 | **RESEND_NEWSLETTER_SEGMENT_ID** (or **RESEND_NEWSLETTER_SEGMENT_IDS**) | `backend/services/resend_contacts.py` | Optional. After confirm, subscriber is added as a [Resend Contact](https://resend.com/docs/api-reference/contacts/create-contact) and attached to this segment for Broadcasts. Resend “Audiences” are deprecated; create a **Segment** in the dashboard and paste its ID. |
 | **RESEND_CONTACTS_SYNC** | `backend/services/resend_contacts.py` | Default `true` when `RESEND_API_KEY` is set. Set `false` to skip Contact API sync (pending/confirm/unsubscribe status updates). |
+| **RESEND_TEMPLATE_ID_CONFIRM** | `backend/services/newsletter_sender.py` | Optional. Published [Resend Template](https://resend.com/docs/dashboard/templates/introduction) id/alias for the double opt-in email (`CONFLICT`, `CONFIRM_LINK`, `IS_REMINDER`). If unset, HTML comes from `email_templates`. |
+| **RESEND_TEMPLATE_ID_DAILY** | `backend/services/newsletter_sender.py` | Optional. Published template id/alias for the **single-layout** daily briefing (20 variables + optional CID infographic). If unset, HTML comes from `newsletter_content_templates`. Digest layout ignores this and uses programmatic HTML. See [docs/RESEND-TEMPLATES.md](RESEND-TEMPLATES.md). |
 
 See [docs/NEWSLETTER-SPEC.md](NEWSLETTER-SPEC.md) for full behaviour (double opt-in, fixed-time send, Resend).
 

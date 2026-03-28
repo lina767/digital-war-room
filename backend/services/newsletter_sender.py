@@ -9,7 +9,7 @@ import logging
 import os
 import random
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 from urllib.parse import urlparse, urlencode
 
@@ -32,6 +32,11 @@ from services.newsletter_infographic import (
     should_strip_infographic_from_html,
 )
 from services.newsletter_link_builder import build_newsletter_link_bundle, digest_row_url
+from services.resend_template_payloads import (
+    build_confirmation_template_variables,
+    build_daily_briefing_template_variables,
+    data_uri_to_inline_attachment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +61,15 @@ _NEWSLETTER_INFOGRAPHIC_MODEL = (
     os.getenv("NEWSLETTER_INFOGRAPHIC_MODEL") or "gemini-3.1-flash-image-preview"
 ).strip()
 _NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC = float(os.getenv("NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC", "45"))
+
+
+def _resend_template_id_confirm() -> str:
+    return (os.getenv("RESEND_TEMPLATE_ID_CONFIRM") or "").strip()
+
+
+def _resend_template_id_daily() -> str:
+    return (os.getenv("RESEND_TEMPLATE_ID_DAILY") or "").strip()
+
 
 _daily_infographic_task_cache: dict[str, "asyncio.Task[Optional[str]]"] = {}
 _daily_infographic_task_lock = asyncio.Lock()
@@ -335,16 +349,28 @@ async def send_confirmation_email(email: str, conflict: str, confirm_token: str,
     from_addr = (os.getenv("NEWSLETTER_FROM") or "").strip()
     link = _confirm_link(confirm_token)
     subject = "Reminder: confirm your Daily Briefing subscription" if reminder else "Confirm your Daily Briefing subscription"
+    tid = _resend_template_id_confirm()
+    if tid:
+        variables = build_confirmation_template_variables(conflict, link, reminder=reminder)
+        return await _send(
+            email,
+            subject,
+            from_addr,
+            list_unsubscribe_url=None,
+            conflict_for_log=conflict,
+            template_id=tid,
+            template_variables=variables,
+        )
     html = confirmation_email_html(conflict, link)
     text = confirmation_email_text(conflict, link)
     return await _send(
         email,
         subject,
-        html,
-        text,
         from_addr,
         list_unsubscribe_url=None,
         conflict_for_log=conflict,
+        html=html,
+        text=text,
     )
 
 
@@ -462,9 +488,8 @@ async def send_daily_briefing(
             "Newsletter HTML exceeds %s bytes; stripping inline infographic for deliverability",
             max_html_bytes(),
         )
-        stripped = dict(briefing_payload)
-        stripped["_newsletter_infographic_data_uri"] = ""
-        stripped["_newsletter_infographic_oversize"] = True
+        briefing_payload["_newsletter_infographic_data_uri"] = ""
+        briefing_payload["_newsletter_infographic_oversize"] = True
         if is_digest:
             html = daily_briefing_digest_html(
                 conflict=conflict,
@@ -473,7 +498,7 @@ async def send_daily_briefing(
                 key_findings=key_findings,
                 view_link=digest_view,
                 unsubscribe_link=unsub_link,
-                briefing_data=stripped,
+                briefing_data=briefing_payload,
                 threat_level=briefing_payload.get("threat_level"),
                 key_findings_context=ctx_list,
                 row_links=digest_row_links,
@@ -487,19 +512,57 @@ async def send_daily_briefing(
                 escalation_score=briefing_data.get("escalation_score"),
                 view_link=view_link,
                 unsubscribe_link=unsub_link,
-                briefing_data=stripped,
+                briefing_data=briefing_payload,
                 threat_level=briefing_payload.get("threat_level"),
                 key_findings_context=ctx_list,
             )
 
+    daily_tid = _resend_template_id_daily()
+    if daily_tid and not is_digest:
+        uri = (briefing_payload.get("_newsletter_infographic_data_uri") or "").strip()
+        if briefing_payload.get("_newsletter_infographic_oversize"):
+            uri = ""
+        include_cid = bool(uri.startswith("data:image/"))
+        att = data_uri_to_inline_attachment(uri) if include_cid else None
+        variables = build_daily_briefing_template_variables(
+            conflict=conflict,
+            date_str=date_str,
+            summary=summary,
+            key_findings=key_findings,
+            briefing_payload=briefing_payload,
+            threat_level=briefing_payload.get("threat_level"),
+            escalation_score=briefing_data.get("escalation_score"),
+            unsubscribe_link=unsub_link,
+            view_link=view_link,
+            order_indices=order,
+            key_findings_context=ctx_list,
+            include_infographic_cid=include_cid,
+        )
+        return await _send(
+            email,
+            subject,
+            from_addr,
+            list_unsubscribe_url=unsub_link,
+            conflict_for_log=conflict,
+            template_id=daily_tid,
+            template_variables=variables,
+            attachments=[att] if att else None,
+        )
+    if daily_tid and is_digest:
+        logger.info(
+            "RESEND_TEMPLATE_ID_DAILY is set but daily digest layout uses inline HTML "
+            "(Resend templates support at most 20 variables; digest not mapped). "
+            "Unset RESEND_TEMPLATE_ID_DAILY or use NEWSLETTER_LAYOUT=single for template sends."
+        )
+
     return await _send(
         email,
         subject,
-        html,
-        text,
         from_addr,
         list_unsubscribe_url=unsub_link,
         conflict_for_log=conflict,
+        html=html,
+        text=text,
     )
 
 
@@ -516,12 +579,15 @@ def _parse_retry_after_seconds(resp: httpx.Response) -> Optional[float]:
 async def _send(
     to: str,
     subject: str,
-    html: str,
-    text: str,
     from_addr: str,
     *,
     list_unsubscribe_url: Optional[str],
     conflict_for_log: Optional[str],
+    html: Optional[str] = None,
+    text: Optional[str] = None,
+    template_id: Optional[str] = None,
+    template_variables: Optional[Dict[str, Any]] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None,
 ) -> bool:
     key = (os.getenv("RESEND_API_KEY") or "").strip()
     if not key:
@@ -531,7 +597,22 @@ async def _send(
         logger.warning("Invalid NEWSLETTER_FROM format: %s", from_addr)
         return False
 
-    payload: Dict[str, Any] = {"from": from_addr, "to": [to], "subject": subject, "html": html, "text": text}
+    use_template = bool((template_id or "").strip() and template_variables is not None)
+    if use_template:
+        payload: Dict[str, Any] = {
+            "from": from_addr,
+            "to": [to],
+            "subject": subject,
+            "template": {"id": (template_id or "").strip(), "variables": template_variables or {}},
+        }
+    else:
+        if html is None:
+            html = ""
+        if text is None:
+            text = ""
+        payload = {"from": from_addr, "to": [to], "subject": subject, "html": html, "text": text}
+    if attachments:
+        payload["attachments"] = [a for a in attachments if a]
     if list_unsubscribe_url:
         # RFC 2369; angle-bracket HTTPS URL. Add RFC 8058 List-Unsubscribe-Post when POST /unsubscribe exists.
         payload["headers"] = [{"name": "List-Unsubscribe", "value": f"<{list_unsubscribe_url}>"}]
