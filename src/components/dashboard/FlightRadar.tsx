@@ -79,22 +79,30 @@ function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
   return map;
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 export function FlightRadar({ sigint }: FlightRadarProps) {
   const [showAircraft, setShowAircraft] = useState(false);
   const [showShips, setShowShips] = useState(false);
   const [showTargets, setShowTargets] = useState(false);
 
-  const aircraft = (sigint?.aircraft ?? []).filter(
+  const aircraft = asArray(sigint?.aircraft).filter(
     (a): a is Aircraft => !!a && typeof a === "object" && !("error" in a),
   );
-  const ships = (sigint?.ships ?? []).filter(
+  const ships = asArray(sigint?.ships).filter(
     (s): s is ShipData => !!s && typeof s === "object" && !("error" in s),
   );
-  const targetTracks = sigint?.target_tracks ?? {};
+  const targetTracks = asObject(sigint?.target_tracks);
   const targetEntries = Object.entries(targetTracks).filter(
     ([, v]) => v && typeof v === "object" && !("error" in v),
   );
-  const alerts = sigint?.alerts ?? [];
+  const alerts = asArray<string>(sigint?.alerts);
   const haikuAnalysis = typeof sigint?.haiku_analysis === "string" ? sigint.haiku_analysis.trim() : "";
 
   const acCount = aircraft.length;

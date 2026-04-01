@@ -15,6 +15,10 @@ export interface SearchHit {
 const MAX_BUILT = 400;
 const SNIP = 220;
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
 function clip(s: string, n = SNIP): string {
   const t = s.replace(/\s+/g, " ").trim();
   if (t.length <= n) return t;
@@ -60,7 +64,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     });
   }
 
-  (data.scenarios ?? []).forEach((s, i) => {
+  asArray<{ description?: string; probability?: number }>(data.scenarios).forEach((s, i) => {
     if (s.description) {
       hits.push({
         id: `scenario-${i}`,
@@ -72,7 +76,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     }
   });
 
-  (data.root_cause_suggestions ?? []).forEach((rc, i) => {
+  asArray<{ signal?: string; likely_cause?: string; confidence?: string }>(data.root_cause_suggestions).forEach((rc, i) => {
     if (hits.length >= MAX_BUILT) return;
     const line = `${rc.signal} → ${rc.likely_cause}`;
     hits.push({
@@ -90,7 +94,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   const newsSum = data.news?.summary;
   pushAgent(hits, "news-summary", "NEWS", newsSum, "News agent");
 
-  (data.news?.articles ?? []).forEach((a, i) => {
+  asArray<{ title?: string; source?: string; url?: string; description?: string }>(data.news?.articles).forEach((a, i) => {
     const title = a.title?.trim() || "Untitled headline";
     const line = [a.source, a.title].filter(Boolean).join(" – ");
     hits.push({
@@ -103,7 +107,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     });
   });
 
-  (data.corroborated_patterns ?? []).forEach((p, i) => {
+  asArray<{ summary?: string; agent_ids?: string[] }>(data.corroborated_patterns).forEach((p, i) => {
     if (p.summary) {
       hits.push({
         id: `corr-${i}`,
@@ -115,7 +119,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     }
   });
 
-  (data.pattern_flags ?? []).forEach((p, i) => {
+  asArray<{ title?: string; id?: string; detail?: string }>(data.pattern_flags).forEach((p, i) => {
     if (hits.length >= MAX_BUILT) return;
     const title = (p.title ?? p.id ?? "Pattern").trim();
     const line = [p.title, p.detail].filter(Boolean).join(" – ");
@@ -129,7 +133,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     });
   });
 
-  (data.finint?.polymarket ?? []).forEach((m, i) => {
+  asArray<{ question?: string; probability?: number; url?: string }>(data.finint?.polymarket).forEach((m, i) => {
     if (m.question) {
       hits.push({
         id: `poly-${i}`,
@@ -156,7 +160,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
 
   const nar = data.narrative;
   pushAgent(hits, "narrative-synth", "SIGNAL FRAMEWORK", nar?.synthesis_text, "Narrative synthesis");
-  (nar?.source_comparison_table ?? []).forEach((row, i) => {
+  asArray<{ point?: string; state_narrative?: string; exile_narrative?: string }>(nar?.source_comparison_table).forEach((row, i) => {
     const blob = [row.point, row.state_narrative, row.exile_narrative].filter(Boolean).join(" | ");
     if (blob) {
       hits.push({
@@ -171,7 +175,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   });
 
   const pred = data.predictive;
-  const esc = [...(pred?.escalation ?? []), pred?.baseline_escalation].filter(Boolean);
+  const esc = [...asArray<{ horizon?: string; level?: string; drivers?: string[]; notes?: string }>(pred?.escalation), pred?.baseline_escalation].filter(Boolean);
   esc.forEach((e, i) => {
     if (!e) return;
     const parts = [e.horizon, e.level, ...(e.drivers ?? []), e.notes].filter(Boolean);
@@ -188,11 +192,11 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
 
   const risk = data.compliance?.risk_score;
   if (risk) {
-    const drivers = (risk.drivers ?? []).map((d) => `${d.factor}: ${d.detail}`).join(" | ");
+    const drivers = asArray<{ factor?: string; detail?: string }>(risk.drivers).map((d) => `${d.factor}: ${d.detail}`).join(" | ");
     pushAgent(hits, "compliance-risk", "COMPLIANCE", `${risk.level}. ${drivers}`, "Compliance");
   }
 
-  (data.alerts ?? []).forEach((al, i) => {
+  asArray<{ text?: string; severity?: string; source?: string }>(data.alerts).forEach((al, i) => {
     hits.push({
       id: `alert-${i}`,
       category: "finding",
@@ -202,7 +206,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     });
   });
 
-  (data.sigint?.aircraft ?? []).forEach((ac, i) => {
+  asArray<{ flight?: string; country?: string }>(data.sigint?.aircraft).forEach((ac, i) => {
     if (ac.flight) {
       hits.push({
         id: `ac-${i}`,
@@ -214,7 +218,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
       });
     }
   });
-  (data.sigint?.conflict_reports ?? []).forEach((r, i) => {
+  asArray<{ title?: string; source?: string; url?: string }>(data.sigint?.conflict_reports).forEach((r, i) => {
     if (r.title) {
       hits.push({
         id: `sig-report-${i}`,
@@ -227,7 +231,7 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
     }
   });
 
-  (data.diplo?.un_icj_news ?? []).forEach((n, i) => {
+  asArray<{ title?: string; source?: string; url?: string }>(data.diplo?.un_icj_news).forEach((n, i) => {
     if (n.title) {
       hits.push({
         id: `icj-${i}`,

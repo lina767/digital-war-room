@@ -51,6 +51,10 @@ function UtcClockBadge() {
   );
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
 const DashboardLiveTicker = memo(function DashboardLiveTicker({
   conflictData,
   headlineAllowedSources,
@@ -332,28 +336,28 @@ function DashboardContent() {
   const signalCount = useMemo(() => {
     if (!conflictData) return null;
     let n = 0;
-    n += (conflictData.news?.articles?.length ?? 0);
-    n += (conflictData.sigint?.aircraft?.filter((a): a is object => typeof a === "object" && a !== null && !("error" in a)).length ?? 0);
-    n += (conflictData.sigint?.ships?.length ?? 0);
-    n += (conflictData.sigint?.conflict_reports?.length ?? 0);
-    n += (conflictData.key_findings?.length ?? 0);
+    n += asArray(conflictData.news?.articles).length;
+    n += asArray<object>(conflictData.sigint?.aircraft).filter((a): a is object => typeof a === "object" && a !== null && !("error" in a)).length;
+    n += asArray(conflictData.sigint?.ships).length;
+    n += asArray(conflictData.sigint?.conflict_reports).length;
+    n += asArray(conflictData.key_findings).length;
     const socmint = conflictData as { socmint?: { top_signals?: unknown[] } };
-    n += (socmint.socmint?.top_signals?.length ?? 0);
+    n += asArray(socmint.socmint?.top_signals).length;
     const geoint = conflictData.geoint as { anomalies?: unknown[]; hotspots?: unknown[] } | undefined;
-    n += (geoint?.anomalies?.length ?? 0) + (geoint?.hotspots?.length ?? 0);
+    n += asArray(geoint?.anomalies).length + asArray(geoint?.hotspots).length;
     const techint = conflictData.techint as { tech_indicators?: unknown[]; export_controls?: unknown[]; ioda_events?: unknown[] } | undefined;
-    n += (techint?.tech_indicators?.length ?? 0) + (techint?.export_controls?.length ?? 0) + (techint?.ioda_events?.length ?? 0);
-    n += (conflictData.cyber?.cisa_kev?.total ?? 0) + (conflictData.cyber?.threat_reports?.length ?? 0) + (conflictData.cyber?.otx_pulses?.length ?? 0) + (conflictData.cyber?.greynoise_scan_context?.available ? (conflictData.cyber.greynoise_scan_context.count ?? 0) : 0);
-    n += (conflictData.energy?.agsi_storage?.full?.length ?? 0) + (conflictData.energy?.commodities?.length ?? 0);
-    n += (conflictData.protest?.protest_events?.length ?? 0) + (conflictData.protest?.protest_articles?.length ?? 0);
-    n += (conflictData.diplo?.ofac_sdn?.total_matches ?? 0) + (conflictData.diplo?.un_icj_news?.length ?? 0);
-    n += (conflictData.proximity?.evidence?.length ?? 0);
+    n += asArray(techint?.tech_indicators).length + asArray(techint?.export_controls).length + asArray(techint?.ioda_events).length;
+    n += (conflictData.cyber?.cisa_kev?.total ?? 0) + asArray(conflictData.cyber?.threat_reports).length + asArray(conflictData.cyber?.otx_pulses).length + (conflictData.cyber?.greynoise_scan_context?.available ? (conflictData.cyber.greynoise_scan_context.count ?? 0) : 0);
+    n += asArray(conflictData.energy?.agsi_storage?.full).length + asArray(conflictData.energy?.commodities).length;
+    n += asArray(conflictData.protest?.protest_events).length + asArray(conflictData.protest?.protest_articles).length;
+    n += (conflictData.diplo?.ofac_sdn?.total_matches ?? 0) + asArray(conflictData.diplo?.un_icj_news).length;
+    n += asArray(conflictData.proximity?.evidence).length;
     return n;
   }, [conflictData]);
 
   // Proximity Analyzer: uses evidence from main analysis (runs automatically with other agents)
   const proximityEvidence: ProximityEvidence[] = useMemo(
-    () => (conflictData?.proximity?.evidence ?? []).filter((e): e is ProximityEvidence => e != null && typeof e === "object"),
+    () => asArray(conflictData?.proximity?.evidence).filter((e): e is ProximityEvidence => e != null && typeof e === "object"),
     [conflictData?.proximity?.evidence]
   );
   const toggleMobileMenu = useCallback(() => setMobileMenuOpen((prev) => !prev), []);

@@ -26,6 +26,7 @@ export function DashboardMapSection({
   activeConflict = null,
   conflictData = null,
 }: DashboardMapSectionProps) {
+  const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
   const [timelinePoints, setTimelinePoints] = useState<EscalationTimelinePoint[]>([]);
   const [strikeTimeRange, setStrikeTimeRange] = useState<StrikeTimeRange>("7d");
 
@@ -46,10 +47,12 @@ export function DashboardMapSection({
     return () => { cancelled = true; };
   }, [activeConflict]);
 
-  const geointAnomalies = conflictData?.geoint?.anomalies ?? [];
-  const sigintAircraft = conflictData?.sigint?.aircraft ?? [];
-  const sigintShips = conflictData?.sigint?.ships ?? [];
-  const chokepointStatuses = (conflictData?.chokepoint?.chokepoints ?? []).map(
+  const geointAnomalies = asArray(conflictData?.geoint?.anomalies);
+  const sigintAircraft = asArray(conflictData?.sigint?.aircraft);
+  const sigintShips = asArray(conflictData?.sigint?.ships);
+  const chokepointStatuses = asArray<{ name: string; status: string; disruption_risk: number }>(
+    conflictData?.chokepoint?.chokepoints
+  ).map(
     (cp: { name: string; status: string; disruption_risk: number }) => ({
       name: cp.name,
       status: cp.status as "OPEN" | "RESTRICTED" | "DISRUPTED" | "HOSTILE",

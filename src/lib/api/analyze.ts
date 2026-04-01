@@ -153,14 +153,22 @@ export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerR
   }
 }
 
+function asArray<T = unknown>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 /** Normalize backend response: ensure top-level and nested shapes match frontend (e.g. articles with publishedAt). Exported for WebSocket use. */
 export function normalizeAnalysisResponse(raw: Record<string, unknown>): AnalyzeResponse {
   const out = { ...raw } as AnalyzeResponse;
   const news = raw.news as Record<string, unknown> | undefined;
-  if (news && Array.isArray(news.articles)) {
+  if (news) {
     (out as Record<string, unknown>).news = {
       ...news,
-      articles: (news.articles as Record<string, unknown>[]).map((a) => ({
+      articles: asArray<Record<string, unknown>>(news.articles).map((a) => ({
         title: a.title,
         url: a.url,
         source: a.source,
@@ -212,14 +220,13 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
   }
   if (typeof raw.summary === "string") out.summary = raw.summary;
   if (typeof raw.narrative_story === "string") out.narrative_story = raw.narrative_story;
-  if (Array.isArray(raw.pattern_flags)) {
-    (out as Record<string, unknown>).pattern_flags = raw.pattern_flags;
-  }
+  (out as Record<string, unknown>).pattern_flags = asArray(raw.pattern_flags);
+  (out as Record<string, unknown>).alerts = asArray(raw.alerts);
   const geoint = raw.geoint as Record<string, unknown> | undefined;
-  if (geoint && Array.isArray(geoint.anomalies)) {
+  if (geoint) {
     (out as Record<string, unknown>).geoint = {
       ...geoint,
-      anomalies: (geoint.anomalies as Record<string, unknown>[]).map((a) => {
+      anomalies: asArray<Record<string, unknown>>(geoint.anomalies).map((a) => {
         const latRaw = a.latitude ?? a.lat;
         const lonRaw = a.longitude ?? a.lon;
         const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
@@ -240,6 +247,63 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
           classification,
         };
       }),
+    };
+  }
+  const sigint = raw.sigint as Record<string, unknown> | undefined;
+  if (sigint) {
+    const targetTracks = asObject(sigint.target_tracks);
+    (out as Record<string, unknown>).sigint = {
+      ...sigint,
+      aircraft: asArray(sigint.aircraft),
+      ships: asArray(sigint.ships),
+      conflict_reports: asArray(sigint.conflict_reports),
+      alerts: asArray(sigint.alerts),
+      target_tracks: targetTracks,
+    };
+  }
+  const diplo = raw.diplo as Record<string, unknown> | undefined;
+  if (diplo) {
+    (out as Record<string, unknown>).diplo = {
+      ...diplo,
+      un_icj_news: asArray(diplo.un_icj_news),
+    };
+  }
+  const protest = raw.protest as Record<string, unknown> | undefined;
+  if (protest) {
+    (out as Record<string, unknown>).protest = {
+      ...protest,
+      protest_events: asArray(protest.protest_events),
+      protest_articles: asArray(protest.protest_articles),
+    };
+  }
+  const finint = raw.finint as Record<string, unknown> | undefined;
+  if (finint) {
+    (out as Record<string, unknown>).finint = {
+      ...finint,
+      polymarket: asArray(finint.polymarket),
+    };
+  }
+  const chokepoint = raw.chokepoint as Record<string, unknown> | undefined;
+  if (chokepoint) {
+    (out as Record<string, unknown>).chokepoint = {
+      ...chokepoint,
+      chokepoints: asArray(chokepoint.chokepoints),
+    };
+  }
+  const proximity = raw.proximity as Record<string, unknown> | undefined;
+  if (proximity) {
+    (out as Record<string, unknown>).proximity = {
+      ...proximity,
+      evidence: asArray(proximity.evidence),
+    };
+  }
+  const compliance = raw.compliance as Record<string, unknown> | undefined;
+  if (compliance) {
+    (out as Record<string, unknown>).compliance = {
+      ...compliance,
+      geofencing_alerts: asArray(compliance.geofencing_alerts),
+      ais_anomalies: asArray(compliance.ais_anomalies),
+      ofac_recent_actions: asArray(compliance.ofac_recent_actions),
     };
   }
   return out;
