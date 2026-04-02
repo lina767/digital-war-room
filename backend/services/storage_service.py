@@ -239,6 +239,58 @@ async def find_similar(
         return []
 
 
+async def count_recent_embeddings(
+    *,
+    source: str,
+    conflict: Optional[str] = None,
+    max_age_hours: int = 72,
+    decision: Optional[str] = None,
+    tenant_id: Optional[uuid.UUID] = None,
+) -> int:
+    """
+    Count embeddings for a source within a time window.
+    Optional filters:
+    - conflict
+    - decision: matches metadata->>'decision'
+    """
+    pool = await _get_pool()
+    if not pool:
+        return 0
+
+    tid = _tid(tenant_id)
+    max_age_hours = max(1, int(max_age_hours))
+    decision = decision.strip().lower() if isinstance(decision, str) and decision.strip() else None
+    try:
+        conditions = [
+            "tenant_id = $1",
+            "source = $2",
+            "updated_at >= NOW() - ($3::text || ' hours')::interval",
+        ]
+        params: list = [tid, source, str(max_age_hours)]
+        idx = 4
+
+        if conflict:
+            conditions.append(f"conflict = ${idx}")
+            params.append(conflict)
+            idx += 1
+        if decision:
+            conditions.append(f"(metadata->>'decision') = ${idx}")
+            params.append(decision)
+            idx += 1
+
+        where = " AND ".join(conditions)
+        query = f"SELECT COUNT(*) AS n FROM embeddings WHERE {where}"
+        async with pool.acquire() as conn:
+            from services.db_tenant import set_session_tenant
+
+            await set_session_tenant(conn, tid, None)
+            row = await conn.fetchrow(query, *params)
+            return int(row["n"]) if row and "n" in row else 0
+    except Exception as e:
+        logger.error("[storage] count_recent_embeddings failed: %s", e)
+        return 0
+
+
 async def deduplicate_by_db(
     texts: List[str],
     source: str = "unknown",

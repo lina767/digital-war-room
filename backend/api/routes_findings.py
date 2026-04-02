@@ -12,6 +12,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from services.finding_archive_service import search_finding_archive
+from services.storage_service import count_recent_embeddings, is_available
 
 router = APIRouter(prefix="/api/findings")
 
@@ -27,6 +28,15 @@ class FindingSearchResponse(BaseModel):
     threshold: float = 0.75
     top_k: int = 10
     matches: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class FindingArchiveStatsResponse(BaseModel):
+    conflict: Optional[str] = None
+    hours: int = 72
+    db_available: bool = False
+    total: int = 0
+    accepted: int = 0
+    archived: int = 0
 
 
 @router.get("/search", response_model=FindingSearchResponse)
@@ -56,3 +66,27 @@ async def search_findings(
         matches=matches,
     )
 
+
+@router.get("/stats", response_model=FindingArchiveStatsResponse)
+async def finding_archive_stats(
+    conflict: Optional[str] = Query(None, max_length=120, description="Optional conflict filter."),
+    hours: int = Query(72, ge=1, le=24 * 14, description="Window in hours (default 72)."),
+) -> FindingArchiveStatsResponse:
+    if not is_available():
+        return FindingArchiveStatsResponse(conflict=conflict, hours=hours, db_available=False)
+
+    total = await count_recent_embeddings(source="finding_archive", conflict=conflict, max_age_hours=hours)
+    accepted = await count_recent_embeddings(
+        source="finding_archive", conflict=conflict, max_age_hours=hours, decision="accepted"
+    )
+    archived = await count_recent_embeddings(
+        source="finding_archive", conflict=conflict, max_age_hours=hours, decision="archived"
+    )
+    return FindingArchiveStatsResponse(
+        conflict=conflict,
+        hours=hours,
+        db_available=True,
+        total=total,
+        accepted=accepted,
+        archived=archived,
+    )
