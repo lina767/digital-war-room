@@ -26,6 +26,7 @@ from agents.supervisor import analyze_conflict, run_analysis_streaming
 from middleware.rate_limit import limiter
 from models.analysis import AnalysisResult
 from services.analysis_side_effects import persist_analysis_side_effects
+from services.tenant_constants import get_default_tenant_id
 from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 from .state_helpers import (
@@ -68,7 +69,11 @@ async def _persist_analysis_result(
     push_escalation_timeline(app_state, conflict, at_ts, result, tenant_id=tenant_id)
     push_agent_status(app_state, result, tenant_id=tenant_id)
     push_run_history(app_state, conflict, at_ts, result, tenant_id=tenant_id)
-    await ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+    await ws_manager.broadcast(
+        {**result, "status": "ok", "conflict": conflict},
+        conflict=conflict,
+        tenant_id=tenant_id or get_default_tenant_id(),
+    )
     await persist_analysis_side_effects(conflict, result, tenant_id=tenant_id)
 
 

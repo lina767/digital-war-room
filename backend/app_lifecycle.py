@@ -65,7 +65,11 @@ def create_periodic_analysis_task(
                 push_escalation_timeline(app.state, conflict, at_ts, result, tenant_id=_ntid)
                 push_agent_status(app.state, result, tenant_id=_ntid)
                 push_run_history(app.state, conflict, at_ts, result, tenant_id=_ntid)
-                await app.state.ws_manager.broadcast({**result, "status": "ok", "conflict": conflict})
+                await app.state.ws_manager.broadcast(
+                    {**result, "status": "ok", "conflict": conflict},
+                    conflict=conflict,
+                    tenant_id=_ntid,
+                )
                 try:
                     await persist_analysis_side_effects(conflict, result)
                 except Exception:

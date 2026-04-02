@@ -1,6 +1,7 @@
 import logging
 import os
 import asyncio
+import uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -30,7 +31,7 @@ from observability import init as init_observability
 from services.job_queue import JobQueue
 from services.http_client import get_http_client, close_http_client
 from services.state_service import StateService
-from services.tenant_constants import get_default_tenant_id
+from services.tenant_auth import build_request_context
 from app_lifecycle import create_periodic_analysis_task
 from settings import settings
 from agents.socmint_agent import scrape_twitter_nitter, scrape_telegram_channels, search_reddit
@@ -42,23 +43,37 @@ AUTO_ANALYZE_TIMEOUT_SEC = settings.auto_analyze_timeout_sec
 
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: set[WebSocket] = set()
+        self.active_connections: dict[WebSocket, tuple[str, uuid.UUID]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, *, conflict: str, tenant_id: uuid.UUID):
         await websocket.accept()
-        self.active_connections.add(websocket)
+        self.active_connections[websocket] = (conflict, tenant_id)
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.discard(websocket)
+        self.active_connections.pop(websocket, None)
 
-    async def broadcast(self, data: dict):
+    async def broadcast(self, data: dict, *, conflict: str, tenant_id: uuid.UUID):
         dead: list[WebSocket] = []
-        for connection in self.active_connections:
+        for connection, (ws_conflict, ws_tenant_id) in self.active_connections.items():
+            if ws_conflict != conflict or ws_tenant_id != tenant_id:
+                continue
             try:
                 await connection.send_json(data)
             except Exception:
                 dead.append(connection)
-        self.active_connections -= set(dead)
+        for connection in dead:
+            self.active_connections.pop(connection, None)
+
+
+async def _resolve_ws_context(websocket: WebSocket):
+    auth = websocket.headers.get("authorization")
+    x_key = websocket.headers.get("x-api-key")
+    x_tenant = websocket.headers.get("x-tenant-id") or websocket.query_params.get("tenant_id")
+    return await build_request_context(
+        authorization=auth,
+        x_api_key=x_key,
+        x_tenant_id=x_tenant,
+    )
 
 
 @asynccontextmanager
@@ -374,23 +389,29 @@ def root() -> dict:
 
 @app.websocket("/ws/{conflict}")
 async def websocket_endpoint(websocket: WebSocket, conflict: str):
-    import uuid as uuid_mod
-
     manager = websocket.app.state.ws_manager
-    await manager.connect(websocket)
+    try:
+        req_ctx = await _resolve_ws_context(websocket)
+    except PermissionError as e:
+        await websocket.accept()
+        await websocket.send_json({"status": "error", "message": str(e) or "unauthorized", "conflict": conflict})
+        await websocket.close(code=1008)
+        return
+    except Exception as e:
+        logger.warning("WS context resolution failed: %s", e)
+        await websocket.accept()
+        await websocket.send_json({"status": "error", "message": "context_resolution_failed", "conflict": conflict})
+        await websocket.close(code=1011)
+        return
+
+    await manager.connect(websocket, conflict=conflict, tenant_id=req_ctx.tenant_id)
     logger.info("WS client connected – conflict: %s", conflict)
     try:
-        ws_tid = get_default_tenant_id()
-        raw_t = websocket.query_params.get("tenant_id")
-        if raw_t:
-            try:
-                ws_tid = uuid_mod.UUID(raw_t)
-            except ValueError:
-                pass
+        ws_tid = req_ctx.tenant_id
         # Sofort gecachtes Ergebnis senden (von Auto-Run oder letztem POST)
         entry = websocket.app.state.state_service.get_cache(conflict, tenant_id=ws_tid)
         if entry:
-            result = {**entry["result"], "status": "ok"}
+            result = {**entry["result"], "status": "ok", "conflict": conflict}
             await websocket.send_json(result)
         else:
             await websocket.send_json({"status": "analyzing", "conflict": conflict})
@@ -399,7 +420,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
             await asyncio.sleep(60)
             entry = websocket.app.state.state_service.get_cache(conflict, tenant_id=ws_tid)
             if entry:
-                result = {**entry["result"], "status": "ok"}
+                result = {**entry["result"], "status": "ok", "conflict": conflict}
                 await websocket.send_json(result)
             else:
                 await websocket.send_json({"status": "analyzing", "conflict": conflict})
@@ -410,7 +431,7 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
     except Exception as e:
         logger.exception("WS error: %s", e)
         try:
-            await websocket.send_json({"status": "error", "message": str(e)})
+            await websocket.send_json({"status": "error", "message": str(e), "conflict": conflict})
         except Exception:
             pass
         try:
@@ -422,6 +443,20 @@ async def websocket_endpoint(websocket: WebSocket, conflict: str):
 
 @app.websocket("/ws/social/{conflict}")
 async def websocket_social_endpoint(websocket: WebSocket, conflict: str):
+    try:
+        await _resolve_ws_context(websocket)
+    except PermissionError as e:
+        await websocket.accept()
+        await websocket.send_json({"status": "error", "message": str(e) or "unauthorized", "conflict": conflict})
+        await websocket.close(code=1008)
+        return
+    except Exception as e:
+        logger.warning("Social WS context resolution failed: %s", e)
+        await websocket.accept()
+        await websocket.send_json({"status": "error", "message": "context_resolution_failed", "conflict": conflict})
+        await websocket.close(code=1011)
+        return
+
     await websocket.accept()
     logger.info("Social WS client connected – conflict: %s", conflict)
     loop = asyncio.get_running_loop()

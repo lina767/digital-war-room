@@ -31,6 +31,10 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conflictRef = useRef(conflict);
   conflictRef.current = conflict;
+  const sameConflict = useCallback((incoming: unknown) => {
+    if (typeof incoming !== "string") return false;
+    return incoming.trim().toLowerCase() === conflictRef.current.trim().toLowerCase();
+  }, []);
 
   const connect = useCallback(() => {
     if (!enabled) return;
@@ -59,6 +63,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (!sameConflict(msg.conflict)) return;
         if (msg.status === "analyzing") {
           setStatus("analyzing");
         } else if (msg.status === "ok") {
@@ -91,7 +96,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       setStatus("disconnected");
       reconnectTimer.current = setTimeout(connect, 5000);
     };
-  }, [enabled]);
+  }, [enabled, sameConflict]);
 
   // On load fetch cached result; retry if no cache yet
   useEffect(() => {
