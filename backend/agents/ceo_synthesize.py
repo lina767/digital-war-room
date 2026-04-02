@@ -11,6 +11,7 @@ from .ceo_assessment import run_ceo_assessment
 from .ceo_confidence_scoring import score_findings_confidence
 from .ceo_llm import run_ceo_llm_synthesis
 from .ceo_prompt import build_supervisor_user_payload
+from .cross_agent_corroboration import apply_cross_agent_corroboration
 from .ceo_response import (
     align_key_findings_confidence,
     assemble_ceo_response,
@@ -479,6 +480,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             conflict=conflict,
             chokepoint_score=chokepoint_score,
         )
+        candidates, corroboration_meta = apply_cross_agent_corroboration(candidates)
         gate_threshold = float(os.getenv("FINDING_SIGNAL_GATE_THRESHOLD", "0.7"))
         finding_gate = run_async(
             score_and_gate_findings(
@@ -494,6 +496,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "archived_count": len(finding_gate.get("archived") or []),
             "meta": finding_gate.get("meta") or {},
         }
+        supervisor_payload["cross_agent_corroboration"] = corroboration_meta
     except Exception as e:
         supervisor_payload["finding_signal_gate"] = {"disabled": True, "error": str(e)[:180]}
 

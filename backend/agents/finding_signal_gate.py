@@ -272,6 +272,17 @@ def _weighted_total(scores: Dict[str, float], weights: Dict[str, float]) -> floa
     ) / wsum
 
 
+def _candidate_adjustment(cand: FindingCandidate) -> float:
+    md = cand.metadata or {}
+    if not isinstance(md, dict):
+        return 0.0
+    try:
+        adj = float(md.get("corroboration_adjustment") or 0.0)
+    except (TypeError, ValueError):
+        adj = 0.0
+    return max(-0.35, min(0.35, adj))
+
+
 async def score_and_gate_findings(
     *,
     candidates: List[FindingCandidate],
@@ -327,14 +338,19 @@ async def score_and_gate_findings(
                 llm_used += 1
 
         scores = refined or base
-        total = _weighted_total(scores, weights)
+        base_total = _weighted_total(scores, weights)
+        adjustment = _candidate_adjustment(cand)
+        total = _clamp01(base_total + adjustment)
         decision = "accepted" if total >= threshold else "archived"
         row = {
             "text": cand.text,
             "scores": {k: round(float(v), 4) for k, v in scores.items()},
+            "base_total": round(float(base_total), 4),
+            "adjustment": round(float(adjustment), 4),
             "total": round(float(total), 4),
             "sources": cand.sources,
             "agents": cand.agents,
+            "metadata": cand.metadata or {},
             "decision": decision,
         }
         if decision == "accepted":
