@@ -84,6 +84,51 @@ EXILE_FRAMING_TERMS = [
 ]
 REACTION_KEYWORDS = ["deny", "denial", "dismiss", "reject", "accusation", "conspiracy", "fake", "fabricated"]
 
+# War/conflict relevance prioritization to avoid culture-heavy state narratives.
+WAR_KEYWORDS = [
+    "war",
+    "attack",
+    "airstrike",
+    "missile",
+    "rocket",
+    "drone",
+    "military",
+    "army",
+    "navy",
+    "air force",
+    "troops",
+    "frontline",
+    "offensive",
+    "defensive",
+    "ceasefire",
+    "hostage",
+    "detained",
+    "killed",
+    "wounded",
+    "casualties",
+    "artillery",
+    "bomb",
+    "explosion",
+    "border clash",
+    "idf",
+    "irgc",
+    "hezbollah",
+    "hamas",
+]
+NON_WAR_CULTURE_KEYWORDS = [
+    "culture",
+    "cinema",
+    "film",
+    "festival",
+    "music",
+    "art exhibition",
+    "sports",
+    "football",
+    "volleyball",
+    "tourism",
+    "heritage",
+]
+
 
 def _is_mostly_farsi(text: str) -> bool:
     """True if text is predominantly in Persian/Arabic script (U+0600–U+06FF)."""
@@ -354,6 +399,31 @@ def _extract_key_terms(items: List[Dict[str, Any]], top_n: int = 12) -> List[str
         all_tokens.extend(_tokenize_for_lexical(it.get("text") or it.get("title") or ""))
     counts = Counter(all_tokens)
     return [w for w, _ in counts.most_common(top_n)]
+
+
+def _war_relevance_score(item: Dict[str, Any]) -> float:
+    txt = f"{item.get('title') or ''} {item.get('text') or ''}".lower()
+    if not txt.strip():
+        return 0.0
+    score = 0.0
+    for kw in WAR_KEYWORDS:
+        if kw in txt:
+            score += 1.0
+    for kw in NON_WAR_CULTURE_KEYWORDS:
+        if kw in txt:
+            score -= 0.8
+    return score
+
+
+def _prioritize_war_items(items: List[Dict[str, Any]], max_items: int = 40) -> List[Dict[str, Any]]:
+    """
+    Prefer war/conflict-relevant rows. If none match, fall back to recency.
+    """
+    ranked = sorted(items, key=lambda x: (_war_relevance_score(x), x.get("published_ts") or 0), reverse=True)
+    war_only = [r for r in ranked if _war_relevance_score(r) > 0]
+    if war_only:
+        return war_only[:max_items]
+    return ranked[:max_items]
 
 
 def _first_mention_ts(items: List[Dict[str, Any]]) -> Optional[float]:
@@ -723,6 +793,10 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                 for sr in source_results:
                     reg.record_result(sr.name, "narrative", sr)
 
+        # Prioritize conflict/war-relevant rows so state feed is not dominated by culture soft-news.
+        state_items = _prioritize_war_items(state_items)
+        exile_items = _prioritize_war_items(exile_items)
+
         # Prefer English exile source (Iran International) for display so UI can show English first
         exile_items_sorted = sorted(
             exile_items,
@@ -851,6 +925,9 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             method_notes=deep.get("method_notes") or [],
             state_item_count=len(state_items),
             exile_item_count=len(exile_items),
+        )
+        report.method_notes.append(
+            "State/exile rows are war-prioritized to suppress culture/soft-news drift in conflict analysis."
         )
         return report.model_dump(mode="json")
     except Exception as e:
