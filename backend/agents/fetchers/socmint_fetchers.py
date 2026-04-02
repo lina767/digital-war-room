@@ -422,6 +422,7 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
                     row: Dict[str, Any] = {
                         "source": f"telegram:{channel}",
                         "text": use_text,
+                        "url": f"https://t.me/{_post_id}" if _post_id else f"https://t.me/s/{channel}",
                         "sentiment_score": score,
                         "sentiment_label": "ESCALATORY"
                         if score > 0.2
@@ -455,6 +456,7 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
                     {
                         "source": f"telegram:{channel}",
                         "text": text[:300],
+                        "url": f"https://t.me/s/{channel}",
                         "sentiment_score": score,
                         "sentiment_label": "ESCALATORY"
                         if score > 0.2
@@ -494,11 +496,18 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
     keywords = _conflict_keywords(conflict)
     accounts = CONFLICT_TWITTER_ACCOUNTS.get(region, CONFLICT_TWITTER_ACCOUNTS["middle_east"])
 
-    def _make_post(account: str, text: str, media_urls: Optional[List[str]] = None) -> Dict[str, Any]:
+    def _make_post(
+        account: str,
+        text: str,
+        media_urls: Optional[List[str]] = None,
+        *,
+        url: Optional[str] = None,
+    ) -> Dict[str, Any]:
         score = _sentiment(text)
         row: Dict[str, Any] = {
             "source": f"twitter:{account}",
             "text": text[:300],
+            "url": url or f"https://x.com/{account}",
             "sentiment_score": score,
             "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
             "platform": "twitter",
@@ -517,6 +526,15 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                 if resp.status_code != 200:
                     continue
                 html = resp.text
+                # Collect status permalinks for best-effort provenance.
+                status_urls: List[str] = []
+                for m in re.finditer(rf'href="(?P<href>/{re.escape(account)}/status/\d+[^"]*)"', html, re.I):
+                    href = (m.group("href") or "").strip()
+                    if not href:
+                        continue
+                    full = f"{base}{href}"
+                    if full not in status_urls:
+                        status_urls.append(full)
                 for pattern in [
                     r'<div class="tweet-content[^"]*"[^>]*>(.*?)</div>',
                     r'class="tweet-content"[^>]*>(.*?)</div>',
@@ -526,13 +544,14 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                     if not matches:
                         continue
                     results = []
-                    for raw in matches[:10]:
+                    for i, raw in enumerate(matches[:10]):
                         text = re.sub(r"<[^>]+>", "", raw).strip().replace("&amp;", "&").replace("&#39;", "'")
                         if not text or len(text) < 15:
                             continue
                         if not any(kw in text.lower() for kw in keywords):
                             continue
-                        results.append(_make_post(account, text))
+                        permalink = status_urls[i] if i < len(status_urls) else f"{base}/{account}"
+                        results.append(_make_post(account, text, url=permalink))
                     return results
             except Exception:
                 continue
@@ -556,6 +575,11 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                         continue
                     if not any(kw in text.lower() for kw in keywords):
                         continue
+                    permalink = (entry.get("link") or "").strip() if isinstance(entry, dict) else ""
+                    if not permalink and hasattr(entry, "link"):
+                        permalink = str(getattr(entry, "link", "") or "").strip()
+                    if not permalink:
+                        permalink = f"{base}/{account}"
                     media_urls: List[str] = []
                     for link in entry.get("links") or []:
                         if not isinstance(link, dict):
@@ -576,7 +600,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                     if media_urls:
                         seen_m: set = set()
                         media_urls = [u for u in media_urls if not (u in seen_m or seen_m.add(u))]
-                    results.append(_make_post(account, text, media_urls=media_urls or None))
+                    results.append(_make_post(account, text, media_urls=media_urls or None, url=permalink))
                 if results:
                     return results
             except Exception:
@@ -599,7 +623,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             for line in lines[:15]:
                 if not any(kw in line.lower() for kw in keywords):
                     continue
-                posts.append(_make_post(account, line[:300]))
+                posts.append(_make_post(account, line[:300], url=f"https://x.com/{account}"))
             return posts
         except Exception:
             return []

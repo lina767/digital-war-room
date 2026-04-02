@@ -52,6 +52,7 @@ def _build_prompt(
         "Language policy: ALL output text must be in English.\n"
         "Task:\n"
         "1) Propose enrichments only for missing/stale/conflicting fields.\n"
+        "1b) If provenance coverage is low, prioritize adding direct source URLs for the highest-impact missing fields.\n"
         "2) EVERY enrichment MUST include a direct source_url (http/https).\n"
         "3) If you do not have a source URL, do NOT propose that enrichment.\n\n"
         "Return JSON with this shape:\n"

@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from calibration.dq_calibration import compute_calibration_metrics
 
 from .ceo_config import CEO_LEGACY_AGENT_WEIGHTS, CEO_WEIGHTS
+from .ceo_assessment import run_ceo_assessment
 from .ceo_llm import run_ceo_llm_synthesis
 from .ceo_prompt import build_supervisor_user_payload
 from .ceo_response import (
@@ -15,15 +16,17 @@ from .ceo_response import (
     build_provenance_index,
     build_rule_based_ceo_summary,
     heuristic_root_causes,
+    normalize_next_steps,
 )
 from .ceo_scoring import coerce_float, legacy_combined_excluding_degraded, threat_level_from_score
 from .ceo_util import as_dict
 from .dag_scheduler import ResultStore
 from .division import DivisionHead, DivisionResult
 from .dq_contract import apply_quality_to_all_agents
+from .finding_signal_gate import score_and_gate_findings
 from .quality_gate import quality_gate_enabled, run_cross_agent_quality_gate
 from .research_normalizer import apply_research_enrichments_from_raw
-from .utils import get_analysis_run_id, infer_data_confidence_from_result
+from .utils import get_analysis_run_id, infer_data_confidence_from_result, run_async
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +202,27 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     key_findings: List[str] = []
     key_findings_context: List[str] = []
     key_findings_confidence: List[str] = []
+    next_steps: List[Dict[str, Any]] = []
     root_cause_suggestions: List[Dict[str, str]] = []
     scenarios: List[Any] = []
     summary = build_rule_based_ceo_summary(
         conflict, synthesis_score, threat_level, division_results, degraded_agents=degraded_agents
     )
+
+    # Optional stakeholder context: string persona or JSON dict via env.
+    stakeholder_context: Dict[str, Any] | None = None
+    raw_stakeholder = (os.getenv("CEO_STAKEHOLDER_CONTEXT") or "").strip()
+    if raw_stakeholder:
+        if raw_stakeholder.lstrip().startswith("{"):
+            try:
+                import json
+
+                parsed = json.loads(raw_stakeholder)
+                stakeholder_context = parsed if isinstance(parsed, dict) else {"persona": "general"}
+            except Exception:
+                stakeholder_context = {"persona": raw_stakeholder}
+        else:
+            stakeholder_context = {"persona": raw_stakeholder}
 
     supervisor_payload = build_supervisor_user_payload(
         conflict,
@@ -232,7 +251,36 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         pentagon_result,
         temporal_context,
         data_quality_gate,
+        stakeholder_context,
     )
+
+    # Pre-synthesis noise reduction: score cross-stream finding candidates and gate them.
+    finding_gate: Dict[str, Any] = {"accepted": [], "archived": [], "meta": {"disabled": True}}
+    try:
+        from .findings_builder import collect_agent_finding_candidates
+
+        candidates = collect_agent_finding_candidates(
+            {**agent_results, "acled_refs": acled_refs},
+            conflict=conflict,
+            chokepoint_score=chokepoint_score,
+        )
+        gate_threshold = float(os.getenv("FINDING_SIGNAL_GATE_THRESHOLD", "0.7"))
+        finding_gate = run_async(
+            score_and_gate_findings(
+                candidates=candidates,
+                conflict=conflict,
+                threshold=gate_threshold,
+                max_llm=int(os.getenv("FINDING_SIGNAL_GATE_MAX_LLM", "20")),
+            )
+        )
+        supervisor_payload["finding_signal_gate"] = {
+            "threshold": gate_threshold,
+            "accepted": [f.get("text") for f in (finding_gate.get("accepted") or [])[:12] if isinstance(f, dict)],
+            "archived_count": len(finding_gate.get("archived") or []),
+            "meta": finding_gate.get("meta") or {},
+        }
+    except Exception as e:
+        supervisor_payload["finding_signal_gate"] = {"disabled": True, "error": str(e)[:180]}
 
     if use_rule_based:
         for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
@@ -240,6 +288,45 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                 for a in dr.anomalies:
                     key_findings.append(f"[{name}] {a.description}")
                     key_findings_confidence.append("medium")
+        # Minimal deterministic action block (keeps output useful without LLM).
+        prov_refs: List[str] = []
+        for ag in agent_results.values():
+            if isinstance(ag, dict):
+                for u in (ag.get("provenance_refs") or [])[:3]:
+                    if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
+                        prov_refs.append(u.strip())
+            if len(prov_refs) >= 10:
+                break
+        prov_refs = list(dict.fromkeys(prov_refs))[:6]
+        next_steps = [
+            {
+                "action": "Verify top escalatory claims against primary/credible sources.",
+                "owner": "analyst",
+                "time_horizon": "now",
+                "why": "Rule-based synthesis: reduce narrative noise and false positives.",
+                "source_refs": prov_refs,
+                "confidence": "medium",
+            },
+            {
+                "action": "Set/confirm alert rules for sudden score jumps (multi-stream corroboration required).",
+                "owner": "ops",
+                "time_horizon": "24h",
+                "why": "Catch real shifts while limiting single-stream spikes.",
+                "source_refs": [],
+                "confidence": "medium",
+            },
+        ]
+        if degraded_agents:
+            next_steps.append(
+                {
+                    "action": f"Repair degraded data feeds and re-run analysis (degraded: {', '.join(degraded_agents[:6])}).",
+                    "owner": "ops",
+                    "time_horizon": "24h",
+                    "why": "Low scores can reflect missing data, not safety.",
+                    "source_refs": [],
+                    "confidence": "high",
+                }
+            )
         synthesis_meta: Dict[str, Any] = {"mode": "rule_based", "reason": "disabled_by_env"}
     else:
         synthesis_meta = {"mode": "rule_based", "reason": "llm_not_attempted"}
@@ -260,7 +347,17 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             chokepoint_score,
             pentagon_score,
         ]
-        key_findings, key_findings_context, key_findings_confidence, root_cause_suggestions, scenarios, summary, threat_level, synthesis_meta = run_ceo_llm_synthesis(
+        (
+            key_findings,
+            key_findings_context,
+            key_findings_confidence,
+            next_steps,
+            root_cause_suggestions,
+            scenarios,
+            summary,
+            threat_level,
+            synthesis_meta,
+        ) = run_ceo_llm_synthesis(
             summary=summary,
             threat_level=threat_level,
             key_findings=key_findings,
@@ -273,25 +370,64 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         )
 
     key_findings_confidence = align_key_findings_confidence(key_findings, key_findings_confidence)
+    next_steps = normalize_next_steps(next_steps)
 
+    # Replace "append everything" with gated high-signal append (optional, small).
     try:
-        from .findings_builder import append_agent_findings
-
-        all_agent_results = {k: as_dict(v) for k, v in store.all_results().items()}
-        key_findings = append_agent_findings(
-            key_findings,
-            all_agent_results,
-            conflict,
-            chokepoint_score,
-            key_findings_confidence,
-        )
-    except ImportError:
-        logger.debug("CEO: findings_builder unavailable; skipping appended agent findings.")
+        accepted = finding_gate.get("accepted") or []
+        accepted_texts = [a.get("text") for a in accepted if isinstance(a, dict) and a.get("text")]
+        existing = {str(k).strip() for k in key_findings if isinstance(k, str)}
+        appended = 0
+        for t in accepted_texts:
+            if t in existing:
+                continue
+            key_findings.append(t)
+            total = 0.0
+            for a in accepted:
+                if isinstance(a, dict) and a.get("text") == t:
+                    try:
+                        total = float(a.get("total") or 0.0)
+                    except (TypeError, ValueError):
+                        total = 0.0
+                    break
+            lv = "high" if total >= 0.85 else "medium" if total >= 0.7 else "low"
+            key_findings_confidence.append(lv)
+            appended += 1
+            if appended >= int(os.getenv("FINDING_SIGNAL_GATE_APPEND_MAX", "3")):
+                break
+    except Exception:
+        pass
 
     key_findings_confidence = align_key_findings_confidence(key_findings, key_findings_confidence)
 
     if len(key_findings_context) > len(key_findings):
         key_findings_context = key_findings_context[: len(key_findings)]
+
+    # So-what layer: stakeholder-specific assessment from high-confidence findings.
+    # Confidence mapping is coarse (high/medium/low); default threshold selects "high".
+    conf_threshold = float(os.getenv("CEO_ASSESSMENT_CONFIDENCE_THRESHOLD", "0.7"))
+    conf_map = {"high": 0.85, "medium": 0.65, "low": 0.4}
+    high_conf_findings: List[Dict[str, Any]] = []
+    for i, f in enumerate(key_findings[:20]):
+        c = (key_findings_confidence[i] if i < len(key_findings_confidence) else "medium") or "medium"
+        score = conf_map.get(str(c).strip().lower(), 0.65)
+        if score < conf_threshold:
+            continue
+        ctx = key_findings_context[i] if i < len(key_findings_context) else ""
+        high_conf_findings.append({"finding": f, "confidence": str(c).lower(), "context": ctx})
+    if not high_conf_findings and key_findings:
+        # Never feed an empty payload; fall back to top 3 findings.
+        for i, f in enumerate(key_findings[:3]):
+            ctx = key_findings_context[i] if i < len(key_findings_context) else ""
+            high_conf_findings.append({"finding": f, "confidence": "medium", "context": ctx})
+
+    assessment = run_ceo_assessment(
+        conflict=conflict,
+        supervisor_payload=supervisor_payload,
+        high_conf_findings=high_conf_findings,
+        summary=summary,
+        stakeholder_context=stakeholder_context,
+    )
 
     if not root_cause_suggestions:
         root_cause_suggestions = heuristic_root_causes(energy_result, chokepoint_result)
@@ -332,6 +468,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         key_findings=key_findings,
         key_findings_context=key_findings_context,
         key_findings_confidence=key_findings_confidence,
+        next_steps=next_steps,
         scenarios=scenarios,
         summary=summary,
         narrative_story=narrative_story,
@@ -352,6 +489,19 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         division_results=division_results,
         as_dict_fn=as_dict,
     )
+    response["assessment"] = assessment
+
+    # Low-confidence archive: keep gated-out findings available for later search/inspection.
+    # This is additive to the API response (backwards-compatible).
+    try:
+        response["low_confidence_archive"] = {
+            "finding_signal_gate": {
+                "meta": finding_gate.get("meta") or {},
+                "archived": (finding_gate.get("archived") or [])[:50],
+            }
+        }
+    except Exception:
+        response["low_confidence_archive"] = {"finding_signal_gate": {"error": "unavailable"}}
 
     try:
         from services.agent_score_history import record_daily_scores

@@ -13,6 +13,7 @@ RESEARCH_TRIGGER_ENABLED = (os.getenv("RESEARCH_TRIGGER_ENABLED", "true").strip(
 RESEARCH_TRIGGER_MIN_REASONS = int(os.getenv("RESEARCH_TRIGGER_MIN_REASONS", "1"))
 RESEARCH_TRIGGER_SCORE_SPREAD = float(os.getenv("RESEARCH_TRIGGER_SCORE_SPREAD", "45"))
 RESEARCH_TRIGGER_DQ_CONFIDENCE_MIN = float(os.getenv("RESEARCH_TRIGGER_DQ_CONFIDENCE_MIN", "40"))
+RESEARCH_TRIGGER_PROVENANCE_MIN = float(os.getenv("RESEARCH_TRIGGER_PROVENANCE_MIN", "0.45"))
 
 # field path -> fallback that indicates "missing"
 REQUIRED_FIELD_RULES: Dict[str, Any] = {
@@ -144,6 +145,28 @@ def evaluate_research_trigger(
             )
         )
 
+    # Provenance coverage: when few agents expose public reference URLs, enrichments should focus on adding sources.
+    prov_agents = 0
+    prov_ok = 0
+    for agent_name, _score_key in SCORE_KEYS:
+        block = agent_results.get(agent_name)
+        if not isinstance(block, dict):
+            continue
+        prov_agents += 1
+        refs = block.get("provenance_refs") or []
+        if isinstance(refs, list) and any(isinstance(u, str) and u.strip().startswith(("http://", "https://")) for u in refs):
+            prov_ok += 1
+    provenance_coverage = (prov_ok / prov_agents) if prov_agents else 0.0
+    if prov_agents and provenance_coverage < RESEARCH_TRIGGER_PROVENANCE_MIN:
+        reasons.append(
+            ResearchTriggerReason(
+                trigger="low_provenance_coverage",
+                detail=f"provenance coverage {provenance_coverage:.2f} < {RESEARCH_TRIGGER_PROVENANCE_MIN:.2f}",
+                field_paths=[f"{name}.provenance_refs" for name, _ in SCORE_KEYS[:20]],
+                severity="medium",
+            )
+        )
+
     triggered = len(reasons) >= max(1, RESEARCH_TRIGGER_MIN_REASONS)
     return ResearchTriggerDecision(
         triggered=triggered,
@@ -152,4 +175,5 @@ def evaluate_research_trigger(
         stale_agents=stale_agents,
         uncertainty_agents=uncertain_agents,
         score_spread=round(score_spread, 2),
+        provenance_coverage=round(provenance_coverage, 3),
     )

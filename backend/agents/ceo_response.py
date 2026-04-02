@@ -89,6 +89,64 @@ def normalize_root_cause_suggestions(raw: Any) -> List[Dict[str, str]]:
     return out[:6]
 
 
+def normalize_next_steps(raw: Any) -> List[Dict[str, Any]]:
+    """
+    Parse CEO JSON next_steps into a list of dicts:
+    {"action","owner","time_horizon","why","source_refs","confidence"}.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for item in raw[:12]:
+        if isinstance(item, str):
+            s = item.strip()
+            if not s:
+                continue
+            out.append(
+                {
+                    "action": s[:240],
+                    "owner": "analyst",
+                    "time_horizon": "24h",
+                    "why": "",
+                    "source_refs": [],
+                    "confidence": "medium",
+                }
+            )
+            continue
+        if not isinstance(item, dict):
+            continue
+        action = str(item.get("action") or item.get("step") or item.get("task") or "").strip()
+        if not action:
+            continue
+        owner = str(item.get("owner") or "analyst").strip().lower()
+        if owner not in ("analyst", "ops", "exec"):
+            owner = "analyst"
+        time_horizon = str(item.get("time_horizon") or item.get("horizon") or "24h").strip().lower()
+        if time_horizon not in ("now", "24h", "7d"):
+            time_horizon = "24h"
+        why = str(item.get("why") or item.get("rationale") or "").strip()
+        conf = str(item.get("confidence") or "medium").strip().lower()
+        if conf not in ("high", "medium", "low"):
+            conf = "medium"
+        src = item.get("source_refs") or item.get("sources") or item.get("refs") or []
+        refs: List[str] = []
+        if isinstance(src, list):
+            for u in src[:10]:
+                if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
+                    refs.append(u.strip())
+        out.append(
+            {
+                "action": action[:240],
+                "owner": owner,
+                "time_horizon": time_horizon,
+                "why": why[:600],
+                "source_refs": refs,
+                "confidence": conf,
+            }
+        )
+    return out[:10]
+
+
 def heuristic_root_causes(
     energy_result: Dict[str, Any],
     chokepoint_result: Dict[str, Any],
@@ -240,6 +298,7 @@ def assemble_ceo_response(
     key_findings: List[str],
     key_findings_context: List[str],
     key_findings_confidence: List[str],
+    next_steps: List[Dict[str, Any]],
     scenarios: List[Any],
     summary: str,
     narrative_story: str,
@@ -268,6 +327,7 @@ def assemble_ceo_response(
         "key_findings": key_findings,
         "key_findings_context": key_findings_context,
         "key_findings_confidence": key_findings_confidence,
+        "next_steps": next_steps,
         "corroborated_patterns": [],
         "scenarios": scenarios,
         "summary": summary,
@@ -292,7 +352,7 @@ def assemble_ceo_response(
             if str((research_enrichment or {}).get("publish_decision", "")).strip().lower() == "human_review"
             else "auto_publish"
         ),
-        "analysis_result_schema_version": 1,
+        "analysis_result_schema_version": 2,
     }
 
     for agent_name in API_AGENT_NAMES:
@@ -300,5 +360,48 @@ def assemble_ceo_response(
         response[agent_name] = as_dict_fn(raw_result) if raw_result else {}
 
     response["divisions"] = {name: dr.model_dump(mode="json") for name, dr in division_results.items()}
+
+    # Outcome/quality metrics (compact, UI-friendly)
+    prov_total = 0
+    prov_ok = 0
+    for agent_name in PROVENANCE_AGENT_KEYS:
+        block = response.get(agent_name) or {}
+        if not isinstance(block, dict):
+            continue
+        prov_total += 1
+        refs = block.get("provenance_refs") or []
+        if isinstance(refs, list) and any(
+            isinstance(u, str) and u.strip().startswith(("http://", "https://")) for u in refs
+        ):
+            prov_ok += 1
+    provenance_coverage = (prov_ok / prov_total) if prov_total else 0.0
+
+    ns_total = len(next_steps) if isinstance(next_steps, list) else 0
+    ns_ok = 0
+    if isinstance(next_steps, list):
+        for ns in next_steps:
+            if isinstance(ns, dict) and isinstance(ns.get("source_refs"), list) and len(ns.get("source_refs") or []) > 0:
+                ns_ok += 1
+    next_steps_source_coverage = (ns_ok / ns_total) if ns_total else 0.0
+
+    news_block = response.get("news") or {}
+    socmint_block = response.get("socmint") or {}
+    news_articles_count = (
+        len(news_block.get("articles") or []) if isinstance(news_block, dict) and isinstance(news_block.get("articles"), list) else 0
+    )
+    socmint_total_signals = (
+        int(socmint_block.get("total_signals") or 0) if isinstance(socmint_block, dict) else 0
+    )
+
+    response["coverage_metrics"] = {
+        "provenance_coverage": round(float(provenance_coverage), 3),
+        "provenance_coverage_agents_ok": prov_ok,
+        "provenance_coverage_agents_total": prov_total,
+        "next_steps_source_coverage": round(float(next_steps_source_coverage), 3),
+        "next_steps_with_sources": ns_ok,
+        "next_steps_total": ns_total,
+        "news_articles_count": news_articles_count,
+        "socmint_total_signals": socmint_total_signals,
+    }
 
     return response

@@ -17,6 +17,7 @@ ResearchTriggerType = Literal[
     "stale_data",
     "agent_conflict",
     "high_uncertainty",
+    "low_provenance_coverage",
 ]
 
 
@@ -38,6 +39,7 @@ class ResearchTriggerDecision(BaseModel):
     stale_agents: List[str] = Field(default_factory=list)
     uncertainty_agents: List[str] = Field(default_factory=list)
     score_spread: float = 0.0
+    provenance_coverage: float = 0.0
 
 
 class ResearchEnrichmentItem(BaseModel):

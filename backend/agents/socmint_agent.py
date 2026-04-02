@@ -22,7 +22,7 @@ from .fetchers.socmint_fetchers import (
 )
 from .health_registry import get_health_registry
 from .llm import run_tool_agent
-from .utils import SourceResult, build_agent_meta, run_async, utc_now_iso
+from .utils import SourceResult, build_agent_meta, cap_reference_urls, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +90,54 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         entities = _run_socmint_ner(all_posts)
 
         duration_ms = int((time.perf_counter() - start) * 1000)
+        telegram_urls = [p.get("url") for p in telegram if isinstance(p, dict) and isinstance(p.get("url"), str)]
+        twitter_urls = [p.get("url") for p in twitter if isinstance(p, dict) and isinstance(p.get("url"), str)]
+        reddit_urls = [p.get("url") for p in reddit if isinstance(p, dict) and isinstance(p.get("url"), str)]
+        rss_urls = [p.get("url") for p in rss if isinstance(p, dict) and isinstance(p.get("url"), str)]
+        reliefweb_urls = [
+            p.get("url") for p in reliefweb if isinstance(p, dict) and isinstance(p.get("url"), str)
+        ]
         source_results = [
-            SourceResult(name="Telegram", status="ok" if telegram else "error", fetched_at=fetched_at, record_count=len(telegram)),
-            SourceResult(name="Twitter/Nitter", status="ok" if twitter else "error", fetched_at=fetched_at, record_count=len(twitter)),
-            SourceResult(name="Reddit", status="ok" if reddit else "error", fetched_at=fetched_at, record_count=len(reddit)),
-            SourceResult(name="RSS", status="ok" if rss else "error", fetched_at=fetched_at, record_count=len(rss)),
-            SourceResult(name="ReliefWeb", status="ok" if reliefweb else "error", fetched_at=fetched_at, record_count=len(reliefweb)),
+            SourceResult(
+                name="Telegram",
+                status="ok" if telegram else "error",
+                fetched_at=fetched_at,
+                record_count=len(telegram),
+                reference_urls=cap_reference_urls(telegram_urls),
+                endpoint_kind="html",
+            ),
+            SourceResult(
+                name="Twitter/Nitter",
+                status="ok" if twitter else "error",
+                fetched_at=fetched_at,
+                record_count=len(twitter),
+                reference_urls=cap_reference_urls(twitter_urls),
+                endpoint_kind="html",
+            ),
+            SourceResult(
+                name="Reddit",
+                status="ok" if reddit else "error",
+                fetched_at=fetched_at,
+                record_count=len(reddit),
+                reference_urls=cap_reference_urls(reddit_urls),
+                endpoint_kind="rest",
+            ),
+            SourceResult(
+                name="RSS",
+                status="ok" if rss else "error",
+                fetched_at=fetched_at,
+                record_count=len(rss),
+                reference_urls=cap_reference_urls(rss_urls),
+                endpoint_kind="rss",
+            ),
+            SourceResult(
+                name="ReliefWeb",
+                status="ok" if reliefweb else "error",
+                fetched_at=fetched_at,
+                record_count=len(reliefweb),
+                reference_urls=cap_reference_urls(reliefweb_urls),
+                endpoint_kind="rest",
+            ),
         ]
         reg = get_health_registry()
         if reg:

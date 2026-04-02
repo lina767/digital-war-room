@@ -34,6 +34,15 @@ When the payload includes "acled_reference_analyses", these are curated ACLED an
 
 When the payload includes "agent_score_temporal", it holds per-agent temporal context: delta_vs_prior_utc_day (vs last stored UTC day), trend_7d (rising|falling|stable|insufficient_data), consecutive_days_up/down, and daily_scores_7d. Prefer trend and momentum over one-off scores when framing findings (e.g. stable baseline vs multi-day climb).
 
+FINDING SIGNAL GATE (required): The payload may include "finding_signal_gate" with:
+- "accepted": a shortlist of pre-scored cross-stream finding strings (high signal)
+- "archived_count": how many candidates were rejected as low-confidence/noise
+Use "accepted" as a high-signal shortlist. Do NOT treat archived candidates as actionable; they are kept only for later search.
+
+Actionability requirement:
+- You MUST return next_steps (5-10). Each next_step must be specific, time-bounded (now|24h|7d), and assigned (owner: analyst|ops|exec).
+- For any next_step with confidence "high" or "medium", include at least one URL in source_refs that appears in the payload (e.g., from agent provenance_refs or article/post URLs). If you cannot cite a URL, downgrade confidence to "low".
+
 Analyze all streams holistically and return ONLY valid JSON with no markdown:
 {
   "escalation_score": <number 0-100>,
@@ -41,6 +50,7 @@ Analyze all streams holistically and return ONLY valid JSON with no markdown:
   "key_findings": [<array of concise finding strings>],
   "key_findings_context": [<optional: array of 2-3 sentence "why this matters" per finding, same order as key_findings>],
   "key_findings_confidence": [<required: same length as key_findings; each value "high", "medium", or "low" — assessment confidence in that finding>],
+  "next_steps": [<required: 5-10 action items. Each item: {"action": "...", "owner": "analyst|ops|exec", "time_horizon": "now|24h|7d", "why": "...", "source_refs": ["https://..."], "confidence": "high|medium|low"}>],
   "root_cause_suggestions": [<up to 5 objects: plausible links between an observable signal and a driver, e.g. {"signal": "Brent +3%", "likely_cause": "Strait of Hormuz risk premium from tanker/incident coverage", "confidence": "medium"} — hypotheses not facts>],
   "scenarios": [{"description": <string>, "probability": <0-1>}],
   "summary": "<2-3 sentence BLUF summary>"
@@ -178,6 +188,7 @@ def build_supervisor_user_payload(
     pentagon_result: Dict[str, Any],
     temporal_context: Dict[str, Any] | None = None,
     data_quality_gate: Dict[str, Any] | None = None,
+    stakeholder_context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Shared compact payload for CEO LLM supervisor and cross-stream narrative synthesis."""
     finint_score = coerce_float(finint_result.get("escalation_score"), 0.0)
@@ -196,7 +207,7 @@ def build_supervisor_user_payload(
     chokepoint_score = coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
     pentagon_score = coerce_float(pentagon_result.get("pentagon_score"), 0.0)
 
-    return {
+    payload: Dict[str, Any] = {
         "conflict": conflict,
         "composite_score": synthesis_score,
         "threat_level": threat_level,
@@ -245,6 +256,39 @@ def build_supervisor_user_payload(
         "agent_score_temporal": temporal_context or {},
         "data_quality_gate": data_quality_gate or {},
     }
+
+    if stakeholder_context:
+        payload["stakeholder"] = stakeholder_context
+
+    # Best-effort provenance URL pool for downstream assessment / actionability grounding.
+    prov_urls: list[str] = []
+    for agent_block in (
+        finint_result,
+        sigint_result,
+        news_result,
+        geoint_result,
+        satintel_result,
+        socmint_result,
+        mediaint_result,
+        techint_result,
+        cyber_result,
+        energy_result,
+        protest_result,
+        diplo_result,
+        proximity_result,
+        narrative_result,
+        chokepoint_result,
+        pentagon_result,
+    ):
+        if isinstance(agent_block, dict):
+            for u in (agent_block.get("provenance_refs") or [])[:6]:
+                if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
+                    prov_urls.append(u.strip())
+    # Dedupe + cap.
+    prov_urls = list(dict.fromkeys(prov_urls))[:25]
+    payload["provenance_urls"] = prov_urls
+
+    return payload
 
 
 def build_ceo_prompt(

@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, List, Tuple
 
 from .ceo_prompt import CEO_SYSTEM_PROMPT, truncate_supervisor_json
-from .ceo_response import normalize_finding_confidence, normalize_root_cause_suggestions
+from .ceo_response import normalize_finding_confidence, normalize_next_steps, normalize_root_cause_suggestions
 from .ceo_scoring import agents_seem_contradictory
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,7 @@ def run_ceo_llm_synthesis(
     List[str],
     List[str],
     List[str],
+    List[Dict[str, Any]],
     List[Dict[str, str]],
     List[Any],
     str,
@@ -59,6 +60,7 @@ def run_ceo_llm_synthesis(
         kf = list(key_findings)
         kfc = list(key_findings_context)
         kfconf = list(key_findings_confidence)
+        next_steps = []
         rcs = list(root_cause_suggestions)
         scen = list(scenarios)
         summ = summary
@@ -97,20 +99,21 @@ def run_ceo_llm_synthesis(
                 kfconf = [normalize_finding_confidence(x) for x in raw_conf]
             else:
                 kfconf = []
+            next_steps = normalize_next_steps(parsed.get("next_steps"))
             rcs = normalize_root_cause_suggestions(parsed.get("root_cause_suggestions"))
             scen = list(parsed.get("scenarios") or [])
             summ = str(parsed.get("summary", summ))
             if parsed.get("threat_level"):
                 tl = str(parsed["threat_level"])
             synthesis_meta = {"mode": "llm", "model": model, "tried_models": tried_models}
-            return kf, kfc, kfconf, rcs, scen, summ, tl, synthesis_meta
+            return kf, kfc, kfconf, next_steps, rcs, scen, summ, tl, synthesis_meta
 
         synthesis_meta = {
             "mode": "rule_based",
             "reason": parse_error or "empty_llm_response",
             "tried_models": tried_models,
         }
-        return kf, kfc, kfconf, rcs, scen, summ, tl, synthesis_meta
+        return kf, kfc, kfconf, next_steps, rcs, scen, summ, tl, synthesis_meta
 
     except Exception as e:
         logger.warning("CEO LLM synthesis failed: %s — using rule-based fallback", e)
@@ -119,6 +122,7 @@ def run_ceo_llm_synthesis(
             key_findings,
             key_findings_context,
             key_findings_confidence,
+            [],
             root_cause_suggestions,
             scenarios,
             summary,

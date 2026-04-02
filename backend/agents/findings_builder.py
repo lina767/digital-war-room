@@ -4,6 +4,11 @@ Uses only agent_results and parameters; no compliance or state.
 """
 
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
+from quality.source_tiers import trust_for_agent_source, trust_for_source_name
+
+from .finding_signal_gate import FindingCandidate
 
 
 def _append_finding(
@@ -17,6 +22,32 @@ def _append_finding(
     if confidences is not None:
         lv = level if level in ("high", "medium", "low") else "medium"
         confidences.append(lv)
+
+
+def _trust_to_level(trust: float) -> str:
+    if trust >= 0.85:
+        return "high"
+    if trust >= 0.65:
+        return "medium"
+    return "low"
+
+
+def _best_effort_source_hint(source: Any, url: Any) -> str | None:
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+    if isinstance(url, str) and url.strip():
+        u = url.strip()
+        try:
+            return urlparse(u).netloc or u
+        except Exception:
+            return u
+    return None
+
+
+def _confidence_from_source(*, agent: str, source: Any = None, url: Any = None) -> str:
+    hint = _best_effort_source_hint(source, url)
+    trust = trust_for_source_name(hint) if hint else trust_for_agent_source(agent)
+    return _trust_to_level(float(trust))
 
 
 def append_agent_findings(
@@ -44,11 +75,12 @@ def append_agent_findings(
         title = art.get("title") or "News article"
         source = art.get("source") or "Unknown"
         label = art.get("sentiment_label") or "NEUTRAL"
+        lvl = _confidence_from_source(agent="news", source=source, url=art.get("url"))
         _append_finding(
             key_findings,
             confidences,
             f"NEWS ({label}) – {title} [{source}]",
-            "medium",
+            lvl,
         )
 
     for signal in (socmint_result.get("top_signals") or [])[:3]:
@@ -73,11 +105,12 @@ def append_agent_findings(
         )
     for r in (sigint_result.get("conflict_reports") or [])[:3]:
         if isinstance(r, dict) and "error" not in r and r.get("title"):
+            lvl = _confidence_from_source(agent="sigint", source=r.get("source"), url=r.get("url"))
             _append_finding(
                 key_findings,
                 confidences,
                 f"SIGINT (intel) – {r.get('title', '')[:70]} [{r.get('source', '')}]",
-                "medium",
+                lvl,
             )
 
     for h in (geoint_result.get("hotspots") or [])[:2]:
@@ -102,11 +135,12 @@ def append_agent_findings(
             )
     for art in (techint_result.get("export_controls") or [])[:1]:
         if art.get("title") and "error" not in art:
+            lvl = _confidence_from_source(agent="techint", source=art.get("source"), url=art.get("url"))
             _append_finding(
                 key_findings,
                 confidences,
                 f"TECHINT (export controls) – {art.get('title')} [{art.get('source', '')}]",
-                "medium",
+                lvl,
             )
     for ev in (techint_result.get("ioda_events") or [])[:2]:
         if isinstance(ev, dict) and "error" not in ev and ev.get("entityCode"):
@@ -160,11 +194,12 @@ def append_agent_findings(
         )
     for r in (cyber_result.get("threat_reports") or [])[:2]:
         if isinstance(r, dict) and r.get("title") and "error" not in r:
+            lvl = _confidence_from_source(agent="cyber", source=r.get("source"), url=r.get("url"))
             _append_finding(
                 key_findings,
                 confidences,
                 f"CYBER – {r.get('title', '')[:60]}",
-                "medium",
+                lvl,
             )
     gn = cyber_result.get("greynoise_scan_context") or {}
     if gn.get("available") and int(gn.get("count") or 0) > 0:
@@ -238,11 +273,12 @@ def append_agent_findings(
         )
     for a in (protest_result.get("protest_articles") or [])[:1]:
         if isinstance(a, dict) and a.get("title") and "error" not in a:
+            lvl = _confidence_from_source(agent="protest", source=a.get("source"), url=a.get("url"))
             _append_finding(
                 key_findings,
                 confidences,
                 f"PROTEST (GDELT) – {a.get('title', '')[:55]}",
-                "medium",
+                lvl,
             )
 
     ofac_matches = diplo_result.get("ofac_sdn", {}).get("total_matches") or 0
@@ -255,11 +291,12 @@ def append_agent_findings(
         )
     for n in (diplo_result.get("un_icj_news") or [])[:2]:
         if isinstance(n, dict) and n.get("title") and "error" not in n:
+            lvl = _confidence_from_source(agent="diplo", source=n.get("source"), url=n.get("url"))
             _append_finding(
                 key_findings,
                 confidences,
                 f"DIPLO ({n.get('source', 'UN/ICJ')}) – {n.get('title', '')[:55]}",
-                "medium",
+                lvl,
             )
 
     for ev in (proximity_result.get("evidence") or [])[:3]:
@@ -344,3 +381,182 @@ def append_agent_findings(
         )
 
     return key_findings
+
+
+def collect_agent_finding_candidates(
+    agent_results: Dict[str, Any],
+    *,
+    conflict: str,
+    chokepoint_score: float,
+) -> List[FindingCandidate]:
+    """
+    Collect structured finding candidates with best-effort source metadata.
+    This is used by the pre-synthesis signal gate (noise reduction).
+    """
+    candidates: List[FindingCandidate] = []
+
+    def add(
+        text: str,
+        *,
+        agent: str,
+        sources: Optional[List[Dict[str, Any]]] = None,
+        extra_agents: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        t = (text or "").strip()
+        if not t:
+            return
+        srcs = list(sources or [])
+        # Ensure each source row carries agent for independence checks.
+        for s in srcs:
+            if isinstance(s, dict) and "agent" not in s:
+                s["agent"] = agent
+        agents = [agent] + list(extra_agents or [])
+        candidates.append(
+            FindingCandidate(
+                text=t,
+                sources=srcs,
+                agents=sorted({a for a in agents if a}),
+                metadata=metadata or {},
+            )
+        )
+
+    news_result = agent_results.get("news") or {}
+    sigint_result = agent_results.get("sigint") or {}
+    geoint_result = agent_results.get("geoint") or {}
+    socmint_result = agent_results.get("socmint") or {}
+    techint_result = agent_results.get("techint") or {}
+    cyber_result = agent_results.get("cyber") or {}
+    energy_result = agent_results.get("energy") or {}
+    protest_result = agent_results.get("protest") or {}
+    diplo_result = agent_results.get("diplo") or {}
+    proximity_result = agent_results.get("proximity") or {}
+    chokepoint_result = agent_results.get("chokepoint") or {}
+    pentagon_result = agent_results.get("pentagon") or {}
+    acled_refs = agent_results.get("acled_refs") or []
+
+    for art in (news_result.get("articles") or [])[:6]:
+        if not isinstance(art, dict):
+            continue
+        title = art.get("title") or "News article"
+        source = art.get("source") or "Unknown"
+        label = art.get("sentiment_label") or "NEUTRAL"
+        add(
+            f"NEWS ({label}) – {title} [{source}]",
+            agent="news",
+            sources=[{"name": source, "url": art.get("url"), "kind": "news"}],
+        )
+
+    for signal in (socmint_result.get("top_signals") or [])[:8]:
+        add(f"SOCMINT – {signal}", agent="socmint", sources=[{"name": "SOCMINT", "kind": "socmint"}])
+
+    for r in (sigint_result.get("conflict_reports") or [])[:6]:
+        if isinstance(r, dict) and "error" not in r and r.get("title"):
+            add(
+                f"SIGINT (intel) – {r.get('title', '')[:120]} [{r.get('source', '')}]",
+                agent="sigint",
+                sources=[{"name": r.get("source"), "url": r.get("url"), "kind": "sigint_report"}],
+            )
+
+    for h in (geoint_result.get("hotspots") or [])[:4]:
+        if not isinstance(h, dict):
+            continue
+        add(
+            f"GEOINT ({h.get('type') or 'anomaly'}) – Thermal anomaly at {h.get('lat')},{h.get('lon')} FRP={h.get('frp')}",
+            agent="geoint",
+            sources=[{"name": "NASA FIRMS", "kind": "geoint"}],
+        )
+
+    for art in (techint_result.get("export_controls") or [])[:3]:
+        if isinstance(art, dict) and art.get("title") and "error" not in art:
+            add(
+                f"TECHINT (export controls) – {art.get('title')} [{art.get('source', '')}]",
+                agent="techint",
+                sources=[{"name": art.get("source"), "url": art.get("url"), "kind": "techint_news"}],
+            )
+
+    for r in (cyber_result.get("threat_reports") or [])[:4]:
+        if isinstance(r, dict) and r.get("title") and "error" not in r:
+            add(
+                f"CYBER – {r.get('title', '')[:140]}",
+                agent="cyber",
+                sources=[{"name": r.get("source"), "url": r.get("url"), "kind": "cyber_report"}],
+            )
+
+    protest_events = protest_result.get("protest_events") or []
+    valid_pe = [e for e in protest_events if isinstance(e, dict) and "error" not in e]
+    if valid_pe:
+        add(
+            f"PROTEST (ACLED) – {len(valid_pe)} protest/riot events",
+            agent="protest",
+            sources=[{"name": "ACLED", "kind": "acled"}],
+        )
+    for a in (protest_result.get("protest_articles") or [])[:2]:
+        if isinstance(a, dict) and a.get("title") and "error" not in a:
+            add(
+                f"PROTEST (GDELT) – {a.get('title', '')[:120]}",
+                agent="protest",
+                sources=[{"name": a.get("source") or "GDELT", "url": a.get("url"), "kind": "gdelt"}],
+            )
+
+    ofac_matches = diplo_result.get("ofac_sdn", {}).get("total_matches") or 0
+    if ofac_matches:
+        add(
+            f"DIPLO (OFAC SDN) – {ofac_matches} conflict-relevant entries",
+            agent="diplo",
+            sources=[{"name": "OFAC", "kind": "sanctions"}],
+        )
+    for n in (diplo_result.get("un_icj_news") or [])[:4]:
+        if isinstance(n, dict) and n.get("title") and "error" not in n:
+            add(
+                f"DIPLO ({n.get('source', 'UN/ICJ')}) – {n.get('title', '')[:140]}",
+                agent="diplo",
+                sources=[{"name": n.get("source"), "url": n.get("url"), "kind": "diplo"}],
+            )
+
+    for ev in (proximity_result.get("evidence") or [])[:5]:
+        if isinstance(ev, dict) and ev.get("summary"):
+            add(
+                f"PROXIMITY ({ev.get('riskLabel', '')}) – {ev.get('summary', '')[:160]}",
+                agent="proximity",
+                sources=[{"name": "OSM + FIRMS", "kind": "proximity"}],
+            )
+
+    for ref in acled_refs[:4]:
+        if isinstance(ref, dict) and ref.get("title"):
+            add(
+                f"ACLED reference – {ref.get('title', '')[:160]}",
+                agent="protest",
+                sources=[{"name": "ACLED", "url": ref.get("url"), "kind": "acled_analysis"}],
+            )
+
+    for cp in chokepoint_result.get("chokepoints") or []:
+        if not isinstance(cp, dict):
+            continue
+        risk = cp.get("disruption_risk", 0)
+        status = cp.get("status", "OPEN")
+        name = cp.get("name", "")
+        dq = cp.get("data_quality", "")
+        if risk >= 60 or status != "OPEN":
+            add(
+                f"CHOKEPOINT – {name}: {status} (risk {risk:.0f}/100, ~{cp.get('oil_flow_estimate_mbd', 0)} mbd, {cp.get('tanker_count', 0)} tankers [{dq}])",
+                agent="chokepoint",
+                sources=[{"name": "Chokepoint monitor", "kind": "chokepoint"}],
+            )
+    if chokepoint_score >= 50:
+        add(
+            f"CHOKEPOINT – Composite chokepoint risk {chokepoint_score:.0f}/100",
+            agent="chokepoint",
+            sources=[{"name": "Chokepoint monitor", "kind": "chokepoint"}],
+        )
+
+    ps = pentagon_result.get("pentagon_score")
+    if isinstance(ps, (int, float)) and float(ps) >= 45:
+        add(
+            f"PENTAGON – informal DC-area venue busyness proxy {float(ps):.0f}/100 (anecdotal; not verified military activity)",
+            agent="pentagon",
+            sources=[{"name": "Venue proxy", "kind": "anecdotal"}],
+        )
+
+    # Light pruning: avoid returning an unbounded list.
+    return candidates[:80]
