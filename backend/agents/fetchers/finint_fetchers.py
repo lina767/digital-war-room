@@ -48,11 +48,26 @@ TRACKED_POLYMARKET_SLUGS = [
 ]
 
 POLYMARKET_INCLUSION_KEYWORDS = {
-    "conflicts": ["war", "military", "invasion", "ceasefire", "nato", "nuclear"],
-    "countries": ["russia", "china", "iran", "israel"],
-    "leaders": ["putin", "trump", "netanyahu"],
-    "economics": ["fed", "interest rate", "inflation", "recession", "tariffs", "sanctions"],
-    "global": ["un", "eu", "treaties", "summits", "coups"],
+    "middle_east_conflict": [
+        "iran",
+        "israel",
+        "gaza",
+        "hamas",
+        "hezbollah",
+        "lebanon",
+        "syria",
+        "iraq",
+        "yemen",
+        "houthi",
+        "tehran",
+        "idf",
+        "irgc",
+        "nuclear deal",
+        "strait of hormuz",
+        "hormuz",
+        "red sea",
+    ],
+    "war_terms": ["war", "military", "invasion", "ceasefire", "strike", "missile", "drone", "sanctions", "regime"],
 }
 POLYMARKET_EXCLUSION_KEYWORDS = {
     "sports": ["nba", "nfl", "fifa", "world cup", "championships", "playoffs"],
@@ -65,6 +80,26 @@ POLYMARKET_EXCLUDE_TERMS = tuple(
     term.lower() for terms in POLYMARKET_EXCLUSION_KEYWORDS.values() for term in terms
 )
 POLYMARKET_MIN_HOURS_LEFT = 48
+MIDDLE_EAST_TERMS = tuple(
+    t.lower()
+    for t in [
+        "iran",
+        "israel",
+        "gaza",
+        "hamas",
+        "hezbollah",
+        "lebanon",
+        "syria",
+        "iraq",
+        "yemen",
+        "houthi",
+        "tehran",
+        "idf",
+        "irgc",
+        "hormuz",
+        "red sea",
+    ]
+)
 
 METACULUS_CONFLICT_TERMS = [
     "iran",
@@ -214,7 +249,10 @@ def _matches_prediction_market_filters(text: str) -> bool:
         return False
     if any(excl in lowered for excl in POLYMARKET_EXCLUDE_TERMS):
         return False
-    return any(incl in lowered for incl in POLYMARKET_INCLUDE_TERMS)
+    if not any(incl in lowered for incl in POLYMARKET_INCLUDE_TERMS):
+        return False
+    # Hard focus: keep only Middle-East-relevant markets for this intelligence workflow.
+    return any(term in lowered for term in MIDDLE_EAST_TERMS)
 
 
 def _extract_end_date(m: dict) -> str | None:
