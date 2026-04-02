@@ -172,9 +172,11 @@ def _build_implications(
             "medium",
         )
     if degraded_agents:
+        stream_count = len(degraded_agents)
+        stream_label = "stream" if stream_count == 1 else "streams"
         add(
             "data_gap",
-            f"Degraded feeds may mask real escalation ({len(degraded_agents)} streams)",
+            f"Degraded feeds may mask real escalation ({stream_count} {stream_label})",
             f"Degraded: {', '.join(degraded_agents[:8])}. Low scores can reflect missing data, not safety.",
             "high",
         )
