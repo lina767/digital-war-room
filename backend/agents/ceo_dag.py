@@ -97,6 +97,15 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
         )
     )
 
+    all_nodes.append(
+        DAGNode(
+            id="comtrade_chokepoint_validate",
+            dependencies=["finint", "chokepoint_residual_enrich"],
+            node_type="enrichment",
+            timeout_s=25.0,
+        )
+    )
+
     for div in divisions:
         div_nodes = div.get_dag_nodes()
         all_nodes.extend(div_nodes)
@@ -291,11 +300,28 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
             logger.warning("research_enrichment failed: %s", e)
             return {"triggered": False, "error": str(e)}
 
+    def exec_comtrade_chokepoint_validate(store: ResultStore) -> Dict[str, Any]:
+        try:
+            from .enrichments.comtrade_chokepoint_validate import run_comtrade_chokepoint_validation
+
+            finint_data = as_dict(store.get("finint")) or {}
+            # Prefer the post-enriched chokepoint block (includes cross-division signals + overrides).
+            chokepoint_data = as_dict(store.get("chokepoint_residual_enrich")) or as_dict(store.get("chokepoint")) or {}
+            return run_comtrade_chokepoint_validation(
+                conflict=conflict,
+                finint_result=finint_data if isinstance(finint_data, dict) else {},
+                chokepoint_result=chokepoint_data if isinstance(chokepoint_data, dict) else {},
+            )
+        except Exception as e:
+            logger.warning("comtrade_chokepoint_validate failed: %s", e)
+            return {"triggered": False, "error": str(e)}
+
     executors["acled_refs"] = exec_acled
     executors["agent_context"] = exec_agent_context
     executors["compliance_build"] = exec_compliance
     executors["quality_fusion"] = exec_quality_fusion
     executors["research_enrichment"] = exec_research_enrichment
+    executors["comtrade_chokepoint_validate"] = exec_comtrade_chokepoint_validate
     return executors
 
 

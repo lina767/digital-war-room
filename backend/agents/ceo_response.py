@@ -44,6 +44,11 @@ API_AGENT_NAMES = [
     "pentagon",
 ]
 
+EXTRA_RESPONSE_KEYS = [
+    # Enrichment nodes that should be first-class response blocks.
+    "comtrade_chokepoint_validate",
+]
+
 
 def normalize_finding_confidence(val: Any) -> str:
     s = str(val).strip().lower()
@@ -364,6 +369,10 @@ def assemble_ceo_response(
     for agent_name in API_AGENT_NAMES:
         raw_result = store.get(agent_name)
         response[agent_name] = as_dict_fn(raw_result) if raw_result else {}
+
+    for k in EXTRA_RESPONSE_KEYS:
+        raw = store.get(k)
+        response[k] = as_dict_fn(raw) if raw else {}
 
     response["divisions"] = {name: dr.model_dump(mode="json") for name, dr in division_results.items()}
 
