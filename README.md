@@ -8,9 +8,9 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Node 18+](https://img.shields.io/badge/node-18+-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 
-### Pinned one-liner (shareable)
-
 > **Digital War Room is an AI-native OSINT project that fuses fragmented conflict signals into one visual picture—escalation score, theater context, and BLUF-style briefings—with methodology and sources you can inspect.**
+
+**Try it:** [Live Demo](https://digital-war-room.com) · [Docs](https://digital-war-room.com/docs/documentation) · [Local quickstart](#getting-started-live-demo--local-quickstart)
 
 Canonical in code: [`PINNED_ONE_LINER`](src/lib/seoCopy.ts) — when you change the wording, sync `index.html` / `app/index.html` meta and JSON-LD. **Author and social bios** live on the [website](https://digital-war-room.com) (footer), not duplicated here.
 
@@ -24,24 +24,90 @@ Real-time conflict monitoring with specialized agents across GEOINT, SIGINT, SOC
 
 ---
 
-## What is Digital War Room?
+## OSINT Multi-Agent Intelligence Platform
 
-Digital War Room deploys **11 specialized OSINT agents** — supervised by a Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from open sources. The stack applies structured analytical frameworks so raw signals become assessments with source attribution, not just aggregated headlines.
+Digital War Room deploys **11+ specialized OSINT agents** — supervised by a Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from open sources. Instead of aggregating headlines, it produces **structured assessments** (scores, BLUF-style briefings, and source-linked findings) across multiple streams: sanctions/finance, flight patterns, protests, cyber signals, and more.
 
-**Why it matters:** Many dashboards show *what happened*. Digital War Room aims to help you interpret *what it may mean* — by cross-referencing domains such as sanctions data, flight patterns, protest activity, and commodity flows.
+**Why it matters:** Many dashboards show *what happened*. Digital War Room aims to help you interpret *what it may mean* — by cross-referencing streams and surfacing where signals corroborate (or contradict) each other.
 
 ---
 
-## Documentation
+## Real-Time Conflict Monitoring Dashboard (Demo)
+
+Use the live dashboard to see the platform’s full loop: pick a conflict context → run analysis → watch streaming updates → read the BLUF briefing with source-backed findings.
+
+### Screenshots / GIFs (add yours)
+
+This repo currently ships without media assets. Here’s the recommended layout once you capture them (see the workflow below).
+
+<!--
+Add files under: docs/assets/
+
+![Digital War Room dashboard overview](docs/assets/dashboard-overview.png)
+
+![Agent monitor view](docs/assets/agent-monitor.png)
+
+![Briefing / intelligence feed](docs/assets/briefing-panel.png)
+
+Optional GIF (10–20s):
+![Run analysis → stream → briefing updates](docs/assets/demo-run-analysis.gif)
+-->
+
+### What to click in the live demo
+
+- Open the dashboard and pick a conflict context (e.g. `Iran`).
+- Hit **Run Analysis** (or open the latest cached result) and watch the briefing + panels populate.
+- Use **Documentation → Source Directory** to inspect sources and mappings.
+
+### Who is this for?
+
+- **OSINT builders** who want a real multi-agent pipeline they can inspect and extend
+- **Researchers / analysts** who want cross-stream synthesis (not just a news feed)
+- **Policy / newsroom / NGO workflows** that need a fast situational picture with traceable sources
+
+### Why better than aggregators?
+
+- **Multi-stream corroboration**: signals are compared across domains (finance, flights, protests, cyber, energy)
+- **Structured outputs**: scores + key findings + briefings (not a pile of links)
+- **Inspectable methodology & sources**: the “why” is part of the product (docs hub + source directory)
+
+### Use cases
+
+- **Daily situational picture** for a theater (score, threat level, BLUF briefing, key findings)
+- **Source traceability** for briefs: jump from a claim to the originating stream and source directory
+- **Cost-controlled monitoring**: rule-based agents by default; optional supervisor modes for savings
+
+### Capture screenshots & a demo GIF (10–15 minutes)
+
+1. Open the live demo at desktop width (e.g. 1440px).
+2. Capture 3 screenshots:
+   - Dashboard overview (score + map)
+   - Agent monitor/panel
+   - Briefing / intelligence feed
+3. Optional: record a 10–20s clip (“Run Analysis” → stream → briefing updates) and convert to GIF.
+4. Save under `docs/assets/`:
+   - `docs/assets/dashboard-overview.png`
+   - `docs/assets/agent-monitor.png`
+   - `docs/assets/briefing-panel.png`
+   - `docs/assets/demo-run-analysis.gif` (optional)
+5. Uncomment the image block above to embed them in the README.
+
+---
+
+## Documentation (Start here)
+
+- **How it works (UX & flows):** [docs/how-it-works.md](docs/how-it-works.md) (canonical in-product: [Documentation → How It Works](https://digital-war-room.com/docs/documentation?doc=how-it-works))
+- **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **API overview:** [docs/API-REFERENCE.md](docs/API-REFERENCE.md)
+- **Deployment & env:** [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- **API keys & backend config:** [docs/API-KEYS.md](docs/API-KEYS.md)
+
+<details>
+<summary><strong>Deep dives (methodology, governance, project index)</strong></summary>
 
 | Topic | Repository |
 |--------|----------------|
 | **Attention playbook** (audience, content loop, credibility) | [docs/ATTENTION-PLAYBOOK.md](docs/ATTENTION-PLAYBOOK.md) |
-| Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| How it works (UX & flows) | [docs/how-it-works.md](docs/how-it-works.md) |
-| API overview | [docs/API-REFERENCE.md](docs/API-REFERENCE.md) |
-| Deployment & env | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
-| API keys & backend config | [docs/API-KEYS.md](docs/API-KEYS.md) |
 | Conflict prioritization | [docs/CONFLICT-PRIORITIZATION.md](docs/CONFLICT-PRIORITIZATION.md) |
 | Full project index | [docs/PROJECT-DOCUMENTATION.md](docs/PROJECT-DOCUMENTATION.md) |
 | Privacy & GDPR governance | [docs/PRIVACY-GDPR-DSGVO.md](docs/PRIVACY-GDPR-DSGVO.md) |
@@ -49,6 +115,8 @@ Digital War Room deploys **11 specialized OSINT agents** — supervised by a Cla
 | Audit trail policy | [docs/AUDIT-TRAIL-POLICY.md](docs/AUDIT-TRAIL-POLICY.md) |
 | DSR runbook | [docs/DSR-RUNBOOK.md](docs/DSR-RUNBOOK.md) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+</details>
 
 ---
 
@@ -111,7 +179,7 @@ Digital War Room deploys **11 specialized OSINT agents** — supervised by a Cla
 
 ---
 
-## Tech stack
+## FastAPI + React OSINT Stack
 
 | Layer | Technology |
 |-------|------------|
@@ -129,14 +197,20 @@ The project moved from a full LangGraph multi-agent graph to a **hybrid**: rule-
 
 ---
 
-## Getting started
+## Getting Started (Live Demo + Local Quickstart)
 
-### Prerequisites
+### Live demo
+
+- **Live site:** `https://digital-war-room.com`
+- **Docs hub:** `https://digital-war-room.com/docs/documentation`
+- If you want the full picture: run an analysis once, then inspect sources via **Source Directory**.
+
+### Prerequisites (local)
 
 - Node.js 18+
 - Python 3.11+
 
-### Frontend
+### Local quickstart (frontend)
 
 ```bash
 git clone https://github.com/lina767/digital-war-room.git
@@ -146,7 +220,7 @@ npm run dev
 # → http://localhost:8080
 ```
 
-### Backend
+### Local quickstart (backend)
 
 ```bash
 cd backend
@@ -156,6 +230,8 @@ pip install -r requirements-dev.txt
 uvicorn main:app --reload
 # → http://localhost:8000
 ```
+
+Without external API keys, you can still use the health checks and interactive docs (`/health`, `/docs`). For live analysis, configure keys as needed in [docs/API-KEYS.md](docs/API-KEYS.md).
 
 ### Environment variables
 
@@ -181,6 +257,8 @@ docker compose up --build
 - Frontend: `http://localhost:8080`
 - Backend: `http://localhost:8000`
 - Postgres (pgvector): `localhost:5432`
+
+For local Docker development details, see [docs/DOCKER-DEV.md](docs/DOCKER-DEV.md). For production deployment, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
