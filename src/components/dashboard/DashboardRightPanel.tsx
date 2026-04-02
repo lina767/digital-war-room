@@ -140,6 +140,134 @@ function getPizzaBandClass(band: PizzaBand | null): string {
   return "bg-muted/20 text-muted-foreground border-border/50";
 }
 
+function isLebanonFocus(activeConflict: string | null | undefined): boolean {
+  return (activeConflict ?? "").trim().toLowerCase() === "lebanon";
+}
+
+function isRedSeaFocus(activeConflict: string | null | undefined): boolean {
+  return (activeConflict ?? "").trim().toLowerCase() === "red sea";
+}
+
+function isIranFocus(activeConflict: string | null | undefined): boolean {
+  return (activeConflict ?? "").trim().toLowerCase() === "iran";
+}
+
+function isMiddleEastFocus(activeConflict: string | null | undefined): boolean {
+  return (activeConflict ?? "").trim().toLowerCase() === "middle east";
+}
+
+function getLebanonFocusHighlights(conflictData: ConflictData | null): string[] {
+  if (!conflictData) return [];
+  const highlights: string[] = [];
+  const findings = conflictData.key_findings ?? [];
+  const articles = conflictData.news?.articles ?? [];
+  const articleTitles = articles
+    .map((a) => String(a?.title ?? "").toLowerCase())
+    .filter(Boolean);
+  const findingText = findings.map((f) => String(f).toLowerCase());
+  const combined = [...articleTitles, ...findingText];
+
+  const hasAny = (terms: string[]) => combined.some((txt) => terms.some((t) => txt.includes(t)));
+
+  if (hasAny(["south lebanon", "blue line", "israel lebanon", "israel-lebanon", "litani", "border"])) {
+    highlights.push("Border activity around South Lebanon / Blue Line remains elevated.");
+  }
+  if (hasAny(["hezbollah", "hizbullah"])) {
+    highlights.push("Hezbollah-linked activity is present in current signal flow.");
+  }
+  if (hasAny(["beirut", "tyre", "nabatieh"])) {
+    highlights.push("Location-specific reporting includes Beirut / Tyre / Nabatieh references.");
+  }
+  if (hasAny(["unifil"])) {
+    highlights.push("UNIFIL is part of the reporting picture and should be monitored.");
+  }
+  if (hasAny(["ceasefire", "de-escalat", "deescalat", "talks"])) {
+    highlights.push("Diplomatic de-escalation signals are visible in parallel to security updates.");
+  }
+
+  return highlights.slice(0, 3);
+}
+
+function getIranFocusHighlights(conflictData: ConflictData | null): string[] {
+  if (!conflictData) return [];
+  const highlights: string[] = [];
+  const findings = conflictData.key_findings ?? [];
+  const articles = conflictData.news?.articles ?? [];
+  const articleTitles = articles.map((a) => String(a?.title ?? "").toLowerCase()).filter(Boolean);
+  const findingText = findings.map((f) => String(f).toLowerCase());
+  const combined = [...articleTitles, ...findingText];
+  const hasAny = (terms: string[]) => combined.some((txt) => terms.some((t) => txt.includes(t)));
+
+  if (hasAny(["iran", "tehran", "irgc", "khamenei"])) {
+    highlights.push("Iran core-state signaling remains active across current reporting.");
+  }
+  if (hasAny(["hormuz", "strait of hormuz", "persian gulf"])) {
+    highlights.push("Hormuz/Persian Gulf chokepoint pressure is part of the threat picture.");
+  }
+  if (hasAny(["nuclear", "iaea"])) {
+    highlights.push("Nuclear/IAEA-linked narratives are visible in this cycle.");
+  }
+  if (hasAny(["sanctions", "ofac"])) {
+    highlights.push("Sanctions and enforcement signals remain relevant for escalation context.");
+  }
+  if (hasAny(["ceasefire", "talks", "de-escalat", "deescalat"])) {
+    highlights.push("De-escalation messaging appears, but coexists with hard-security signals.");
+  }
+
+  return highlights.slice(0, 3);
+}
+
+function getRedSeaFocusHighlights(conflictData: ConflictData | null): string[] {
+  if (!conflictData) return [];
+  const highlights: string[] = [];
+  const findings = conflictData.key_findings ?? [];
+  const articles = conflictData.news?.articles ?? [];
+  const articleTitles = articles.map((a) => String(a?.title ?? "").toLowerCase()).filter(Boolean);
+  const findingText = findings.map((f) => String(f).toLowerCase());
+  const combined = [...articleTitles, ...findingText];
+  const hasAny = (terms: string[]) => combined.some((txt) => terms.some((t) => txt.includes(t)));
+
+  if (hasAny(["houthi", "houthis", "ansarallah"])) {
+    highlights.push("Houthi-linked activity remains a primary driver in this theater.");
+  }
+  if (hasAny(["red sea", "bab el-mandeb", "bab al-mandab", "gulf of aden"])) {
+    highlights.push("Red Sea / Bab el-Mandeb maritime pressure is visible in current reporting.");
+  }
+  if (hasAny(["shipping", "vessel", "merchant", "tanker", "container", "suez"])) {
+    highlights.push("Commercial shipping risk and rerouting pressure are part of the active signal set.");
+  }
+  if (hasAny(["missile", "drone", "strike", "intercept"])) {
+    highlights.push("Strike and interception indicators suggest sustained kinetic tempo.");
+  }
+  if (hasAny(["ceasefire", "talks", "de-escalat", "deescalat"])) {
+    highlights.push("Parallel de-escalation messaging appears alongside kinetic indicators.");
+  }
+
+  return highlights.slice(0, 3);
+}
+
+function getRedSeaFocusKpis(conflictData: ConflictData | null): {
+  shipping: number;
+  strikes: number;
+  houthi: number;
+} {
+  if (!conflictData) return { shipping: 0, strikes: 0, houthi: 0 };
+  const findings = conflictData.key_findings ?? [];
+  const articles = conflictData.news?.articles ?? [];
+  const combined = [
+    ...articles.map((a) => `${String(a?.title ?? "")} ${String(a?.description ?? "")}`.toLowerCase()),
+    ...findings.map((f) => String(f).toLowerCase()),
+  ];
+  const countMatches = (terms: string[]) =>
+    combined.reduce((acc, txt) => (terms.some((t) => txt.includes(t)) ? acc + 1 : acc), 0);
+
+  return {
+    shipping: countMatches(["shipping", "vessel", "merchant", "container", "tanker", "suez", "maritime"]),
+    strikes: countMatches(["strike", "missile", "drone", "attack", "intercept", "interception"]),
+    houthi: countMatches(["houthi", "houthis", "ansarallah"]),
+  };
+}
+
 interface DashboardRightPanelProps {
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
@@ -324,7 +452,9 @@ export function DashboardRightPanel({
                 <InternetConnectivity />
               </ErrorBoundary>
               <ErrorBoundary sectionLabel="FlightRadar">
-                <FlightRadar sigint={conflictData?.sigint} />
+                <FlightRadar
+                  sigint={conflictData?.sigint as unknown as Parameters<typeof FlightRadar>[0]["sigint"]}
+                />
               </ErrorBoundary>
               <ErrorBoundary sectionLabel="Prediction Markets">
                 <PredictionMarkets polymarket={conflictData?.finint?.polymarket} fetchedAt={conflictData?.finint?.polymarket_fetched_at} polymarketHistory={conflictData?.finint?.polymarket_history} />
@@ -359,7 +489,7 @@ export function DashboardRightPanel({
     const riskLevel = conflictData?.compliance?.risk_score?.level ?? "–";
     const cpData = conflictData?.chokepoint;
     const chokepoints = cpData?.chokepoints ?? [];
-    const restricted = chokepoints.filter((c) => (c.status ?? "").toUpperCase() !== "OPEN").length;
+    const restricted = chokepoints.filter((c) => String(c.status ?? "").toUpperCase() !== "OPEN").length;
     const articles = conflictData?.news?.articles ?? [];
     const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "–";
     const pentagonScore = conflictData?.pentagon?.pentagon_score;
@@ -410,6 +540,17 @@ export function DashboardRightPanel({
     const threat = conflictData?.threat_level ?? "–";
     const pentagonScore = conflictData?.pentagon?.pentagon_score;
     const pizzaBand = getPizzaBand(pentagonScore);
+    const lebanonMode = isLebanonFocus(activeConflict);
+  const iranMode = isIranFocus(activeConflict);
+    const redSeaMode = isRedSeaFocus(activeConflict);
+  const middleEastMode = isMiddleEastFocus(activeConflict);
+  const showLebanonFocus = lebanonMode || middleEastMode;
+  const showIranFocus = iranMode || middleEastMode;
+  const showRedSeaFocus = redSeaMode || middleEastMode;
+    const lebanonHighlights = getLebanonFocusHighlights(conflictData);
+  const iranHighlights = getIranFocusHighlights(conflictData);
+    const redSeaHighlights = getRedSeaFocusHighlights(conflictData);
+    const redSeaKpis = getRedSeaFocusKpis(conflictData);
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
@@ -447,6 +588,77 @@ export function DashboardRightPanel({
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {showIranFocus && (
+          <div className="rounded-lg border border-border bg-card/40 p-3">
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">IRAN FOCUS</p>
+            {iranHighlights.length > 0 ? (
+              <ul className="space-y-1.5">
+                {iranHighlights.map((line, i) => (
+                  <li key={`${line}-${i}`} className="text-xs leading-relaxed flex gap-2 items-start">
+                    <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
+                    <span className="min-w-0">{line}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No dedicated Iran-specific signals found yet in this cycle. Trigger a new run to refresh focused inputs.
+              </p>
+            )}
+          </div>
+        )}
+        {showLebanonFocus && (
+          <div className="rounded-lg border border-border bg-card/40 p-3">
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">LEBANON FOCUS</p>
+            {lebanonHighlights.length > 0 ? (
+              <ul className="space-y-1.5">
+                {lebanonHighlights.map((line, i) => (
+                  <li key={`${line}-${i}`} className="text-xs leading-relaxed flex gap-2 items-start">
+                    <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
+                    <span className="min-w-0">{line}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No dedicated Lebanon-specific signals found yet in this cycle. Trigger a new run to refresh focused inputs.
+              </p>
+            )}
+          </div>
+        )}
+        {showRedSeaFocus && (
+          <div className="rounded-lg border border-border bg-card/40 p-3">
+            <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">RED SEA / HOUTHI FOCUS</p>
+            <div className="mb-2 grid grid-cols-3 gap-2">
+              <div className="rounded border border-border/70 bg-background/40 px-2 py-1">
+                <div className="text-[10px] font-mono text-muted-foreground">Shipping</div>
+                <div className="text-xs font-mono text-foreground">{redSeaKpis.shipping}</div>
+              </div>
+              <div className="rounded border border-border/70 bg-background/40 px-2 py-1">
+                <div className="text-[10px] font-mono text-muted-foreground">Strikes</div>
+                <div className="text-xs font-mono text-foreground">{redSeaKpis.strikes}</div>
+              </div>
+              <div className="rounded border border-border/70 bg-background/40 px-2 py-1">
+                <div className="text-[10px] font-mono text-muted-foreground">Houthi</div>
+                <div className="text-xs font-mono text-foreground">{redSeaKpis.houthi}</div>
+              </div>
+            </div>
+            {redSeaHighlights.length > 0 ? (
+              <ul className="space-y-1.5">
+                {redSeaHighlights.map((line, i) => (
+                  <li key={`${line}-${i}`} className="text-xs leading-relaxed flex gap-2 items-start">
+                    <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-primary mt-1.5" />
+                    <span className="min-w-0">{line}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No dedicated Red Sea / Houthi signals found yet in this cycle. Trigger a new run to refresh focused inputs.
+              </p>
+            )}
           </div>
         )}
       </div>

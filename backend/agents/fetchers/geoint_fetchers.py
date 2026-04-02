@@ -1095,6 +1095,16 @@ def _load_aggregated_theater_events(conflict: str, weeks: int = 4) -> List[Dict[
                 ("Yemen", "acled_yemen_aggregated_current.csv"),
             ]
         )
+    elif "lebanon" in cl or "hezbollah" in cl:
+        # Lebanon theater: prioritize Lebanon + border spillover states.
+        country_files.extend(
+            [
+                ("Lebanon", "acled_lebanon_aggregated_current.csv"),
+                ("Israel", "acled_israel_aggregated_current.csv"),
+                ("Syria", "acled_syria_aggregated_current.csv"),
+                ("Palestine", "acled_palestine_aggregated_current.csv"),
+            ]
+        )
     elif "israel" in cl or "gaza" in cl:
         country_files.extend(
             [

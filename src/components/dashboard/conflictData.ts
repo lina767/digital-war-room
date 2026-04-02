@@ -15,7 +15,7 @@ export interface ConflictLink {
 /** For dropdown: id (storage), label (display), apiValue (backend analyze). Middle East focus only. */
 export const CONFLICT_OPTIONS = [
   { id: "middle-east", label: "Middle East", apiValue: "Middle East" },
-  { id: "red-sea", label: "Red Sea", apiValue: "Red Sea" },
+  { id: "red-sea", label: "Red Sea (Houthis)", apiValue: "Red Sea" },
   { id: "iran", label: "Iran", apiValue: "Iran" },
   { id: "lebanon", label: "Lebanon", apiValue: "Lebanon" },
 ] as const;

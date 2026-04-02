@@ -18,6 +18,22 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
     """Fetch recent military/conflict reports from RSS sources."""
     conflict_keywords = {
         "iran": ["iran", "irgc", "tehran", "hormuz", "houthi", "yemen", "persian gulf", "hezbollah", "idf", "lebanon"],
+        "lebanon": ["lebanon", "hezbollah", "beirut", "south lebanon", "litani", "idf", "israel", "border"],
+        "red sea": [
+            "red sea",
+            "bab el-mandeb",
+            "bab al-mandab",
+            "gulf of aden",
+            "houthi",
+            "houthis",
+            "ansarallah",
+            "yemen",
+            "shipping",
+            "vessel",
+            "merchant ship",
+            "maritime",
+            "suez",
+        ],
         "ukraine": ["ukraine", "russia", "kyiv", "donbas"],
         "israel": ["israel", "gaza", "hamas", "hezbollah", "idf"],
         "taiwan": ["taiwan", "pla", "strait", "china"],

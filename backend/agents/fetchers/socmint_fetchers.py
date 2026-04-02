@@ -905,6 +905,7 @@ RELIEFWEB_COUNTRY_NAMES = {
     "israel": "Israel",
     "gaza": "State of Palestine",
     "yemen": "Yemen",
+    "lebanon": "Lebanon",
     "syria": "Syria",
     "iraq": "Iraq",
     "ukraine": "Ukraine",

@@ -197,12 +197,29 @@ RSS_CONFLICT_FEEDS: Dict[str, List[str]] = {
         "https://www.criticalthreats.org/feed",
         "https://www.longwarjournal.org/feed",
     ],
+    "lebanon": [
+        "https://www.lorientlejour.com/rss",
+        "https://www.thenationalnews.com/rss",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml",
+        "https://www.middleeasteye.net/rss",
+        "https://www.timesofisrael.com/feed/",
+        "https://understandingwar.org/rss.xml",
+        "https://www.criticalthreats.org/feed",
+    ],
     "red_sea_horn": [
         "https://feeds.bbci.co.uk/news/world/africa/rss.xml",
         "https://feeds.bbci.co.uk/news/world/middle_east/rss.xml",
         "https://www.reutersagency.com/feed/?best-topics=world&post_type=best",
         "https://www.theguardian.com/world/africa/rss",
         "https://www.aljazeera.com/xml/rss/all.xml",
+        "https://www.lloydslist.com/LL114.xml",
+        "https://gcaptain.com/feed/",
+        "https://www.maritime-executive.com/rss",
+        "https://www.safety4sea.com/feed/",
+        "https://www.middleeasteye.net/rss",
+        "https://www.thenationalnews.com/rss",
+        "https://www.crisisgroup.org/rss",
     ],
     "default": [
         "https://feeds.bbci.co.uk/news/world/rss.xml",
@@ -341,11 +358,18 @@ def _build_query(conflict: str) -> str:
             "OR Hezbollah OR Houthi OR Houthis OR IDF OR Yemen OR Lebanon) "
             "AND (attack OR military OR nuclear OR sanctions OR war OR strike OR missile OR deal)"
         )
+    if "lebanon" in cl or "hezbollah" in cl:
+        return (
+            '(Lebanon OR Hezbollah OR Hizbullah OR Beirut OR "South Lebanon" OR Litani '
+            'OR "Blue Line" OR "Israel Lebanon border" OR IDF OR UNIFIL OR "Tyre" OR "Nabatieh") '
+            "AND (attack OR strike OR missile OR drone OR raid OR artillery OR military OR escalation OR ceasefire)"
+        )
     if any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "shipping"]):
         return (
             '("Bab el-Mandeb" OR "Bab al-Mandab" OR "Red Sea" OR "Gulf of Aden" OR Yemen OR Houthi OR Houthis '
-            'OR Eritrea OR Ethiopia OR Somalia OR Djibouti OR maritime OR shipping OR vessel OR container) '
-            "AND (attack OR strike OR drone OR missile OR blockade OR reroute OR military OR disrupted)"
+            'OR Ansarallah OR Eritrea OR Ethiopia OR Somalia OR Djibouti OR maritime OR shipping OR vessel OR container '
+            'OR tanker OR Suez OR "merchant ship" OR "naval escort") '
+            "AND (attack OR strike OR drone OR missile OR blockade OR reroute OR interception OR military OR disrupted)"
         )
     if "ukraine" in cl:
         return "(Ukraine OR Zelensky OR Kyiv OR Donbas) AND (Russia OR invasion OR NATO OR military OR sanctions)"
@@ -647,6 +671,8 @@ def search_newsdata_news(conflict: str) -> List[Dict[str, Any]]:
     cl = conflict.lower()
     if "iran" in cl or "israel" in cl:
         params["country"] = "ir,il,us"
+    elif any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "shipping"]):
+        params["country"] = "ye,dj,er,et,so,eg,sae,sa,il,us,gb"
     elif "ukraine" in cl or "russia" in cl:
         params["country"] = "ua,ru,us"
 
@@ -705,6 +731,8 @@ def search_gnews_news(conflict: str) -> List[Dict[str, Any]]:
     cl = conflict.lower()
     if "iran" in cl or "israel" in cl:
         params["country"] = "ir"
+    elif any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "shipping"]):
+        params["country"] = "ye"
     elif "ukraine" in cl or "russia" in cl:
         params["country"] = "ua"
 
@@ -751,6 +779,8 @@ def _rss_feeds_for_conflict(conflict: str) -> List[str]:
     cl = conflict.lower()
     if "iran" in cl:
         conflict_specific = RSS_CONFLICT_FEEDS["iran"]
+    elif "lebanon" in cl or "hezbollah" in cl:
+        conflict_specific = RSS_CONFLICT_FEEDS["lebanon"]
     elif any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "somalia", "eritrea", "djibouti"]):
         conflict_specific = RSS_CONFLICT_FEEDS["red_sea_horn"]
     elif "ukraine" in cl or "russia" in cl:
@@ -803,6 +833,22 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
         ]
     elif "ukraine" in cl or "russia" in cl:
         keywords_en = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
+    elif "lebanon" in cl or "hezbollah" in cl:
+        keywords_en = [
+            "lebanon",
+            "hezbollah",
+            "hizbullah",
+            "beirut",
+            "south lebanon",
+            "litani",
+            "blue line",
+            "idf",
+            "israel-lebanon",
+            "israel lebanon",
+            "tyre",
+            "nabatieh",
+            "unifil",
+        ]
     elif any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "somalia", "eritrea", "djibouti"]):
         keywords_en = [
             "bab el-mandeb",
@@ -812,11 +858,18 @@ def search_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
             "shipping",
             "maritime",
             "houthi",
+            "houthis",
+            "ansarallah",
             "yemen",
             "somalia",
             "eritrea",
             "djibouti",
             "ethiopia",
+            "suez",
+            "merchant ship",
+            "container ship",
+            "tanker",
+            "naval escort",
         ]
     else:
         keywords_en = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
@@ -932,8 +985,48 @@ def _run_rss_source_agent(conflict: str) -> Dict[str, Any]:
             elif "ukraine" in cl or "russia" in cl:
                 keywords_en = ["ukraine", "russia", "kyiv", "donbas", "nato", "zelensky", "invasion"]
                 keywords_fa = []
+            elif "lebanon" in cl or "hezbollah" in cl:
+                keywords_en = [
+                    "lebanon",
+                    "hezbollah",
+                    "hizbullah",
+                    "beirut",
+                    "south lebanon",
+                    "litani",
+                    "blue line",
+                    "idf",
+                    "israel-lebanon",
+                    "israel lebanon",
+                    "tyre",
+                    "nabatieh",
+                    "unifil",
+                ]
+                keywords_fa = []
             else:
-                keywords_en = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
+                if any(k in cl for k in ["red sea", "horn", "bab", "mandeb", "houthi", "somalia", "eritrea", "djibouti"]):
+                    keywords_en = [
+                        "bab el-mandeb",
+                        "bab al-mandab",
+                        "red sea",
+                        "gulf of aden",
+                        "shipping",
+                        "maritime",
+                        "houthi",
+                        "houthis",
+                        "ansarallah",
+                        "yemen",
+                        "somalia",
+                        "eritrea",
+                        "djibouti",
+                        "ethiopia",
+                        "suez",
+                        "merchant ship",
+                        "container ship",
+                        "tanker",
+                        "naval escort",
+                    ]
+                else:
+                    keywords_en = [w for w in conflict.split() if len(w) > 2][:5] or ["conflict", "military"]
                 keywords_fa = []
 
             def _matches(title: str, summary: str) -> bool:
