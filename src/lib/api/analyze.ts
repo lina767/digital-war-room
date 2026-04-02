@@ -292,6 +292,13 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
       polymarket: asArray(finint.polymarket),
     };
   }
+  const pentagon = raw.pentagon as Record<string, unknown> | undefined;
+  if (pentagon) {
+    (out as Record<string, unknown>).pentagon = {
+      ...pentagon,
+      venues: asArray(pentagon.venues),
+    };
+  }
   const chokepoint = raw.chokepoint as Record<string, unknown> | undefined;
   if (chokepoint) {
     (out as Record<string, unknown>).chokepoint = {

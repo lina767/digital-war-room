@@ -9,6 +9,7 @@ import type {
   GeointResult as GeneratedGeointResult,
   NarrativeResult as GeneratedNarrativeResult,
   NewsResult as GeneratedNewsResult,
+  PentagonResult,
   ProximityResult,
   ProtestResult,
   SigintResult as GeneratedSigintResult,
@@ -155,6 +156,17 @@ type FinintBlock = FinintResult & {
   _meta?: AgentMeta;
 };
 
+type PentagonBlock = PentagonResult & {
+  venues?: Array<{
+    role?: string;
+    label?: string;
+    busyness_score?: number;
+    score?: number;
+    status?: string;
+  }>;
+  _meta?: AgentMeta;
+};
+
 type GeointBlock = GeneratedGeointResult & {
   anomalies: GeointAnomaly[];
   _meta?: AgentMeta;
@@ -226,6 +238,7 @@ export interface ConflictData {
   narrative_story?: string | null;
   news?: NewsBlock;
   finint?: FinintBlock;
+  pentagon?: PentagonBlock;
   geoint?: GeointBlock;
   sigint?: SigintBlock;
   techint?: TechintResult & { _meta?: AgentMeta };

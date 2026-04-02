@@ -124,6 +124,22 @@ function saveFeedView(mode: FeedViewMode) {
   }
 }
 
+type PizzaBand = "LOW" | "MEDIUM" | "HIGH";
+
+function getPizzaBand(score: number | null | undefined): PizzaBand | null {
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  if (score >= 67) return "HIGH";
+  if (score >= 34) return "MEDIUM";
+  return "LOW";
+}
+
+function getPizzaBandClass(band: PizzaBand | null): string {
+  if (band === "HIGH") return "bg-destructive/15 text-destructive border-destructive/40";
+  if (band === "MEDIUM") return "bg-amber-500/15 text-amber-300 border-amber-500/35";
+  if (band === "LOW") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/35";
+  return "bg-muted/20 text-muted-foreground border-border/50";
+}
+
 interface DashboardRightPanelProps {
   rightPanelOpen: boolean;
   setRightPanelOpen: (open: boolean) => void;
@@ -346,6 +362,10 @@ export function DashboardRightPanel({
     const restricted = chokepoints.filter((c) => (c.status ?? "").toUpperCase() !== "OPEN").length;
     const articles = conflictData?.news?.articles ?? [];
     const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "–";
+    const pentagonScore = conflictData?.pentagon?.pentagon_score;
+    const pentagonDisplay = typeof pentagonScore === "number" ? Math.round(pentagonScore).toString() : "–";
+    const pizzaBand = getPizzaBand(pentagonScore);
+    const pizzaLabel = pizzaBand ? `${pentagonDisplay} (${pizzaBand})` : pentagonDisplay;
     return (
       <div className="space-y-4">
         <UpdatedBriefing
@@ -362,6 +382,7 @@ export function DashboardRightPanel({
           {summaryLine("Compliance", riskLevel)}
           {summaryLine("ChokePoints", restricted > 0 ? `${restricted} restricted` : "All open")}
           {summaryLine("Headlines", `${articles.length} new`)}
+          {summaryLine("Pizza Index", pizzaLabel)}
           {summaryLine("Predictive", String(predictive))}
         </div>
         {keyFindings.length > 0 && (
@@ -387,6 +408,8 @@ export function DashboardRightPanel({
     const keyFindings = conflictData?.key_findings ?? [];
     const score = conflictData?.escalation_score ?? null;
     const threat = conflictData?.threat_level ?? "–";
+    const pentagonScore = conflictData?.pentagon?.pentagon_score;
+    const pizzaBand = getPizzaBand(pentagonScore);
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
@@ -397,6 +420,18 @@ export function DashboardRightPanel({
           <div className="flex items-center justify-between">
             <span className="font-mono text-[11px] text-muted-foreground">THREAT</span>
             <span className="font-mono text-sm font-medium">{threat}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[11px] text-muted-foreground">PIZZA INDEX</span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-medium">{typeof pentagonScore === "number" ? Math.round(pentagonScore) : "–"}</span>
+              <span
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-mono tracking-wide ${getPizzaBandClass(pizzaBand)}`}
+                title="Informal proxy signal only; not a confirmed military indicator"
+              >
+                {pizzaBand ?? "N/A"}
+              </span>
+            </div>
           </div>
         </div>
         {summary && <p className="text-sm leading-relaxed">{summary}</p>}

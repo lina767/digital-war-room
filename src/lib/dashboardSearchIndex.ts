@@ -193,6 +193,13 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
       });
     }
   });
+  pushAgent(
+    hits,
+    "pentagon-summary",
+    "PENTAGON SIGNALS",
+    data.pentagon?.summary,
+    data.pentagon?.pentagon_score != null ? `Pizza index ${Math.round(data.pentagon.pentagon_score)}` : "Pentagon pizza index",
+  );
 
   pushAgent(hits, "cyber", "CYBER / TECHINT", data.cyber?.summary, "Cyber");
 
