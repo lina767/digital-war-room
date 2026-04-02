@@ -352,9 +352,9 @@ def run_mediaint_agent(
     with tempfile.TemporaryDirectory(prefix="mediaint_") as tmp:
         tmp_path = Path(tmp)
         for url, prov in pairs:
-            data, ctype = _download_bytes(
-                url, VIDEO_MAX_BYTES if _is_probably_video(url, ctype) else IMAGE_MAX_BYTES
-            )
+            # Max size must not depend on ctype — it is only known after the download.
+            max_bytes = VIDEO_MAX_BYTES if _is_probably_video(url, None) else IMAGE_MAX_BYTES
+            data, ctype = _download_bytes(url, max_bytes)
             if not data:
                 assets.append({"source_url": url[:500], "provenance": prov, "error": "download_failed"})
                 continue
