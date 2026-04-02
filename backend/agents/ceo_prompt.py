@@ -284,6 +284,19 @@ def build_supervisor_user_payload(
             for u in (agent_block.get("provenance_refs") or [])[:6]:
                 if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
                     prov_urls.append(u.strip())
+            # Also harvest URLs directly from _meta.sources[*].reference_urls.
+            # This ensures static provenance mappings (SOURCE_REFERENCE_DEFAULTS) reliably surface,
+            # even when provenance_refs wasn't materialized for a given block.
+            meta = agent_block.get("_meta")
+            if isinstance(meta, dict):
+                sources = meta.get("sources") or []
+                if isinstance(sources, list):
+                    for s in sources[:12]:
+                        if not isinstance(s, dict):
+                            continue
+                        for u in (s.get("reference_urls") or [])[:6]:
+                            if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
+                                prov_urls.append(u.strip())
     # Dedupe + cap.
     prov_urls = list(dict.fromkeys(prov_urls))[:25]
     payload["provenance_urls"] = prov_urls
