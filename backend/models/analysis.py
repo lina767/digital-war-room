@@ -46,4 +46,9 @@ class AnalysisResult(BaseModel):
     assessment: Dict[str, Any] = Field(default_factory=dict)
     confidence_scoring: Dict[str, Any] = Field(default_factory=dict)
 
+    # Implications-first analysis (additive; safe defaults for old cached payloads)
+    implications: List[Dict[str, Any]] = Field(default_factory=list)
+    trends: Dict[str, Any] = Field(default_factory=dict)
+    anomalies_rollup: List[Dict[str, Any]] = Field(default_factory=list)
+
     # Per-agent results and divisions are stored via extra (finint, sigint, ..., divisions)

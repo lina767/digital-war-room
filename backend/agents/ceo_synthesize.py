@@ -32,6 +32,220 @@ from .utils import get_analysis_run_id, infer_data_confidence_from_result, run_a
 logger = logging.getLogger(__name__)
 
 
+def _build_trends_summary(temporal_context: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compact trends block derived from services.agent_score_history.get_temporal_context().
+    Always returns a dict (safe for UI consumption).
+    """
+    if not isinstance(temporal_context, dict):
+        return {}
+    agents = temporal_context.get("agents")
+    if not isinstance(agents, dict):
+        return {"as_of_utc_day": temporal_context.get("as_of_utc_day"), "top_movers": []}
+
+    movers: List[Dict[str, Any]] = []
+    for agent_key, row in agents.items():
+        if not isinstance(row, dict):
+            continue
+        d = row.get("delta_vs_prior_utc_day")
+        try:
+            delta = float(d) if d is not None else None
+        except (TypeError, ValueError):
+            delta = None
+        movers.append(
+            {
+                "agent": str(agent_key),
+                "score_now": row.get("score_now"),
+                "delta_vs_prior_utc_day": delta,
+                "trend_7d": row.get("trend_7d"),
+                "consecutive_days_up": row.get("consecutive_days_up"),
+                "consecutive_days_down": row.get("consecutive_days_down"),
+            }
+        )
+
+    def key_fn(x: Dict[str, Any]) -> float:
+        v = x.get("delta_vs_prior_utc_day")
+        return abs(float(v)) if isinstance(v, (int, float)) else -1.0
+
+    movers_sorted = sorted(movers, key=key_fn, reverse=True)
+    top_movers = [m for m in movers_sorted if isinstance(m.get("delta_vs_prior_utc_day"), (int, float))][:6]
+
+    return {
+        "as_of_utc_day": temporal_context.get("as_of_utc_day"),
+        "prior_utc_day": temporal_context.get("prior_utc_day"),
+        "top_movers": top_movers,
+        "raw": temporal_context if len(top_movers) == 0 else {},
+    }
+
+
+def _build_anomalies_rollup(
+    division_results: Dict[str, DivisionResult],
+    temporal_context: Dict[str, Any],
+    *,
+    max_items: int = 10,
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+
+    # 1) Division anomalies (already curated by each division head)
+    for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
+        if not dr.anomalies:
+            continue
+        for a in dr.anomalies[:3]:
+            out.append(
+                {
+                    "kind": "division_anomaly",
+                    "source": str(name),
+                    "description": getattr(a, "description", "") or "",
+                    "severity": getattr(a, "severity", None),
+                }
+            )
+            if len(out) >= max_items:
+                return out
+
+    # 2) Score-jump anomalies from temporal context (delta vs prior UTC day)
+    agents = temporal_context.get("agents") if isinstance(temporal_context, dict) else None
+    if isinstance(agents, dict):
+        for agent_key, row in agents.items():
+            if not isinstance(row, dict):
+                continue
+            d = row.get("delta_vs_prior_utc_day")
+            try:
+                delta = float(d) if d is not None else None
+            except (TypeError, ValueError):
+                delta = None
+            if delta is None:
+                continue
+            if abs(delta) < 8.0:
+                continue
+            out.append(
+                {
+                    "kind": "score_jump",
+                    "source": str(agent_key),
+                    "description": f"Score moved {delta:+.1f} vs prior UTC day",
+                    "delta_vs_prior_utc_day": round(delta, 2),
+                    "score_now": row.get("score_now"),
+                    "trend_7d": row.get("trend_7d"),
+                }
+            )
+            if len(out) >= max_items:
+                return out
+
+    return out[:max_items]
+
+
+def _build_implications(
+    *,
+    conflict: str,
+    degraded_agents: List[str],
+    data_quality_gate: Dict[str, Any],
+    chokepoint_result: Dict[str, Any],
+    energy_result: Dict[str, Any],
+    high_conf_findings: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Deterministic implications layer (fallback-first). This should never be empty
+    when there is any non-trivial signal, and should be cheap to compute.
+    """
+    out: List[Dict[str, Any]] = []
+
+    def add(kind: str, title: str, rationale: str, confidence: str, *, refs: List[str] | None = None) -> None:
+        if not title.strip():
+            return
+        out.append(
+            {
+                "kind": kind,
+                "title": title.strip()[:180],
+                "rationale": (rationale or "").strip()[:700],
+                "confidence": confidence if confidence in ("high", "medium", "low") else "medium",
+                "source_refs": refs or [],
+            }
+        )
+
+    # Data quality implications
+    qwarn = data_quality_gate.get("quality_warnings") if isinstance(data_quality_gate, dict) else None
+    if isinstance(qwarn, list) and any(isinstance(w, str) and w.strip() for w in qwarn):
+        add(
+            "data_quality",
+            "Assessment uncertainty elevated (quality warnings present)",
+            "; ".join([str(w).strip() for w in qwarn if isinstance(w, str) and w.strip()][:3]),
+            "medium",
+        )
+    if degraded_agents:
+        add(
+            "data_gap",
+            f"Degraded feeds may mask real escalation ({len(degraded_agents)} streams)",
+            f"Degraded: {', '.join(degraded_agents[:8])}. Low scores can reflect missing data, not safety.",
+            "high",
+        )
+
+    # Chokepoint implications
+    cps = chokepoint_result.get("chokepoints") if isinstance(chokepoint_result, dict) else None
+    if isinstance(cps, list):
+        for cp in cps:
+            if not isinstance(cp, dict):
+                continue
+            name = str(cp.get("name") or "").strip()
+            risk = cp.get("disruption_risk")
+            if not name or not isinstance(risk, (int, float)):
+                continue
+            if risk >= 65:
+                add(
+                    "risk",
+                    f"High supply-chain disruption risk at {name}",
+                    "Elevated disruption_risk suggests increased probability of delays/closures; corroborate with SIGINT/NEWS.",
+                    "high",
+                )
+                break
+            if risk >= 40:
+                add(
+                    "risk",
+                    f"Moderate disruption risk at {name}",
+                    "Risk premium likely; monitor for incident reporting and policy rhetoric escalation.",
+                    "medium",
+                )
+                break
+
+    # Energy/commodities implications
+    commodities = energy_result.get("commodities") if isinstance(energy_result, dict) else None
+    if isinstance(commodities, list):
+        for c in commodities:
+            if not isinstance(c, dict):
+                continue
+            sym = str(c.get("symbol") or "").upper().strip()
+            ch = c.get("change_pct_raw")
+            if sym and isinstance(ch, (int, float)) and abs(ch) >= 1.5:
+                add(
+                    "market",
+                    f"{sym} moved {ch:+.1f}% (session)",
+                    "Likely reflects changing risk premium; check chokepoints, shipping, and major incident reporting for causal linkage.",
+                    "medium",
+                )
+                break
+
+    # High-confidence finding implications (lightweight mapping)
+    for row in high_conf_findings[:4]:
+        if not isinstance(row, dict):
+            continue
+        finding = str(row.get("finding") or "").strip()
+        if not finding:
+            continue
+        conf_val = row.get("confidence")
+        conf = "high" if isinstance(conf_val, (int, float)) and conf_val >= 0.85 else "medium"
+        add(
+            "finding",
+            f"So-what: {conflict}",
+            finding,
+            conf,
+        )
+        break
+
+    # Ensure at least one implication when there is a conflict key
+    if not out and conflict.strip():
+        add("status", "No high-signal implications detected", "Signals appear stable or insufficient for inference.", "low")
+
+    return out[:10]
+
+
 def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultStore) -> Dict[str, Any]:
     """CEO-level synthesis: weighted score, LLM or rule-based, full response."""
     division_results: Dict[str, DivisionResult] = {}
@@ -457,6 +671,18 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         stakeholder_context=stakeholder_context,
     )
 
+    # Implications-first analysis blocks (fallback-first, additive)
+    trends = _build_trends_summary(temporal_context)
+    anomalies_rollup = _build_anomalies_rollup(division_results, temporal_context)
+    implications = _build_implications(
+        conflict=conflict,
+        degraded_agents=degraded_agents,
+        data_quality_gate=data_quality_gate,
+        chokepoint_result=chokepoint_result,
+        energy_result=energy_result,
+        high_conf_findings=high_conf_findings,
+    )
+
     if not root_cause_suggestions:
         root_cause_suggestions = heuristic_root_causes(energy_result, chokepoint_result)
 
@@ -504,6 +730,9 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         predictive=predictive,
         compliance=compliance,
         alerts=alerts,
+        implications=implications,
+        trends=trends,
+        anomalies_rollup=anomalies_rollup,
         synthesis_meta=synthesis_meta,
         agent_data_confidence=agent_data_confidence,
         degraded_agents=degraded_agents,

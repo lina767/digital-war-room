@@ -19,6 +19,15 @@ export interface AnalyzeResponse {
   key_findings?: string[];
   key_findings_context?: string[];
   key_findings_confidence?: string[];
+  implications?: Array<{
+    kind?: string;
+    title?: string;
+    rationale?: string;
+    confidence?: string;
+    source_refs?: string[];
+  }>;
+  trends?: Record<string, unknown>;
+  anomalies_rollup?: Array<Record<string, unknown>>;
   root_cause_suggestions?: Array<{ signal: string; likely_cause: string; confidence?: string }>;
   corroborated_patterns?: Array<{
     pattern_id?: string;
@@ -306,5 +315,8 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
       ofac_recent_actions: asArray(compliance.ofac_recent_actions),
     };
   }
+  (out as Record<string, unknown>).implications = asArray(raw.implications);
+  (out as Record<string, unknown>).trends = asObject(raw.trends);
+  (out as Record<string, unknown>).anomalies_rollup = asArray(raw.anomalies_rollup);
   return out;
 }

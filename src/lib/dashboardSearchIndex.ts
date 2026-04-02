@@ -91,6 +91,53 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   pushAgent(hits, "summary", "Overview", data.summary, "BLUF / summary");
   pushAgent(hits, "narrative_story", "Narrative", data.narrative_story ?? undefined, "Cross-stream story");
 
+  asArray<{ kind?: string; title?: string; rationale?: string; confidence?: string }>(data.implications).forEach((imp, i) => {
+    if (hits.length >= MAX_BUILT) return;
+    const title = (imp.title ?? "").trim() || "Implication";
+    const line = [imp.title, imp.rationale].filter(Boolean).join(" – ");
+    if (!line.trim()) return;
+    hits.push({
+      id: `implication-${i}`,
+      category: "finding",
+      title: clip(title, 90),
+      snippet: clip(line),
+      meta: [imp.kind, imp.confidence].filter(Boolean).join(" · ") || "Implication",
+    });
+  });
+
+  asArray<{ kind?: string; source?: string; description?: string }>(data.anomalies_rollup).forEach((a, i) => {
+    if (hits.length >= MAX_BUILT) return;
+    const title = [a.source, a.kind].filter(Boolean).join(" · ") || "Anomaly";
+    const line = [a.source, a.description].filter(Boolean).join(": ");
+    if (!line.trim()) return;
+    hits.push({
+      id: `anomaly-rollup-${i}`,
+      category: "finding",
+      title: clip(title, 90),
+      snippet: clip(line),
+      meta: "Anomaly rollup",
+    });
+  });
+
+  const topMovers = asArray<{ agent?: string; delta_vs_prior_utc_day?: number; trend_7d?: string }>(
+    (data.trends as Record<string, unknown> | undefined)?.top_movers
+  );
+  topMovers.forEach((m, i) => {
+    if (hits.length >= MAX_BUILT) return;
+    const agent = (m.agent ?? "").toString();
+    const delta = typeof m.delta_vs_prior_utc_day === "number" ? m.delta_vs_prior_utc_day : Number(m.delta_vs_prior_utc_day);
+    const deltaLabel = Number.isFinite(delta) ? `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}` : "n/a";
+    const title = agent ? `Trend – ${agent}` : "Trend";
+    const snippet = `${agent || "agent"} moved ${deltaLabel} vs prior UTC day${m.trend_7d ? ` (${m.trend_7d})` : ""}`;
+    hits.push({
+      id: `trend-mover-${i}`,
+      category: "finding",
+      title: clip(title, 90),
+      snippet: clip(snippet),
+      meta: "Trend",
+    });
+  });
+
   const newsSum = data.news?.summary;
   pushAgent(hits, "news-summary", "NEWS", newsSum, "News agent");
 

@@ -38,8 +38,22 @@ function UpdatedBriefingContent({
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
   const rootCauses = data?.root_cause_suggestions ?? [];
+  const implications = data?.implications ?? [];
+  const anomaliesRollup = data?.anomalies_rollup ?? [];
+  const trends = data?.trends ?? {};
+  const topMovers =
+    trends && typeof trends === "object" && Array.isArray((trends as Record<string, unknown>).top_movers)
+      ? ((trends as Record<string, unknown>).top_movers as Array<Record<string, unknown>>)
+      : [];
   const hasContent =
-    summary || narrativeStory || scenarios.length > 0 || keyFindings.length > 0 || rootCauses.length > 0;
+    summary ||
+    narrativeStory ||
+    scenarios.length > 0 ||
+    keyFindings.length > 0 ||
+    rootCauses.length > 0 ||
+    implications.length > 0 ||
+    anomaliesRollup.length > 0 ||
+    topMovers.length > 0;
 
   return (
     <>
@@ -71,7 +85,76 @@ function UpdatedBriefingContent({
             <p className="text-sm leading-relaxed text-pretty">{summary}</p>
           </div>
         )}
+        {implications.length > 0 && (
+          <div className="mb-3">
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Implications</p>
+            <ul className="space-y-2">
+              {implications.slice(0, 6).map((imp, i) => {
+                const title = (imp?.title ?? "").trim();
+                const rationale = (imp?.rationale ?? "").trim();
+                const confidence = normalizeFindingConfidence(imp?.confidence);
+                const line = title || rationale || "Implication";
+                return (
+                  <li key={i} className="text-xs leading-relaxed flex gap-2 items-start">
+                    <FindingConfidenceBadge level={confidence} />
+                    <span className="min-w-0">
+                      <span className="font-medium">{line}</span>
+                      {title && rationale && <span className="text-muted-foreground/90"> — {rationale}</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <RootCauseSuggestions items={rootCauses} />
+        {(topMovers.length > 0 || anomaliesRollup.length > 0) && (
+          <div className="mb-3">
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">
+              Trends & anomalies
+            </p>
+            <div className="space-y-2">
+              {topMovers.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground/90 mb-1 leading-snug">Top movers vs prior UTC day</p>
+                  <ul className="space-y-1">
+                    {topMovers.slice(0, 5).map((m, idx) => {
+                      const agent = typeof m.agent === "string" ? m.agent : String(m.agent ?? "");
+                      const delta =
+                        typeof m.delta_vs_prior_utc_day === "number" ? m.delta_vs_prior_utc_day : Number(m.delta_vs_prior_utc_day);
+                      const trend7d = typeof m.trend_7d === "string" ? m.trend_7d : "";
+                      const deltaLabel = Number.isFinite(delta) ? `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}` : "n/a";
+                      return (
+                        <li key={idx} className="text-xs text-muted-foreground">
+                          <span className="font-mono">{agent}</span> <span className="text-foreground">{deltaLabel}</span>{" "}
+                          {trend7d ? <span className="italic">({trend7d})</span> : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {anomaliesRollup.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-muted-foreground/90 mb-1 leading-snug">Rollup watch items</p>
+                  <ul className="space-y-1">
+                    {anomaliesRollup.slice(0, 5).map((a, idx) => {
+                      const o = a as Record<string, unknown>;
+                      const src = typeof o.source === "string" ? o.source : "";
+                      const desc = typeof o.description === "string" ? o.description : String(o.description ?? "");
+                      const label = [src, desc].filter(Boolean).join(": ");
+                      return (
+                        <li key={idx} className="text-xs text-muted-foreground">
+                          {label || "Anomaly"}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
         {narrativeStory && (
           <div className="mb-3">
             <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">

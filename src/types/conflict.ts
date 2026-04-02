@@ -203,6 +203,15 @@ export interface ConflictData {
   escalation_score: number | null;
   threat_level: string | null;
   key_findings: string[];
+  implications?: Array<{
+    kind?: string;
+    title?: string;
+    rationale?: string;
+    confidence?: string;
+    source_refs?: string[];
+  }>;
+  trends?: Record<string, unknown>;
+  anomalies_rollup?: Array<Record<string, unknown>>;
   root_cause_suggestions?: RootCauseSuggestion[];
   key_findings_context?: string[];
   key_findings_confidence?: string[];
