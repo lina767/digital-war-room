@@ -40,12 +40,24 @@ export class HttpError extends Error {
 /**
  * Backend API base URL for REST and WebSocket.
  * Set VITE_API_URL in .env (e.g. http://localhost:8000) for local backend.
+ * Multiple fallbacks are supported via comma-separated URLs.
  */
 export function getApiBase(): string {
-  const env = import.meta.env.VITE_API_URL as string | undefined;
-  if (env) return env.replace(/\/$/, "");
+  const [primary] = getApiBaseCandidates();
+  if (primary) return primary;
   if (typeof window !== "undefined") return window.location.origin;
   return "http://localhost:8000";
+}
+
+export function getApiBaseCandidates(): string[] {
+  const env = import.meta.env.VITE_API_URL as string | undefined;
+  const fromEnv = (env ?? "")
+    .split(",")
+    .map((s) => s.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  if (fromEnv.length > 0) return [...new Set(fromEnv)];
+  if (typeof window !== "undefined") return [window.location.origin];
+  return ["http://localhost:8000"];
 }
 
 export function getWsUrl(path: string): string {
@@ -68,16 +80,54 @@ export function apiUrl(path: string, search?: Record<string, string | number | u
 
 export type ApiFetchInit = Omit<RequestInit, "signal"> & { timeoutMs?: number };
 
-/** Central fetch: injects auth headers, AbortController timeout. */
-export async function apiFetch(url: string, init: ApiFetchInit = {}): Promise<Response> {
-  const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, ...rest } = init;
+function isRetriableBackendFailure(res: Response): boolean {
+  const vercelErr = (res.headers.get("x-vercel-error") || "").toUpperCase();
+  return vercelErr === "DEPLOYMENT_NOT_FOUND" || res.status === 502 || res.status === 503 || res.status === 504;
+}
+
+function withBase(url: string, base: string): string {
+  const current = new URL(url);
+  const target = new URL(base);
+  current.protocol = target.protocol;
+  current.host = target.host;
+  return current.toString();
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, mergeAuthHeaders({ ...rest, signal: controller.signal }));
+    return await fetch(url, mergeAuthHeaders({ ...init, signal: controller.signal }));
   } finally {
     clearTimeout(id);
   }
+}
+
+/** Central fetch: injects auth headers, AbortController timeout. */
+export async function apiFetch(url: string, init: ApiFetchInit = {}): Promise<Response> {
+  const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, ...rest } = init;
+  const candidates = getApiBaseCandidates();
+  const attempted = new Set<string>();
+
+  const first = new URL(url).origin;
+  const orderedOrigins = [first, ...candidates].filter((origin, idx, arr) => arr.indexOf(origin) === idx);
+
+  let lastError: unknown;
+  for (const origin of orderedOrigins) {
+    const attemptUrl = withBase(url, origin);
+    attempted.add(origin);
+    try {
+      const res = await fetchWithTimeout(attemptUrl, rest, timeoutMs);
+      if (isRetriableBackendFailure(res)) continue;
+      return res;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (lastError) {
+    throw lastError;
+  }
+  throw new Error(`Backend unreachable for origins: ${[...attempted].join(", ")}`);
 }
 
 /** Parse JSON after a successful response. */

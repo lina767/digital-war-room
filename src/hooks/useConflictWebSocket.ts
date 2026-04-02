@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { getWsUrl, getLatestAnalysis, getAnalyzeStatus, triggerRefreshAnalysis, normalizeAnalysisResponse, type AnalyzeResponse } from "@/lib/api";
+import {
+  getApiBase,
+  getWsUrl,
+  getLatestAnalysis,
+  getAnalyzeStatus,
+  triggerRefreshAnalysis,
+  normalizeAnalysisResponse,
+  type AnalyzeResponse,
+} from "@/lib/api";
 import type { ConflictData, ConnectionStatus } from "@/types/conflict";
 export type {
   AISAnomaly,
@@ -34,6 +42,9 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   const sameConflict = useCallback((incoming: unknown) => {
     if (typeof incoming !== "string") return false;
     return incoming.trim().toLowerCase() === conflictRef.current.trim().toLowerCase();
+  }, []);
+  const backendUnreachableText = useCallback(() => {
+    return `Backend unreachable at ${getApiBase()}. Check VITE_API_URL and backend deployment status.`;
   }, []);
 
   const connect = useCallback(() => {
@@ -118,7 +129,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           getAnalyzeStatus(conflict).then((statusRes) => {
             if (cancelled) return;
             if (statusRes === null) {
-              setAnalysisError("Backend unreachable. Check VITE_API_URL (e.g. Railway URL) or start the backend.");
+              setAnalysisError(backendUnreachableText());
               setInitialLoadPending(false);
             } else if (!statusRes.cached) {
               setAnalysisError("First analysis still running – data will appear automatically shortly.");
@@ -190,7 +201,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       }
       const statusRes = await getAnalyzeStatus(conflictRef.current);
       if (statusRes === null) {
-        setAnalysisError("Backend unreachable. Check VITE_API_URL (e.g. Railway URL) or start the backend.");
+        setAnalysisError(backendUnreachableText());
         setStatus("error");
         return null;
       }
@@ -235,7 +246,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       setStatus("error");
       return null;
     }
-  }, [enabled]);
+  }, [backendUnreachableText, enabled]);
 
   return { data, status, lastUpdated, dataFromCache, analysisError, initialLoadPending, refresh, runAnalysis, setData };
 }
