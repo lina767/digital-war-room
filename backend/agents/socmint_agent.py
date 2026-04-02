@@ -66,10 +66,11 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         overall_sentiment = (sent_sum / len(all_posts)) if all_posts else 0.0
 
         base = 30.0
+        priority_accounts = ("sentdefcon", "OSINTdefender", "WarMonitor3")
         twitter_esc = sum(
             1
             for p in twitter
-            if p.get("sentiment_label") == "ESCALATORY" and p.get("account") in ("sentdefcon", "OSINTdefender")
+            if p.get("sentiment_label") == "ESCALATORY" and p.get("account") in priority_accounts
         )
         base += min(50, twitter_esc * 8)
         base += min(20, len(reliefweb) * 10)
@@ -82,10 +83,20 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         score = max(0.0, min(100.0, base))
 
         top_signals = []
-        for p in sorted(all_posts, key=lambda x: (x.get("sentiment_score", 0), x.get("upvotes", 0)), reverse=True)[:5]:
+        for p in sorted(
+            all_posts,
+            key=lambda x: (
+                1 if x.get("account") in priority_accounts else 0,
+                x.get("sentiment_score", 0),
+                x.get("upvotes", 0),
+            ),
+            reverse=True,
+        )[:6]:
             t = p.get("text") or p.get("title") or p.get("body_excerpt") or ""
             if t:
-                top_signals.append(t[:120] + ("..." if len(t) > 120 else ""))
+                prefix = f"[{p.get('source', 'signal')}] "
+                body = t[:110] + ("..." if len(t) > 110 else "")
+                top_signals.append(prefix + body)
 
         entities = _run_socmint_ner(all_posts)
 

@@ -82,6 +82,9 @@ CONFLICT_TWITTER_ACCOUNTS = {
     "africa": ["OSINTdefender", "sentdefcon", "Conflicts"],
 }
 
+# Priority OSINT accounts: keep their posts visible in final ranking.
+PRIORITY_TWITTER_ACCOUNTS = {"WarMonitor3", "OSINTdefender", "sentdefcon"}
+
 REDDIT_SUBREDDITS = {
     "middle_east": ["geopolitics", "worldnews", "MiddleEast", "iran"],
     "eastern_europe": ["geopolitics", "worldnews", "ukraine", "UkraineWarVideoReport"],
@@ -646,8 +649,15 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                 for acc in accounts[:3]:
                     fc_posts = _fetch_account_firecrawl(acc)
                     posts.extend(fc_posts)
-            posts.sort(key=lambda x: x.get("sentiment_score", 0), reverse=True)
-            return posts[:15]
+            # Keep high-signal OSINT accounts (e.g. WarMonitor3) visible before generic sort.
+            posts.sort(
+                key=lambda x: (
+                    1 if x.get("account") in PRIORITY_TWITTER_ACCOUNTS else 0,
+                    x.get("sentiment_score", 0),
+                ),
+                reverse=True,
+            )
+            return posts[:20]
 
     try:
         return run_async(_run())
