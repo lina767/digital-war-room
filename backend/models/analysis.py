@@ -44,5 +44,6 @@ class AnalysisResult(BaseModel):
     research_enrichment: Dict[str, Any] = Field(default_factory=dict)
     review_decision: str = "auto_publish"
     assessment: Dict[str, Any] = Field(default_factory=dict)
+    confidence_scoring: Dict[str, Any] = Field(default_factory=dict)
 
     # Per-agent results and divisions are stored via extra (finint, sigint, ..., divisions)

@@ -8,6 +8,7 @@ from calibration.dq_calibration import compute_calibration_metrics
 
 from .ceo_config import CEO_LEGACY_AGENT_WEIGHTS, CEO_WEIGHTS
 from .ceo_assessment import run_ceo_assessment
+from .ceo_confidence_scoring import score_findings_confidence
 from .ceo_llm import run_ceo_llm_synthesis
 from .ceo_prompt import build_supervisor_user_payload
 from .ceo_response import (
@@ -404,22 +405,49 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         key_findings_context = key_findings_context[: len(key_findings)]
 
     # So-what layer: stakeholder-specific assessment from high-confidence findings.
-    # Confidence mapping is coarse (high/medium/low); default threshold selects "high".
-    conf_threshold = float(os.getenv("CEO_ASSESSMENT_CONFIDENCE_THRESHOLD", "0.7"))
-    conf_map = {"high": 0.85, "medium": 0.65, "low": 0.4}
-    high_conf_findings: List[Dict[str, Any]] = []
-    for i, f in enumerate(key_findings[:20]):
+    # Step A: (cheap) 3D confidence scoring (default: Haiku) on synthesized findings.
+    findings_for_scoring: List[Dict[str, Any]] = []
+    for i, f in enumerate(key_findings[:25]):
         c = (key_findings_confidence[i] if i < len(key_findings_confidence) else "medium") or "medium"
-        score = conf_map.get(str(c).strip().lower(), 0.65)
-        if score < conf_threshold:
-            continue
         ctx = key_findings_context[i] if i < len(key_findings_context) else ""
-        high_conf_findings.append({"finding": f, "confidence": str(c).lower(), "context": ctx})
-    if not high_conf_findings and key_findings:
-        # Never feed an empty payload; fall back to top 3 findings.
-        for i, f in enumerate(key_findings[:3]):
-            ctx = key_findings_context[i] if i < len(key_findings_context) else ""
-            high_conf_findings.append({"finding": f, "confidence": "medium", "context": ctx})
+        findings_for_scoring.append({"finding": f, "confidence": str(c).lower(), "context": ctx})
+
+    confidence_scoring = score_findings_confidence(
+        conflict=conflict,
+        findings=findings_for_scoring,
+        provenance_urls=supervisor_payload.get("provenance_urls") or [],
+        stakeholder=stakeholder_context or supervisor_payload.get("stakeholder") or {},
+    )
+
+    # Step B: filter to high-confidence findings for the (expensive) Sonnet assessment.
+    conf_threshold = float(os.getenv("CEO_ASSESSMENT_CONFIDENCE_THRESHOLD", "0.7"))
+    high_conf_findings: List[Dict[str, Any]] = []
+    for row in (confidence_scoring.get("scores") or [])[:25]:
+        if not isinstance(row, dict):
+            continue
+        try:
+            overall = float(row.get("overall_confidence") or 0.0)
+        except (TypeError, ValueError):
+            overall = 0.0
+        if overall < conf_threshold:
+            continue
+        finding = str(row.get("finding") or "").strip()
+        if not finding:
+            continue
+        high_conf_findings.append(
+            {
+                "finding": finding,
+                "confidence": overall,
+                "dimensions": row.get("dimensions") or {},
+                "rationale": row.get("rationale") or "",
+            }
+        )
+    if not high_conf_findings and findings_for_scoring:
+        # Never feed an empty payload; fall back to top 3 (even if below threshold).
+        for f in findings_for_scoring[:3]:
+            high_conf_findings.append(
+                {"finding": f.get("finding") or "", "confidence": 0.65, "dimensions": {}, "rationale": ""}
+            )
 
     assessment = run_ceo_assessment(
         conflict=conflict,
@@ -490,6 +518,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         as_dict_fn=as_dict,
     )
     response["assessment"] = assessment
+    response["confidence_scoring"] = confidence_scoring
 
     # Low-confidence archive: keep gated-out findings available for later search/inspection.
     # This is additive to the API response (backwards-compatible).
@@ -498,6 +527,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "finding_signal_gate": {
                 "meta": finding_gate.get("meta") or {},
                 "archived": (finding_gate.get("archived") or [])[:50],
+                "accepted": (finding_gate.get("accepted") or [])[:20],
             }
         }
     except Exception:
