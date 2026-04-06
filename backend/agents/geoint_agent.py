@@ -5,16 +5,19 @@ Data fetching/parsing lives in fetchers/geoint_fetchers.py.
 Scoring logic lives in scorers/geoint_scorer.py.
 """
 
+import asyncio
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from datetime import date, timedelta
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from .context import AgentContext
 
 from services.acled_auth import has_acled_oauth
 from services.gdelt_bigquery import fetch_gdelt_event_roots_summary
+from services.pg_sync import connection, use_postgres
 
 from .fetchers.geoint_fetchers import (
     HAPI_APP_IDENTIFIER,
@@ -30,9 +33,95 @@ from .fetchers.geoint_fetchers import (
 from .health_registry import get_health_registry
 from .llm import run_agent_with_fallback
 from .scorers.geoint_scorer import compute_geoint_score, enrich_geoint_with_ner_entities
-from .utils import ProcessingStep, SourceResult, build_agent_meta, safe_float, utc_now_iso
+from .utils import ProcessingStep, SourceResult, build_agent_meta, run_async, safe_float, utc_now_iso
 
 logger = logging.getLogger(__name__)
+
+
+def _unwrap_gather(name: str, result: Any, default: Any) -> Any:
+    if isinstance(result, Exception):
+        logger.warning("GEOINT parallel fetch %s failed: %s", name, result)
+        return default
+    return result
+
+
+def _ensure_geoint_baseline_table(cur: Any) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS geoint_firms_daily (
+            region TEXT NOT NULL,
+            day DATE NOT NULL,
+            anomaly_count INTEGER NOT NULL,
+            updated_at TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (region, day)
+        )
+        """
+    )
+
+
+def _read_geoint_baseline(region: str, days: int = 30) -> Optional[float]:
+    if not use_postgres():
+        return None
+    try:
+        with connection() as conn:
+            with conn.cursor() as cur:
+                _ensure_geoint_baseline_table(cur)
+                conn.commit()
+                start = date.today() - timedelta(days=days)
+                cur.execute(
+                    """
+                    SELECT AVG(anomaly_count)::double precision
+                    FROM geoint_firms_daily
+                    WHERE region = %s
+                      AND day >= %s
+                      AND day < CURRENT_DATE
+                    """,
+                    (region, start),
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    return float(row[0])
+    except Exception:
+        logger.debug("GEOINT baseline read failed", exc_info=True)
+    return None
+
+
+def _write_geoint_baseline(region: str, anomaly_count: int) -> None:
+    if not use_postgres():
+        return
+    try:
+        with connection() as conn:
+            with conn.cursor() as cur:
+                _ensure_geoint_baseline_table(cur)
+                cur.execute(
+                    """
+                    INSERT INTO geoint_firms_daily (region, day, anomaly_count, updated_at)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (region, day) DO UPDATE SET
+                        anomaly_count = EXCLUDED.anomaly_count,
+                        updated_at = NOW()
+                    """,
+                    (region, date.today(), int(anomaly_count)),
+                )
+                conn.commit()
+    except Exception:
+        logger.debug("GEOINT baseline write failed", exc_info=True)
+
+
+async def _fetch_geoint_sources_parallel(
+    conflict: str, region: str
+) -> Tuple[Any, Any, Any, Any, Any, Any]:
+    return await asyncio.gather(
+        asyncio.to_thread(get_thermal_anomalies, region, 3),
+        asyncio.to_thread(get_conflict_hotspot_news, conflict),
+        asyncio.to_thread(get_eo_browser_links, conflict),
+        asyncio.to_thread(get_gdelt_geo_countries, conflict),
+        asyncio.to_thread(fetch_gdelt_event_roots_summary, conflict),
+        asyncio.to_thread(get_conflict_events_for_heatmap, conflict, 200),
+        return_exceptions=True,
+    )
+
+
 def _safe_float(v: Any, default: float = 0.0) -> float:
     result = safe_float(v)
     return result if result is not None else default
@@ -48,14 +137,11 @@ Steps:
 4. Call get_eo_browser_links(conflict) for Sentinel Hub EO Browser URLs
 5. Compute score and return JSON
 
-Scoring:
-- Base: 20
-- High-confidence anomaly: +5 each (max +40)
-- Explosion-type (FRP>500): +15 each (max +45)
-- Cluster (3+ anomalies within 0.5°): +20
-- Recent (acquired within last 6h): +5 per anomaly
-- More than 10 anomalies: +10
-- Clamp to [0, 100]
+Scoring (align with rule-based pipeline):
+- Final geoint_score uses weighted factors: ~40% thermal (FIRMS clusters, FRP, recency), ~30% ACLED/conflict density,
+  ~15% GDACS disaster alerts, ~15% CrisisWatch trend text; optional FIRMS-vs-ACLED hex corroboration boosts confidence.
+- Thermal component: base 20; high-conf +5 each (cap +40); explosion-type +15 each (cap +45); DBSCAN-style clusters +20;
+  recent acquisitions +5 each; >10 anomalies +10; subscore clamped 0-100.
 
 Return ONLY valid JSON:
 {
@@ -108,7 +194,18 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         if not isinstance(region, str):
             region = "middle_east"
 
-        raw = get_thermal_anomalies(region=region, days=3)
+        baseline_avg = _read_geoint_baseline(region, days=30)
+
+        raw, reliefweb_raw, eo_links, gdelt_geo_countries, gdelt_bq, acled_heatmap_raw = run_async(
+            _fetch_geoint_sources_parallel(conflict, region)
+        )
+        raw = _unwrap_gather("NASA FIRMS", raw, [{"error": "parallel fetch failed"}])
+        reliefweb_raw = _unwrap_gather("ReliefWeb/ACLED", reliefweb_raw, [])
+        eo_links = _unwrap_gather("EO Browser", eo_links, {})
+        gdelt_geo_countries = _unwrap_gather("GDELT GEO", gdelt_geo_countries, [])
+        gdelt_bq = _unwrap_gather("GDELT BigQuery", gdelt_bq, {"ok": False, "error": "parallel fetch failed"})
+        acled_heatmap_raw = _unwrap_gather("ACLED heatmap", acled_heatmap_raw, [])
+
         anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
 
         if context and getattr(context, "focus_regions", None):
@@ -123,7 +220,6 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
                     a["source"] = "handoff_focus"
                     anomalies.append(a)
 
-        reliefweb_raw = get_conflict_hotspot_news(conflict=conflict)
         reliefweb_reports = [
             r
             for r in (reliefweb_raw if isinstance(reliefweb_raw, list) else [])
@@ -133,13 +229,31 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         has_acled_cfg = has_acled_oauth() or os.getenv("ACLED_API_KEY")
         has_acled_reports = any(r.get("source") == "ACLED" for r in reliefweb_reports)
 
-        eo_links = get_eo_browser_links(conflict=conflict)
         if not isinstance(eo_links, dict):
             eo_links = {}
 
-        gdelt_geo_countries = get_gdelt_geo_countries(conflict=conflict)
-        gdelt_bq = fetch_gdelt_event_roots_summary(conflict)
-        score, explosion_count, clusters, _ = compute_geoint_score(anomalies)
+        if not isinstance(gdelt_bq, dict):
+            gdelt_bq = {"ok": False, "error": "invalid response"}
+
+        acled_events = [
+            e
+            for e in (acled_heatmap_raw if isinstance(acled_heatmap_raw, list) else [])
+            if isinstance(e, dict) and "error" not in e
+        ]
+
+        gdacs_count = sum(
+            1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "") == "GDACS"
+        )
+
+        score, explosion_count, clusters, _, score_breakdown = compute_geoint_score(
+            anomalies,
+            reliefweb_reports=reliefweb_reports,
+            acled_events=acled_events,
+            gdacs_count=gdacs_count,
+            baseline_avg_anomalies=baseline_avg,
+        )
+
+        _write_geoint_baseline(region, len(anomalies))
         high = sum(1 for a in anomalies if a.get("confidence") == "high")
         hotspots = sorted(anomalies, key=lambda x: _safe_float(x.get("frp"), 0), reverse=True)[:5]
 
@@ -148,14 +262,20 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             summary_extra += f" GDELT GEO: {len(gdelt_geo_countries)} countries."
         if gdelt_bq.get("ok") and gdelt_bq.get("total_matched"):
             summary_extra += f" GDELT BQ: {gdelt_bq['total_matched']} coded events (lookback {gdelt_bq.get('lookback_days', '?')}d)."
-        if has_acled_cfg and not has_acled_reports:
-            summary_extra += " ACLED data unavailable or empty; score based mainly on thermal anomalies and ReliefWeb."
+        if has_acled_cfg and not has_acled_reports and not acled_events:
+            summary_extra += " ACLED data unavailable or empty; conflict density relies on ReliefWeb/GDACS/CrisisWatch."
+        corr = (score_breakdown.get("corroboration") or {}) if isinstance(score_breakdown, dict) else {}
+        n_corr = int(corr.get("corroborated_cell_count") or 0)
+        if n_corr:
+            summary_extra += f" Hex corroboration: {n_corr} cell(s) with FIRMS+ACLED overlap."
+        br = score_breakdown.get("baseline_ratio")
+        if br is not None and br >= 2.0:
+            summary_extra += f" FIRMS ~{br:.1f}× vs 30d baseline."
 
         duration_ms = int((time.perf_counter() - start) * 1000)
         hapi_count = sum(
             1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "").startswith("HDX HAPI")
         )
-        gdacs_count = sum(1 for r in reliefweb_reports if isinstance(r, dict) and (r.get("source") or "") == "GDACS")
         crisiswatch_count = sum(
             1
             for r in reliefweb_reports
@@ -177,7 +297,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             ),
             SourceResult(
                 name="GDACS",
-                status="ok",
+                status="ok" if gdacs_count else "error",
                 fetched_at=fetched_at,
                 record_count=gdacs_count,
             ),
@@ -234,9 +354,8 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             handoff_note = f" Handoff: {n_focus} SIGINT-derived focus region(s) included."
 
         geo_steps = [
-            ProcessingStep(step="fetch_thermal_and_hotspot_news", at=fetched_at),
-            ProcessingStep(step="eo_browser_gdelt_geo_bq", at=fetched_at),
-            ProcessingStep(step="score_hotspots_clusters", at=fetched_at),
+            ProcessingStep(step="parallel_fetch_geoint_sources", at=fetched_at),
+            ProcessingStep(step="score_multifactor_hex_corroboration", at=fetched_at),
         ]
 
         return {
@@ -252,6 +371,8 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             "eo_browser_links": eo_links,
             "gdelt_geo_countries": gdelt_geo_countries,
             "gdelt_bigquery": gdelt_bq,
+            "acled_heatmap_events": acled_events[:200],
+            "geoint_score_breakdown": score_breakdown,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included.{handoff_note} Score {score:.0f}.",
             "_meta": build_agent_meta(
                 "geoint",
