@@ -55,8 +55,20 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **ACLED_EMAIL** | `backend/agents/protest_agent.py`, `geoint_agent.py`, `services/acled_auth.py` | Deine myACLED-Registrierungs-E-Mail. **OAuth (empfohlen):** zusammen mit `ACLED_PASSWORD` für Token-Auth. |
 | **ACLED_PASSWORD** | `backend/services/acled_auth.py` – OAuth Token-Abruf | Dein myACLED-Passwort. Mit `ACLED_EMAIL` erhält die App ein Zugangs-Token (24h gültig) gemäß [ACLED API Getting started](https://acleddata.com/api-documentation/getting-started). |
 | **ACLED_API_KEY** | (Legacy) Falls ACLED noch einen API-Key anbietet | Optional; primär wird **OAuth (ACLED_EMAIL + ACLED_PASSWORD)** genutzt. |
+| **PROTEST_USE_ACLED_API** | `backend/agents/protest_agent.py` | Default **aus** (`0`). Setze `1`, wenn der ACLED **Read-API**-Pfad (`/api/acled/read`) zusätzlich zu Crisis-Scrape und Aggregated genutzt werden soll. |
+| **PROTEST_GDELT_EVENT_ROOTS** | `backend/services/gdelt_bigquery.py` | Komma-separierte CAMEO-`EventRootCode`-Werte für `fetch_gdelt_protest_events_summary` (Default: `12,13,14,15,17,18`). |
+| **PROTEST_GDELT_LOOKBACK_DAYS** | `backend/services/gdelt_bigquery.py` | Lookback für PROTEST-Events-BQ (sonst `GDELT_BQ_LOOKBACK_DAYS`). |
+| **PROTEST_GKG_BQ_ENABLED** | `backend/services/gdelt_bigquery.py` | Default `1`. Setze `0`, um GKG-BigQuery für PROTEST zu überspringen. |
+| **PROTEST_GKG_LOOKBACK_DAYS** | `backend/services/gdelt_bigquery.py` | GKG-Fenster in Tagen (Default `3`, max. 14). |
+| **PROTEST_GKG_BQ_TIMEOUT_SEC** | `backend/services/gdelt_bigquery.py` | Query-Timeout GKG (Default `22`). |
+| **ACLED_CRISIS_HUB_URLS** | `backend/services/acled_crisis_scrape.py` | Komma-separierte Listing-URLs (Default: Middle-East-Region). |
+| **ACLED_CRISIS_MAX_PAGES** | `backend/services/acled_crisis_scrape.py` | Max. Crisis-Artikel pro Lauf (Default `12`). |
+| **INFORM_HDX_PACKAGE** | `backend/services/hdx_inform.py` | CKAN-Packageslug auf data.humdata.org (Default: `inform-global-crisis-severity-index`). |
+| **INFORM_HDX_TIMEOUT** | `backend/services/hdx_inform.py` | Download-Timeout Sekunden (Default `45`). |
+| **PROTEST_RUN_ASYNC_TIMEOUT_S** | `backend/agents/protest_agent.py` | `run_async`-Timeout für den Agenten (Default `300`). |
+| **GOOGLE_APPLICATION_CREDENTIALS** / **GCP_PROJECT** | `backend/services/gdelt_bigquery.py` | Für GDELT Events/GKG über BigQuery (optional; siehe **GDELT_BQ_ENABLED** in [GDELT-API-REFERENCE.md](GDELT-API-REFERENCE.md)). |
 
-**Ohne ACLED-API:** Auf der ACLED-Webseite gibt es öffentlich einsehbare Crisis-Live-Daten, z. B. **[Iran Crisis Live](https://acleddata.com/iran-crisis-live)** – tägliche Updates, Karten und Analysen zum Iran-Konflikt (täglich 10:30 EST / 15:30 CET). Für die Plattform-Heatmap und PROTEST-Events wird weiterhin ein API-Key benötigt; die Webseite eignet sich als manuelle Ergänzung.
+**Ohne ACLED-API:** Auf der ACLED-Webseite gibt es öffentlich einsehbare Crisis-Live-Daten, z. B. **[Iran Crisis Live](https://acleddata.com/iran-crisis-live)** – tägliche Updates, Karten und Analysen zum Iran-Konflikt (täglich 10:30 EST / 15:30 CET). Der **PROTEST**-Agent nutzt standardmäßig **Crisis-Scrape** und **Aggregated-CSV** ohne Read-API; OAuth ist nur nötig, wenn `PROTEST_USE_ACLED_API=1` oder für den XLSX-Download (`ACLED_EMAIL`/`ACLED_PASSWORD` in `acled_aggregated`). Für die Heatmap können weiterhin ACLED-Events aus anderen Pfaden nötig sein.
 
 **Wenn ACLED nicht funktioniert:**
 

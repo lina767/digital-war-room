@@ -83,8 +83,8 @@ Für **Tonalitäts-Tracking** (z.B. Eskalation im Strait-of-Hormuz-Modul):
 | **DOC 2.0** (ArtList) | NEWS, PROTEST, TECHINT, Chokepoint | Artikel-Listen, Trefferzahlen |
 | **DOC 2.0** (ToneChart) | Chokepoint (optional) | Tonalität/Eskalation Hormuz |
 | **GEO 2.0**    | GEOINT, Proximity | Lat/Lon für TheaterMap (oder DOC-Fallback: Länderverteilung) |
-| **Events DB**  | NEWS, GEOINT, Chokepoint (optional) | CAMEO-Events über **BigQuery** `gdelt-bq.gdeltv2.events` → Aggregat nach `EventRootCode` ([gdelt_bigquery.py](backend/services/gdelt_bigquery.py)); Fallback ohne GCP-Credentials |
-| **GKG**        | –               | Entitäten/Netzwerke; nur über BigQuery/Files |
+| **Events DB**  | NEWS, GEOINT, Chokepoint, **PROTEST** | CAMEO-Events über **BigQuery** `gdelt-bq.gdeltv2.events` → Aggregat nach `EventRootCode` ([gdelt_bigquery.py](backend/services/gdelt_bigquery.py), u. a. `fetch_gdelt_protest_events_summary` mit Root-Filter); Fallback ohne GCP-Credentials |
+| **GKG**        | **PROTEST** (optional) | Themen-/Ton-Signal über **BigQuery** `gdelt-bq.gdeltv2.gkg` ([`fetch_gdelt_gkg_protest_context`](backend/services/gdelt_bigquery.py)); kein DOC/GEO-REST |
 
 ---
 
@@ -95,6 +95,6 @@ Für **Tonalitäts-Tracking** (z.B. Eskalation im Strait-of-Hormuz-Modul):
 - **GEOINT:** [geoint_agent.py](backend/agents/geoint_agent.py) – `get_gdelt_geo_countries(conflict)` (aktuell DOC-basiert; GEO 2.0 wenn erreichbar); optional **`gdelt_bigquery`** (EventRoot-Aggregate).
 - **NEWS:** [news_agent.py](backend/agents/news_agent.py) – optional **`gdelt_bigquery`** parallel zur Fusion (gleiches Konflikt-Keyword-Fenster).
 - **CHOKEPOINT:** [chokepoint_agent.py](backend/agents/chokepoint_agent.py) – optional **`gdelt_bigquery`** mit Keywords Hormuz/Mandeb/Suez/Kanal.
-- **PROTEST:** [protest_agent.py](backend/agents/protest_agent.py) – `_fetch_gdelt_protest(conflict)` (DOC, Protest-Query).
+- **PROTEST:** [protest_agent.py](backend/agents/protest_agent.py) – `_fetch_gdelt_protest` (DOC 2.0), plus **BigQuery** `fetch_gdelt_protest_events_summary` / `fetch_gdelt_gkg_protest_context` ([gdelt_bigquery.py](backend/services/gdelt_bigquery.py)) wenn GCP konfiguriert (`GDELT_BQ_ENABLED`, `PROTEST_GKG_BQ_ENABLED`).
 
 Alle Aufrufe **ohne API-Key**; Rate-Limits beachten (429 → Retry mit Backoff).

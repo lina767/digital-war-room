@@ -162,7 +162,7 @@ def fetch_inform_for_iso3(
         "ok": False,
     }
     if not iso3_list:
-        return {**base, "reason": "no_iso3"}
+        return {**base, "ok": False, "reason": "no_iso3"}
 
     try:
         with httpx.Client(timeout=_timeout(), follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:

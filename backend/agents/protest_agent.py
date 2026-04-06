@@ -1017,7 +1017,7 @@ async def _cluster_protest_events_haiku(
 
 
 def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Run PROTEST/Civil Society agent: ACLED protests/riots, GDELT protest coverage."""
+    """Run PROTEST agent: ACLED aggregated + crisis scrape, GDELT DOC/BQ/GKG, HDX HAPI + INFORM."""
     import time
 
     from .health_registry import get_health_registry

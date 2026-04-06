@@ -156,6 +156,16 @@ def data_hint(name: str, data: dict) -> str:
     elif name == "protest":
         hints.append(f"protest_events={len(data.get('protest_events') or [])}")
         hints.append(f"protest_articles={len(data.get('protest_articles') or [])}")
+        bq_ev = data.get("gdelt_events_bigquery") or {}
+        if bq_ev.get("ok"):
+            hints.append(f"gdelt_bq_events={bq_ev.get('total_matched', 0)}")
+        gkg = data.get("gdelt_gkg_bigquery") or {}
+        if gkg.get("ok"):
+            hints.append(f"gkg_rows={gkg.get('row_count', 0)}")
+        hints.append(f"crisis_pages={len(data.get('acled_crisis_pages') or [])}")
+        inf = data.get("inform_risk") or {}
+        if inf.get("ok"):
+            hints.append(f"inform_matches={inf.get('match_count', 0)}")
     elif name == "diplo":
         hints.append(f"ofac_matches={data.get('ofac_sdn', {}).get('total_matches', 0)}")
         hints.append(f"un_icj_news={len(data.get('un_icj_news') or [])}")
