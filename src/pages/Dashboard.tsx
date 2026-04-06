@@ -31,8 +31,27 @@ const THREAT_BADGE_STYLES: Record<string, string> = {
   CRITICAL: "bg-destructive/20 text-destructive border-destructive/30 animate-pulse",
 };
 
+const PIZZA_BAND_STYLES = {
+  HIGH: "bg-destructive/15 text-destructive border-destructive/40",
+  MEDIUM: "bg-amber-500/15 text-amber-300 border-amber-500/35",
+  LOW: "bg-emerald-500/15 text-emerald-300 border-emerald-500/35",
+} as const;
+
+type PizzaBand = keyof typeof PIZZA_BAND_STYLES;
+
 function getThreatBadgeClass(level: string | null | undefined): string {
   return THREAT_BADGE_STYLES[level ?? "ELEVATED"] ?? THREAT_BADGE_STYLES.ELEVATED;
+}
+
+function getPizzaBand(score: number | null | undefined): PizzaBand | null {
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  if (score >= 67) return "HIGH";
+  if (score >= 34) return "MEDIUM";
+  return "LOW";
+}
+
+function getPizzaBandClass(band: PizzaBand | null): string {
+  return band ? PIZZA_BAND_STYLES[band] : "bg-muted/20 text-muted-foreground border-border/50";
 }
 
 function UtcClockBadge() {
@@ -354,6 +373,9 @@ function DashboardContent() {
     n += asArray(conflictData.proximity?.evidence).length;
     return n;
   }, [conflictData]);
+  const pizzaScore = conflictData?.pentagon?.pentagon_score;
+  const pizzaBand = getPizzaBand(pizzaScore);
+  const pizzaLabel = typeof pizzaScore === "number" ? Math.round(pizzaScore).toString() : "–";
 
   // Proximity Analyzer: uses evidence from main analysis (runs automatically with other agents)
   const proximityEvidence: ProximityEvidence[] = useMemo(
@@ -438,6 +460,14 @@ function DashboardContent() {
           <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:text-xs hidden sm:flex`}>
             {conflictData?.threat_level ?? "ELEVATED"}
           </Badge>
+          <Badge
+            variant="outline"
+            className={`font-mono text-[11px] sm:text-xs hidden sm:flex ${getPizzaBandClass(pizzaBand)}`}
+            title="Pizza Index: informal proxy signal only; not a confirmed military indicator"
+          >
+            PIZZA {pizzaLabel}
+            {pizzaBand ? ` · ${pizzaBand}` : ""}
+          </Badge>
         </div>
       </header>
 
@@ -446,9 +476,19 @@ function DashboardContent() {
         <div className="lg:hidden border-b border-border bg-card p-4 space-y-4 animate-fade-in-up">
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground truncate">Digital War Room</span>
-            <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:hidden`}>
-              {conflictData?.threat_level ?? "ELEVATED"}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge className={`${getThreatBadgeClass(conflictData?.threat_level)} font-mono text-[11px] sm:hidden`}>
+                {conflictData?.threat_level ?? "ELEVATED"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={`font-mono text-[11px] sm:hidden ${getPizzaBandClass(pizzaBand)}`}
+                title="Pizza Index: informal proxy signal only; not a confirmed military indicator"
+              >
+                PIZZA {pizzaLabel}
+                {pizzaBand ? ` · ${pizzaBand}` : ""}
+              </Badge>
+            </div>
           </div>
           <div className="flex flex-col gap-2">
             <Button
