@@ -9,6 +9,7 @@ import csv
 import io
 import logging
 import os
+import random
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -1315,19 +1316,24 @@ def get_eo_browser_links(conflict: str) -> Dict[str, Any]:
 
 
 def _gdelt_geo_query(conflict: str) -> str:
-    """Build GDELT GEO 2.0 query string from conflict (keyword or OR phrase)."""
+    """Build a simple keyword query for GDELT DOC (space-separated = implicit OR-like matching)."""
     cl = conflict.lower()
     if "iran" in cl or "israel" in cl:
-        return "(Iran OR IRGC OR Israel OR Gaza OR Persian Gulf)"
+        return "Iran Israel Gaza IRGC Persian Gulf"
     if "ukraine" in cl or "russia" in cl:
-        return "(Ukraine OR Russia OR Donbas OR Kyiv)"
+        return "Ukraine Russia Donbas Kyiv"
     if "yemen" in cl:
-        return "Yemen"
+        return "Yemen Houthi Red Sea Aden"
     if "syria" in cl:
-        return "Syria"
+        return "Syria Damascus Idlib Aleppo"
     if "lebanon" in cl:
-        return "Lebanon"
-    # Fallback: use conflict as phrase (max one phrase for GEO)
+        return "Lebanon Hezbollah Beirut"
+    if any(k in cl for k in ["sahel", "mali", "niger", "burkina", "sudan", "ethiopia"]):
+        return "Sahel Mali Niger Burkina Sudan Ethiopia"
+    # Fallback: keep only lightweight tokens (avoid punctuation-heavy query strings).
+    cleaned = " ".join(re.findall(r"[A-Za-z0-9]{2,}", conflict or ""))[:100]
+    if cleaned:
+        return cleaned
     return conflict.strip()[:100] or "conflict"
 
 
@@ -1348,6 +1354,7 @@ def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
             "timespan": "48H",
         }
         max_retries = 2
+        await asyncio.sleep(random.uniform(0.5, 2.0))
         for attempt in range(max_retries):
             async with httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.get(GDELT_DOC_URL, params=params)
@@ -1356,6 +1363,7 @@ def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
                     continue
                 ct = (resp.headers.get("content-type") or "").lower()
                 if "json" not in ct and "javascript" not in ct:
+                    logger.warning("GDELT DOC: unexpected content-type '%s' for query '%s'", ct, query)
                     if attempt < max_retries - 1:
                         await asyncio.sleep(6)
                         continue
@@ -1386,3 +1394,93 @@ def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.debug("GDELT GEO fetch failed: %s", e)
         return []
+
+
+def fetch_gdelt_doc_summary(conflict: str, timespan: str = "7d") -> Dict[str, Any]:
+    """
+    GDELT DOC summary using timeline mode (no BigQuery/GCP dependency).
+    Returns timeline volume aggregate and compact metadata for GEOINT.
+    """
+    query = _gdelt_geo_query(conflict)
+
+    async def _fetch() -> Dict[str, Any]:
+        params = {
+            "query": query,
+            "mode": "timelinevol",
+            "format": "json",
+            "timespan": timespan,
+        }
+        max_retries = 2
+        await asyncio.sleep(random.uniform(0.5, 2.0))
+        for attempt in range(max_retries):
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(GDELT_DOC_URL, params=params)
+                if resp.status_code == 429 and attempt < max_retries - 1:
+                    await asyncio.sleep(6)
+                    continue
+                ct = (resp.headers.get("content-type") or "").lower()
+                if "json" not in ct and "javascript" not in ct:
+                    logger.warning("GDELT DOC: unexpected content-type '%s' for query '%s'", ct, query)
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(6)
+                        continue
+                    return {
+                        "ok": False,
+                        "source": "gdelt_doc_api",
+                        "mode": "timelinevol",
+                        "query": query,
+                        "timespan": timespan,
+                        "error": f"unexpected content-type: {ct}",
+                    }
+                resp.raise_for_status()
+                data = resp.json() if resp.text else {}
+                timeline = data.get("timeline") if isinstance(data, dict) else []
+                total = 0.0
+                points = 0
+                if isinstance(timeline, list):
+                    for entry in timeline:
+                        if not isinstance(entry, dict):
+                            continue
+                        # GDELT timeline payloads may be either flat points or grouped series.
+                        if isinstance(entry.get("value"), (int, float, str)):
+                            total += float(safe_float(entry.get("value"), 0.0) or 0.0)
+                            points += 1
+                            continue
+                        series_data = entry.get("data")
+                        if isinstance(series_data, list):
+                            for p in series_data:
+                                if not isinstance(p, dict):
+                                    continue
+                                total += float(safe_float(p.get("value"), 0.0) or 0.0)
+                                points += 1
+                return {
+                    "ok": True,
+                    "source": "gdelt_doc_api",
+                    "mode": "timelinevol",
+                    "query": query,
+                    "timespan": timespan,
+                    "total_matched": int(round(total)),
+                    "timeline_points": points,
+                    "timeline": timeline if isinstance(timeline, list) else [],
+                }
+        return {
+            "ok": False,
+            "source": "gdelt_doc_api",
+            "mode": "timelinevol",
+            "query": query,
+            "timespan": timespan,
+            "error": "max retries exceeded",
+        }
+
+    try:
+        return run_async(_fetch())
+    except Exception as e:
+        logger.debug("GDELT DOC summary fetch failed: %s", e)
+        return {
+            "ok": False,
+            "source": "gdelt_doc_api",
+            "mode": "timelinevol",
+            "query": query,
+            "timespan": timespan,
+            "error": str(e),
+        }
