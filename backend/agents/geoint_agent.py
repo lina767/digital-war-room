@@ -16,12 +16,12 @@ if TYPE_CHECKING:
     from .context import AgentContext
 
 from services.acled_auth import has_acled_oauth
-from services.gdelt_bigquery import fetch_gdelt_event_roots_summary
 from services.pg_sync import connection, use_postgres
 
 from .fetchers.geoint_fetchers import (
     HAPI_APP_IDENTIFIER,
     _fetch_thermal_anomalies_for_focus_regions,
+    fetch_gdelt_doc_summary,
     get_conflict_events_for_heatmap,
     get_conflict_hotspot_news,
     get_conflict_region,
@@ -116,7 +116,7 @@ async def _fetch_geoint_sources_parallel(
         asyncio.to_thread(get_conflict_hotspot_news, conflict),
         asyncio.to_thread(get_eo_browser_links, conflict),
         asyncio.to_thread(get_gdelt_geo_countries, conflict),
-        asyncio.to_thread(fetch_gdelt_event_roots_summary, conflict),
+        asyncio.to_thread(fetch_gdelt_doc_summary, conflict),
         asyncio.to_thread(get_conflict_events_for_heatmap, conflict, 200),
         return_exceptions=True,
     )
@@ -172,6 +172,7 @@ def _empty_result(conflict: str, error_summary: str | None = None) -> Dict[str, 
         "eo_browser_links": {},
         "gdelt_geo_countries": [],
         "gdelt_bigquery": {},
+        "gdelt_doc_summary": {},
         "summary": "No thermal anomaly data available.",
         "_meta": build_agent_meta(
             "geoint",
@@ -203,7 +204,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         reliefweb_raw = _unwrap_gather("ReliefWeb/ACLED", reliefweb_raw, [])
         eo_links = _unwrap_gather("EO Browser", eo_links, {})
         gdelt_geo_countries = _unwrap_gather("GDELT GEO", gdelt_geo_countries, [])
-        gdelt_bq = _unwrap_gather("GDELT BigQuery", gdelt_bq, {"ok": False, "error": "parallel fetch failed"})
+        gdelt_bq = _unwrap_gather("GDELT DOC timeline", gdelt_bq, {"ok": False, "error": "parallel fetch failed"})
         acled_heatmap_raw = _unwrap_gather("ACLED heatmap", acled_heatmap_raw, [])
 
         anomalies = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
@@ -261,7 +262,10 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
         if gdelt_geo_countries:
             summary_extra += f" GDELT GEO: {len(gdelt_geo_countries)} countries."
         if gdelt_bq.get("ok") and gdelt_bq.get("total_matched"):
-            summary_extra += f" GDELT BQ: {gdelt_bq['total_matched']} coded events (lookback {gdelt_bq.get('lookback_days', '?')}d)."
+            summary_extra += (
+                f" GDELT DOC timeline: {gdelt_bq['total_matched']} volume points "
+                f"(timespan {gdelt_bq.get('timespan', '?')})."
+            )
         if has_acled_cfg and not has_acled_reports and not acled_events:
             summary_extra += " ACLED data unavailable or empty; conflict density relies on ReliefWeb/GDACS/CrisisWatch."
         corr = (score_breakdown.get("corroboration") or {}) if isinstance(score_breakdown, dict) else {}
@@ -320,13 +324,13 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
                 record_count=len(gdelt_geo_countries),
             ),
             SourceResult(
-                name="GDELT BigQuery",
+                name="GDELT DOC Timeline",
                 status="ok"
                 if gdelt_bq.get("ok")
                 else ("error" if gdelt_bq.get("error") else "degraded"),
                 fetched_at=fetched_at,
                 record_count=int(gdelt_bq.get("total_matched") or 0) if gdelt_bq.get("ok") else 0,
-                endpoint_kind="bigquery",
+                endpoint_kind="api",
             ),
         ]
         if HAPI_APP_IDENTIFIER:
@@ -371,6 +375,7 @@ def _run_rule_based_geoint(conflict: str, context: Optional["AgentContext"] = No
             "eo_browser_links": eo_links,
             "gdelt_geo_countries": gdelt_geo_countries,
             "gdelt_bigquery": gdelt_bq,
+            "gdelt_doc_summary": gdelt_bq,
             "acled_heatmap_events": acled_events[:200],
             "geoint_score_breakdown": score_breakdown,
             "summary": f"GEOINT (rule-based): {len(anomalies)} thermal anomalies ({high} high conf, {explosion_count} explosion-type). {len(clusters)} cluster(s).{summary_extra} EO Browser links included.{handoff_note} Score {score:.0f}.",
