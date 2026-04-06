@@ -278,6 +278,68 @@ class TestStreamable:
 
 
 # ---------------------------------------------------------------------------
+# Regression: run() / run_streaming() parity
+# ---------------------------------------------------------------------------
+
+
+class TestRunAndStreamingParity:
+    def test_error_fallback_and_downstream_match_between_modes(self):
+        nodes = [
+            DAGNode(id="a", node_type="agent", fallback={"score": 0}, streamable=True),
+            DAGNode(id="b", dependencies=["a"], node_type="enrichment", streamable=False),
+            DAGNode(id="c", dependencies=["b"], node_type="division_summary", streamable=True),
+        ]
+        executors = {
+            "a": lambda s: (_ for _ in ()).throw(RuntimeError("boom")),
+            "b": lambda s: (s.get("a") or {}).get("score", -1) + 10,
+            "c": lambda s: {"value": s.get("b")},
+        }
+
+        scheduler_regular = DAGScheduler(nodes)
+        store_regular = ResultStore()
+        scheduler_regular.run(executors, store_regular)
+
+        scheduler_streaming = DAGScheduler(nodes)
+        store_streaming = ResultStore()
+        events = list(scheduler_streaming.run_streaming(executors, store_streaming))
+        streamed_ids = [nid for nid, _ in events]
+
+        assert store_regular.all_results() == store_streaming.all_results()
+        assert store_streaming.get("a") == {"score": 0}
+        assert store_streaming.get("b") == 10
+        assert store_streaming.get("c") == {"value": 10}
+        assert streamed_ids == ["a", "c"]
+
+    def test_timeout_fallback_matches_between_modes(self):
+        nodes = [
+            DAGNode(id="slow", node_type="agent", streamable=True, timeout_s=0.2, fallback={"score": 0}),
+            DAGNode(id="downstream", dependencies=["slow"], node_type="enrichment"),
+        ]
+
+        def slow_exec(_store):
+            time.sleep(3)
+            return {"score": 99}
+
+        executors = {
+            "slow": slow_exec,
+            "downstream": lambda s: {"derived": (s.get("slow") or {}).get("score", -1)},
+        }
+
+        scheduler_regular = DAGScheduler(nodes)
+        store_regular = ResultStore()
+        scheduler_regular.run(executors, store_regular)
+
+        scheduler_streaming = DAGScheduler(nodes)
+        store_streaming = ResultStore()
+        events = list(scheduler_streaming.run_streaming(executors, store_streaming))
+
+        assert store_regular.all_results() == store_streaming.all_results()
+        assert store_streaming.get("slow") == {"score": 0}
+        assert store_streaming.get("downstream") == {"derived": 0}
+        assert events == [("slow", {"score": 0})]
+
+
+# ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
 

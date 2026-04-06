@@ -134,18 +134,17 @@ class DAGScheduler:
                 if dep not in known:
                     raise ValueError(f"DAGNode '{node.id}' has unknown optional dep '{dep}'")
 
-    def run(self, executors: Dict[str, Callable], store: ResultStore) -> ResultStore:
-        """Execute all nodes in topological order.
-
-        Args:
-            executors: mapping of node_id -> callable(store) -> result
-            store: ResultStore to read deps from and write results into
-        """
-        # Include optional_deps in graph so execution order is deterministic; node still gets None if dep missing
+    def _build_sorter(self) -> TopologicalSorter:
+        # Include optional_deps in graph so execution order is deterministic; node still gets None if dep missing.
         dep_graph = {nid: set(n.dependencies) | set(n.optional_deps) for nid, n in self._nodes.items()}
         sorter = TopologicalSorter(dep_graph)
         sorter.prepare()
+        return sorter
 
+    def _run_internal(
+        self, executors: Dict[str, Callable], store: ResultStore, *, stream_results: bool
+    ) -> Generator[Tuple[str, Any], None, None]:
+        sorter = self._build_sorter()
         pool = ThreadPoolExecutor(max_workers=self._max_workers)
         in_flight: Dict[Future, Tuple[str, float]] = {}
         fallback_events = {"missing_executor": 0, "exec_failed": 0, "timed_out": 0}
@@ -160,6 +159,8 @@ class DAGScheduler:
                         store.set(nid, node.fallback)
                         fallback_events["missing_executor"] += 1
                         sorter.done(nid)
+                        if stream_results and node.streamable:
+                            yield (nid, node.fallback)
                         continue
                     t_submit = time.perf_counter()
                     in_flight[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
@@ -175,46 +176,74 @@ class DAGScheduler:
                     nid, t_submit = in_flight.pop(future)
                     node = self._nodes[nid]
                     try:
-                        result, inner_ms = future.result()
-                        store.set(nid, result)
-                        self._emit_agent_heartbeat(
-                            nid, node, store, result, inner_ms, timed_out=False, exec_failed=False
-                        )
+                        result, duration_ms = future.result()
+                        timed_out = False
+                        exec_failed = False
                     except Exception as exc:
                         logger.warning("Node '%s' failed: %s", nid, exc)
-                        wall_ms = (now - t_submit) * 1000
-                        fb = node.fallback
-                        store.set(nid, fb)
+                        result = node.fallback
+                        duration_ms = (now - t_submit) * 1000
+                        timed_out = False
+                        exec_failed = True
                         fallback_events["exec_failed"] += 1
-                        self._emit_agent_heartbeat(
-                            nid, node, store, fb, wall_ms, timed_out=False, exec_failed=True
-                        )
+
+                    store.set(nid, result)
+                    self._emit_agent_heartbeat(
+                        nid,
+                        node,
+                        store,
+                        result,
+                        duration_ms,
+                        timed_out=timed_out,
+                        exec_failed=exec_failed,
+                    )
                     sorter.done(nid)
+                    if stream_results and node.streamable:
+                        yield (nid, result)
 
                 # Independent timeout handling avoids head-of-line blocking on slow tasks.
-                timed_out: List[Future] = []
+                timed_out_futures: List[Future] = []
                 for future, (nid, t_submit) in in_flight.items():
                     node = self._nodes[nid]
                     if (now - t_submit) >= node.timeout_s:
-                        timed_out.append(future)
-                for future in timed_out:
+                        timed_out_futures.append(future)
+                for future in timed_out_futures:
                     nid, t_submit = in_flight.pop(future)
                     node = self._nodes[nid]
                     logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
                     future.cancel()
-                    wall_ms = (now - t_submit) * 1000
-                    fb = node.fallback
-                    store.set(nid, fb)
+                    result = node.fallback
+                    duration_ms = (now - t_submit) * 1000
+                    store.set(nid, result)
                     fallback_events["timed_out"] += 1
                     self._emit_agent_heartbeat(
-                        nid, node, store, fb, wall_ms, timed_out=True, exec_failed=False
+                        nid,
+                        node,
+                        store,
+                        result,
+                        duration_ms,
+                        timed_out=True,
+                        exec_failed=False,
                     )
                     sorter.done(nid)
+                    if stream_results and node.streamable:
+                        yield (nid, result)
         finally:
             if any(v > 0 for v in fallback_events.values()):
-                logger.warning("DAG fallback summary: %s", fallback_events)
+                suffix = " (streaming)" if stream_results else ""
+                logger.warning("DAG fallback summary%s: %s", suffix, fallback_events)
             # Do not block the whole analysis run on stuck worker threads after timeout fallback.
             pool.shutdown(wait=False, cancel_futures=True)
+
+    def run(self, executors: Dict[str, Callable], store: ResultStore) -> ResultStore:
+        """Execute all nodes in topological order.
+
+        Args:
+            executors: mapping of node_id -> callable(store) -> result
+            store: ResultStore to read deps from and write results into
+        """
+        for _ in self._run_internal(executors, store, stream_results=False):
+            pass
         return store
 
     @staticmethod
@@ -255,84 +284,7 @@ class DAGScheduler:
         Frontend receives only Tier-1 (Agent-Results) and Tier-4 (Division-Summaries),
         not intermediate enrichment steps.
         """
-        # Include optional_deps in graph so execution order is deterministic
-        dep_graph = {nid: set(n.dependencies) | set(n.optional_deps) for nid, n in self._nodes.items()}
-        sorter = TopologicalSorter(dep_graph)
-        sorter.prepare()
-
-        pool = ThreadPoolExecutor(max_workers=self._max_workers)
-        in_flight: Dict[Future, Tuple[str, float]] = {}
-        fallback_events = {"missing_executor": 0, "exec_failed": 0, "timed_out": 0}
-        try:
-            while sorter.is_active() or in_flight:
-                ready = sorter.get_ready() if sorter.is_active() else ()
-                for nid in ready:
-                    node = self._nodes[nid]
-                    executor = executors.get(nid)
-                    if executor is None:
-                        store.set(nid, node.fallback)
-                        fallback_events["missing_executor"] += 1
-                        sorter.done(nid)
-                        if node.streamable:
-                            yield (nid, node.fallback)
-                        continue
-                    t_submit = time.perf_counter()
-                    in_flight[pool.submit(self._run_node, node, executor, store)] = (nid, t_submit)
-
-                if not in_flight:
-                    continue
-
-                done, _ = wait(in_flight.keys(), timeout=0.05, return_when=FIRST_COMPLETED)
-                now = time.perf_counter()
-
-                for future in done:
-                    nid, t_submit = in_flight.pop(future)
-                    node = self._nodes[nid]
-                    try:
-                        result, inner_ms = future.result()
-                        timed_out = False
-                        exec_failed = False
-                    except Exception as exc:
-                        logger.warning("Node '%s' failed: %s", nid, exc)
-                        result = node.fallback
-                        inner_ms = (now - t_submit) * 1000
-                        timed_out = False
-                        exec_failed = True
-                        fallback_events["exec_failed"] += 1
-
-                    store.set(nid, result)
-                    self._emit_agent_heartbeat(
-                        nid, node, store, result, inner_ms, timed_out=timed_out, exec_failed=exec_failed
-                    )
-                    sorter.done(nid)
-                    if node.streamable:
-                        yield (nid, result)
-
-                timed_out: List[Future] = []
-                for future, (nid, t_submit) in in_flight.items():
-                    node = self._nodes[nid]
-                    if (now - t_submit) >= node.timeout_s:
-                        timed_out.append(future)
-                for future in timed_out:
-                    nid, t_submit = in_flight.pop(future)
-                    node = self._nodes[nid]
-                    logger.warning("Node '%s' timed out (%.0fs)", nid, node.timeout_s)
-                    future.cancel()
-                    result = node.fallback
-                    inner_ms = (now - t_submit) * 1000
-                    store.set(nid, result)
-                    fallback_events["timed_out"] += 1
-                    self._emit_agent_heartbeat(
-                        nid, node, store, result, inner_ms, timed_out=True, exec_failed=False
-                    )
-                    sorter.done(nid)
-                    if node.streamable:
-                        yield (nid, result)
-        finally:
-            if any(v > 0 for v in fallback_events.values()):
-                logger.warning("DAG fallback summary (streaming): %s", fallback_events)
-            # Same behavior as run(): avoid hanging on shutdown when a node thread is stuck.
-            pool.shutdown(wait=False, cancel_futures=True)
+        yield from self._run_internal(executors, store, stream_results=True)
 
     @staticmethod
     def _run_node(node: DAGNode, executor: Callable, store: ResultStore) -> Tuple[Any, float]:
