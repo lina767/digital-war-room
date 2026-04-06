@@ -3,7 +3,7 @@ CHOKEPOINT Agent – Maritime chokepoint monitoring (Hormuz, Bab el-Mandeb, Suez
 
 Tracks tanker density, oil flow estimates, and disruption risk across key maritime
 chokepoints. Uses a tiered data-quality model:
-  - Tier 1 (live_ais): AISStream (aisstream.io) when AIRSTREAM_API_KEY set, else MarineTraffic / AISHub
+  - Tier 1 (live_ais): AISStream (aisstream.io) when AISSTREAM_API_KEY (or legacy AIRSTREAM_*) set, else MarineTraffic / AISHub
   - Tier 2 (estimated): EIA baseline + SIGINT warship proxy + news signals + oil spikes
   - Tier 3 (baseline_only): Static EIA baseline only
 
@@ -770,7 +770,7 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
             oil_baseline = baseline["oil_flow_baseline_mbd"]
 
             # Tier 1: AISStream when configured; otherwise MarineTraffic / AISHub
-            # When AIRSTREAM_API_KEY is set, use only AISStream (no fallback to other APIs without keys)
+            # When AISSTREAM_API_KEY (or legacy AIRSTREAM_*) is set, use only AISStream (no fallback to other APIs without keys)
             tankers: Optional[List[Dict]] = None
             data_quality = "baseline_only"
 

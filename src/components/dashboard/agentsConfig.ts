@@ -152,7 +152,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     name: "CHOKEPOINT",
     fullName: "Maritime Chokepoint Monitor",
     sources: [
-      { name: "AISStream/MT", description: "AISStream (optional AIRSTREAM_API_KEY), MarineTraffic, or AISHub – tanker positions" },
+      { name: "AISStream/MT", description: "AISStream (AISSTREAM_API_KEY, aisstream.io), MarineTraffic, or AISHub – tanker positions" },
       { name: "GDELT", description: "GDELT DOC API – chokepoint/disruption query hits (24h/72h/6h, ToneChart optional)" },
       {
         name: "HDX Iran Port Activity",
