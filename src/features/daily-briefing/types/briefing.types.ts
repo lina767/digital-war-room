@@ -24,6 +24,7 @@ export interface Finding {
   type: string;
   title: string;
   body: string;
+  operationalImplication?: string;
   confidence: ConfidenceLevel;
   sourceTier: SourceTier;
   timestamp: Date;

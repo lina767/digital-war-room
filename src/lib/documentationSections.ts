@@ -11,6 +11,7 @@ import observability from "../../docs/OBSERVABILITY.md?raw";
 import security from "../../docs/SECURITY.md?raw";
 import apiKeys from "../../docs/API-KEYS.md?raw";
 import newsletterSpec from "../../docs/NEWSLETTER-SPEC.md?raw";
+import newsletterCadence from "../../docs/newsletter/weekly-experiment-cadence.md?raw";
 import glossary from "../../docs/GLOSSARY.md?raw";
 import attentionPlaybook from "../../docs/ATTENTION-PLAYBOOK.md?raw";
 
@@ -209,6 +210,15 @@ export const DOCUMENTATION_MANIFEST_DOCS: DocumentationManifestDoc[] = [
     filePath: "docs/NEWSLETTER-SPEC.md",
     githubUrl: `${REPO_DOCS_BASE}/NEWSLETTER-SPEC.md`,
     content: newsletterSpec,
+  },
+  {
+    id: "newsletter-weekly-experiment-cadence",
+    sectionId: "operations",
+    title: "Newsletter Weekly Experiment Cadence",
+    description: "Run controlled weekly iterations for subject, BLUF, and CTA changes.",
+    filePath: "docs/newsletter/weekly-experiment-cadence.md",
+    githubUrl: `${REPO_DOCS_BASE}/newsletter/weekly-experiment-cadence.md`,
+    content: newsletterCadence,
   },
   {
     id: "observability",

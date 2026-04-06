@@ -17,7 +17,7 @@ THREAT_ACCENT = {
 }
 
 _PREMIUM_MAX_FINDINGS = 7
-_MAX_CTR_FINDINGS = 5
+_MAX_CTR_FINDINGS = 3
 
 
 def _escape_html(s: str) -> str:
@@ -190,6 +190,11 @@ def _bluf_short_text(summary: str, *, max_sentences: int = 3) -> str:
     return " ".join(parts[:max_sentences]).strip() or s[:400]
 
 
+def _ops_preheader(conflict: str, threat_level: str, escalation_score: Optional[int]) -> str:
+    esc_txt = f"{escalation_score}/100" if escalation_score is not None else "n/a"
+    return f"{conflict}: 3 shifts that changed risk since yesterday. Threat {threat_level}, escalation {esc_txt}."
+
+
 def _daily_infographic_html(briefing_data: Dict[str, Any], key_findings: List[str], infographic_cta: str) -> str:
     score_rows = _agent_score_rows(briefing_data, limit=6)
     findings = [(f or "").strip() for f in (key_findings or []) if (f or "").strip()][:4]
@@ -295,6 +300,8 @@ def daily_briefing_email_html(
     bluf_cta = (bd.get("_nl_bluf_cta") or view_link or "").strip()
     infographic_cta = (bd.get("_nl_infographic_cta") or bluf_cta).strip()
     public_fb = (bd.get("_nl_public_fallback") or view_link).strip()
+    feedback_useful = (bd.get("_nl_feedback_useful") or "").strip()
+    feedback_not_useful = (bd.get("_nl_feedback_not_useful") or "").strip()
     finding_urls = bd.get("_nl_finding_urls")
     finding_urls = finding_urls if isinstance(finding_urls, list) else []
 
@@ -364,7 +371,8 @@ def daily_briefing_email_html(
         if src_i < len(conf_list):
             badge = _confidence_label_html(conf_list[src_i])
         ctx_html = (
-            f'<p style="margin:6px 0 0 0;font-size:13px;line-height:1.45;color:#475569;">{_escape_html(ctx.strip()[:220])}</p>'
+            f'<p style="margin:6px 0 0 0;font-size:12px;line-height:1.45;color:#64748b;letter-spacing:0.02em;text-transform:uppercase;">Why this matters now</p>'
+            f'<p style="margin:2px 0 0 0;font-size:13px;line-height:1.45;color:#475569;">{_escape_html(ctx.strip()[:220])}</p>'
             if ctx and ctx.strip()
             else ""
         )
@@ -414,6 +422,19 @@ def daily_briefing_email_html(
         if _newsletter_infographic_enabled(bd)
         else ""
     )
+    preheader = _ops_preheader(conflict, tl, esc)
+    feedback_html = ""
+    if feedback_useful or feedback_not_useful:
+        useful_link = feedback_useful or view_link
+        not_useful_link = feedback_not_useful or view_link
+        feedback_html = (
+            '<p style="margin:16px 0 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.45;color:#64748b;">'
+            "Was this useful for today's ops cycle? "
+            f'<a href="{useful_link}" style="color:#1e3a5f;text-decoration:underline;font-weight:600;">Useful</a>'
+            ' · '
+            f'<a href="{not_useful_link}" style="color:#1e3a5f;text-decoration:underline;">Not useful</a>'
+            "</p>"
+        )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -425,7 +446,7 @@ def daily_briefing_email_html(
   </head>
   <body style="margin:0;padding:0;background:#eef2f6;">
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
-      {_escape_html(conflict)} — {_escape_html(brief[:120])}
+      {_escape_html(preheader)}
     </div>
     <table role="presentation" width="100%" style="border-collapse:collapse;background:#eef2f6;padding:28px 12px;">
       <tr>
@@ -455,6 +476,7 @@ def daily_briefing_email_html(
                     </td>
                   </tr>
                 </table>
+                {feedback_html}
 
                 {daily_infographic_html}
 
@@ -532,7 +554,7 @@ def daily_briefing_email_text(
             conf_tag = f"[{str(conf_list[src_i]).strip().upper()}] "
         lines.append(f"{disp_i}. {conf_tag}{f}")
         if ctx and ctx.strip():
-            lines.append(f"   {ctx.strip()[:220]}")
+            lines.append(f"   Why this matters now: {ctx.strip()[:220]}")
     findings_block = "\n".join(lines) if lines else "No key developments available for this run."
     score_line = f"{tl} | Escalation {esc}/100" if esc is not None else tl
     daily_txt = _daily_infographic_text(bd, kf) if _newsletter_infographic_enabled(bd) else ""
@@ -540,6 +562,8 @@ def daily_briefing_email_text(
     bluf_cta = (bd.get("_nl_bluf_cta") or view_link or "").strip()
     finding_urls = bd.get("_nl_finding_urls")
     finding_urls = finding_urls if isinstance(finding_urls, list) else []
+    feedback_useful = (bd.get("_nl_feedback_useful") or "").strip()
+    feedback_not_useful = (bd.get("_nl_feedback_not_useful") or "").strip()
     url_lines = ""
     for i, u in enumerate(finding_urls[:_MAX_CTR_FINDINGS], start=1):
         if u:
@@ -561,6 +585,8 @@ Key developments (top rows include dashboard deep links)
 {url_lines}
 
 View full briefing: {view_link}
+Feedback (useful): {feedback_useful or view_link}
+Feedback (not useful): {feedback_not_useful or view_link}
 Unsubscribe: {unsubscribe_link}
 GitHub: https://github.com/lina767/digital-war-room
 """
@@ -585,6 +611,8 @@ def daily_briefing_digest_html(
     tags = _derive_topic_tags(bd)
     rows = _build_digest_rows(key_findings, key_findings_context, max_items=50)
     digest_intro = (summary or "").strip() or "Daily list of key report developments."
+    feedback_useful = (bd.get("_nl_feedback_useful") or "").strip()
+    feedback_not_useful = (bd.get("_nl_feedback_not_useful") or "").strip()
     infographic_cta = (bd.get("_nl_infographic_cta") or view_link).strip()
     daily_infographic_html = (
         _daily_infographic_html(bd, key_findings, infographic_cta)
@@ -627,6 +655,16 @@ def daily_briefing_digest_html(
                   </tr>
                 </table>
         """
+    feedback_html = ""
+    if feedback_useful or feedback_not_useful:
+        feedback_html = (
+            '<p style="margin-top:10px;font-size:12px;line-height:1.45;color:#596677;">'
+            'Was this digest useful? '
+            f'<a href="{feedback_useful or view_link}" style="color:#0f3f73;text-decoration:underline;font-weight:600;">Useful</a>'
+            ' · '
+            f'<a href="{feedback_not_useful or view_link}" style="color:#0f3f73;text-decoration:underline;">Not useful</a>'
+            "</p>"
+        )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -655,6 +693,7 @@ def daily_briefing_digest_html(
                 <h1 style="margin:14px 0 8px 0;font-size:23px;line-height:1.25;color:#0f1720;">Daily Intelligence Digest</h1>
                 <p style="margin:0 0 14px 0;font-size:14px;line-height:1.45;color:#22303e;">{_escape_html(digest_intro)}</p>
                 {daily_infographic_html}
+                {feedback_html}
                 {row_html}
                 <p style="margin-top:14px;border-top:1px solid #e2e8f0;padding-top:12px;font-size:12px;line-height:1.5;color:#596677;">
                   You are receiving this email because you subscribed to Daily Briefing updates.
@@ -690,6 +729,8 @@ def daily_briefing_digest_text(
     rows = _build_digest_rows(key_findings, key_findings_context, max_items=50)
     header_scanline = _scanline(conflict, tl, tags, updated)
     digest_intro = (summary or "").strip() or "Daily list of key report developments."
+    feedback_useful = (bd.get("_nl_feedback_useful") or "").strip()
+    feedback_not_useful = (bd.get("_nl_feedback_not_useful") or "").strip()
     daily_txt = _daily_infographic_text(bd, key_findings) if _newsletter_infographic_enabled(bd) else ""
     daily_block = f"\n{daily_txt}\n" if daily_txt else ""
     links = row_links if isinstance(row_links, list) and row_links else []
@@ -711,5 +752,7 @@ Daily Intelligence Digest - {conflict} - {date_str}
 
 {body}
 
+Feedback (useful): {feedback_useful or view_link}
+Feedback (not useful): {feedback_not_useful or view_link}
 Unsubscribe: {unsubscribe_link}
 """

@@ -31,7 +31,11 @@ from services.newsletter_infographic import (
     max_html_bytes,
     should_strip_infographic_from_html,
 )
-from services.newsletter_link_builder import build_newsletter_link_bundle, digest_row_url
+from services.newsletter_link_builder import (
+    build_newsletter_link_bundle,
+    digest_row_url,
+    utm_campaign_for_date,
+)
 from services.resend_template_payloads import (
     build_confirmation_template_variables,
     build_daily_briefing_template_variables,
@@ -243,6 +247,16 @@ def _attach_tracked_links(
     briefing_payload["_nl_view_full"] = bundle["view_full"]
     briefing_payload["_nl_finding_urls"] = bundle["finding_urls"]
     briefing_payload["_nl_public_fallback"] = bundle["public_briefing_fallback"]
+    campaign = utm_campaign_for_date(date_str)
+    params_common = {
+        "campaign": campaign,
+        "utm_content": "feedback",
+        "conflict": conflict,
+    }
+    useful_qs = urlencode({**params_common, "kind": "useful"})
+    not_useful_qs = urlencode({**params_common, "kind": "not_useful"})
+    briefing_payload["_nl_feedback_useful"] = f"{base}/api/newsletter/feedback?{useful_qs}"
+    briefing_payload["_nl_feedback_not_useful"] = f"{base}/api/newsletter/feedback?{not_useful_qs}"
 
 
 def _is_configured() -> bool:
@@ -393,9 +407,9 @@ async def send_daily_briefing(
     date_str = newsletter_campaign_date_str(now_utc)
     is_digest = _NEWSLETTER_LAYOUT == "digest"
     subject = (
-        f"Daily Briefing Digest – {conflict} – {date_str}"
+        f"Ops Digest: what changed since yesterday – {conflict} – {date_str}"
         if is_digest
-        else f"Daily Briefing – {conflict} – {date_str}"
+        else f"Ops Briefing: 3 shifts that changed risk – {conflict} – {date_str}"
     )
     summary = (briefing_data.get("summary") or "").strip() or "No summary available."
     key_findings = briefing_data.get("key_findings") or []

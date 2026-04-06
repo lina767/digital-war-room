@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from "react-router-dom";
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { SEO } from "@/components/SEO";
@@ -23,8 +23,15 @@ import {
   STRUCTURED_DESC_DAILY_BRIEFING,
   TITLE_DAILY_BRIEFING,
 } from "@/lib/seoCopy";
+import {
+  getUtmContext,
+  markNewsletterTouchNow,
+  shouldCountAs24hReturn,
+  trackKpiEvent,
+} from "@/lib/briefingKpiTracking";
 
 const NAV_ITEMS = [
+  { id: "briefing-start-here", label: "Start Here" },
   { id: "briefing-summary", label: "Summary" },
   { id: "briefing-infographic", label: "Infographic" },
   { id: "briefing-developments", label: "Findings" },
@@ -34,11 +41,61 @@ const NAV_ITEMS = [
   { id: "briefing-sources", label: "Deep Dives" },
 ];
 
+interface TopAction {
+  id: string;
+  title: string;
+  rationale: string;
+  target: string;
+  cta: string;
+}
+
+function buildTopActions(escalationScore: number, findingsCount: number, chokepointsCount: number): TopAction[] {
+  const actions: TopAction[] = [
+    {
+      id: "action-findings",
+      title: "Triage highest-signal findings",
+      rationale:
+        findingsCount > 0
+          ? `Review the top ${Math.min(3, findingsCount)} findings and validate confidence before escalation decisions.`
+          : "No findings yet - trigger a fresh run, then review first-order signal changes.",
+      target: "#briefing-developments",
+      cta: "Open findings",
+    },
+    {
+      id: "action-chokepoints",
+      title: "Check chokepoint risk exposure",
+      rationale:
+        chokepointsCount > 0
+          ? "Confirm whether shipping risk changes require route or sourcing adjustments."
+          : "No chokepoint anomalies surfaced yet; monitor for late-cycle disruptions.",
+      target: "#briefing-watch",
+      cta: "Open chokepoints",
+    },
+    {
+      id: "action-outlook",
+      title: "Align next-24h operating posture",
+      rationale:
+        escalationScore >= 70
+          ? "Escalation is high - tighten monitoring cadence and pre-brief stakeholders."
+          : "Use outlook drivers to set monitoring intensity for the next 24 hours.",
+      target: "#briefing-predictive",
+      cta: "Open outlook",
+    },
+  ];
+  return actions;
+}
+
 export default function DailyBriefingPage() {
   const [searchParams] = useSearchParams();
   const { state, dispatch, meta } = useBriefingData();
   const exportPdf = useBriefingExport();
   const data = state.data;
+  const showLoading = !data && (meta.initialLoadPending || state.isLoading);
+  const showError = !data && state.error && !showLoading;
+  const firstInteractionTrackedRef = useRef(false);
+  const pageLoadedAtRef = useRef<number | null>(null);
+
+  const utm = useMemo(() => getUtmContext(), [searchParams]);
 
   useEffect(() => {
     const section = searchParams.get("nl_section");
@@ -46,8 +103,50 @@ export default function DailyBriefingPage() {
     const el = document.getElementById(section);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [searchParams, data]);
-  const showLoading = !data && (meta.initialLoadPending || state.isLoading);
-  const showError = !data && state.error && !showLoading;
+
+  useEffect(() => {
+    if (showLoading || !data) return;
+    if (pageLoadedAtRef.current == null) {
+      pageLoadedAtRef.current = Date.now();
+    }
+    if (utm.source === "newsletter") {
+      markNewsletterTouchNow();
+      trackKpiEvent("newsletter_slot_click", {
+        conflict: data.conflict,
+        campaign: utm.campaign,
+        utmContent: utm.utmContent,
+      });
+    }
+    if (shouldCountAs24hReturn()) {
+      trackKpiEvent("return_24h_after_newsletter", {
+        conflict: data.conflict,
+        campaign: utm.campaign,
+        utmContent: utm.utmContent,
+      });
+    }
+  }, [showLoading, data, utm.source, utm.campaign, utm.utmContent]);
+
+  const markMeaningfulInteraction = (eventName: string): void => {
+    if (!data) return;
+    if (!firstInteractionTrackedRef.current) {
+      firstInteractionTrackedRef.current = true;
+      const startedAt = pageLoadedAtRef.current;
+      if (startedAt != null) {
+        const ttvSeconds = Math.max(0, (Date.now() - startedAt) / 1000);
+        trackKpiEvent("ttv_recorded", {
+          conflict: data.conflict,
+          campaign: utm.campaign,
+          utmContent: utm.utmContent,
+          ttvSeconds,
+        });
+      }
+    }
+    trackKpiEvent(eventName, {
+      conflict: data.conflict,
+      campaign: utm.campaign,
+      utmContent: utm.utmContent,
+    });
+  };
 
   const share = async () => {
     const url = window.location.href;
@@ -94,14 +193,27 @@ export default function DailyBriefingPage() {
           <div className="briefing-card space-y-4 p-6">
             <p className="text-sm text-[var(--text-secondary)]">{state.error}</p>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => void meta.runAnalysis()}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  markMeaningfulInteraction("briefing_run_analysis_click");
+                  void meta.runAnalysis();
+                }}
+              >
                 Run analysis
               </Button>
               <Button size="sm" variant="outline" onClick={() => meta.refresh()}>
                 Retry connection
               </Button>
               <Button asChild size="sm" variant="ghost">
-                <Link to="/app/dashboard">Open dashboard</Link>
+                <Link
+                  to="/app/dashboard"
+                  onClick={() => {
+                    markMeaningfulInteraction("briefing_to_dashboard_click");
+                  }}
+                >
+                  Open dashboard
+                </Link>
               </Button>
             </div>
           </div>
@@ -119,11 +231,24 @@ export default function DailyBriefingPage() {
               No briefing data available yet. Run an analysis from the dashboard or start one here.
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => void meta.runAnalysis()}>
+              <Button
+                size="sm"
+                onClick={() => {
+                  markMeaningfulInteraction("briefing_run_analysis_click");
+                  void meta.runAnalysis();
+                }}
+              >
                 Run analysis
               </Button>
               <Button asChild size="sm" variant="outline">
-                <Link to="/app/dashboard">Open dashboard</Link>
+                <Link
+                  to="/app/dashboard"
+                  onClick={() => {
+                    markMeaningfulInteraction("briefing_to_dashboard_click");
+                  }}
+                >
+                  Open dashboard
+                </Link>
               </Button>
             </div>
           </div>
@@ -157,7 +282,13 @@ export default function DailyBriefingPage() {
       <div className="briefing-page min-h-screen">
         <main className="briefing-shell py-4">
           <div className="mb-3 flex items-center justify-between">
-            <Link to="/app/dashboard" className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-white">
+            <Link
+              to="/app/dashboard"
+              className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-white"
+              onClick={() => {
+                markMeaningfulInteraction("briefing_to_dashboard_click");
+              }}
+            >
               <ArrowLeft className="h-3.5 w-3.5" />
               Back to dashboard
             </Link>
@@ -194,6 +325,28 @@ export default function DailyBriefingPage() {
           </nav>
 
           <section id="briefing-summary">
+            <section id="briefing-start-here" className="briefing-card mb-4 scroll-mt-20 p-4">
+              <h2 className="briefing-display text-xl">Start here: Top 3 actions for next 24h</h2>
+              <p className="mt-1 text-xs briefing-mono text-[var(--text-secondary)]">
+                Mission-first path to reduce time-to-value and get from signal to decision quickly.
+              </p>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                {buildTopActions(data.escalationScore, data.keyFindings.length, data.chokepoints.length).map((action) => (
+                  <a
+                    key={action.id}
+                    href={action.target}
+                    onClick={() => {
+                      markMeaningfulInteraction("briefing_top_action_click");
+                    }}
+                    className="rounded border border-[var(--border-default)] bg-[var(--bg-elevated)]/30 p-3 transition-colors hover:border-[var(--text-primary)]"
+                  >
+                    <p className="text-sm font-semibold text-[var(--text-primary)]">{action.title}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{action.rationale}</p>
+                    <p className="mt-2 briefing-mono text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">{action.cta}</p>
+                  </a>
+                ))}
+              </div>
+            </section>
             <BLUFSection summary={data.bluf} contributingAgents={["NEWS", "SIGINT", "FININT"]} threatLevel={data.threatLevel} />
           </section>
 
@@ -225,7 +378,10 @@ export default function DailyBriefingPage() {
               <KeyFindings
                 findings={data.keyFindings}
                 expandedFindings={state.expandedFindings}
-                onToggleFinding={(id) => dispatch({ type: "TOGGLE_FINDING", payload: id })}
+                onToggleFinding={(id) => {
+                  markMeaningfulInteraction("briefing_finding_toggle");
+                  dispatch({ type: "TOGGLE_FINDING", payload: id });
+                }}
               />
               <ScenarioAssessment scenarios={data.scenarios} />
               <PredictiveOutlook outlook={data.predictiveOutlook} />

@@ -83,6 +83,9 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 | GET | `/api/newsletter/unsubscribe?token=...` | Remove or deactivate subscriber; show “You have been unsubscribed.” |
 | POST | `/api/newsletter/send-daily` | (Optional) Cron: run analysis for configured conflict(s), then send daily emails. Protected by `NEWSLETTER_CRON_SECRET`. |
 | GET | `/api/newsletter/status` | Ops: SQLite counts (confirmed/pending), DB path. Same secret header when `NEWSLETTER_CRON_SECRET` is set. |
+| POST | `/api/newsletter/track` | Lightweight KPI event ingest from web app (`ttv_recorded`, `briefing_to_dashboard_click`, `newsletter_slot_click`, `return_24h_after_newsletter`). |
+| GET | `/api/newsletter/feedback?kind=useful|not_useful` | One-click email feedback link; stores event and redirects to `/daily-briefing`. |
+| GET | `/api/newsletter/kpi-baseline?days=14` | Protected KPI baseline snapshot for ops review (counts, TTV average, slot clicks by campaign/content). |
 | POST | `/api/newsletter/sync-from-resend` | Import/mirror: list Resend contacts for a segment (`GET /contacts?segment_id=`) into SQLite (confirmed vs remove if unsubscribed). Body: optional `segment_id`; defaults to env segment/audience. Same secret. |
 | POST | `/api/webhooks/resend` | Resend webhooks (bounces/complaints). Set `RESEND_WEBHOOK_SECRET` (Svix signing secret). |
 
@@ -157,6 +160,14 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 | `utm_content` | `bluf_primary_cta`, `infographic_cta`, `view_full_briefing`, `finding_1`…`finding_5`, `public_briefing_fallback`, or `digest_row_{n}` |
 
 Implementation: `backend/services/newsletter_link_builder.py` (`build_newsletter_link_bundle`, `build_tracked_url`, `digest_row_url`). Templates and `newsletter_sender.py` must not hand-roll query strings for these CTAs.
+
+### KPI baseline contract (first 8 weeks)
+
+- **TTV**: measured as seconds from `/daily-briefing` load until first meaningful interaction (`ttv_recorded`).
+- **Briefing -> Dashboard CTR**: measured by `briefing_to_dashboard_click`.
+- **Newsletter slot CTR**: measured by `newsletter_slot_click`, grouped by `utm_campaign` and `utm_content`.
+- **24h return**: measured by `return_24h_after_newsletter` when a user returns within 24h of a newsletter-origin session.
+- Query baseline with `GET /api/newsletter/kpi-baseline?days=14` (same secret header if configured).
 
 ### Same infographic on the web Daily Briefing
 

@@ -35,3 +35,26 @@ export async function newsletterUnsubscribe(token: string): Promise<{ message: s
   if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
   return { message: data.message ?? "Unsubscribed." };
 }
+
+export interface NewsletterTrackEventPayload {
+  event_type: string;
+  event_source?: "web" | "email" | "system";
+  campaign?: string;
+  utm_content?: string;
+  conflict?: string;
+  session_id?: string;
+  path?: string;
+  ttv_seconds?: number;
+}
+
+/** POST /api/newsletter/track – lightweight engagement ingest for KPI baselines. */
+export async function newsletterTrackEvent(payload: NewsletterTrackEventPayload): Promise<void> {
+  const res = await apiFetch(apiUrl("newsletter/track"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+}

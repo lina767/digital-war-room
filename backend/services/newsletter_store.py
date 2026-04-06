@@ -11,6 +11,7 @@ import logging
 import os
 import sqlite3
 import uuid
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -75,8 +76,66 @@ def _ensure_sqlite() -> sqlite3.Connection:
             completed_at TEXT
         )
     """)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS newsletter_engagement_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            event_source TEXT NOT NULL,
+            campaign TEXT,
+            utm_content TEXT,
+            conflict TEXT,
+            session_id TEXT,
+            path TEXT,
+            meta_json TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_newsletter_engagement_created ON newsletter_engagement_events(created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_newsletter_engagement_type ON newsletter_engagement_events(event_type)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_newsletter_engagement_campaign ON newsletter_engagement_events(campaign)"
+    )
     conn.commit()
     return conn
+
+
+def _ensure_postgres_engagement_table() -> None:
+    if not use_postgres():
+        return
+    with connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS newsletter_engagement_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    event_source TEXT NOT NULL,
+                    campaign TEXT,
+                    utm_content TEXT,
+                    conflict TEXT,
+                    session_id TEXT,
+                    path TEXT,
+                    meta_json JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_newsletter_engagement_created ON newsletter_engagement_events(created_at)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_newsletter_engagement_type ON newsletter_engagement_events(event_type)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_newsletter_engagement_campaign ON newsletter_engagement_events(campaign)"
+            )
+        conn.commit()
 
 
 def add_subscriber(
@@ -844,6 +903,183 @@ def purge_pending_subscribers_older_than(days: int) -> int:
         )
         conn.commit()
         return int(cur.rowcount or 0)
+    finally:
+        conn.close()
+
+
+def record_newsletter_engagement_event(
+    *,
+    event_type: str,
+    event_source: str,
+    campaign: Optional[str] = None,
+    utm_content: Optional[str] = None,
+    conflict: Optional[str] = None,
+    session_id: Optional[str] = None,
+    path: Optional[str] = None,
+    meta: Optional[Dict[str, Any]] = None,
+) -> None:
+    et = (event_type or "").strip().lower()
+    es = (event_source or "").strip().lower()
+    if not et or not es:
+        return
+    created_at = datetime.now(timezone.utc).isoformat()
+    meta_dict = meta if isinstance(meta, dict) else {}
+    if use_postgres():
+        _ensure_postgres_engagement_table()
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO newsletter_engagement_events
+                        (event_type, event_source, campaign, utm_content, conflict, session_id, path, meta_json, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::timestamptz)
+                    """,
+                    (
+                        et,
+                        es,
+                        (campaign or "").strip() or None,
+                        (utm_content or "").strip() or None,
+                        (conflict or "").strip() or None,
+                        (session_id or "").strip() or None,
+                        (path or "").strip() or None,
+                        json.dumps(meta_dict),
+                        created_at,
+                    ),
+                )
+            conn.commit()
+        return
+    conn = _ensure_sqlite()
+    try:
+        conn.execute(
+            """
+            INSERT INTO newsletter_engagement_events
+                (event_type, event_source, campaign, utm_content, conflict, session_id, path, meta_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                et,
+                es,
+                (campaign or "").strip() or None,
+                (utm_content or "").strip() or None,
+                (conflict or "").strip() or None,
+                (session_id or "").strip() or None,
+                (path or "").strip() or None,
+                json.dumps(meta_dict),
+                created_at,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_newsletter_kpi_baseline(*, days: int = 14) -> Dict[str, Any]:
+    lookback_days = max(1, min(90, int(days)))
+    window_start = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    if use_postgres():
+        _ensure_postgres_engagement_table()
+        with connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT event_type, COUNT(*)
+                    FROM newsletter_engagement_events
+                    WHERE created_at >= %s::timestamptz
+                    GROUP BY event_type
+                    """,
+                    (window_start,),
+                )
+                rows = cur.fetchall()
+                counts = {str(r[0]): int(r[1]) for r in rows}
+                cur.execute(
+                    """
+                    SELECT campaign, utm_content, COUNT(*)
+                    FROM newsletter_engagement_events
+                    WHERE created_at >= %s::timestamptz
+                      AND event_type = 'newsletter_slot_click'
+                    GROUP BY campaign, utm_content
+                    ORDER BY COUNT(*) DESC, campaign NULLS LAST, utm_content NULLS LAST
+                    """,
+                    (window_start,),
+                )
+                slot_rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT COUNT(*), AVG((meta_json->>'ttv_seconds')::numeric)
+                    FROM newsletter_engagement_events
+                    WHERE created_at >= %s::timestamptz
+                      AND event_type = 'ttv_recorded'
+                    """,
+                    (window_start,),
+                )
+                ttv = cur.fetchone() or (0, None)
+        return {
+            "window_days": lookback_days,
+            "window_start_utc": window_start,
+            "counts": counts,
+            "ttv_samples": int(ttv[0] or 0),
+            "ttv_avg_seconds": float(ttv[1]) if ttv[1] is not None else None,
+            "slot_clicks": [
+                {"campaign": r[0], "utm_content": r[1], "clicks": int(r[2])}
+                for r in slot_rows
+            ],
+            "kpi_definitions": {
+                "ttv_recorded": "Time from daily briefing load to first meaningful action.",
+                "briefing_to_dashboard_click": "Clicks from briefing into dashboard context.",
+                "newsletter_slot_click": "Briefing sessions opened from newsletter links grouped by utm_content.",
+                "return_24h_after_newsletter": "User returned to briefing/dashboard within 24h after newsletter-origin session.",
+            },
+        }
+    conn = _ensure_sqlite()
+    try:
+        cur = conn.execute(
+            """
+            SELECT event_type, COUNT(*)
+            FROM newsletter_engagement_events
+            WHERE created_at >= ?
+            GROUP BY event_type
+            """,
+            (window_start,),
+        )
+        counts = {str(r[0]): int(r[1]) for r in cur.fetchall()}
+        slot_cur = conn.execute(
+            """
+            SELECT campaign, utm_content, COUNT(*)
+            FROM newsletter_engagement_events
+            WHERE created_at >= ?
+              AND event_type = 'newsletter_slot_click'
+            GROUP BY campaign, utm_content
+            ORDER BY COUNT(*) DESC, campaign, utm_content
+            """,
+            (window_start,),
+        )
+        ttv_cur = conn.execute(
+            """
+            SELECT COUNT(*), AVG(CAST(json_extract(meta_json, '$.ttv_seconds') AS REAL))
+            FROM newsletter_engagement_events
+            WHERE created_at >= ?
+              AND event_type = 'ttv_recorded'
+            """,
+            (window_start,),
+        )
+        ttv_count, ttv_avg = ttv_cur.fetchone() or (0, None)
+        return {
+            "window_days": lookback_days,
+            "window_start_utc": window_start,
+            "counts": counts,
+            "ttv_samples": int(ttv_count or 0),
+            "ttv_avg_seconds": float(ttv_avg) if ttv_avg is not None else None,
+            "slot_clicks": [
+                {"campaign": r[0], "utm_content": r[1], "clicks": int(r[2])}
+                for r in slot_cur.fetchall()
+            ],
+            "kpi_definitions": {
+                "ttv_recorded": "Time from daily briefing load to first meaningful action.",
+                "briefing_to_dashboard_click": "Clicks from briefing into dashboard context.",
+                "newsletter_slot_click": "Briefing sessions opened from newsletter links grouped by utm_content.",
+                "return_24h_after_newsletter": "User returned to briefing/dashboard within 24h after newsletter-origin session.",
+            },
+        }
     finally:
         conn.close()
 

@@ -187,6 +187,36 @@ function toSourceTier(confidence: string | undefined): "A" | "B" | "C" | "D" {
   return "D";
 }
 
+function decisionPriorityWeight(text: string): number {
+  const t = text.toLowerCase();
+  if (/\b(hormuz|strait|chokepoint|shipping|tankers?|route|closure)\b/.test(t)) return 95;
+  if (/\b(strike|missile|airstrike|troops?|mobilization|incursion|aircraft)\b/.test(t)) return 90;
+  if (/\b(sanction|ofac|export|compliance|embargo|ban)\b/.test(t)) return 84;
+  if (/\b(protest|riot|civil unrest|demonstration)\b/.test(t)) return 76;
+  if (/\b(ceasefire|talks|negotiation|diplomatic)\b/.test(t)) return 68;
+  return 55;
+}
+
+function deriveOperationalImplication(text: string): string {
+  const t = text.toLowerCase();
+  if (/\b(hormuz|strait|chokepoint|shipping|tankers?|route|closure)\b/.test(t)) {
+    return "Prioritize route and logistics checks now; validate fallback shipping options within this shift.";
+  }
+  if (/\b(strike|missile|airstrike|troops?|mobilization|incursion|aircraft)\b/.test(t)) {
+    return "Escalate monitoring cadence for 24h and pre-brief operations on rapid posture changes.";
+  }
+  if (/\b(sanction|ofac|export|compliance|embargo|ban)\b/.test(t)) {
+    return "Run sanctions and supplier exposure screening before any new transaction or movement.";
+  }
+  if (/\b(protest|riot|civil unrest|demonstration)\b/.test(t)) {
+    return "Review personnel and site risk; tighten local movement guidance for affected areas.";
+  }
+  if (/\b(ceasefire|talks|negotiation|diplomatic)\b/.test(t)) {
+    return "Hold contingency triggers but keep collection active to detect reversals early.";
+  }
+  return "Validate this signal against one independent source before changing operational posture.";
+}
+
 function buildAgentBlock(conflict: ConflictData, agent: AgentId, generatedAt: Date): AgentDataBlock {
   const key = agent.toLowerCase();
   const raw = (conflict as Record<string, unknown>)[key];
@@ -220,23 +250,37 @@ function buildAgentBlock(conflict: ConflictData, agent: AgentId, generatedAt: Da
 
 function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBriefingData {
   const escalationRounded = Math.round(Number(conflict.escalation_score ?? 0));
-  const keyFindings: Finding[] = (conflict.key_findings ?? []).slice(0, 8).map((item, idx) => {
-    const text = String(item ?? "");
-    const confidence = normalizeConfidence(conflict.key_findings_confidence?.[idx]);
-    const context = conflict.key_findings_context?.[idx];
-    return {
-      id: `finding-${idx + 1}`,
-      agent: "NEWS",
-      type: "Supervisor synthesis",
-      title: text.split(".")[0] || `Finding ${idx + 1}`,
-      body: context || text,
-      confidence,
-      sourceTier: "B",
-      timestamp: generatedAt,
-      rawData: { index: idx },
-      sourceUrls: [],
-    };
-  });
+  const keyFindings: Finding[] = (conflict.key_findings ?? [])
+    .slice(0, 12)
+    .map((item, idx) => {
+      const text = String(item ?? "");
+      const confidence = normalizeConfidence(conflict.key_findings_confidence?.[idx]);
+      const context = conflict.key_findings_context?.[idx];
+      return {
+        id: `finding-${idx + 1}`,
+        agent: "NEWS",
+        type: "Supervisor synthesis",
+        title: text.split(".")[0] || `Finding ${idx + 1}`,
+        body: context || text,
+        operationalImplication: deriveOperationalImplication(`${text} ${context ?? ""}`),
+        confidence,
+        sourceTier: "B",
+        timestamp: generatedAt,
+        rawData: { index: idx },
+        sourceUrls: [],
+      };
+    })
+    .sort((a, b) => {
+      const scoreA = decisionPriorityWeight(`${a.title} ${a.body}`);
+      const scoreB = decisionPriorityWeight(`${b.title} ${b.body}`);
+      if (scoreA !== scoreB) return scoreB - scoreA;
+      if (a.confidence !== b.confidence) {
+        const confRank = { HIGH: 3, MEDIUM: 2, LOW: 1 } as const;
+        return confRank[b.confidence] - confRank[a.confidence];
+      }
+      return 0;
+    })
+    .slice(0, 8);
 
   const scenarios: Scenario[] = (conflict.scenarios ?? []).slice(0, 4).map((s, idx) => ({
     id: `scenario-${idx + 1}`,

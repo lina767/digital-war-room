@@ -9,9 +9,10 @@ import os
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from agents.pattern_anomalies import attach_pattern_flags
@@ -33,9 +34,11 @@ from services.newsletter_store import (
     get_conflicts_with_subscribers,
     get_reminder_status,
     get_subscriber_stats,
+    get_newsletter_kpi_baseline,
     list_confirmed_subscribers,
     mark_daily_newsletter_completed,
     remove_by_unsubscribe_token,
+    record_newsletter_engagement_event,
     remove_unconfirmed_subscriber,
     try_acquire_daily_newsletter_lock,
 )
@@ -157,6 +160,48 @@ class PreviewWeeklyInfographicBody(BaseModel):
         return sanitize_conflict(v)
 
 
+class EngagementTrackBody(BaseModel):
+    event_type: str = Field(..., max_length=80)
+    event_source: str = Field("web", max_length=40)
+    campaign: str | None = Field(None, max_length=80)
+    utm_content: str | None = Field(None, max_length=80)
+    conflict: str | None = Field(None, max_length=80)
+    session_id: str | None = Field(None, max_length=120)
+    path: str | None = Field(None, max_length=240)
+    ttv_seconds: float | None = Field(None, ge=0, le=86400)
+
+
+def _frontend_daily_briefing_url() -> str:
+    base = (os.getenv("FRONTEND_URL") or "https://digital-war-room.com").strip().rstrip("/")
+    return f"{base}/daily-briefing"
+
+
+def _record_engagement(
+    *,
+    event_type: str,
+    event_source: str,
+    campaign: str | None,
+    utm_content: str | None,
+    conflict: str | None,
+    session_id: str | None,
+    path: str | None,
+    meta: dict[str, Any] | None = None,
+) -> None:
+    try:
+        record_newsletter_engagement_event(
+            event_type=event_type,
+            event_source=event_source,
+            campaign=campaign,
+            utm_content=utm_content,
+            conflict=conflict,
+            session_id=session_id,
+            path=path,
+            meta=meta,
+        )
+    except Exception as e:
+        logger.warning("Newsletter engagement event failed (%s): %s", event_type, e)
+
+
 @router.post("/newsletter/subscribe")
 @limiter.limit("10/minute")
 async def newsletter_subscribe(request: Request, body: SubscribeBody) -> JSONResponse:
@@ -248,6 +293,60 @@ async def newsletter_unsubscribe(request: Request, token: str = "") -> JSONRespo
         status_code=200,
         content={"message": "You have been unsubscribed."},
     )
+
+
+@router.get("/newsletter/feedback")
+@limiter.limit("30/minute")
+async def newsletter_feedback_click(
+    request: Request,
+    kind: str = "",
+    campaign: str | None = None,
+    utm_content: str | None = None,
+    conflict: str | None = None,
+    sid: str | None = None,
+) -> RedirectResponse:
+    """
+    One-click newsletter feedback (useful / not_useful). Always redirects to the public Daily Briefing.
+    """
+    normalized = (kind or "").strip().lower().replace("-", "_")
+    if normalized not in ("useful", "not_useful"):
+        normalized = "unknown"
+    _record_engagement(
+        event_type="newsletter_feedback_click",
+        event_source="email",
+        campaign=campaign,
+        utm_content=utm_content,
+        conflict=conflict,
+        session_id=sid,
+        path=str(request.url.path),
+        meta={"feedback": normalized},
+    )
+    destination = _frontend_daily_briefing_url()
+    if campaign:
+        destination = f"{destination}?{urlencode({'utm_source': 'newsletter', 'utm_medium': 'email', 'utm_campaign': campaign, 'utm_content': f'feedback_{normalized}'})}"
+    return RedirectResponse(url=destination, status_code=307)
+
+
+@router.post("/newsletter/track")
+@limiter.limit("120/minute")
+async def newsletter_track_event(request: Request, body: EngagementTrackBody) -> JSONResponse:
+    """
+    Lightweight engagement ingest for briefing/newsletter KPI baselines.
+    """
+    meta: dict[str, Any] = {}
+    if body.ttv_seconds is not None:
+        meta["ttv_seconds"] = round(float(body.ttv_seconds), 3)
+    _record_engagement(
+        event_type=body.event_type,
+        event_source=body.event_source,
+        campaign=body.campaign,
+        utm_content=body.utm_content,
+        conflict=body.conflict,
+        session_id=body.session_id,
+        path=body.path or str(request.url.path),
+        meta=meta,
+    )
+    return JSONResponse(status_code=200, content={"ok": True})
 
 
 async def run_daily_newsletter_job(app_state) -> tuple[list[str], int, bool]:
@@ -435,8 +534,25 @@ async def newsletter_ops_status(
         content={
             "subscribers": get_subscriber_stats(),
             "reminders": get_reminder_status(min_age_hours=min_age_hours, preview_limit=preview_limit),
+            "kpis": get_newsletter_kpi_baseline(days=14),
         },
     )
+
+
+@router.get("/newsletter/kpi-baseline")
+@limiter.limit("30/minute")
+async def newsletter_kpi_baseline(
+    request: Request,
+    days: int = 14,
+    x_newsletter_secret: str | None = Header(default=None, alias="X-Newsletter-Secret"),
+    x_newsletter_secret_legacy: str | None = Header(default=None, alias="X-NEWSLETTER-SECRET"),
+) -> JSONResponse:
+    """
+    KPI baseline for the last N days (default 14). Protected by NEWSLETTER_CRON_SECRET when set.
+    """
+    if not _is_valid_newsletter_secret(x_newsletter_secret, x_newsletter_secret_legacy):
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing X-Newsletter-Secret"})
+    return JSONResponse(status_code=200, content=get_newsletter_kpi_baseline(days=days))
 
 
 @router.post("/newsletter/sync-from-resend")

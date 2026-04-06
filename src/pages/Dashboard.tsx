@@ -24,6 +24,7 @@ import { SEO } from "@/components/SEO";
 import { PINNED_ONE_LINER } from "@/lib/seoCopy";
 import { CONFLICT_OPTIONS } from "@/components/dashboard/conflictData";
 import { CORE_THEATERS } from "@/lib/conflictReadiness";
+import { markNewsletterTouchNow, shouldCountAs24hReturn, trackKpiEvent } from "@/lib/briefingKpiTracking";
 const THREAT_BADGE_STYLES: Record<string, string> = {
   LOW: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   ELEVATED: "bg-warning/20 text-warning border-warning/30",
@@ -215,6 +216,30 @@ function DashboardContent() {
   const [leftPanelOpen, setLeftPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [agentExpanded, setAgentExpanded] = useState<string | null>(null);
+  const newsletterSessionTrackedRef = useRef(false);
+
+  useEffect(() => {
+    const source = searchParams.get("utm_source");
+    if (source !== "newsletter") return;
+    if (newsletterSessionTrackedRef.current) return;
+    newsletterSessionTrackedRef.current = true;
+    const campaign = searchParams.get("utm_campaign") ?? undefined;
+    const utmContent = searchParams.get("utm_content") ?? undefined;
+    const conflict = searchParams.get("conflict") ?? selectedConflict;
+    markNewsletterTouchNow();
+    trackKpiEvent("newsletter_slot_click", {
+      conflict,
+      campaign,
+      utmContent,
+    });
+    if (shouldCountAs24hReturn()) {
+      trackKpiEvent("return_24h_after_newsletter", {
+        conflict,
+        campaign,
+        utmContent,
+      });
+    }
+  }, [searchParams, selectedConflict]);
 
   const {
     data: conflictData,

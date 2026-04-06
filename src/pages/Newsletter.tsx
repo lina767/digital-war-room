@@ -72,6 +72,13 @@ export default function Newsletter() {
             </Link>{" "}
             for a one-line pitch, audience ladder, and content rhythm.
           </p>
+          <p className="text-muted-foreground text-xs">
+            For editorial optimization, use the{" "}
+            <Link to="/docs/documentation?doc=newsletter-weekly-experiment-cadence" className="text-primary hover:underline">
+              weekly experiment cadence
+            </Link>{" "}
+            to iterate subject/BLUF/CTA in controlled weekly cycles.
+          </p>
           <NewsletterSubscribeForm />
           <p className="text-muted-foreground text-xs">
             By subscribing you agree to our{" "}

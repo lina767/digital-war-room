@@ -28,6 +28,12 @@ export function FindingCard({ finding, expanded, onToggle }: FindingCardProps) {
       </div>
       <h3 className="mb-1 text-sm font-semibold">{finding.title}</h3>
       <p className="text-sm leading-relaxed text-[var(--text-primary)]">{finding.body}</p>
+      {finding.operationalImplication ? (
+        <p className="mt-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-elevated)]/30 px-2 py-1 text-xs leading-relaxed text-[var(--text-secondary)]">
+          <span className="briefing-mono text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">Operational implication: </span>
+          {finding.operationalImplication}
+        </p>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
         <span className={confidenceClass(finding.confidence)}>Confidence: {finding.confidence}</span>
         <span className="text-[var(--text-secondary)]">Source Tier: {finding.sourceTier}</span>
