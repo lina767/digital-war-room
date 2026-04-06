@@ -148,6 +148,7 @@ class DAGScheduler:
 
         pool = ThreadPoolExecutor(max_workers=self._max_workers)
         in_flight: Dict[Future, Tuple[str, float]] = {}
+        fallback_events = {"missing_executor": 0, "exec_failed": 0, "timed_out": 0}
         try:
             while sorter.is_active() or in_flight:
                 ready = sorter.get_ready() if sorter.is_active() else ()
@@ -157,6 +158,7 @@ class DAGScheduler:
                     if executor is None:
                         logger.warning("No executor for node '%s' – skipping", nid)
                         store.set(nid, node.fallback)
+                        fallback_events["missing_executor"] += 1
                         sorter.done(nid)
                         continue
                     t_submit = time.perf_counter()
@@ -183,6 +185,7 @@ class DAGScheduler:
                         wall_ms = (now - t_submit) * 1000
                         fb = node.fallback
                         store.set(nid, fb)
+                        fallback_events["exec_failed"] += 1
                         self._emit_agent_heartbeat(
                             nid, node, store, fb, wall_ms, timed_out=False, exec_failed=True
                         )
@@ -202,11 +205,14 @@ class DAGScheduler:
                     wall_ms = (now - t_submit) * 1000
                     fb = node.fallback
                     store.set(nid, fb)
+                    fallback_events["timed_out"] += 1
                     self._emit_agent_heartbeat(
                         nid, node, store, fb, wall_ms, timed_out=True, exec_failed=False
                     )
                     sorter.done(nid)
         finally:
+            if any(v > 0 for v in fallback_events.values()):
+                logger.warning("DAG fallback summary: %s", fallback_events)
             # Do not block the whole analysis run on stuck worker threads after timeout fallback.
             pool.shutdown(wait=False, cancel_futures=True)
         return store
@@ -256,6 +262,7 @@ class DAGScheduler:
 
         pool = ThreadPoolExecutor(max_workers=self._max_workers)
         in_flight: Dict[Future, Tuple[str, float]] = {}
+        fallback_events = {"missing_executor": 0, "exec_failed": 0, "timed_out": 0}
         try:
             while sorter.is_active() or in_flight:
                 ready = sorter.get_ready() if sorter.is_active() else ()
@@ -264,6 +271,7 @@ class DAGScheduler:
                     executor = executors.get(nid)
                     if executor is None:
                         store.set(nid, node.fallback)
+                        fallback_events["missing_executor"] += 1
                         sorter.done(nid)
                         if node.streamable:
                             yield (nid, node.fallback)
@@ -290,6 +298,7 @@ class DAGScheduler:
                         inner_ms = (now - t_submit) * 1000
                         timed_out = False
                         exec_failed = True
+                        fallback_events["exec_failed"] += 1
 
                     store.set(nid, result)
                     self._emit_agent_heartbeat(
@@ -312,6 +321,7 @@ class DAGScheduler:
                     result = node.fallback
                     inner_ms = (now - t_submit) * 1000
                     store.set(nid, result)
+                    fallback_events["timed_out"] += 1
                     self._emit_agent_heartbeat(
                         nid, node, store, result, inner_ms, timed_out=True, exec_failed=False
                     )
@@ -319,6 +329,8 @@ class DAGScheduler:
                     if node.streamable:
                         yield (nid, result)
         finally:
+            if any(v > 0 for v in fallback_events.values()):
+                logger.warning("DAG fallback summary (streaming): %s", fallback_events)
             # Same behavior as run(): avoid hanging on shutdown when a node thread is stuck.
             pool.shutdown(wait=False, cancel_futures=True)
 

@@ -261,6 +261,21 @@ class TestStreamable:
         assert store.get("a") == "data_a"
         assert store.get("b") == "data_b"
 
+    def test_streaming_timeout_yields_fallback_payload(self):
+        nodes = [
+            DAGNode(id="slow", node_type="agent", streamable=True, timeout_s=0.2, fallback={"score": 0, "fallback": True}),
+        ]
+        scheduler = DAGScheduler(nodes)
+        store = ResultStore()
+
+        def slow_exec(s):
+            time.sleep(3)
+            return {"score": 99}
+
+        events = list(scheduler.run_streaming({"slow": slow_exec}, store))
+        assert events == [("slow", {"score": 0, "fallback": True})]
+        assert store.get("slow") == {"score": 0, "fallback": True}
+
 
 # ---------------------------------------------------------------------------
 # Error handling

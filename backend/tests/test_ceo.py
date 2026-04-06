@@ -2,7 +2,7 @@
 Tests for CEO orchestrator: synthesis, delta-aware prompt, division-failure handling.
 """
 
-from agents.ceo import _build_ceo_prompt, _ceo_synthesize
+from agents.ceo import _all_divisions, _build_ceo_prompt, _build_full_dag, _ceo_synthesize
 from agents.dag_scheduler import ResultStore
 from agents.division import DivisionAnomaly, DivisionResult
 from agents.divisions import (
@@ -173,6 +173,60 @@ class TestCEOSynthesis:
         result = _ceo_synthesize("Iran", divisions, store)
         assert "divisions" in result
         assert "military" in result["divisions"]
+
+    def test_finding_gate_recovers_when_accepted_sparse(self, monkeypatch):
+        import os
+
+        os.environ["USE_RULE_BASED_SUPERVISOR"] = "1"
+        os.environ["CEO_MIN_KEY_FINDINGS"] = "2"
+        os.environ["FINDING_SIGNAL_GATE_MIN_ACCEPTED"] = "1"
+
+        def _fake_run_async(coro):
+            # Avoid un-awaited coroutine warnings in tests.
+            if hasattr(coro, "close"):
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+            return {
+                "accepted": [],
+                "archived": [
+                    {"text": "Recovered signal from archived shortlist", "total": 0.66},
+                    {"text": "Second archived signal for floor", "total": 0.62},
+                ],
+                "meta": {"gate": "test"},
+            }
+
+        monkeypatch.setattr("agents.ceo_synthesize.run_async", _fake_run_async)
+        store = _populated_store()
+        divisions = [
+            MilitaryDivision(),
+            FinancialDivision(),
+            InformationDivision(),
+            PoliticalDivision(),
+            TechnicalDivision(),
+        ]
+        result = _ceo_synthesize("Iran", divisions, store)
+        joined = " | ".join(result.get("key_findings") or [])
+        assert "Recovered signal from archived shortlist" in joined
+        assert len(result.get("key_findings") or []) >= 2
+        recovery = (result.get("synthesis_meta") or {}).get("finding_gate_recovery") or {}
+        assert recovery.get("recovered_n", 0) >= 1
+
+
+class TestCEODagFallbacks:
+    def test_critical_nodes_have_explicit_fallback_payloads(self):
+        nodes, _ = _build_full_dag(_all_divisions())
+        by_id = {n.id: n for n in nodes}
+
+        assert by_id["acled_refs"].fallback == []
+        assert by_id["compliance_build"].fallback == {"compliance": {}, "alerts": []}
+        assert isinstance(by_id["agent_context"].fallback, dict)
+        assert by_id["finint"].fallback.get("escalation_score") == 0.0
+        assert by_id["sigint"].fallback.get("sigint_score") == 0.0
+
+        agent_nodes = [n for n in nodes if n.node_type == "agent"]
+        assert all(n.fallback is not None for n in agent_nodes)
 
 
 class TestCEOPrompt:
