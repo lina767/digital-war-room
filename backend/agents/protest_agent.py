@@ -1,12 +1,11 @@
 """
-PROTEST / Civil Society Agent – ACLED protests & riots, GDELT protest events.
+PROTEST / Civil Society Agent — civil unrest and protest signals.
 
-Three data sources:
-1. ACLED Aggregated (real-time, weekly CSV from cookie-auth download)
-2. ACLED API (event-level, ~12-month lag on Research level)
-3. GDELT DOC 2.0 (real-time articles, free)
-
-Score combines aggregated weekly event counts with GDELT article coverage.
+Sources:
+1. ACLED aggregated weekly CSV (cookie refresh) and optional legacy Read-API (PROTEST_USE_ACLED_API)
+2. ACLED crisis/analysis pages scraped from region hubs (ACLED_CRISIS_HUB_URLS)
+3. GDELT DOC 2.0 (protest news), GDELT Events + GKG via BigQuery when configured
+4. HDX HAPI conflict-events (optional app id) and INFORM GCSI via HDX CKAN (XLSX)
 """
 
 import asyncio
@@ -20,7 +19,10 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from services.acled_crisis_scrape import fetch_acled_crisis_pages_async
 from services.acled_auth import get_acled_token_async, has_acled_oauth
+from services.gdelt_bigquery import fetch_gdelt_gkg_protest_context, fetch_gdelt_protest_events_summary
+from services.hdx_inform import fetch_inform_for_iso3
 
 from .contracts import get_agent_fallback
 from .utils import build_agent_meta, run_async
@@ -77,6 +79,17 @@ INTENSITY_KEYWORDS = [
 
 ACLED_STALE_DAYS = int((os.getenv("PROTEST_ACLED_STALE_DAYS") or "120").strip())
 ACLED_AGGREGATED_FRESH_DAYS = int((os.getenv("PROTEST_ACLED_FRESH_DAYS") or "14").strip())
+PROTEST_ASYNC_TIMEOUT_S = float((os.getenv("PROTEST_RUN_ASYNC_TIMEOUT_S") or "300").strip())
+
+
+def _use_acled_read_api() -> bool:
+    return (os.getenv("PROTEST_USE_ACLED_API") or "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _gkg_bq_sync(conflict: str) -> Dict[str, Any]:
+    iso3 = _iso3_from_conflict(conflict)
+    country = _conflict_to_country(conflict)
+    return fetch_gdelt_gkg_protest_context(conflict, iso3_list=iso3, country_names=[country])
 
 
 def _conflict_to_country(conflict: str) -> str:
@@ -243,6 +256,51 @@ def _compute_hdx_intensity_metrics(hdx_events: List[Dict[str, Any]]) -> Dict[str
         "protest_related_rows": float(protest_rows),
         "intensity_index": round(intensity, 3),
     }
+
+
+def _compute_gdelt_bq_protest_metrics(bq: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    if not bq or not bq.get("ok"):
+        return {"total_matched": 0.0, "protest_root_share": 0.0, "intensity_index": 0.0}
+    total = float(bq.get("total_matched") or 0)
+    by_root = bq.get("by_event_root") or []
+    pr = 0.0
+    for x in by_root:
+        if str(x.get("event_root_code") or "").strip() == "14":
+            pr += float(x.get("count") or 0)
+    share = (pr / total) if total > 0 else 0.0
+    # Scale: volume + emphasis on explicit protest root share
+    idx = min(3.0, (total / 1200.0) ** 0.5 + share * 2.2)
+    return {
+        "total_matched": total,
+        "protest_root_share": round(share, 4),
+        "intensity_index": round(idx, 3),
+    }
+
+
+def _compute_gkg_bq_metrics(gkg: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    if not gkg or not gkg.get("ok"):
+        return {"row_count": 0.0, "theme_ratio": 0.0, "intensity_index": 0.0}
+    rc = float(gkg.get("row_count") or 0)
+    ratio = float(gkg.get("protest_theme_ratio") or 0)
+    tone = gkg.get("avg_doc_tone")
+    neg = max(0.0, -float(tone)) if tone is not None else 0.0
+    idx = min(3.0, (ratio * 2.4) + min(1.5, neg / 6.0) + min(1.2, (rc / 8000.0) ** 0.5))
+    return {
+        "row_count": rc,
+        "theme_ratio": round(ratio, 4),
+        "intensity_index": round(idx, 3),
+    }
+
+
+def _compute_inform_risk_metrics(inform: Optional[Dict[str, Any]]) -> Dict[str, float]:
+    if not inform or not inform.get("ok"):
+        return {"severity": 0.0, "risk_index": 0.0}
+    mx = inform.get("max_severity")
+    mn = inform.get("mean_severity")
+    sev = float(mx if mx is not None else mn or 0.0)
+    # GCSI-style scores are model-specific; treat as 0–10 additive hints only
+    idx = min(3.5, max(0.0, sev) / 3.5)
+    return {"severity": round(sev, 3), "risk_index": round(idx, 3)}
 
 
 def _parse_iso_date(value: Any) -> Optional[datetime]:
@@ -635,6 +693,11 @@ def _compute_protest_score(
     gdelt_articles: List[Dict],
     hdx_events: Optional[List[Dict[str, Any]]] = None,
     aggregated: Optional[Dict] = None,
+    *,
+    gdelt_events_bq: Optional[Dict[str, Any]] = None,
+    gdelt_gkg_bq: Optional[Dict[str, Any]] = None,
+    acled_crisis_pages: Optional[List[Dict[str, Any]]] = None,
+    inform_risk: Optional[Dict[str, Any]] = None,
 ) -> tuple[float, Dict[str, Any]]:
     """Score 0-100 using dynamic 12-month baseline and velocity signals."""
     base = 20.0
@@ -645,11 +708,18 @@ def _compute_protest_score(
     severity_pts = 0.0
     gdelt_intensity_pts = 0.0
     hdx_intensity_pts = 0.0
+    gdelt_bq_pts = 0.0
+    gkg_pts = 0.0
+    crisis_pts = 0.0
+    inform_pts = 0.0
 
     metrics = _compute_dynamic_baseline_metrics(aggregated)
     sev = _compute_event_severity_mix(acled_events)
     gdelt_intensity = _compute_gdelt_intensity_metrics(gdelt_articles)
     hdx_intensity = _compute_hdx_intensity_metrics(hdx_events or [])
+    bq_ev = _compute_gdelt_bq_protest_metrics(gdelt_events_bq)
+    bq_gkg = _compute_gkg_bq_metrics(gdelt_gkg_bq)
+    inform_m = _compute_inform_risk_metrics(inform_risk)
     acled_stale = _is_acled_stale(acled_events)
     aggregated_fresh = _is_aggregated_fresh(aggregated)
     is_acled_fresh = bool(aggregated_fresh and not acled_stale)
@@ -753,6 +823,47 @@ def _compute_protest_score(
         hdx_intensity_pts = 3.0
     base += hdx_intensity_pts
 
+    # GDELT Events (BigQuery): unrest / protest-root mass in media events
+    bq_idx = bq_ev.get("intensity_index", 0.0)
+    if bq_idx >= 2.0:
+        gdelt_bq_pts = 14.0
+    elif bq_idx >= 1.3:
+        gdelt_bq_pts = 9.0
+    elif bq_idx >= 0.7:
+        gdelt_bq_pts = 5.0
+    base += gdelt_bq_pts
+
+    gkg_idx = bq_gkg.get("intensity_index", 0.0)
+    if gkg_idx >= 2.0:
+        gkg_pts = 10.0
+    elif gkg_idx >= 1.3:
+        gkg_pts = 6.0
+    elif gkg_idx >= 0.75:
+        gkg_pts = 3.0
+    base += gkg_pts
+
+    crisis_valid = [
+        p
+        for p in (acled_crisis_pages or [])
+        if isinstance(p, dict) and not p.get("error") and (p.get("excerpt") or p.get("title"))
+    ]
+    if len(crisis_valid) >= 6:
+        crisis_pts = 10.0
+    elif len(crisis_valid) >= 3:
+        crisis_pts = 6.0
+    elif len(crisis_valid) >= 1:
+        crisis_pts = 3.0
+    base += crisis_pts
+
+    inf_idx = inform_m.get("risk_index", 0.0)
+    if inf_idx >= 2.5:
+        inform_pts = 6.0
+    elif inf_idx >= 1.5:
+        inform_pts = 4.0
+    elif inf_idx >= 0.8:
+        inform_pts = 2.0
+    base += inform_pts
+
     score = min(100.0, max(0.0, base))
     breakdown: Dict[str, Any] = {
         "base": 20.0,
@@ -763,6 +874,10 @@ def _compute_protest_score(
         "severity_mix": round(severity_pts * acled_weight, 1),
         "gdelt_intensity": round(gdelt_intensity_pts * gdelt_weight, 1),
         "hdx_intensity": round(hdx_intensity_pts, 1),
+        "gdelt_events_bq": round(gdelt_bq_pts, 1),
+        "gdelt_gkg_bq": round(gkg_pts, 1),
+        "acled_crisis_pages": round(crisis_pts, 1),
+        "inform_risk": round(inform_pts, 1),
         "gdelt_primary_mode": gdelt_primary_mode,
         "acled_stale": acled_stale,
         "is_acled_fresh": is_acled_fresh,
@@ -780,6 +895,11 @@ def _build_summary(
     hdx_events: Optional[List[Dict[str, Any]]],
     score: float,
     aggregated: Optional[Dict] = None,
+    *,
+    gdelt_events_bq: Optional[Dict[str, Any]] = None,
+    gdelt_gkg_bq: Optional[Dict[str, Any]] = None,
+    acled_crisis_pages: Optional[List[Dict[str, Any]]] = None,
+    inform_risk: Optional[Dict[str, Any]] = None,
 ) -> str:
     parts = []
     agg = aggregated or {}
@@ -834,25 +954,58 @@ def _build_summary(
         )
         if hdi.get("intensity_index", 0.0) >= 1.4:
             parts.append("HDX conflict-events confirm elevated on-ground intensity.")
+    if gdelt_events_bq and gdelt_events_bq.get("ok") and (gdelt_events_bq.get("total_matched") or 0) > 0:
+        tm = int(gdelt_events_bq.get("total_matched") or 0)
+        parts.append(
+            f"GDELT Events (BQ, {gdelt_events_bq.get('lookback_days', '?')}d): {tm} coded unrest/protest-root events for query."
+        )
+    if gdelt_gkg_bq and gdelt_gkg_bq.get("ok") and (gdelt_gkg_bq.get("row_count") or 0) > 0:
+        parts.append(
+            f"GDELT GKG: {gdelt_gkg_bq.get('row_count')} rows; "
+            f"protest-theme share {float(gdelt_gkg_bq.get('protest_theme_ratio') or 0):.2f}."
+        )
+    crisis_ok = [
+        p
+        for p in (acled_crisis_pages or [])
+        if isinstance(p, dict) and not p.get("error") and (p.get("excerpt") or p.get("title"))
+    ]
+    if crisis_ok:
+        parts.append(f"ACLED crisis briefs: {len(crisis_ok)} curated pages scraped.")
+    if inform_risk and inform_risk.get("ok") and inform_risk.get("matched"):
+        sev = inform_risk.get("max_severity")
+        parts.append(
+            f"INFORM (HDX): structural severity context for target countries"
+            + (f" (max {sev:.2f})." if sev is not None else ".")
+        )
     if not parts:
         return "PROTEST: No ACLED or GDELT protest data available."
     return "PROTEST: " + " ".join(parts)
 
 
-async def _cluster_protest_events_haiku(acled_events: List[Dict]) -> Optional[str]:
-    """Use Haiku to summarize ACLED events as 2-4 protest clusters (location, count, grievance)."""
+async def _cluster_protest_events_haiku(
+    acled_events: List[Dict],
+    crisis_pages: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    """Summarize ACLED API events and/or curated crisis briefs as protest clusters."""
     valid = [e for e in acled_events if isinstance(e, dict) and "error" not in e][:20]
-    if not valid:
-        return None
     lines = []
     for i, e in enumerate(valid, 1):
         loc = e.get("location") or e.get("country") or "Unknown"
         etype = e.get("event_type") or e.get("sub_event_type") or "Protest"
         notes = (e.get("notes") or "").strip()[:150]
         lines.append(f"Event {i}: {loc}, {etype}, {notes}")
+    for j, p in enumerate((crisis_pages or [])[:10], 1):
+        if not isinstance(p, dict) or p.get("error"):
+            continue
+        ex = (p.get("excerpt") or "").strip()[:220]
+        ti = (p.get("title") or p.get("url") or "").strip()[:120]
+        if ex or ti:
+            lines.append(f"Crisis brief {j}: {ti}. {ex}")
+    if not lines:
+        return None
     text = (
         "Identify 2-4 protest clusters by geography and cause. For each cluster give: location, "
-        "approximate event count, and primary grievance.\n\nProtest events:\n" + "\n".join(lines)
+        "approximate event count, and primary grievance.\n\nSignals:\n" + "\n".join(lines)
     )
     try:
         from services.haiku_service import summarize
@@ -872,7 +1025,7 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
 
     async def _run() -> Dict[str, Any]:
         diagnostics: List[Dict[str, str]] = []
-        # Run refresh + local CSV load + remote fetches concurrently.
+
         def _refresh_aggregated_safe() -> None:
             try:
                 from services.acled_aggregated import refresh_acled_aggregated
@@ -881,24 +1034,54 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
             except Exception as e:
                 logger.debug("ACLED aggregated refresh skipped: %s", e)
 
-        refresh_task = asyncio.to_thread(_refresh_aggregated_safe)
-        aggregated_task = asyncio.to_thread(_load_acled_aggregated, conflict)
-        acled_task = _fetch_acled_protests("", conflict)
+        await asyncio.to_thread(_refresh_aggregated_safe)
+        aggregated = await asyncio.to_thread(_load_acled_aggregated, conflict)
+
+        use_acled_api = _use_acled_read_api()
+
+        async def _empty_acled() -> List[Dict[str, Any]]:
+            return []
+
+        acled_task = _fetch_acled_protests("", conflict) if use_acled_api else _empty_acled()
         gdelt_task = _fetch_gdelt_protest(conflict)
         hdx_task = _fetch_hdx_hapi_protest(conflict)
-        _, aggregated, acled_events, gdelt_articles, hdx_events = await asyncio.gather(
-            refresh_task,
-            aggregated_task,
+        gdelt_bq_task = asyncio.to_thread(fetch_gdelt_protest_events_summary, conflict)
+        gkg_task = asyncio.to_thread(_gkg_bq_sync, conflict)
+        crisis_task = fetch_acled_crisis_pages_async(conflict)
+        inform_task = asyncio.to_thread(fetch_inform_for_iso3, _iso3_from_conflict(conflict))
+
+        (
+            acled_events,
+            gdelt_articles,
+            hdx_events,
+            gdelt_events_bq,
+            gdelt_gkg_bq,
+            acled_crisis_pages,
+            inform_risk,
+        ) = await asyncio.gather(
             acled_task,
             gdelt_task,
             hdx_task,
+            gdelt_bq_task,
+            gkg_task,
+            crisis_task,
+            inform_task,
         )
-        if not has_acled_oauth():
+
+        if use_acled_api and not has_acled_oauth():
             diagnostics.append(
                 {
                     "source": "ACLED-API",
                     "reason": "missing_oauth_credentials",
                     "fix_hint": "Set ACLED_EMAIL and ACLED_PASSWORD in backend/.env.",
+                }
+            )
+        if not use_acled_api:
+            diagnostics.append(
+                {
+                    "source": "ACLED-API",
+                    "reason": "disabled",
+                    "fix_hint": "Legacy Read-API off (default). Set PROTEST_USE_ACLED_API=1 to enable.",
                 }
             )
         if not aggregated.get("weeks"):
@@ -942,13 +1125,72 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
                     "fix_hint": "Verify app identifier and access to hapi.humdata.org.",
                 }
             )
-        protest_score, score_breakdown = _compute_protest_score(acled_events, gdelt_articles, hdx_events, aggregated)
+        if not gdelt_events_bq.get("ok"):
+            diagnostics.append(
+                {
+                    "source": "GDELT-Events-BQ",
+                    "reason": str(gdelt_events_bq.get("reason") or gdelt_events_bq.get("error") or "skipped_or_failed"),
+                    "fix_hint": "Enable GDELT_BQ_ENABLED, install google-cloud-bigquery, set GCP credentials.",
+                }
+            )
+        if not gdelt_gkg_bq.get("ok"):
+            diagnostics.append(
+                {
+                    "source": "GDELT-GKG-BQ",
+                    "reason": str(gdelt_gkg_bq.get("reason") or gdelt_gkg_bq.get("error") or "skipped_or_failed"),
+                    "fix_hint": "Same as Events-BQ; set PROTEST_GKG_BQ_ENABLED=0 to silence GKG attempts.",
+                }
+            )
+        crisis_ok_n = len(
+            [
+                p
+                for p in (acled_crisis_pages or [])
+                if isinstance(p, dict) and not p.get("error") and (p.get("excerpt") or p.get("title"))
+            ]
+        )
+        if crisis_ok_n == 0:
+            diagnostics.append(
+                {
+                    "source": "ACLED-Crisis",
+                    "reason": "no_pages",
+                    "fix_hint": "Check ACLED_CRISIS_HUB_URLS and outbound access to acleddata.com.",
+                }
+            )
+        if not inform_risk.get("ok"):
+            diagnostics.append(
+                {
+                    "source": "INFORM-HDX",
+                    "reason": str(inform_risk.get("reason") or inform_risk.get("error") or "fetch_failed"),
+                    "fix_hint": "Set INFORM_HDX_PACKAGE if the default CKAN slug changed; ensure openpyxl installed.",
+                }
+            )
+
+        protest_score, score_breakdown = _compute_protest_score(
+            acled_events,
+            gdelt_articles,
+            hdx_events,
+            aggregated,
+            gdelt_events_bq=gdelt_events_bq,
+            gdelt_gkg_bq=gdelt_gkg_bq,
+            acled_crisis_pages=acled_crisis_pages,
+            inform_risk=inform_risk,
+        )
         dynamic_metrics = _compute_dynamic_baseline_metrics(aggregated)
         severity_mix = _compute_event_severity_mix(acled_events)
         gdelt_intensity = _compute_gdelt_intensity_metrics(gdelt_articles)
         hdx_intensity = _compute_hdx_intensity_metrics(hdx_events)
-        base_summary = _build_summary(acled_events, gdelt_articles, hdx_events, protest_score, aggregated)
-        cluster_summary = await _cluster_protest_events_haiku(acled_events)
+        base_summary = _build_summary(
+            acled_events,
+            gdelt_articles,
+            hdx_events,
+            protest_score,
+            aggregated,
+            gdelt_events_bq=gdelt_events_bq,
+            gdelt_gkg_bq=gdelt_gkg_bq,
+            acled_crisis_pages=acled_crisis_pages,
+            inform_risk=inform_risk,
+        )
+        cluster_summary = await _cluster_protest_events_haiku(acled_events, acled_crisis_pages)
         if cluster_summary:
             summary = f"{base_summary} Clusters: {cluster_summary}"
         else:
@@ -964,6 +1206,10 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
             "severity_mix": severity_mix,
             "gdelt_intensity": gdelt_intensity,
             "hdx_intensity": hdx_intensity,
+            "gdelt_events_bigquery": gdelt_events_bq,
+            "gdelt_gkg_bigquery": gdelt_gkg_bq,
+            "acled_crisis_pages": acled_crisis_pages,
+            "inform_risk": inform_risk,
             "diagnostics": diagnostics,
             "summary": summary,
         }
@@ -971,22 +1217,37 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
     start = time.perf_counter()
     fetched_at = utc_now_iso()
     try:
-        out = run_async(_run())
+        out = run_async(_run(), timeout_s=PROTEST_ASYNC_TIMEOUT_S)
         duration_ms = int((time.perf_counter() - start) * 1000)
         events = out.get("protest_events") or []
         articles = out.get("protest_articles") or []
         hdx_rows = out.get("hdx_conflict_events") or []
         agg = out.get("acled_aggregated") or {}
         diagnostics = out.get("diagnostics") or []
+        gdelt_ev_bq = out.get("gdelt_events_bigquery") or {}
+        gdelt_gkg = out.get("gdelt_gkg_bigquery") or {}
+        crisis_pages = out.get("acled_crisis_pages") or []
+        inform_rr = out.get("inform_risk") or {}
 
         acled_error_blob = _result_is_error_blob(events)
         gdelt_error_blob = _result_is_error_blob(articles)
         hdx_error_blob = _result_is_error_blob(hdx_rows)
 
-        acled_ok = bool(events and not acled_error_blob)
+        use_api = _use_acled_read_api()
+        acled_ok = bool(use_api and events and not acled_error_blob)
+        crisis_ok_n = len(
+            [
+                p
+                for p in crisis_pages
+                if isinstance(p, dict) and not p.get("error") and (p.get("excerpt") or p.get("title"))
+            ]
+        )
         gdelt_ok = bool(articles and not gdelt_error_blob)
         hdx_ok = bool(hdx_rows and not hdx_error_blob)
         agg_ok = bool(agg.get("weeks"))
+        bq_ev_ok = bool(gdelt_ev_bq.get("ok") and int(gdelt_ev_bq.get("total_matched") or 0) > 0)
+        gkg_ok = bool(gdelt_gkg.get("ok") and int(gdelt_gkg.get("row_count") or 0) > 0)
+        inform_ok = bool(inform_rr.get("ok") and inform_rr.get("match_count", 0) > 0)
         source_results = [
             SourceResult(
                 name="ACLED-Aggregated",
@@ -997,14 +1258,33 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
             ),
             SourceResult(
                 name="ACLED-API",
-                status="ok" if acled_ok else "degraded",
+                status=(
+                    "ok"
+                    if acled_ok
+                    else ("degraded" if use_api else "degraded")
+                ),
                 fetched_at=fetched_at,
                 record_count=len(events) if not acled_error_blob else 0,
                 error=(
                     None
                     if acled_ok
-                    else ("missing_oauth_credentials" if not has_acled_oauth() else "no_events_returned_or_request_failed")
+                    else (
+                        "protest_use_acled_api_disabled"
+                        if not use_api
+                        else (
+                            "missing_oauth_credentials"
+                            if not has_acled_oauth()
+                            else "no_events_returned_or_request_failed"
+                        )
+                    )
                 ),
+            ),
+            SourceResult(
+                name="ACLED-Crisis",
+                status="ok" if crisis_ok_n > 0 else "degraded",
+                fetched_at=fetched_at,
+                record_count=crisis_ok_n,
+                error=None if crisis_ok_n > 0 else "no_crisis_pages",
             ),
             SourceResult(
                 name="GDELT",
@@ -1022,6 +1302,28 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
                 ),
             ),
             SourceResult(
+                name="GDELT-Events-BQ",
+                status="ok" if bq_ev_ok else "degraded",
+                fetched_at=fetched_at,
+                record_count=int(gdelt_ev_bq.get("total_matched") or 0) if bq_ev_ok else 0,
+                error=(
+                    None
+                    if bq_ev_ok
+                    else str(gdelt_ev_bq.get("reason") or gdelt_ev_bq.get("error") or "no_bigquery_hits")
+                ),
+            ),
+            SourceResult(
+                name="GDELT-GKG-BQ",
+                status="ok" if gkg_ok else "degraded",
+                fetched_at=fetched_at,
+                record_count=int(gdelt_gkg.get("row_count") or 0) if gkg_ok else 0,
+                error=(
+                    None
+                    if gkg_ok
+                    else str(gdelt_gkg.get("reason") or gdelt_gkg.get("error") or "no_bigquery_hits")
+                ),
+            ),
+            SourceResult(
                 name="HDX HAPI",
                 status=("ok" if hdx_ok else ("error" if hdx_error_blob else "degraded")),
                 fetched_at=fetched_at,
@@ -1036,12 +1338,27 @@ def run_protest_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> 
                     )
                 ),
             ),
+            SourceResult(
+                name="INFORM-HDX",
+                status="ok" if inform_ok else "degraded",
+                fetched_at=fetched_at,
+                record_count=int(inform_rr.get("match_count") or 0) if inform_ok else 0,
+                error=None if inform_ok else str(inform_rr.get("error") or inform_rr.get("reason") or "no_inform_rows"),
+            ),
         ]
         reg = get_health_registry()
         if reg:
             for sr in source_results:
                 reg.record_result(sr.name, "protest", sr)
-        has_data = bool(events or articles or agg.get("weeks"))
+        has_data = bool(
+            events
+            or articles
+            or agg.get("weeks")
+            or bq_ev_ok
+            or gkg_ok
+            or crisis_ok_n
+            or inform_ok
+        )
         out["_meta"] = build_agent_meta("protest", fetched_at, duration_ms, source_results, has_any_data=has_data)
         out["diagnostics"] = diagnostics
         return out

@@ -229,6 +229,10 @@ class ProtestResult(BaseAgentResult):
     protest_events: List[Dict[str, Any]] = Field(default_factory=list)
     protest_articles: List[Dict[str, Any]] = Field(default_factory=list)
     acled_aggregated: Dict[str, Any] = Field(default_factory=dict)
+    gdelt_events_bigquery: Dict[str, Any] = Field(default_factory=dict)
+    gdelt_gkg_bigquery: Dict[str, Any] = Field(default_factory=dict)
+    acled_crisis_pages: List[Dict[str, Any]] = Field(default_factory=list)
+    inform_risk: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

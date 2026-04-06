@@ -43,7 +43,7 @@ def reset_analysis_run_id(token: contextvars.Token) -> None:
     _analysis_run_id_ctx.reset(token)
 
 
-def run_async(coro):
+def run_async(coro, *, timeout_s: float = 120):
     """Run an async coroutine from synchronous code.
 
     Works even when an event loop is already running in the current thread
@@ -63,7 +63,7 @@ def run_async(coro):
     except RuntimeError:
         return _run()
     future = _ASYNC_POOL.submit(_run)
-    return future.result(timeout=120)
+    return future.result(timeout=timeout_s)
 
 
 # ── Type-safe conversions ─────────────────────────────────────────────────
