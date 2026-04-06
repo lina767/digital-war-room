@@ -135,18 +135,18 @@ export async function getLatestAnalysis(conflict: string): Promise<LatestAnalysi
   }
 }
 
-/** Response from GET /api/analyze/refresh when analysis is started in background. */
+/** Response from POST /api/analyze/refresh when analysis is started in background. */
 export interface TriggerRefreshResponse {
   status: string;
   conflict: string;
   message?: string;
 }
 
-/** GET /api/analyze/refresh – trigger a background analysis. Returns body on success; throws on network error or non-2xx. */
+/** POST /api/analyze/refresh – trigger a background analysis. Returns body on success; throws on network error or non-2xx. */
 export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerRefreshResponse> {
   try {
     const res = await apiFetch(apiUrl("analyze/refresh", { conflict }), {
-      method: "GET",
+      method: "POST",
       timeoutMs: 15_000,
     });
     const body = (await res.json().catch(() => ({}))) as TriggerRefreshResponse & { error?: string };

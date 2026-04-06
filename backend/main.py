@@ -3,8 +3,7 @@ import os
 import asyncio
 import uuid
 from collections import deque
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -26,19 +25,14 @@ from middleware.tenant_context import TenantContextMiddleware
 from api.routes import router as api_router
 from api.pdf_export import router as pdf_router
 from api.greynoise import router as greynoise_router
-from agents.config import CORS_ORIGINS, GREYNOISE_API_KEY, GREYNOISE_SCHEDULER_INTERVAL_SEC
+from agents.config import CORS_ORIGINS
 from observability import init as init_observability
 from services.job_queue import JobQueue
-from services.http_client import get_http_client, close_http_client
+from services.http_client import close_http_client
+from services.startup_tasks import start_startup_tasks, stop_startup_tasks
 from services.state_service import StateService
 from services.tenant_auth import build_request_context
-from app_lifecycle import create_periodic_analysis_task
-from settings import settings
 from agents.socmint_agent import scrape_twitter_nitter, scrape_telegram_channels, search_reddit
-
-AUTO_ANALYZE_CONFLICT = settings.auto_analyze_conflict
-AUTO_ANALYZE_INTERVAL_SEC = settings.auto_analyze_interval_sec
-AUTO_ANALYZE_TIMEOUT_SEC = settings.auto_analyze_timeout_sec
 
 
 class ConnectionManager:
@@ -95,232 +89,11 @@ async def lifespan(app: FastAPI):
     app.state.analysis_run_history = deque(maxlen=50)
     app.state.job_queue = JobQueue()
     app.state.ws_manager = ConnectionManager()
-
-    # Defer ACLED download/parse to a background task so the ASGI server can bind and
-    # pass platform healthchecks (Railway, etc.) immediately. refresh_acled_aggregated()
-    # can block on network I/O for minutes when credentials are set and data is stale.
-    async def _acled_startup_refresh() -> None:
-        try:
-            from services.acled_aggregated import refresh_acled_aggregated
-
-            await asyncio.to_thread(refresh_acled_aggregated)
-            logger.info("ACLED aggregated data checked/refreshed at startup")
-        except Exception as e:
-            logger.warning("ACLED aggregated startup refresh failed: %s", e)
-
-    acled_task = asyncio.create_task(_acled_startup_refresh())
-
-    analysis_task = create_periodic_analysis_task(
-        app,
-        conflict=AUTO_ANALYZE_CONFLICT,
-        interval_sec=AUTO_ANALYZE_INTERVAL_SEC,
-        timeout_sec=AUTO_ANALYZE_TIMEOUT_SEC,
-        logger=logger,
-    )
-    worker_task = asyncio.create_task(app.state.job_queue.worker())
-
-    # GreyNoise Emerging Threats scheduler (6h cycle + daily tag discovery)
-    greynoise_task = None
-    greynoise_discovery_task = None
-    if GREYNOISE_API_KEY:
-
-        async def run_greynoise_scheduler():
-            from agents.greynoise_agent import run_greynoise_scheduler_cycle
-
-            await asyncio.sleep(15)
-            while True:
-                try:
-                    await run_greynoise_scheduler_cycle()
-                    logger.info("GreyNoise scheduler cycle complete.")
-                except Exception as e:
-                    logger.warning("GreyNoise scheduler error: %s", e)
-                await asyncio.sleep(GREYNOISE_SCHEDULER_INTERVAL_SEC)
-
-        async def run_greynoise_tag_discovery():
-            from agents.greynoise_agent import run_tag_discovery_cycle
-
-            await asyncio.sleep(60)
-            while True:
-                try:
-                    await run_tag_discovery_cycle()
-                except Exception as e:
-                    logger.warning("GreyNoise tag discovery error: %s", e)
-                await asyncio.sleep(86400)  # once daily
-
-        greynoise_task = asyncio.create_task(run_greynoise_scheduler())
-        greynoise_discovery_task = asyncio.create_task(run_greynoise_tag_discovery())
-
-    retention_task = None
-    if settings.retention_enabled:
-
-        async def _retention_loop() -> None:
-            from services.retention_worker import run_retention_once
-
-            await asyncio.sleep(30)
-            while True:
-                try:
-                    result = await run_retention_once()
-                    logger.info("Retention job completed: %s", result)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning("Retention job error: %s", e)
-                await asyncio.sleep(settings.retention_interval_sec)
-
-        retention_task = asyncio.create_task(_retention_loop())
-
-    # Newsletter daily job: default 10:00 Europe/Berlin (CET/CEST); run analysis then send emails.
-    # NEWSLETTER_IN_PROCESS_SCHEDULER=false when using only external cron (POST /api/newsletter/send-daily).
-    newsletter_task = None
-    newsletter_reminder_task = None
-    if (os.getenv("RESEND_API_KEY") or "").strip() and (os.getenv("NEWSLETTER_FROM") or "").strip():
-        try:
-            from services.newsletter_sender import log_newsletter_deliverability_hints
-
-            log_newsletter_deliverability_hints()
-        except Exception:
-            pass
-        in_process = settings.newsletter_in_process_scheduler
-        if in_process:
-            def _seconds_until_next_send() -> float:
-                """
-                Next run: default 10:00 in Europe/Berlin (CET/CEST). Override via
-                NEWSLETTER_SEND_TIMEZONE, NEWSLETTER_SEND_HOUR, NEWSLETTER_SEND_MINUTE.
-                Legacy: if NEWSLETTER_SEND_UTC_HOUR is set in the environment, use that UTC hour instead.
-                """
-                if "NEWSLETTER_SEND_UTC_HOUR" in os.environ:
-                    try:
-                        send_hour = int(os.getenv("NEWSLETTER_SEND_UTC_HOUR", "6"), 10)
-                    except ValueError:
-                        send_hour = 6
-                    send_hour = max(0, min(23, send_hour))
-                    now = datetime.now(timezone.utc)
-                    next_run = now.replace(hour=send_hour, minute=0, second=0, microsecond=0)
-                    if next_run <= now:
-                        next_run = next_run + timedelta(days=1)
-                    return max(60.0, (next_run - now).total_seconds())
-
-                tz_name = settings.newsletter_send_timezone
-                try:
-                    tz = ZoneInfo(tz_name)
-                except Exception:
-                    logger.warning("Invalid NEWSLETTER_SEND_TIMEZONE=%r; using Europe/Berlin", tz_name)
-                    tz = ZoneInfo("Europe/Berlin")
-                hour = settings.newsletter_send_hour
-                minute = settings.newsletter_send_minute
-                now = datetime.now(tz)
-                next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if next_run <= now:
-                    next_run = next_run + timedelta(days=1)
-                return max(60.0, (next_run - now).total_seconds())
-
-            _first_delay = _seconds_until_next_send()
-            if "NEWSLETTER_SEND_UTC_HOUR" in os.environ:
-                logger.info(
-                    "Newsletter in-process scheduler: NEWSLETTER_SEND_UTC_HOUR=%s (UTC); first run in %.0f s",
-                    os.getenv("NEWSLETTER_SEND_UTC_HOUR"),
-                    _first_delay,
-                )
-            else:
-                _tz = settings.newsletter_send_timezone
-                _h = settings.newsletter_send_hour
-                _m = settings.newsletter_send_minute
-                logger.info(
-                    "Newsletter in-process scheduler: daily send at %02d:%02d %s; first run in %.0f s",
-                    _h,
-                    _m,
-                    _tz,
-                    _first_delay,
-                )
-
-            async def _newsletter_loop():
-                from api.routes_newsletter import run_daily_newsletter_job
-
-                while True:
-                    delay = _seconds_until_next_send()
-                    await asyncio.sleep(delay)
-                    try:
-                        conflicts, sent, skipped_dup = await run_daily_newsletter_job(app.state)
-                        if skipped_dup:
-                            logger.info("Newsletter daily job: skipped (already completed today)")
-                        elif conflicts or sent:
-                            logger.info("Newsletter daily job: conflicts=%s sent=%d", conflicts, sent)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as e:
-                        logger.warning("Newsletter daily job error: %s", e)
-
-            newsletter_task = asyncio.create_task(_newsletter_loop())
-        else:
-            logger.info(
-                "Newsletter in-process scheduler disabled (NEWSLETTER_IN_PROCESS_SCHEDULER=false); "
-                "use cron for POST /api/newsletter/send-daily"
-            )
-
-        async def _newsletter_reminder_loop() -> None:
-            from services.newsletter_sender import send_confirmation_email
-            from services.newsletter_store import (
-                list_pending_reminder_candidates,
-                mark_confirmation_reminder_sent,
-            )
-
-            await asyncio.sleep(60)
-            while True:
-                try:
-                    candidates = list_pending_reminder_candidates(
-                        min_age_hours=settings.newsletter_reminder_hours,
-                        limit=settings.newsletter_reminder_batch_size,
-                    )
-                    reminded = 0
-                    for row in candidates:
-                        sent = await send_confirmation_email(
-                            row["email"],
-                            row["conflict"],
-                            row["confirm_token"],
-                            reminder=True,
-                        )
-                        if sent and mark_confirmation_reminder_sent(
-                            row["email"], row["confirm_token"], tenant_id=row.get("tenant_id")
-                        ):
-                            reminded += 1
-                    if candidates:
-                        logger.info(
-                            "Newsletter reminder sweep: candidates=%d reminded=%d (age>= %dh)",
-                            len(candidates),
-                            reminded,
-                            settings.newsletter_reminder_hours,
-                        )
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning("Newsletter reminder loop error: %s", e)
-                await asyncio.sleep(settings.newsletter_reminder_check_interval_sec)
-
-        newsletter_reminder_task = asyncio.create_task(_newsletter_reminder_loop())
-
-    # Ensure shared HTTP client is created early (so DNS pools etc. warm up)
-    get_http_client()
+    startup_tasks = start_startup_tasks(app, logger)
 
     yield
 
-    tasks_to_cancel = [analysis_task, worker_task, acled_task]
-    if greynoise_task:
-        tasks_to_cancel.append(greynoise_task)
-    if greynoise_discovery_task:
-        tasks_to_cancel.append(greynoise_discovery_task)
-    if newsletter_task:
-        tasks_to_cancel.append(newsletter_task)
-    if newsletter_reminder_task:
-        tasks_to_cancel.append(newsletter_reminder_task)
-    if retention_task:
-        tasks_to_cancel.append(retention_task)
-    for task in tasks_to_cancel:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
+    await stop_startup_tasks(startup_tasks)
     await close_http_client()
 
 

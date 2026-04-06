@@ -24,7 +24,7 @@ Authentication: endpoints do not require auth unless noted. CORS is configured v
 | GET | `/api/analyze/status` | Lightweight: whether cache exists, last update time, and last background run error. Query: `conflict`. |
 | GET | `/api/analyze/timeline` | Escalation score over time for the conflict. Query: `conflict`. |
 | POST | `/api/analyze` | Returns cached analysis only (same as GET latest). Body: `{"conflict": "Iran"}`. 503 if no cache. |
-| GET | `/api/analyze/refresh` | Kicks off a full analysis in the background; returns immediately. Query: `conflict`, optional `sync=true` (blocking; may timeout). |
+| POST | `/api/analyze/refresh` | Kicks off a full analysis in the background; returns immediately. Query: `conflict`, optional `sync=true` (blocking; may timeout). |
 | POST | `/api/analyze/trigger` | Triggers a full analysis (optional secret via header `X-Trigger-Secret` and env `ANALYZE_TRIGGER_SECRET`). Query: `conflict`. |
 
 ---

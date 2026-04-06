@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -40,6 +40,11 @@ from .state_helpers import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+REFRESH_DEPRECATION_HEADERS = {
+    "Deprecation": "true",
+    "Sunset": "Wed, 31 Dec 2026 23:59:59 GMT",
+    "Link": '</api/analyze/refresh>; rel="successor-version"; title="Use POST /api/analyze/refresh"',
+}
 
 
 def _run_analyze_in_context(ctx: Any, conflict: str) -> Any:
@@ -120,6 +125,14 @@ def _try_mark_inflight(app_state: Any, key: str) -> bool:
 
 def _clear_inflight(app_state: Any, key: str) -> None:
     _ensure_inflight_registry(app_state).pop(key, None)
+
+
+def _with_refresh_deprecation_headers(result: Any) -> Response:
+    if isinstance(result, Response):
+        for k, v in REFRESH_DEPRECATION_HEADERS.items():
+            result.headers[k] = v
+        return result
+    return JSONResponse(content=result, headers=REFRESH_DEPRECATION_HEADERS)
 
 
 @router.get("/analyze/stream")
@@ -377,9 +390,7 @@ async def analyze(request: Request, body: AnalyzeRequest) -> Any:
     return AnalysisResult.model_validate(entry["result"])
 
 
-@router.get("/analyze/refresh")
-@limiter.limit("10/minute")
-async def refresh_analysis(
+async def _refresh_analysis_impl(
     request: Request,
     state: StateServiceDep,
     ws_manager: WsManagerDep,
@@ -387,7 +398,7 @@ async def refresh_analysis(
     sync: bool = False,
 ) -> Any:
     """
-    GET /analyze/refresh?conflict=Iran
+    /analyze/refresh?conflict=Iran
     Kicks off a full analysis in the background and returns immediately.
     Add &sync=true to run synchronously and see errors (may timeout on Railway).
     On failure, error is stored and returned via GET /analyze/status.
@@ -473,6 +484,54 @@ async def refresh_analysis(
         "conflict": conflict,
         "message": "Analysis running in background. Poll /api/analyze/status to check.",
     }
+
+
+@router.post("/analyze/refresh")
+@limiter.limit("10/minute")
+async def refresh_analysis(
+    request: Request,
+    state: StateServiceDep,
+    ws_manager: WsManagerDep,
+    conflict: str = DEFAULT_CONFLICT,
+    sync: bool = False,
+) -> Any:
+    """
+    POST /analyze/refresh?conflict=Iran
+    Kicks off a full analysis in the background and returns immediately.
+    Add &sync=true to run synchronously and see errors (may timeout on Railway).
+    On failure, error is stored and returned via GET /api/analyze/status.
+    """
+    return await _refresh_analysis_impl(
+        request=request,
+        state=state,
+        ws_manager=ws_manager,
+        conflict=conflict,
+        sync=sync,
+    )
+
+
+@router.get("/analyze/refresh")
+@limiter.limit("10/minute")
+async def refresh_analysis_legacy_get(
+    request: Request,
+    state: StateServiceDep,
+    ws_manager: WsManagerDep,
+    conflict: str = DEFAULT_CONFLICT,
+    sync: bool = False,
+) -> Any:
+    """
+    Legacy GET alias for /analyze/refresh.
+    Prefer POST for side-effecting trigger requests.
+    """
+    logger.warning("Deprecated GET /api/analyze/refresh called; prefer POST.")
+    result = await _refresh_analysis_impl(
+        request=request,
+        state=state,
+        ws_manager=ws_manager,
+        conflict=conflict,
+        sync=sync,
+    )
+    return _with_refresh_deprecation_headers(result)
 
 
 @router.post("/analyze/trigger")

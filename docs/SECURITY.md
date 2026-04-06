@@ -8,7 +8,7 @@ Das Backend unterstützt **Multi-Tenancy** mit mandantenspezifischen Daten in Po
 
 - **Umsetzung:** `slowapi` mit `Limiter(key_func=get_remote_address)` in `backend/middleware/rate_limit.py`.
 - **Limits:**
-  - `GET /api/analyze/stream`, `POST /api/analyze`, `GET /api/analyze/refresh`: **10/minute** pro Client-IP.
+  - `GET /api/analyze/stream`, `POST /api/analyze`, `POST /api/analyze/refresh`: **10/minute** pro Client-IP.
   - `POST /api/analyze/trigger`: **5/minute** pro Client-IP (zusätzlich optional `X-Trigger-Secret`).
 - Bei Überschreitung: HTTP 429; Handler in `main.py` via `app.add_exception_handler(RateLimitExceeded, ...)`.
 

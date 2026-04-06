@@ -254,7 +254,7 @@ All routes below are mounted under `/api` unless explicitly noted.
 - `GET /api/analyze/status`
 - `GET /api/analyze/timeline`
 - `POST /api/analyze` (returns cached analysis)
-- `GET /api/analyze/refresh` (async or `sync=true`)
+- `POST /api/analyze/refresh` (async or `sync=true`)
 - `POST /api/analyze/trigger` (optional secret header)
 
 ## 7.3 Agent monitoring

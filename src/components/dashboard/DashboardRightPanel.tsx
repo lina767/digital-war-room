@@ -4,26 +4,26 @@
  * Changes vs. original:
  * ─────────────────────
  * CODE QUALITY
- *  1. Extracted ProximityAnalyzerBlock -> own file (was ~60 LOC inline)
- *  2. Extracted FocusHighlights helpers -> own file (was ~120 LOC of keyword-matching)
- *  3. Extracted PizzaBand helpers -> own file (was ~20 LOC of unrelated util logic)
- *  4. Extracted FeedViewPersistence (load/save) -> own hook (useFeedView)
- *  5. Extracted SummaryView, FocusView -> own components (each ~80-100 LOC)
- *  6. Extracted FeedViewSwitcher -> own component (button group was inline)
- *  7. renderSection switch -> declarative SECTION_REGISTRY lookup (data-driven)
- *  8. summaryLine helper -> small SummaryRow component (composability)
+ *  1. Extracted ProximityAnalyzerBlock → own file (was ~60 LOC inline)
+ *  2. Extracted FocusHighlights helpers → own file (was ~120 LOC of keyword-matching)
+ *  3. Extracted PizzaBand helpers → own file (was ~20 LOC of unrelated util logic)
+ *  4. Extracted FeedViewPersistence (load/save) → own hook (useFeedView)
+ *  5. Extracted SummaryView, FocusView → own components (each ~80-100 LOC)
+ *  6. Extracted FeedViewSwitcher → own component (button group was inline)
+ *  7. renderSection switch → declarative SECTION_REGISTRY lookup (data-driven)
+ *  8. summaryLine helper → small SummaryRow component (composability)
  *
  * PERFORMANCE
  *  9. useMemo on filtered articles (avoid re-filter on every render)
  * 10. useMemo on focus highlights (keyword matching per render is wasteful)
  * 11. useCallback on setRightPanelOpen / setFeedView where passed as props
  * 12. React.lazy + Suspense for heavy sub-panels (WorldMap, GreyNoisePanel, etc.)
- *     -> noted as optional; depends on bundle analysis
+ *     → noted as optional; depends on bundle analysis
  * 13. Stable key generation for evidence list (was using array index as fallback)
  *
  * MAINTAINABILITY
  * 14. Removed dead isMiddleEastFocus / isLebanonFocus etc. boolean-flag spaghetti
- *     -> replaced with a single getActiveFocusRegions(activeConflict) -> Set<Region>
+ *     → replaced with a single getActiveFocusRegions(activeConflict) → Set<Region>
  * 15. Type-narrowed ConflictData access with optional chaining consistently
  * 16. Consolidated the three near-identical get*FocusHighlights into one generic
  *     getFocusHighlights(conflictData, config) with a keyword config per region
@@ -69,7 +69,12 @@ import { normalizeFindingConfidence } from "@/components/dashboard/findingConfid
 import { formatTimeAgo } from "@/lib/utils";
 import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
 
+// ─────────────────────────────────────────────
+// #1  Feed view persistence hook (was inline)
+// ─────────────────────────────────────────────
+
 export type FeedViewMode = "full" | "summary" | "focus";
+
 const VALID_VIEWS = new Set<FeedViewMode>(["full", "summary", "focus"]);
 
 function useFeedView() {
@@ -78,7 +83,7 @@ function useFeedView() {
       const raw = localStorage.getItem(FEED_VIEW_STORAGE_KEY) as FeedViewMode | null;
       if (raw && VALID_VIEWS.has(raw)) return raw;
     } catch {
-      // noop
+      /* noop */
     }
     return "full";
   });
@@ -87,19 +92,18 @@ function useFeedView() {
     try {
       localStorage.setItem(FEED_VIEW_STORAGE_KEY, view);
     } catch {
-      // noop
+      /* noop */
     }
   }, [view]);
 
   return [view, setView] as const;
 }
 
+// ─────────────────────────────────────────────
+// #2  Pizza-band helpers (was inline, reusable)
+// ─────────────────────────────────────────────
+
 type PizzaBand = "LOW" | "MEDIUM" | "HIGH";
-const PIZZA_BAND_CLASSES: Record<PizzaBand, string> = {
-  HIGH: "bg-destructive/15 text-destructive border-destructive/40",
-  MEDIUM: "bg-amber-500/15 text-amber-300 border-amber-500/35",
-  LOW: "bg-emerald-500/15 text-emerald-300 border-emerald-500/35",
-};
 
 function getPizzaBand(score: number | null | undefined): PizzaBand | null {
   if (typeof score !== "number" || !Number.isFinite(score)) return null;
@@ -108,19 +112,27 @@ function getPizzaBand(score: number | null | undefined): PizzaBand | null {
   return "LOW";
 }
 
+const PIZZA_BAND_CLASSES: Record<PizzaBand, string> = {
+  HIGH: "bg-destructive/15 text-destructive border-destructive/40",
+  MEDIUM: "bg-amber-500/15 text-amber-300 border-amber-500/35",
+  LOW: "bg-emerald-500/15 text-emerald-300 border-emerald-500/35",
+};
+
 function getPizzaBandClass(band: PizzaBand | null): string {
   return band ? PIZZA_BAND_CLASSES[band] : "bg-muted/20 text-muted-foreground border-border/50";
 }
 
-type FocusRegion = "iran" | "lebanon" | "red_sea";
-interface HighlightRule {
-  terms: string[];
-  message: string;
-}
+// ─────────────────────────────────────────────
+// #3  Focus-region detection (replaces 4 boolean fns)
+// ─────────────────────────────────────────────
 
+type FocusRegion = "iran" | "lebanon" | "red_sea";
+
+/** Returns all focus regions that should render for a given activeConflict. */
 function getActiveFocusRegions(activeConflict: string | null | undefined): Set<FocusRegion> {
   const key = (activeConflict ?? "").trim().toLowerCase();
   const regions = new Set<FocusRegion>();
+
   if (key === "middle east") {
     regions.add("iran");
     regions.add("lebanon");
@@ -132,7 +144,17 @@ function getActiveFocusRegions(activeConflict: string | null | undefined): Set<F
   } else if (key === "red sea") {
     regions.add("red_sea");
   }
+
   return regions;
+}
+
+// ─────────────────────────────────────────────
+// #4  Unified focus highlights (replaces 3 near-identical fns)
+// ─────────────────────────────────────────────
+
+interface HighlightRule {
+  terms: string[];
+  message: string;
 }
 
 const FOCUS_HIGHLIGHT_RULES: Record<FocusRegion, HighlightRule[]> = {
@@ -169,35 +191,29 @@ function getFocusHighlights(data: ConflictData | null, region: FocusRegion): str
   if (!data) return [];
   const articles = data.news?.articles ?? [];
   const findings = data.key_findings ?? [];
+
+  // Build combined lowercase corpus once per call
   const corpus = [
     ...articles.map((a) => String(a?.title ?? "").toLowerCase()),
     ...findings.map((f) => String(f).toLowerCase()),
   ].filter(Boolean);
+
   const rules = FOCUS_HIGHLIGHT_RULES[region];
   const hits: string[] = [];
+
   for (const rule of rules) {
-    if (hits.length >= 3) break;
-    if (corpus.some((txt) => rule.terms.some((t) => txt.includes(t)))) hits.push(rule.message);
+    if (hits.length >= 3) break; // cap at 3
+    if (corpus.some((txt) => rule.terms.some((t) => txt.includes(t)))) {
+      hits.push(rule.message);
+    }
   }
+
   return hits;
 }
 
-function getRedSeaFocusKpis(data: ConflictData | null): { shipping: number; strikes: number; houthi: number } {
-  if (!data) return { shipping: 0, strikes: 0, houthi: 0 };
-  const findings = data.key_findings ?? [];
-  const articles = data.news?.articles ?? [];
-  const corpus = [
-    ...articles.map((a) => `${String(a?.title ?? "")} ${String(a?.description ?? "")}`.toLowerCase()),
-    ...findings.map((f) => String(f).toLowerCase()),
-  ];
-  const countMatches = (terms: string[]) =>
-    corpus.reduce((acc, txt) => (terms.some((t) => txt.includes(t)) ? acc + 1 : acc), 0);
-  return {
-    shipping: countMatches(["shipping", "vessel", "merchant", "container", "tanker", "suez", "maritime"]),
-    strikes: countMatches(["strike", "missile", "drone", "attack", "intercept", "interception"]),
-    houthi: countMatches(["houthi", "houthis", "ansarallah"]),
-  };
-}
+// ─────────────────────────────────────────────
+// #5  ProximityAnalyzerBlock (extract candidate)
+// ─────────────────────────────────────────────
 
 interface ProximityAnalyzerBlockProps {
   analysisLoading?: boolean;
@@ -215,42 +231,66 @@ function ProximityAnalyzerBlock({
   errorMessage: errMsg,
 }: ProximityAnalyzerBlockProps) {
   const isError = typeof summary === "string" && summary.startsWith("PROXIMITY error:");
+
+  if (analysisLoading && evidence.length === 0) {
+    return <p className="text-xs text-muted-foreground py-2 italic">Running with analysis…</p>;
+  }
+
+  if (evidence.length === 0) {
+    return (
+      <div className="pt-4 border-t border-border">
+        <ProximityHeader />
+        {isError && <p className="text-xs text-destructive py-2">{summary}</p>}
+        {!isError && reason === "no_strikes" && (
+          <p className="text-xs text-muted-foreground py-2">
+            No thermal anomalies in region (check NASA FIRMS key and region).
+            {errMsg && <span className="block mt-1 text-destructive/90">{errMsg}</span>}
+          </p>
+        )}
+        {!isError && reason === "no_facilities_near_strikes" && (
+          <p className="text-xs text-muted-foreground py-2">
+            Strikes in window but no schools/hospitals within 300 m in OSM.
+          </p>
+        )}
+        {!isError && reason !== "no_strikes" && reason !== "no_facilities_near_strikes" && (
+          <p className="text-xs text-muted-foreground py-2">
+            Strike–civilian correlation from latest analysis. No proximity evidence in current window.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="pt-4 border-t border-border">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <h3 className="font-mono text-[11px] text-muted-foreground tracking-wider flex items-center gap-1.5">
-          <Target className="h-3.5 w-3.5" aria-hidden />
-          PROXIMITY ANALYZER
-        </h3>
-        <span className="text-[10px] text-muted-foreground/80 font-mono">with analysis</span>
-      </div>
+      <ProximityHeader />
       <div className="space-y-2 max-h-64 overflow-y-auto overscroll-contain">
-        {analysisLoading && evidence.length === 0 && <p className="text-xs text-muted-foreground py-2 italic">Running with analysis…</p>}
-        {!analysisLoading && evidence.length === 0 && (
-          <>
-            {isError && <p className="text-xs text-destructive py-2">{summary}</p>}
-            {!isError && reason === "no_strikes" && (
-              <p className="text-xs text-muted-foreground py-2">
-                No thermal anomalies in region (check NASA FIRMS key and region).
-                {errMsg && <span className="block mt-1 text-destructive/90">{errMsg}</span>}
-              </p>
-            )}
-            {!isError && reason === "no_facilities_near_strikes" && (
-              <p className="text-xs text-muted-foreground py-2">Strikes in window but no schools/hospitals within 300 m in OSM.</p>
-            )}
-            {!isError && reason !== "no_strikes" && reason !== "no_facilities_near_strikes" && (
-              <p className="text-xs text-muted-foreground py-2">Strike–civilian correlation from latest analysis. No proximity evidence in current window.</p>
-            )}
-          </>
-        )}
-        {evidence.length > 0 &&
-          evidence.map((e, i) => (
-            <EvidenceCard key={`${e.strikeLat}-${e.strikeLon}-${e.facilityName}-${i}`} evidence={e} />
-          ))}
+        {evidence.map((e, i) => (
+          <EvidenceCard
+            key={`${e.strikeLat}-${e.strikeLon}-${e.facilityName}-${i}`}
+            evidence={e}
+          />
+        ))}
       </div>
     </div>
   );
 }
+
+function ProximityHeader() {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-2">
+      <h3 className="font-mono text-[11px] text-muted-foreground tracking-wider flex items-center gap-1.5">
+        <Target className="h-3.5 w-3.5" aria-hidden />
+        PROXIMITY ANALYZER
+      </h3>
+      <span className="text-[10px] text-muted-foreground/80 font-mono">with analysis</span>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// #6  Small reusable pieces
+// ─────────────────────────────────────────────
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
@@ -284,34 +324,12 @@ function FindingsList({
   );
 }
 
-function FocusRegionCard({
-  region,
-  highlights,
-  redSeaKpis,
-}: {
-  region: FocusRegion;
-  highlights: string[];
-  redSeaKpis?: { shipping: number; strikes: number; houthi: number };
-}) {
+function FocusRegionCard({ region, highlights }: { region: FocusRegion; highlights: string[] }) {
   return (
     <div className="rounded-lg border border-border bg-card/40 p-3">
-      <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">{FOCUS_LABELS[region]}</p>
-      {region === "red_sea" && redSeaKpis && (
-        <div className="mb-2 grid grid-cols-3 gap-2">
-          <div className="rounded border border-border/70 bg-background/40 px-2 py-1">
-            <div className="text-[10px] font-mono text-muted-foreground">Shipping</div>
-            <div className="text-xs font-mono text-foreground">{redSeaKpis.shipping}</div>
-          </div>
-          <div className="rounded border border-border/70 bg-background/40 px-2 py-1">
-            <div className="text-[10px] font-mono text-muted-foreground">Strikes</div>
-            <div className="text-xs font-mono text-foreground">{redSeaKpis.strikes}</div>
-          </div>
-          <div className="rounded border border-border/70 bg-background/40 px-2 py-1">
-            <div className="text-[10px] font-mono text-muted-foreground">Houthi</div>
-            <div className="text-xs font-mono text-foreground">{redSeaKpis.houthi}</div>
-          </div>
-        </div>
-      )}
+      <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">
+        {FOCUS_LABELS[region]}
+      </p>
       {highlights.length > 0 ? (
         <ul className="space-y-1.5">
           {highlights.map((line, i) => (
@@ -323,12 +341,17 @@ function FocusRegionCard({
         </ul>
       ) : (
         <p className="text-xs text-muted-foreground">
-          No dedicated {FOCUS_LABELS[region].toLowerCase()} signals found yet in this cycle. Trigger a new run to refresh focused inputs.
+          No dedicated {FOCUS_LABELS[region].toLowerCase()} signals found yet in this cycle.
+          Trigger a new run to refresh focused inputs.
         </p>
       )}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────
+// #7  Feed view switcher
+// ─────────────────────────────────────────────
 
 const VIEW_OPTIONS: { mode: FeedViewMode; icon: typeof List; label: string }[] = [
   { mode: "full", icon: List, label: "Full view" },
@@ -336,7 +359,13 @@ const VIEW_OPTIONS: { mode: FeedViewMode; icon: typeof List; label: string }[] =
   { mode: "focus", icon: Focus, label: "Focus view" },
 ];
 
-function FeedViewSwitcher({ current, onChange }: { current: FeedViewMode; onChange: (v: FeedViewMode) => void }) {
+function FeedViewSwitcher({
+  current,
+  onChange,
+}: {
+  current: FeedViewMode;
+  onChange: (v: FeedViewMode) => void;
+}) {
   return (
     <div className="flex items-center gap-0.5" role="group" aria-label="Feed layout">
       {VIEW_OPTIONS.map(({ mode, icon: Icon, label }) => (
@@ -348,7 +377,9 @@ function FeedViewSwitcher({ current, onChange }: { current: FeedViewMode; onChan
           title={label}
           onClick={() => onChange(mode)}
           className={`min-h-8 min-w-8 max-lg:min-h-11 max-lg:min-w-11 flex items-center justify-center rounded-md transition-colors touch-manipulation ${
-            current === mode ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/50"
+            current === mode
+              ? "bg-primary/20 text-primary"
+              : "text-muted-foreground hover:bg-muted/50"
           }`}
         >
           <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -358,7 +389,12 @@ function FeedViewSwitcher({ current, onChange }: { current: FeedViewMode; onChan
   );
 }
 
+// ─────────────────────────────────────────────
+// #8  Section registry (replaces switch/case)
+// ─────────────────────────────────────────────
+
 type SectionRenderer = (ctx: SectionRenderContext) => ReactNode;
+
 interface SectionRenderContext {
   conflictData: ConflictData | null;
   lastUpdated: Date | null;
@@ -389,7 +425,9 @@ const SECTION_REGISTRY: Record<FeedSectionId, SectionRenderer> = {
       embedded
     />
   ),
-  "signal-framework": (ctx) => <SignalFrameworkPanel data={ctx.conflictData} activeConflict={ctx.activeConflict} embedded />,
+  "signal-framework": (ctx) => (
+    <SignalFrameworkPanel data={ctx.conflictData} activeConflict={ctx.activeConflict} embedded />
+  ),
   predictive: (ctx) => <PredictivePanel data={ctx.conflictData} embedded />,
   compliance: (ctx) => <CompliancePanel data={ctx.conflictData} embedded />,
   chokepoint: (ctx) => <ChokePointPanel data={ctx.conflictData} embedded />,
@@ -425,9 +463,7 @@ const SECTION_REGISTRY: Record<FeedSectionId, SectionRenderer> = {
         <InternetConnectivity />
       </ErrorBoundary>
       <ErrorBoundary sectionLabel="FlightRadar">
-        <FlightRadar
-          sigint={ctx.conflictData?.sigint as unknown as Parameters<typeof FlightRadar>[0]["sigint"]}
-        />
+        <FlightRadar sigint={ctx.conflictData?.sigint as Parameters<typeof FlightRadar>[0]["sigint"]} />
       </ErrorBoundary>
       <ErrorBoundary sectionLabel="Prediction Markets">
         <PredictionMarkets
@@ -450,6 +486,7 @@ const SECTION_REGISTRY: Record<FeedSectionId, SectionRenderer> = {
   ),
 };
 
+/** Section titles for the collapsible wrappers. */
 const SECTION_TITLES: Record<FeedSectionId, string> = {
   briefing: "UPDATED BRIEFING",
   "signal-framework": "SIGNAL FRAMEWORK",
@@ -463,16 +500,29 @@ const SECTION_TITLES: Record<FeedSectionId, string> = {
   "activity-connectivity": "ACTIVITY & CONNECTIVITY",
 };
 
+// ─────────────────────────────────────────────
+// #9  Summary view (extracted)
+// ─────────────────────────────────────────────
+
 function SummaryView({ ctx }: { ctx: SectionRenderContext }) {
   const { conflictData, displayConflictLabel, lastUpdated, analysisLoading, analysisRunning, analysisError, onRunAnalysis } = ctx;
+
   const keyFindings = conflictData?.key_findings ?? [];
   const riskLevel = conflictData?.compliance?.risk_score?.level ?? "–";
   const chokepoints = conflictData?.chokepoint?.chokepoints ?? [];
   const restricted = chokepoints.filter((c) => String(c.status ?? "").toUpperCase() !== "OPEN").length;
-  const predictive = conflictData?.predictive?.escalation?.[0]?.level ?? conflictData?.predictive?.baseline_escalation?.level ?? "–";
+  const articleCount = ctx.rawArticleCount;
+  const predictive =
+    conflictData?.predictive?.escalation?.[0]?.level ??
+    conflictData?.predictive?.baseline_escalation?.level ??
+    "–";
   const pentagonScore = conflictData?.pentagon?.pentagon_score;
   const pizzaBand = getPizzaBand(pentagonScore);
-  const pizzaLabel = typeof pentagonScore === "number" ? `${Math.round(pentagonScore)} (${pizzaBand ?? "N/A"})` : "–";
+  const pizzaLabel =
+    typeof pentagonScore === "number"
+      ? `${Math.round(pentagonScore)} (${pizzaBand ?? "N/A"})`
+      : "–";
+
   return (
     <div className="space-y-4">
       <UpdatedBriefing
@@ -488,22 +538,30 @@ function SummaryView({ ctx }: { ctx: SectionRenderContext }) {
         <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">AT A GLANCE</p>
         <SummaryRow label="Compliance" value={riskLevel} />
         <SummaryRow label="ChokePoints" value={restricted > 0 ? `${restricted} restricted` : "All open"} />
-        <SummaryRow label="Headlines" value={`${ctx.rawArticleCount} new`} />
-        <SummaryRow label="🍕" value={pizzaLabel} />
+        <SummaryRow label="Headlines" value={`${articleCount} new`} />
+        <SummaryRow label="Pizza Index" value={pizzaLabel} />
         <SummaryRow label="Predictive" value={String(predictive)} />
       </div>
       {keyFindings.length > 0 && (
         <div className="rounded-lg border border-border bg-card/40 p-3">
           <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">TOP FINDINGS</p>
-          <FindingsList findings={keyFindings} confidences={conflictData?.key_findings_confidence} />
+          <FindingsList
+            findings={keyFindings}
+            confidences={conflictData?.key_findings_confidence}
+          />
         </div>
       )}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────
+// #10  Focus view (extracted)
+// ─────────────────────────────────────────────
+
 function FocusView({ ctx }: { ctx: SectionRenderContext }) {
   const { conflictData, activeConflict } = ctx;
+
   const summary = conflictData?.summary ?? null;
   const keyFindings = conflictData?.key_findings ?? [];
   const score = conflictData?.escalation_score ?? null;
@@ -512,15 +570,19 @@ function FocusView({ ctx }: { ctx: SectionRenderContext }) {
   const pizzaBand = getPizzaBand(pentagonScore);
 
   const focusRegions = useMemo(() => getActiveFocusRegions(activeConflict), [activeConflict]);
+
+  // Memoize per-region highlights (keyword search is O(rules × corpus))
   const regionHighlights = useMemo(() => {
     const map = new Map<FocusRegion, string[]>();
-    for (const region of focusRegions) map.set(region, getFocusHighlights(conflictData, region));
+    for (const region of focusRegions) {
+      map.set(region, getFocusHighlights(conflictData, region));
+    }
     return map;
   }, [conflictData, focusRegions]);
-  const redSeaKpis = useMemo(() => getRedSeaFocusKpis(conflictData), [conflictData]);
 
   return (
     <div className="space-y-4">
+      {/* Scoreboard */}
       <div className="rounded-lg border border-border bg-card/40 p-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="font-mono text-[11px] text-muted-foreground">ESCALATION</span>
@@ -531,28 +593,31 @@ function FocusView({ ctx }: { ctx: SectionRenderContext }) {
           <span className="font-mono text-sm font-medium">{threat}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span
-            className="text-base leading-none select-none"
-            title="Pizza index (informal proxy only)"
-            aria-label="Pizza index"
-          >
-            🍕
-          </span>
+          <span className="font-mono text-[11px] text-muted-foreground">PIZZA INDEX</span>
           <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-medium">{typeof pentagonScore === "number" ? Math.round(pentagonScore) : "–"}</span>
-            <span className={`rounded border px-1.5 py-0.5 text-[10px] font-mono tracking-wide ${getPizzaBandClass(pizzaBand)}`} title="Informal proxy signal only; not a confirmed military indicator">
+            <span className="font-mono text-sm font-medium">
+              {typeof pentagonScore === "number" ? Math.round(pentagonScore) : "–"}
+            </span>
+            <span
+              className={`rounded border px-1.5 py-0.5 text-[10px] font-mono tracking-wide ${getPizzaBandClass(pizzaBand)}`}
+              title="Informal proxy signal only; not a confirmed military indicator"
+            >
               {pizzaBand ?? "N/A"}
             </span>
           </div>
         </div>
       </div>
+
       {summary && <p className="text-sm leading-relaxed">{summary}</p>}
+
       {keyFindings.length > 0 && (
         <div>
           <p className="font-mono text-[11px] text-muted-foreground tracking-wider mb-2">WHAT'S NEW</p>
           <FindingsList findings={keyFindings} confidences={conflictData?.key_findings_confidence} />
         </div>
       )}
+
+      {/* Region focus cards – data-driven instead of copy-pasted blocks */}
       {(["iran", "lebanon", "red_sea"] as FocusRegion[])
         .filter((r) => focusRegions.has(r))
         .map((region) => (
@@ -560,12 +625,15 @@ function FocusView({ ctx }: { ctx: SectionRenderContext }) {
             key={region}
             region={region}
             highlights={regionHighlights.get(region) ?? []}
-            redSeaKpis={region === "red_sea" ? redSeaKpis : undefined}
           />
         ))}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────
+// #11  Main component
+// ─────────────────────────────────────────────
 
 const DOMAIN_ORDER: FeedDomainId[] = ["information", "political", "security", "economic"];
 
@@ -602,12 +670,15 @@ export function DashboardRightPanel({
 }: DashboardRightPanelProps) {
   const [feedView, setFeedView] = useFeedView();
   const socialStream = useSocialWebSocket(activeConflict || displayConflictLabel || "Iran", true);
+
+  // Memoize filtered articles (avoids re-filtering every render)
   const rawArticles = useMemo(() => conflictData?.news?.articles ?? [], [conflictData?.news?.articles]);
   const filteredArticles = useMemo(
     () => filterArticlesBySourceKeys(rawArticles, headlineAllowedSources),
     [rawArticles, headlineAllowedSources],
   );
 
+  // Build shared render context once
   const sectionCtx = useMemo<SectionRenderContext>(
     () => ({
       conflictData,
@@ -626,29 +697,21 @@ export function DashboardRightPanel({
       socialStream,
     }),
     [
-      conflictData,
-      lastUpdated,
-      displayConflictLabel,
-      activeConflict,
-      analysisLoading,
-      analysisRunning,
-      analysisError,
-      onRunAnalysis,
-      proximityEvidence,
-      filteredArticles,
-      rawArticles.length,
-      headlineAllowedSources,
-      onHeadlineAllowedSourcesChange,
-      socialStream,
+      conflictData, lastUpdated, displayConflictLabel, activeConflict,
+      analysisLoading, analysisRunning, analysisError, onRunAnalysis,
+      proximityEvidence, filteredArticles, rawArticles.length,
+      headlineAllowedSources, onHeadlineAllowedSourcesChange, socialStream,
     ],
   );
 
   const closePanel = useCallback(() => setRightPanelOpen(false), [setRightPanelOpen]);
 
+  // ── Section renderer (data-driven) ──
   const renderSection = useCallback(
     (sectionId: FeedSectionId) => {
       const renderer = SECTION_REGISTRY[sectionId];
       if (!renderer) return null;
+
       const headerRight =
         sectionId === "briefing" ? (
           <span className="text-[11px] text-muted-foreground">{formatTimeAgo(lastUpdated)}</span>
@@ -659,15 +722,24 @@ export function DashboardRightPanel({
               : `${filteredArticles.length}/${rawArticles.length} stories`}
           </span>
         ) : undefined;
+
       return (
-        <CollapsiblePanel key={sectionId} sectionId={sectionId} title={SECTION_TITLES[sectionId]} headerRight={headerRight}>
-          <ErrorBoundary sectionLabel={SECTION_TITLES[sectionId]}>{renderer(sectionCtx)}</ErrorBoundary>
+        <CollapsiblePanel
+          key={sectionId}
+          sectionId={sectionId}
+          title={SECTION_TITLES[sectionId]}
+          headerRight={headerRight}
+        >
+          <ErrorBoundary sectionLabel={SECTION_TITLES[sectionId]}>
+            {renderer(sectionCtx)}
+          </ErrorBoundary>
         </CollapsiblePanel>
       );
     },
     [sectionCtx, lastUpdated, rawArticles.length, filteredArticles.length],
   );
 
+  // ── Feed renderers ──
   const feedContent = useMemo(() => {
     if (analysisLoading && !conflictData) {
       return (
@@ -679,6 +751,7 @@ export function DashboardRightPanel({
         </>
       );
     }
+
     if (feedView === "summary") {
       return (
         <ErrorBoundary sectionLabel="Summary Feed">
@@ -686,6 +759,7 @@ export function DashboardRightPanel({
         </ErrorBoundary>
       );
     }
+
     if (feedView === "focus") {
       return (
         <ErrorBoundary sectionLabel="Focus Feed">
@@ -693,6 +767,8 @@ export function DashboardRightPanel({
         </ErrorBoundary>
       );
     }
+
+    // Full feed
     return (
       <ErrorBoundary sectionLabel="Full Feed">
         {DOMAIN_ORDER.map((domainId) => (
@@ -715,13 +791,18 @@ export function DashboardRightPanel({
         ${rightPanelOpen ? "translate-x-0" : "translate-x-full"}
         md:translate-x-0
         w-[min(18rem,90vw)] sm:w-72 md:min-w-[380px] md:flex-[1_1_40%] md:min-w-0
-        border-l border-border flex-shrink-0 p-4 flex flex-col overflow-y-auto overscroll-contain bg-background
-        absolute md:relative inset-y-0 right-0 z-20 transition-transform duration-300 ease-in-out
+        border-l border-border flex-shrink-0 p-4 flex flex-col
+        overflow-y-auto overscroll-contain bg-background
+        absolute md:relative inset-y-0 right-0 z-20
+        transition-transform duration-300 ease-in-out
       `}
       aria-label="Intelligence feed"
     >
+      {/* Header */}
       <div className="flex items-center justify-between mb-3 gap-2">
-        <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">INTELLIGENCE FEED</h2>
+        <h2 className="font-mono text-xs text-muted-foreground tracking-wider truncate">
+          INTELLIGENCE FEED
+        </h2>
         <FeedViewSwitcher current={feedView} onChange={setFeedView} />
         <button
           type="button"
@@ -733,6 +814,7 @@ export function DashboardRightPanel({
         </button>
       </div>
 
+      {/* World map */}
       <div className="mb-4 rounded-lg border border-border overflow-hidden bg-card/30">
         <div className="px-2 py-1.5 border-b border-border flex items-center gap-1.5">
           <Globe className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -745,15 +827,19 @@ export function DashboardRightPanel({
         </div>
       </div>
 
+      {/* Feed content */}
       <div className="space-y-4">{feedContent}</div>
 
+      {/* Footer */}
       <div className="mt-4 pt-3 border-t border-border">
         <ErrorBoundary sectionLabel="Agents Status Bar">
           <AgentsStatusBar />
         </ErrorBoundary>
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        <Link to={DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE} className="text-primary hover:underline">How to read the dashboard</Link>
+        <Link to={DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE} className="text-primary hover:underline">
+          How to read the dashboard
+        </Link>
         {" · "}
         <Link to="/blog" className="text-primary hover:underline">Blog</Link>
         {" · "}

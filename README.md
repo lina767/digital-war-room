@@ -271,7 +271,7 @@ Base URL (local): `http://localhost:8000`
 | `/health` | GET | Liveness |
 | `/api/analyze/status?conflict=Iran` | GET | Cache / error status |
 | `/api/analyze/latest?conflict=Iran` | GET | Latest cached analysis |
-| `/api/analyze/refresh?conflict=Iran` | GET | Trigger background refresh |
+| `/api/analyze/refresh?conflict=Iran` | POST | Trigger background refresh |
 | `/api/analyze/stream?conflict=Iran` | GET (SSE) | Stream agent + supervisor events |
 | `/api/agents/status` | GET | Last per-agent snapshot |
 | `/api/agents/history` | GET | Recent run history |

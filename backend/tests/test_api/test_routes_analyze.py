@@ -83,7 +83,7 @@ def test_google_trend_snapshot_without_serpapi_key(client: TestClient, monkeypat
 def test_refresh_returns_already_running_when_inflight(client: TestClient):
     # Same scope format as production: "<tenant_id>\\n<conflict>"
     client.app.state.analysis_inflight = {"00000000-0000-4000-8000-000000000001\nIran": 1.0}
-    response = client.get("/api/analyze/refresh", params={"conflict": "Iran"})
+    response = client.post("/api/analyze/refresh", params={"conflict": "Iran"})
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "already_running"
