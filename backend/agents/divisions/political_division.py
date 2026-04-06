@@ -1,5 +1,5 @@
 """
-Political & Legal Division – DIPLO, PROTEST.
+Political & Legal Division – DIPLO (PROTEST slot kept as stub for API compatibility).
 
 No enrichment nodes of its own.
 Tier 4: political_summary
@@ -18,7 +18,7 @@ class PoliticalDivision(DivisionHead):
     name = "political"
     agent_names = ["diplo", "protest"]
     enrichment_nodes = []
-    weight_map = {"diplo": 0.55, "protest": 0.45}
+    weight_map = {"diplo": 1.0, "protest": 0.0}
 
     def _get_enrichment_nodes(self) -> List[DAGNode]:
         return []

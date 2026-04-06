@@ -40,7 +40,7 @@ Für **Research-Level** liefert die **ACLED Read-API** oft **keine** oder kaum E
 Das ist **kein Bug im War Room**, sondern ein **Zugangs-/Tier-Thema** bei ACLED. Aktuellere **regionale** Signale kommen zusätzlich aus:
 
 - **Wöchentliche Aggregated-Downloads** (Nahost-XLSX, Cookie-Login mit denselben Credentials) – siehe `backend/services/acled_aggregated.py`
-- **Fallbacks** in GEOINT/PROTEST: ReliefWeb, GDELT, HDX HAPI (siehe `geoint_fetchers.py`, `protest_agent.py`)
+- **Fallbacks** in GEOINT: ReliefWeb, GDELT, HDX HAPI (siehe `geoint_fetchers.py`). PROTEST-Agent entfernt (`protest_stub.py`).
 
 ## 4. Was ACLED im War Room trotzdem liefert
 

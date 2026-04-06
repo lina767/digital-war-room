@@ -33,7 +33,7 @@ Die API durchsucht die globale Nachrichtenlandschaft in Echtzeit und liefert je 
 
 - **News Agent** ([news_agent.py](backend/agents/news_agent.py)): `search_gdelt_news` – `mode=artlist`, `timespan=48H`, Konflikt-Query, max 25 Artikel.
 - **Chokepoint** ([chokepoint_agent.py](backend/agents/chokepoint_agent.py)): `_fetch_gdelt_one` – `mode=artlist`, Trefferzahlen für 24H/72H/6H und Closure-Query; optional **ToneChart** für Tonalitäts-Tracking (Eskalation Hormuz).
-- **PROTEST** ([protest_agent.py](backend/agents/protest_agent.py)): GDELT DOC für Protest-Artikel.
+- **PROTEST** ([protest_stub.py](backend/agents/protest_stub.py)): Agent deaktiviert (nur Stub); früher GDELT DOC für Protest-Artikel in `protest_agent.py` (entfernt).
 - **TECHINT** ([techint_agent.py](backend/agents/techint_agent.py)): Fallback für Export-Control-Artikel.
 
 ---
@@ -95,6 +95,6 @@ Für **Tonalitäts-Tracking** (z.B. Eskalation im Strait-of-Hormuz-Modul):
 - **GEOINT:** [geoint_agent.py](backend/agents/geoint_agent.py) – `get_gdelt_geo_countries(conflict)` (aktuell DOC-basiert; GEO 2.0 wenn erreichbar); optional **`gdelt_bigquery`** (EventRoot-Aggregate).
 - **NEWS:** [news_agent.py](backend/agents/news_agent.py) – optional **`gdelt_bigquery`** parallel zur Fusion (gleiches Konflikt-Keyword-Fenster).
 - **CHOKEPOINT:** [chokepoint_agent.py](backend/agents/chokepoint_agent.py) – optional **`gdelt_bigquery`** mit Keywords Hormuz/Mandeb/Suez/Kanal.
-- **PROTEST:** [protest_agent.py](backend/agents/protest_agent.py) – `_fetch_gdelt_protest` (DOC 2.0), plus **BigQuery** `fetch_gdelt_protest_events_summary` / `fetch_gdelt_gkg_protest_context` ([gdelt_bigquery.py](backend/services/gdelt_bigquery.py)) wenn GCP konfiguriert (`GDELT_BQ_ENABLED`, `PROTEST_GKG_BQ_ENABLED`).
+- **PROTEST:** [protest_stub.py](backend/agents/protest_stub.py) (keine GDELT-Laufschleife mehr). BigQuery-Helfer `fetch_gdelt_protest_events_summary` / `fetch_gdelt_gkg_protest_context` in [gdelt_bigquery.py](backend/services/gdelt_bigquery.py) bleiben für andere Nutzung / zukünftige Reintegration.
 
 Alle Aufrufe **ohne API-Key**; Rate-Limits beachten (429 → Retry mit Backoff).

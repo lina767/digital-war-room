@@ -197,7 +197,8 @@ def main():
     for name, fn_name, required_keys in agents:
         print(f"\n--- {name.upper()} ---")
         try:
-            mod = __import__(f"agents.{name}_agent", fromlist=[fn_name])
+            mod_path = "agents.protest_stub" if name == "protest" else f"agents.{name}_agent"
+            mod = __import__(mod_path, fromlist=[fn_name])
             run_fn = getattr(mod, fn_name)
         except Exception as e:
             print(f"  FAIL: Could not import – {e}")

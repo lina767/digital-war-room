@@ -28,7 +28,7 @@ _DEFAULT_LEGACY_AGENT_WEIGHTS: Dict[str, float] = {
     "techint": 0.07,
     "cyber": 0.07,
     "energy": 0.06,
-    "protest": 0.07,
+    "protest": 0.0,
     "diplo": 0.06,
     "proximity": 0.08,
     "chokepoint": 0.095,

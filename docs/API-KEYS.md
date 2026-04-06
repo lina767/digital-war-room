@@ -52,10 +52,10 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **AGSI_API_KEY** | `backend/agents/energy_agent.py` – EU-Gasspeicher (AGSI+) | [agsi.gie.eu/account](https://agsi.gie.eu/account) – Registrierung (kostenlos). Key im Header `x-key`. API: `type=eu`, `size` (max 300); [GIE API-Doku v013](https://www.gie.eu/transparency-platform/GIE_API_documentation_v013.pdf). Rate limit: 60 Aufrufe/Minute. |
 | **EIA_API_KEY** | `backend/agents/chokepoint_agent.py` (EIA Baseline), `backend/agents/energy_agent.py` (Brent/WTI Spot, täglich) | [eia.gov/opendata/register](https://www.eia.gov/opendata/register.php) – kostenlos. Chokepoint: Baseline; Energy: PET.RBRTE.D, PET.RWTC.D. Ohne Key: Fallback FRED oder Alpha Vantage. |
 | **FRED_API_KEY** | `backend/agents/energy_agent.py` – FRED (Federal Reserve): Öl DCOILBRENTEU/DCOILWTICO (täglich), Food PWHEAMTUSDM/PMAIZMTUSDM/PSOYBUSDM (monatlich) als Fallback | [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) – kostenloser Key. Wird genutzt wenn EIA für Öl fehlt; Food primär über FRED, sonst Alpha Vantage. |
-| **ACLED_EMAIL** | `backend/agents/protest_agent.py`, `geoint_agent.py`, `services/acled_auth.py` | Deine myACLED-Registrierungs-E-Mail. **OAuth (empfohlen):** zusammen mit `ACLED_PASSWORD` für Token-Auth. |
+| **ACLED_EMAIL** | `geoint_agent.py`, `services/acled_auth.py` (PROTEST-Agent entfernt; Stub in `protest_stub.py`) | Deine myACLED-Registrierungs-E-Mail. **OAuth (empfohlen):** zusammen mit `ACLED_PASSWORD` für Token-Auth. |
 | **ACLED_PASSWORD** | `backend/services/acled_auth.py` – OAuth Token-Abruf | Dein myACLED-Passwort. Mit `ACLED_EMAIL` erhält die App ein Zugangs-Token (24h gültig) gemäß [ACLED API Getting started](https://acleddata.com/api-documentation/getting-started). |
 | **ACLED_API_KEY** | (Legacy) Falls ACLED noch einen API-Key anbietet | Optional; primär wird **OAuth (ACLED_EMAIL + ACLED_PASSWORD)** genutzt. |
-| **PROTEST_USE_ACLED_API** | `backend/agents/protest_agent.py` | Default **aus** (`0`). Setze `1`, wenn der ACLED **Read-API**-Pfad (`/api/acled/read`) zusätzlich zu Crisis-Scrape und Aggregated genutzt werden soll. |
+| **PROTEST_USE_ACLED_API** | *entfällt* (PROTEST-Modul entfernt) | Früher: Read-API im Protest-Agent. Nicht mehr wirksam bis eine neue Implementierung die Variable wieder auswertet. |
 | **PROTEST_GDELT_EVENT_ROOTS** | `backend/services/gdelt_bigquery.py` | Komma-separierte CAMEO-`EventRootCode`-Werte für `fetch_gdelt_protest_events_summary` (Default: `12,13,14,15,17,18`). |
 | **PROTEST_GDELT_LOOKBACK_DAYS** | `backend/services/gdelt_bigquery.py` | Lookback für PROTEST-Events-BQ (sonst `GDELT_BQ_LOOKBACK_DAYS`). |
 | **PROTEST_GKG_BQ_ENABLED** | `backend/services/gdelt_bigquery.py` | Default `1`. Setze `0`, um GKG-BigQuery für PROTEST zu überspringen. |
@@ -65,16 +65,16 @@ Alle in der Digital-War-Room-Plattform verwendeten Umgebungsvariablen (API-Keys)
 | **ACLED_CRISIS_MAX_PAGES** | `backend/services/acled_crisis_scrape.py` | Max. Crisis-Artikel pro Lauf (Default `12`). |
 | **INFORM_HDX_PACKAGE** | `backend/services/hdx_inform.py` | CKAN-Packageslug auf data.humdata.org (Default: `inform-global-crisis-severity-index`). |
 | **INFORM_HDX_TIMEOUT** | `backend/services/hdx_inform.py` | Download-Timeout Sekunden (Default `45`). |
-| **PROTEST_RUN_ASYNC_TIMEOUT_S** | `backend/agents/protest_agent.py` | `run_async`-Timeout für den Agenten (Default `300`). |
+| **PROTEST_RUN_ASYNC_TIMEOUT_S** | *entfällt* | Früher: Timeout für den entfernten Protest-Agent. |
 | **GOOGLE_APPLICATION_CREDENTIALS** / **GCP_PROJECT** | `backend/services/gdelt_bigquery.py` | Für GDELT Events/GKG über BigQuery (optional; siehe **GDELT_BQ_ENABLED** in [GDELT-API-REFERENCE.md](GDELT-API-REFERENCE.md)). |
 
-**Ohne ACLED-API:** Auf der ACLED-Webseite gibt es öffentlich einsehbare Crisis-Live-Daten, z. B. **[Iran Crisis Live](https://acleddata.com/iran-crisis-live)** – tägliche Updates, Karten und Analysen zum Iran-Konflikt (täglich 10:30 EST / 15:30 CET). Der **PROTEST**-Agent nutzt standardmäßig **Crisis-Scrape** und **Aggregated-CSV** ohne Read-API; OAuth ist nur nötig, wenn `PROTEST_USE_ACLED_API=1` oder für den XLSX-Download (`ACLED_EMAIL`/`ACLED_PASSWORD` in `acled_aggregated`). Für die Heatmap können weiterhin ACLED-Events aus anderen Pfaden nötig sein.
+**Ohne ACLED-API:** Auf der ACLED-Webseite gibt es öffentlich einsehbare Crisis-Live-Daten, z. B. **[Iran Crisis Live](https://acleddata.com/iran-crisis-live)** – tägliche Updates, Karten und Analysen zum Iran-Konflikt (täglich 10:30 EST / 15:30 CET). Der **PROTEST**-Slot ist nur noch ein **Stub** (kein ACLED-Fetch). **GEOINT** und **Aggregated-CSV** (`acled_aggregated`) nutzen weiterhin `ACLED_EMAIL`/`ACLED_PASSWORD`, wo implementiert.
 
 **Wenn ACLED nicht funktioniert:**
 
 1. **OAuth (empfohlen):** In `backend/.env` müssen **ACLED_EMAIL** und **ACLED_PASSWORD** gesetzt sein (E-Mail/Passwort deines [myACLED](https://acleddata.com)-Accounts). Kein Leerzeichen am Anfang/Ende.
 2. **Token-Fehler:** Beim Start bzw. beim ersten ACLED-Aufruf schreibt das Backend bei Fehlern in die Logs (z. B. „ACLED OAuth token failed: HTTP 401“). Bei 401: E-Mail/Passwort prüfen und auf [acleddata.com](https://acleddata.com) per Browser einloggen.
-3. **Keine Credentials:** Wenn weder OAuth noch Legacy-Key gesetzt sind, liefern PROTEST/GEOINT/Heatmap keine ACLED-Daten; die Meldung „ACLED OAuth: no credentials“ erscheint dann in den Logs.
+3. **Keine Credentials:** Wenn weder OAuth noch Legacy-Key gesetzt sind, liefern GEOINT/Heatmap/aggregierte Pfade keine ACLED-Daten; PROTEST liefert ohnehin nur Stub-Daten. Die Meldung „ACLED OAuth: no credentials“ kann dann in den Logs erscheinen.
 4. **Legacy API:** Der alte Endpoint `api.acleddata.com` (ACLED_API_KEY) kann eingestellt sein; bevorzugt OAuth mit ACLED_EMAIL + ACLED_PASSWORD nutzen.
 
 Vollständige API-Referenz (Filter, Pagination, Deleted/CAST-Endpoints): [docs/ACLED-API-REFERENCE.md](ACLED-API-REFERENCE.md).
@@ -191,7 +191,7 @@ GDELT ist kostenlos und ohne API-Key nutzbar. Übersicht aller Daten und Zugangs
 
 | Nutzung | Endpoint | Wo im Code |
 |--------|----------|------------|
-| **DOC 2.0 API** (Volltext-Suche, Artikel-Liste) | `https://api.gdeltproject.org/api/v2/doc/doc` | [news_agent.py](backend/agents/news_agent.py) (`search_gdelt_news`: Konflikt-Artikel, 48H, artlist, max 25), [chokepoint_agent.py](backend/agents/chokepoint_agent.py) (Chokepoint-Queries Hormuz/Bab el-Mandeb/Suez, 24H/72H/6H, Trefferzahlen), [protest_agent.py](backend/agents/protest_agent.py) (Protest-Artikel) |
+| **DOC 2.0 API** (Volltext-Suche, Artikel-Liste) | `https://api.gdeltproject.org/api/v2/doc/doc` | [news_agent.py](backend/agents/news_agent.py) (`search_gdelt_news`: Konflikt-Artikel, 48H, artlist, max 25), [chokepoint_agent.py](backend/agents/chokepoint_agent.py) (Chokepoint-Queries Hormuz/Bab el-Mandeb/Suez, 24H/72H/6H, Trefferzahlen). PROTEST-Artikelpfad entfernt (`protest_stub.py`). |
 | **GEO 2.0 API** (Länderkarte zu Keyword, 7 Tage, 15-Min-Update) | `https://api.gdeltproject.org/api/v2/geo/geo` | [geoint_agent.py](backend/agents/geoint_agent.py) (`get_gdelt_geo_countries`: mode=country, format=geojson, timespan=2d → welche Länder in Kontext des Konflikts erwähnt werden). Ref: [GDELT GEO 2.0 API Debuts](https://blog.gdeltproject.org/gdelt-geo-2-0-api-debuts/). |
 
 DOC 2.0: Rolling Window ca. 3 Monate, 65 Sprachen (englische Suchbegriffe), Updates alle 15 Min; Ausgabe JSON/JSONFeed. Kein Key nötig.
@@ -325,9 +325,9 @@ Wenn im Dashboard viele Quellen als **degraded** oder **down** angezeigt werden,
 | Quelle | Agent | Typische Ursache | Was prüfen |
 |--------|--------|-------------------|------------|
 | **GDELT GEO** | GEOINT | GDELT DOC-API liefert 429 (Rate Limit) oder nicht-JSON; kein API-Key nötig | Log: `GDELT GEO fetch failed`. Weniger Analysen pro Tag; ggf. 6–10 s Pause zwischen Retries (ist im Code). |
-| **ACLED-Aggregated** | PROTEST | CSV-Download von acleddata.com (Cookie-Auth) – Session abgelaufen oder Seite geändert | `backend/data/acled/` – CSVs aktuell? Log: ACLED aggregated refresh/CSV not found. |
-| **ACLED-API** | PROTEST, GEOINT | OAuth-Token abgelaufen oder ungültig; Legacy-Key eingestellt | `ACLED_EMAIL` + `ACLED_PASSWORD` in `backend/.env`; Log: `ACLED OAuth token failed` / `401`. |
-| **GDELT** (Protest) | PROTEST | Wie GDELT GEO – DOC-API Rate Limit oder Timeout | Wie GDELT GEO; ein Request pro Lauf, 48H-Fenster. |
+| **ACLED-Aggregated** | GEOINT / ingest | CSV-Download von acleddata.com (Cookie-Auth) – Session abgelaufen oder Seite geändert | `backend/data/acled/` – CSVs aktuell? Log: ACLED aggregated refresh/CSV not found. |
+| **ACLED-API** | GEOINT u. a. | OAuth-Token abgelaufen oder ungültig; Legacy-Key eingestellt | `ACLED_EMAIL` + `ACLED_PASSWORD` in `backend/.env`; Log: `ACLED OAuth token failed` / `401`. |
+| **GDELT** (Protest) | — | PROTEST-Agent entfernt; BQ-Helfer in `gdelt_bigquery.py` optional | — |
 | **Export control** | TECHINT | NewsAPI für Export-Control-News – **100 Requests/Tag** Free Tier; bei vielen Läufen 429 | `NEWS_API_KEY` gesetzt? Log: `TECHINT: NewsAPI rate limited`. Scheduler seltener laufen oder Paid Plan. |
 | **NewsAPI** | NEWS | Wie Export control – **100 Requests/Tag**; 429 = Too Many Requests | Weniger NEWS-Läufe pro Tag (z. B. &lt; 100); oder NewsData/GNews zusätzlich nutzen. |
 | **Twitter/Nitter** | SOCMINT | Nitter-Instanzen oft down oder blockieren Scraper; kein offizieller API-Key | Nitter ist Community-Infrastruktur; wechselnde Instanzen in `socmint_agent.py` oder auf andere Quellen (RSS, ReliefWeb) setzen. |

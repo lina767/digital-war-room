@@ -71,7 +71,7 @@ HIERARCHY_WEIGHTS = {
             "ceo_weight": 0.22,
             "agents": {"news": 0.36, "socmint": 0.31, "mediaint": 0.13, "narrative": 0.20},
         },
-        "political": {"ceo_weight": 0.14, "agents": {"diplo": 0.55, "protest": 0.45}},
+        "political": {"ceo_weight": 0.14, "agents": {"diplo": 1.0}},
         "technical": {"ceo_weight": 0.16, "agents": {"techint": 0.50, "cyber": 0.50}},
     },
     "circuit_breaker": {

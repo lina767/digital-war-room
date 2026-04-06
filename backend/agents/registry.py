@@ -115,7 +115,7 @@ DEFAULT_AGENTS: List[AgentDescriptor] = [
     ),
     AgentDescriptor(
         name="protest",
-        module="agents.protest_agent",
+        module="agents.protest_stub",
         entry_func="run_protest_agent",
         division="political",
         score_field="protest_score",

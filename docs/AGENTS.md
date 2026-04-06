@@ -87,10 +87,9 @@ Per-agent description: inputs, data sources, main output fields, and typical use
 
 ## PROTEST
 
-- **Input:** `conflict`.
-- **Sources:** ACLED aggregated weekly CSV (optional refresh), ACLED crisis/analysis page scrape, optional ACLED Read-API (`PROTEST_USE_ACLED_API`), GDELT DOC (protest query), GDELT Events + GKG via BigQuery when GCP is configured, HDX HAPI conflict-events (optional `HAPI_APP_IDENTIFIER`), INFORM GCSI via HDX CKAN (`INFORM_HDX_PACKAGE`).
-- **Outputs:** `protest_score`, `protest_events`, `protest_articles`, `acled_crisis_pages`, `gdelt_events_bigquery`, `gdelt_gkg_bigquery`, `inform_risk`, `summary`, plus bestehende Aggregated-/Intensitätsfelder.
-- **Use:** Civil society unrest and protest intensity.
+- **Status:** Implementierung entfernt; `run_protest_agent` liegt in `backend/agents/protest_stub.py` und liefert ein leeres `ProtestResult` (Score 0, degraded meta), damit DAG/API-Shape erhalten bleibt.
+- **Input:** `conflict` (wird ignoriert).
+- **Outputs:** Wie `ProtestResult`-Fallback; keine Live-Quellen.
 
 ---
 
