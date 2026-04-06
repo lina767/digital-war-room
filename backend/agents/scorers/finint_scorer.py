@@ -1,6 +1,39 @@
+import os
 from typing import Any, Dict, List
 
 from ..utils import safe_float
+
+
+def _polymarket_sentiment_bonus(probs: List[float]) -> float:
+    """Crowd-implied escalation from Polymarket: primary Stimmungs-/Erwartungsindikator vs. Metaculus/Kalshi.
+
+    Uses max probability (strongest implied risk) plus a small breadth term when several
+    markets align. Tunable via FININT_POLYMARKET_WEIGHT_MULT (default 1.0).
+    """
+    if not probs:
+        return 0.0
+    try:
+        mult = float((os.getenv("FININT_POLYMARKET_WEIGHT_MULT") or "1.0").strip())
+    except (TypeError, ValueError):
+        mult = 1.0
+    mult = max(0.5, min(2.0, mult))
+
+    max_prob = max(probs)
+    mean_prob = sum(probs) / len(probs)
+    raw = 0.0
+    if max_prob > 0.55:
+        raw += 30.0
+    elif max_prob > 0.42:
+        raw += 22.0
+    elif max_prob > 0.28:
+        raw += 14.0
+    elif max_prob > 0.15:
+        raw += 7.0
+    if len(probs) >= 3 and mean_prob > 0.35:
+        raw += 10.0
+    elif len(probs) >= 2 and mean_prob > 0.32:
+        raw += 5.0
+    return round(raw * mult, 2)
 
 
 def compute_finint_escalation_score(
@@ -30,13 +63,13 @@ def compute_finint_escalation_score(
             base -= 10
 
     if polymarket_list:
-        max_prob = max(
-            (safe_float(p.get("probability")) or 0) for p in polymarket_list if isinstance(p, dict) and "error" not in p
-        )
-        if max_prob and max_prob > 0.5:
-            base += 20
-        elif max_prob and max_prob > 0.3:
-            base += 10
+        pm_probs = [
+            (safe_float(p.get("probability")) or 0)
+            for p in polymarket_list
+            if isinstance(p, dict) and "error" not in p
+        ]
+        pm_probs = [x for x in pm_probs if x > 0]
+        base += _polymarket_sentiment_bonus(pm_probs)
 
     if metaculus_list:
         meta_probs = [

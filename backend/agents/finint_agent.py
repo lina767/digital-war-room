@@ -188,7 +188,9 @@ def _run_rule_based_finint(conflict: str) -> Dict[str, Any]:
 
 
 FININT_SYSTEM = """You are a FININT (Financial Intelligence) analyst.
-Call all tools, compute escalation score (0-100), return ONLY valid JSON."""
+Call all tools, compute escalation score (0-100), return ONLY valid JSON.
+
+Polymarket odds are the **primary crowd expectation / sentiment** input for this conflict: give them more narrative weight in your reasoning than Metaculus or Kalshi. Still report oil/gold/VIX and OFAC; treat prediction markets as priced beliefs, not ground truth."""
 
 _FININT_TOOL_FNS = {
     "get_brent_price": fetcher_get_brent_price,
@@ -204,7 +206,11 @@ _FININT_TOOL_SCHEMAS = [
     {"name": "get_brent_price", "description": "Fetch Brent crude oil price.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_wti_price", "description": "Fetch WTI crude oil price.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_gold_price", "description": "Fetch gold (XAU) price.", "input_schema": {"type": "object", "properties": {}}},
-    {"name": "get_polymarket_conflict_odds", "description": "Fetch Polymarket odds.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
+    {
+        "name": "get_polymarket_conflict_odds",
+        "description": "Fetch Polymarket event odds (primary crowd-implied expectation signal for the conflict).",
+        "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]},
+    },
     {"name": "get_metaculus_conflict_questions", "description": "Fetch Metaculus questions.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     {"name": "get_ofac_sanctions_highlights", "description": "Fetch OFAC sanctions highlights.", "input_schema": {"type": "object", "properties": {"conflict": {"type": "string"}}, "required": ["conflict"]}},
     {"name": "get_tracked_wallet_positions", "description": "Fetch tracked wallet positions.", "input_schema": {"type": "object", "properties": {}}},

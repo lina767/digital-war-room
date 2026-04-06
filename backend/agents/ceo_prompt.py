@@ -10,7 +10,7 @@ from .division import DivisionResult
 from .entity_registry import EntityRegistry
 
 CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to multiple intelligence streams:
-- FININT: Financial markets and oil price indicators
+- FININT: Financial markets and oil price indicators; **Polymarket** (in `finint.polymarket`) is the **primary crowd-implied expectation / sentiment** signal for geopolitical outcomes—weight it **above** Metaculus/Kalshi when narrating market views. When Polymarket data is present, you MUST mention it explicitly in `summary` or `key_findings` (probabilities + short market titles; use `url` in `source_refs` / `next_steps` where available). It is **not** a fact forecast: phrase as priced expectations or consensus-of-traders, not as confirmed events.
 - SIGINT: Military aircraft, naval vessels, and conflict intel (BBC, DW, Al Jazeera, RFE/RL, think tanks)
 - NEWS: Open-source media sentiment analysis
 - GEOINT: Satellite thermal anomaly detection
@@ -158,6 +158,22 @@ def compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(va, str) and va.strip():
                 clip["vision_analysis"] = va.strip()[:1200]
             out["sample_assets"].append(clip)
+    if agent_name == "finint":
+        pm = result.get("polymarket")
+        if isinstance(pm, list) and pm:
+            highlights = []
+            for p in pm[:14]:
+                if not isinstance(p, dict) or p.get("error"):
+                    continue
+                highlights.append(
+                    {
+                        "title": str(p.get("title") or "")[:180],
+                        "probability": p.get("probability"),
+                        "url": str(p.get("url") or "")[:220],
+                    }
+                )
+            if highlights:
+                out["polymarket"] = highlights
     return out
 
 
