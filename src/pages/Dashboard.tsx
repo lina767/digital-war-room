@@ -376,6 +376,7 @@ function DashboardContent() {
   const pizzaScore = conflictData?.pentagon?.pentagon_score;
   const pizzaBand = getPizzaBand(pizzaScore);
   const pizzaLabel = typeof pizzaScore === "number" ? Math.round(pizzaScore).toString() : "–";
+  const pizzaIndexTitle = `Pizza index: ${pizzaLabel}${pizzaBand ? ` (${pizzaBand})` : ""}. Informal proxy only; not a confirmed military indicator.`;
 
   // Proximity Analyzer: uses evidence from main analysis (runs automatically with other agents)
   const proximityEvidence: ProximityEvidence[] = useMemo(
@@ -462,11 +463,14 @@ function DashboardContent() {
           </Badge>
           <Badge
             variant="outline"
-            className={`font-mono text-[11px] sm:text-xs hidden sm:flex ${getPizzaBandClass(pizzaBand)}`}
-            title="Pizza Index: informal proxy signal only; not a confirmed military indicator"
+            className={`font-mono text-[11px] sm:text-xs hidden sm:flex items-center gap-1 ${getPizzaBandClass(pizzaBand)}`}
+            title={pizzaIndexTitle}
+            aria-label={pizzaIndexTitle}
           >
-            PIZZA {pizzaLabel}
-            {pizzaBand ? ` · ${pizzaBand}` : ""}
+            <span className="text-base leading-none select-none" aria-hidden>
+              🍕
+            </span>
+            <span>{pizzaLabel}</span>
           </Badge>
         </div>
       </header>
@@ -482,11 +486,14 @@ function DashboardContent() {
               </Badge>
               <Badge
                 variant="outline"
-                className={`font-mono text-[11px] sm:hidden ${getPizzaBandClass(pizzaBand)}`}
-                title="Pizza Index: informal proxy signal only; not a confirmed military indicator"
+                className={`font-mono text-[11px] sm:hidden items-center gap-1 ${getPizzaBandClass(pizzaBand)}`}
+                title={pizzaIndexTitle}
+                aria-label={pizzaIndexTitle}
               >
-                PIZZA {pizzaLabel}
-                {pizzaBand ? ` · ${pizzaBand}` : ""}
+                <span className="text-base leading-none select-none" aria-hidden>
+                  🍕
+                </span>
+                <span>{pizzaLabel}</span>
               </Badge>
             </div>
           </div>

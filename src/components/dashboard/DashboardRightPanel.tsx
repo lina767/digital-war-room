@@ -488,7 +488,7 @@ function SummaryView({ ctx }: { ctx: SectionRenderContext }) {
         <SummaryRow label="Compliance" value={riskLevel} />
         <SummaryRow label="ChokePoints" value={restricted > 0 ? `${restricted} restricted` : "All open"} />
         <SummaryRow label="Headlines" value={`${ctx.rawArticleCount} new`} />
-        <SummaryRow label="Pizza Index" value={pizzaLabel} />
+        <SummaryRow label="🍕" value={pizzaLabel} />
         <SummaryRow label="Predictive" value={String(predictive)} />
       </div>
       {keyFindings.length > 0 && (
@@ -530,7 +530,13 @@ function FocusView({ ctx }: { ctx: SectionRenderContext }) {
           <span className="font-mono text-sm font-medium">{threat}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="font-mono text-[11px] text-muted-foreground">PIZZA INDEX</span>
+          <span
+            className="text-base leading-none select-none"
+            title="Pizza index (informal proxy only)"
+            aria-label="Pizza index"
+          >
+            🍕
+          </span>
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm font-medium">{typeof pentagonScore === "number" ? Math.round(pentagonScore) : "–"}</span>
             <span className={`rounded border px-1.5 py-0.5 text-[10px] font-mono tracking-wide ${getPizzaBandClass(pizzaBand)}`} title="Informal proxy signal only; not a confirmed military indicator">
