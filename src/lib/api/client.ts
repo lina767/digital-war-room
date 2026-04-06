@@ -7,13 +7,14 @@ export const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 /** Optional Supabase session token or DWR API key (multi-tenant backend). */
 export function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
-  const token = localStorage.getItem("dwr_supabase_access_token");
-  if (token) return { Authorization: `Bearer ${token}` };
-  const key = localStorage.getItem("dwr_api_key");
-  if (key) return { "X-Api-Key": key };
+  const headers: Record<string, string> = {};
+  const token = localStorage.getItem("dwr_supabase_access_token")?.trim();
+  const key = localStorage.getItem("dwr_api_key")?.trim();
   const tid = localStorage.getItem("dwr_tenant_id");
-  if (tid) return { "X-Tenant-Id": tid };
-  return {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else if (key) headers["X-Api-Key"] = key;
+  if (tid) headers["X-Tenant-Id"] = tid;
+  return headers;
 }
 
 function mergeAuthHeaders(init: RequestInit): RequestInit {

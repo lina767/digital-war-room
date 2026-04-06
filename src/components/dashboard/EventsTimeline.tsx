@@ -3,7 +3,8 @@ import type { ConflictData } from "@/types/conflict";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
 import { WhyThisMattersBlock } from "@/components/dashboard/WhyThisMattersBlock";
-import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
+import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 
 type TimelineFilter = "all" | "conflict" | "diplomacy" | "economy" | "tech";
 

@@ -150,7 +150,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
 
     attempt(0);
     return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
-  }, [conflict]);
+  }, [backendUnreachableText, conflict]);
 
   // Every 2 min fetch cached result (shows updates from auto-run)
   useEffect(() => {

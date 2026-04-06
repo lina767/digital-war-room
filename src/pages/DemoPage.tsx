@@ -4,7 +4,8 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { SEO } from "@/components/SEO";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
+import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 import { apiUrl } from "@/lib/api";
 import type { AnalyzeResponse } from "@/lib/api";
 

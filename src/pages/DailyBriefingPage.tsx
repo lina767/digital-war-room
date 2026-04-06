@@ -95,7 +95,7 @@ export default function DailyBriefingPage() {
   const firstInteractionTrackedRef = useRef(false);
   const pageLoadedAtRef = useRef<number | null>(null);
 
-  const utm = useMemo(() => getUtmContext(), [searchParams]);
+  const utm = useMemo(() => getUtmContext(), []);
 
   useEffect(() => {
     const section = searchParams.get("nl_section");

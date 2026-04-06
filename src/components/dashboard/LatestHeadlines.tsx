@@ -14,6 +14,7 @@ import { ChevronDown, Filter } from "lucide-react";
 
 const DEFAULT_VISIBLE = 5;
 const MAX_VISIBLE = 15;
+const EMPTY_SOURCE_KEYS = new Set<string>();
 
 interface LatestHeadlinesProps {
   data: ConflictData | null;
@@ -31,9 +32,9 @@ export function LatestHeadlines({
   allowedSourceKeys,
   onAllowedSourceKeysChange,
 }: LatestHeadlinesProps) {
-  const rawArticles = data?.news?.articles ?? [];
+  const rawArticles = useMemo(() => data?.news?.articles ?? [], [data?.news?.articles]);
   const sourceKeys = useMemo(() => collectDistinctSourceKeys(rawArticles), [rawArticles]);
-  const allowed = allowedSourceKeys ?? new Set<string>();
+  const allowed = allowedSourceKeys ?? EMPTY_SOURCE_KEYS;
   const articles = useMemo(
     () => filterArticlesBySourceKeys(rawArticles, allowed),
     [rawArticles, allowed],

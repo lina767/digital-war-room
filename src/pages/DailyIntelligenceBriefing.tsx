@@ -14,7 +14,8 @@ import { COMPLIANCE_DISCLAIMER, COMPLIANCE_INTRO_SHORT } from "@/lib/complianceC
 import { SOURCE_DIRECTORY } from "@/lib/sourceDirectory";
 import { differenceInDays } from "date-fns";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
+import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 import { RootCauseSuggestions } from "@/components/dashboard/RootCauseSuggestions";
 import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { SEO } from "@/components/SEO";

@@ -1,5 +1,6 @@
 import type { ConflictData } from "@/types/conflict";
-import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
+import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 import { RootCauseSuggestions } from "@/components/dashboard/RootCauseSuggestions";
 import { NarrativeBody } from "@/components/dashboard/NarrativeBody";
 import { IntelPanel } from "@/components/dashboard/IntelPanel";

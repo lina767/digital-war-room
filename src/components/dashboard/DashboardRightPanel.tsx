@@ -64,7 +64,8 @@ import { Link } from "react-router-dom";
 import { DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE, DOCS_SOURCE_DIRECTORY } from "@/lib/docLinks";
 import { Target, X, Globe, LayoutGrid, List, Focus } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
-import { FindingConfidenceBadge, normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
+import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 import { formatTimeAgo } from "@/lib/utils";
 import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
 
@@ -601,7 +602,7 @@ export function DashboardRightPanel({
 }: DashboardRightPanelProps) {
   const [feedView, setFeedView] = useFeedView();
   const socialStream = useSocialWebSocket(activeConflict || displayConflictLabel || "Iran", true);
-  const rawArticles = conflictData?.news?.articles ?? [];
+  const rawArticles = useMemo(() => conflictData?.news?.articles ?? [], [conflictData?.news?.articles]);
   const filteredArticles = useMemo(
     () => filterArticlesBySourceKeys(rawArticles, headlineAllowedSources),
     [rawArticles, headlineAllowedSources],

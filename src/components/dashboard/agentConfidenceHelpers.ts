@@ -1,7 +1,7 @@
 import type { AgentMeta } from "@/lib/api";
 import type { ConflictData } from "@/types/conflict";
-import type { FindingConfidenceLevel } from "@/components/dashboard/FindingConfidenceBadge";
-import { normalizeFindingConfidence } from "@/components/dashboard/FindingConfidenceBadge";
+import type { FindingConfidenceLevel } from "@/components/dashboard/findingConfidence";
+import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 
 export type DataQualityLevel = "live" | "estimated" | "degraded";
 

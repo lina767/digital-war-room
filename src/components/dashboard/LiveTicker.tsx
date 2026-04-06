@@ -12,6 +12,7 @@ const FALLBACK_ITEMS = [
   "● USS Eisenhower carrier strike group enters Strait of Hormuz",
   "● NOTAM issued for Tehran FIR – airspace restrictions expanding",
 ];
+const EMPTY_SOURCE_KEYS = new Set<string>();
 
 interface LiveTickerProps {
   /** When provided, headlines from latest analysis are shown in the ticker */
@@ -24,8 +25,8 @@ export function LiveTicker({ conflictData, headlineAllowedSources }: LiveTickerP
   const scrollRef = useRef<HTMLDivElement>(null);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const rawArticles = conflictData?.news?.articles ?? [];
-  const allowed = headlineAllowedSources ?? new Set<string>();
+  const rawArticles = useMemo(() => conflictData?.news?.articles ?? [], [conflictData?.news?.articles]);
+  const allowed = headlineAllowedSources ?? EMPTY_SOURCE_KEYS;
   const filteredArticles = useMemo(
     () => filterArticlesBySourceKeys(rawArticles, allowed),
     [rawArticles, allowed],
