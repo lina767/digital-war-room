@@ -37,6 +37,8 @@ export interface AnalyzeResponse {
   }>;
   scenarios?: { description: string; probability: number }[];
   summary?: string;
+  briefing_interpretation?: string;
+  briefing_interpretation_meta?: { mode?: string; model?: string | null };
   narrative_story?: string;
   finint?: Record<string, unknown>;
   sigint?: Record<string, unknown>;
@@ -228,6 +230,10 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
     });
   }
   if (typeof raw.summary === "string") out.summary = raw.summary;
+  if (typeof raw.briefing_interpretation === "string") out.briefing_interpretation = raw.briefing_interpretation;
+  if (raw.briefing_interpretation_meta && typeof raw.briefing_interpretation_meta === "object") {
+    (out as Record<string, unknown>).briefing_interpretation_meta = raw.briefing_interpretation_meta;
+  }
   if (typeof raw.narrative_story === "string") out.narrative_story = raw.narrative_story;
   (out as Record<string, unknown>).pattern_flags = asArray(raw.pattern_flags);
   (out as Record<string, unknown>).alerts = asArray(raw.alerts);

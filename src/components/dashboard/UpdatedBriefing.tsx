@@ -34,6 +34,8 @@ function UpdatedBriefingContent({
   onRunAnalysis,
 }: Pick<UpdatedBriefingProps, "data" | "conflictLabel" | "isLoading" | "isRunning" | "analysisError" | "onRunAnalysis">) {
   const summary = data?.summary ?? null;
+  const briefingInterpretation = data?.briefing_interpretation ?? null;
+  const interpretationMeta = data?.briefing_interpretation_meta;
   const narrativeStory = data?.narrative_story ?? null;
   const scenarios = data?.scenarios ?? [];
   const keyFindings = data?.key_findings ?? [];
@@ -46,6 +48,7 @@ function UpdatedBriefingContent({
       ? ((trends as Record<string, unknown>).top_movers as Array<Record<string, unknown>>)
       : [];
   const hasContent =
+    briefingInterpretation ||
     summary ||
     narrativeStory ||
     scenarios.length > 0 ||
@@ -77,6 +80,19 @@ function UpdatedBriefingContent({
                 {isRunning ? "Running..." : "Run analysis"}
               </Button>
             )}
+          </div>
+        )}
+        {briefingInterpretation && (
+          <div className="mb-3 pb-3 border-b border-border/60">
+            <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-1">
+              Interpretation
+            </p>
+            {interpretationMeta?.mode === "llm" && interpretationMeta?.model && (
+              <p className="text-[10px] text-muted-foreground/90 mb-2 leading-snug">
+                Synthesized read of the full briefing ({interpretationMeta.model}).
+              </p>
+            )}
+            <NarrativeBody text={briefingInterpretation} />
           </div>
         )}
         {summary && (

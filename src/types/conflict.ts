@@ -235,6 +235,9 @@ export interface ConflictData {
   }>;
   scenarios: { description: string; probability: number }[];
   summary: string | null;
+  /** Sonnet-level (assessment model) synthesis of the full briefing — not a raw data rollup. */
+  briefing_interpretation?: string | null;
+  briefing_interpretation_meta?: { mode?: string; model?: string | null } | null;
   narrative_story?: string | null;
   news?: NewsBlock;
   finint?: FinintBlock;

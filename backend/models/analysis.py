@@ -31,6 +31,7 @@ class AnalysisResult(BaseModel):
     scenarios: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str = ""
     narrative_story: str = ""
+    briefing_interpretation: str = ""
     actors: List[Dict[str, Any]] = Field(default_factory=list)
     predictive: Dict[str, Any] = Field(default_factory=dict)
     compliance: Dict[str, Any] = Field(default_factory=dict)

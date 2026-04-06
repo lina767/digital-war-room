@@ -61,6 +61,8 @@ class TestCEOSynthesis:
         assert "summary" in result
         assert "narrative_story" in result
         assert isinstance(result["narrative_story"], str)
+        assert "briefing_interpretation" in result
+        assert isinstance(result["briefing_interpretation"], str)
         assert "compliance" in result
         assert "alerts" in result
         assert "pattern_flags" in result

@@ -89,6 +89,13 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   });
 
   pushAgent(hits, "summary", "Overview", data.summary, "BLUF / summary");
+  pushAgent(
+    hits,
+    "briefing_interpretation",
+    "Interpretation",
+    data.briefing_interpretation ?? undefined,
+    "Full-briefing synthesis",
+  );
   pushAgent(hits, "narrative_story", "Narrative", data.narrative_story ?? undefined, "Cross-stream story");
 
   asArray<{ kind?: string; title?: string; rationale?: string; confidence?: string }>(data.implications).forEach((imp, i) => {

@@ -5,7 +5,7 @@
 
 export const DASHBOARD_PANEL_TOOLTIPS: Record<string, string> = {
   "UPDATED BRIEFING":
-    "Recap and scenarios from the latest multi-agent run. Summary, key findings, likely driver hypotheses (signal → plausible cause), and things to watch are synthesized by the supervisor from all stream results.",
+    "Opens with an AI interpretation of the full fused briefing (assessment-tier model: Claude Sonnet by default when using Anthropic). Below that: recap, implications, trends, cross-stream narrative, and scenarios from the latest multi-agent run — not just a raw data collage.",
   "SIGNAL FRAMEWORK":
     "State vs. exile/independent media comparison (e.g. IRNA/Fars vs Iran International). Synthesis and consistency score help assess narrative divergence and information vacuum.",
   "PREDICTIVE OUTLOOK":

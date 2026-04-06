@@ -39,6 +39,8 @@
   ],
   "key_findings_confidence": ["high", "high", "medium"],
   "summary": "This self-contained scenario demonstrates the full Digital War Room workflow with complete multi-agent coverage, an explicit DQ score, and visible trend context for decision-makers.",
+  "briefing_interpretation": "The fused picture points to persistent corridor stress with market and energy repricing tracking military and maritime signals more closely than diplomacy-only narratives suggest. Convergence across GEOINT, SIGINT, and FININT raises the burden of proof for 'all-clear' readings, while degraded or thin streams should be read as uncertainty, not calm. The near-term posture implication is to privilege independent movement and pricing confirmation over single-outlet narratives.",
+  "briefing_interpretation_meta": { "mode": "llm", "model": "claude-sonnet-4-6" },
   "narrative_story": "A narrow maritime chokepoint can convert tactical incidents into strategic cost shocks within hours. In this full snapshot, GEOINT and SIGINT indicate persistent corridor stress; FININT and ENERGY confirm repricing and trade impact; NEWS, SOCMINT, and NARRATIVE align timeline and framing drift; technical and political streams provide corroboration and guardrails.",
   "verified_outcomes": [
     {

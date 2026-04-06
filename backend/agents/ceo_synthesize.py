@@ -718,6 +718,29 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     except Exception:
         narrative_story = ""
 
+    briefing_interpretation = ""
+    briefing_interpretation_meta: Dict[str, Any] = {}
+    try:
+        from .narrative_synthesis import synthesize_briefing_interpretation
+
+        briefing_interpretation, briefing_interpretation_meta = synthesize_briefing_interpretation(
+            conflict=conflict,
+            summary=summary or "",
+            threat_level=threat_level or "",
+            escalation_score=float(synthesis_score),
+            key_findings=key_findings,
+            scenarios=scenarios,
+            implications=implications,
+            trends=trends,
+            anomalies_rollup=anomalies_rollup,
+            narrative_story=narrative_story or "",
+            assessment=assessment if isinstance(assessment, dict) else {},
+            degraded_agents=degraded_agents,
+        )
+    except Exception:
+        briefing_interpretation = ""
+        briefing_interpretation_meta = {"mode": "error", "model": None}
+
     provenance_index = build_provenance_index(agent_results)
 
     response = assemble_ceo_response(
@@ -731,6 +754,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         scenarios=scenarios,
         summary=summary,
         narrative_story=narrative_story,
+        briefing_interpretation=briefing_interpretation,
         actors=actors,
         predictive=predictive,
         compliance=compliance,
@@ -753,6 +777,8 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     )
     response["assessment"] = assessment
     response["confidence_scoring"] = confidence_scoring
+    if briefing_interpretation_meta:
+        response["briefing_interpretation_meta"] = briefing_interpretation_meta
 
     # Low-confidence archive: keep gated-out findings available for later search/inspection.
     # This is additive to the API response (backwards-compatible).
