@@ -129,6 +129,61 @@ def _predictive_signals(
     return signals[:5]
 
 
+def _default_things_to_watch_scenarios(conflict: str, escalation_score: int) -> List[Dict[str, Any]]:
+    """When API sends no scenarios, mirror frontend effectiveWatchScenarios."""
+    label = (conflict or "this theater").strip() or "this theater"
+    esc = max(0, min(100, int(round(float(escalation_score)))))
+    bias = (esc - 50) / 100.0
+    p_esc = min(0.42, max(0.18, 0.28 + bias * 0.2))
+    p_stable = min(0.4, max(0.2, 0.32 - bias * 0.12))
+    return [
+        {
+            "description": (
+                f"Pattern hold for {label}: treat material change when SIGINT posture, "
+                "NEWS throughput, and FININT (e.g. Brent) move together rather than in isolation."
+            ),
+            "probability": p_stable,
+        },
+        {
+            "description": (
+                f"Escalation corridor: watch for correlated spikes in military/transport indicators, "
+                f"headline density, and commodity stress before updating your prior on {label}."
+            ),
+            "probability": p_esc,
+        },
+        {
+            "description": (
+                "Maritime and chokepoints: cross-check tanker/AIS context, disruption language in coverage, "
+                "and ENERGY readings when reassessing spillover risk."
+            ),
+            "probability": 0.22,
+        },
+        {
+            "description": (
+                "Tail risks: diplomatic shocks or single-point failures may lag in OSINT; "
+                "keep a slot for late-breaking sources and primary corroboration."
+            ),
+            "probability": 0.14,
+        },
+    ]
+
+
+def _things_to_watch_scenario_dicts(bd: Dict[str, Any], conflict: str, esc_for_pred: int) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    scenarios = bd.get("scenarios") or []
+    if isinstance(scenarios, list):
+        for s in scenarios[:4]:
+            if not isinstance(s, dict):
+                continue
+            desc = (s.get("description") or "").strip()
+            if not desc:
+                continue
+            out.append({"description": desc, "probability": s.get("probability")})
+    if not out:
+        out = _default_things_to_watch_scenarios(conflict, esc_for_pred)
+    return out
+
+
 def confirmation_email_html(conflict: str, confirm_link: str) -> str:
     """
     Double opt-in confirmation email - matches DWR dark theme.
@@ -240,6 +295,7 @@ def daily_briefing_email_html(
         esc_int = None
     if esc_int is not None:
         esc_int = max(0, min(100, esc_int))
+    esc_for_pred = esc_int if esc_int is not None else 50
 
     tl = _normalize_threat_level(threat_level or bd.get("threat_level"))
     threat_color = THREAT_LEVEL_HEX.get(tl, COLORS["accent_green"])
@@ -296,21 +352,19 @@ def daily_briefing_email_html(
             </tr>
         """
 
-    scenarios = bd.get("scenarios") or []
-    scenarios_html = ""
-    if isinstance(scenarios, list) and scenarios:
-        sc_rows = ""
-        for s in scenarios[:4]:
-            if not isinstance(s, dict):
-                continue
-            desc = (s.get("description") or "").strip()
-            if not desc:
-                continue
-            prob = s.get("probability")
-            prob_line = ""
-            if isinstance(prob, (int, float)) and 0 <= float(prob) <= 1:
-                prob_line = f'<p style="margin: 4px 0 0 0; font-size: 11px; color: {COLORS["text_secondary"]}; font-family: \'SF Mono\', monospace;">~{int(round(float(prob) * 100))}%</p>'
-            sc_rows += f"""
+    watch_items = _things_to_watch_scenario_dicts(bd, conflict, esc_for_pred)
+    sc_rows = ""
+    for s in watch_items:
+        desc = (s.get("description") or "").strip()
+        if not desc:
+            continue
+        prob = s.get("probability")
+        prob_line = ""
+        if isinstance(prob, (int, float)) and not isinstance(prob, bool):
+            pf = float(prob)
+            if 0 <= pf <= 1:
+                prob_line = f'<p style="margin: 4px 0 0 0; font-size: 11px; color: {COLORS["text_secondary"]}; font-family: \'SF Mono\', monospace;">~{int(round(pf * 100))}%</p>'
+        sc_rows += f"""
                 <tr>
                     <td style="padding: 8px 0; border-bottom: 1px solid {COLORS['border']};">
                         <p style="margin: 0; font-size: 13px; line-height: 1.5; color: {COLORS['text_primary']};">{_escape_html(desc)}</p>
@@ -318,13 +372,14 @@ def daily_briefing_email_html(
                     </td>
                 </tr>
             """
-        if sc_rows:
-            scenarios_html = f"""
+    scenarios_html = ""
+    if sc_rows:
+        scenarios_html = f"""
                     <tr>
                         <td style="padding: 24px 0; border-top: 1px solid {COLORS['border']};">
                             <p style="color: {COLORS['accent_green']}; font-size: 11px; margin: 0 0 6px 0; text-transform: uppercase; letter-spacing: 1.5px;">Things to Watch</p>
                             <p style="color: {COLORS['text_secondary']}; font-size: 12px; line-height: 1.5; margin: 0 0 14px 0;">
-                                Supervisor-generated scenarios with rough probability weights – not precise forecasts.
+                                Supervisor scenarios when present; otherwise default cross-stream watch items. Probabilities are rough emphasis only.
                             </p>
                             <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
                                 {sc_rows}
@@ -335,7 +390,6 @@ def daily_briefing_email_html(
 
     predictive = bd.get("predictive") if isinstance(bd.get("predictive"), dict) else {}
     pred_block = ""
-    esc_for_pred = esc_int if esc_int is not None else 50
     traj = _trajectory_from_predictive(predictive if predictive else None, esc_for_pred)
     sigs = _predictive_signals(bd, predictive if predictive else None, esc_for_pred)
     if sigs:
@@ -538,21 +592,18 @@ def daily_briefing_email_text(
     predictive = bd.get("predictive") if isinstance(bd.get("predictive"), dict) else {}
     traj = _trajectory_from_predictive(predictive if predictive else None, esc_for_pred)
 
-    scenarios = bd.get("scenarios") or []
+    watch_items_txt = _things_to_watch_scenario_dicts(bd, conflict, esc_for_pred)
     scen_lines: list[str] = []
-    if isinstance(scenarios, list):
-        for s in scenarios[:4]:
-            if not isinstance(s, dict):
-                continue
-            desc = (s.get("description") or "").strip()
-            if not desc:
-                continue
-            prob = s.get("probability")
-            if isinstance(prob, (int, float)) and 0 <= float(prob) <= 1:
-                scen_lines.append(f"  - {desc} (~{int(round(float(prob) * 100))}%)")
-            else:
-                scen_lines.append(f"  - {desc}")
-    scenarios_block = ("THINGS TO WATCH\n" + "\n".join(scen_lines) + "\n\n") if scen_lines else ""
+    for s in watch_items_txt:
+        desc = (s.get("description") or "").strip()
+        if not desc:
+            continue
+        prob = s.get("probability")
+        if isinstance(prob, (int, float)) and not isinstance(prob, bool) and 0 <= float(prob) <= 1:
+            scen_lines.append(f"  - {desc} (~{int(round(float(prob) * 100))}%)")
+        else:
+            scen_lines.append(f"  - {desc}")
+    scenarios_block = "THINGS TO WATCH\n" + "\n".join(scen_lines) + "\n\n" if scen_lines else ""
 
     sig_lines = []
     for label, weight in _predictive_signals(bd, predictive if predictive else None, esc_for_pred):

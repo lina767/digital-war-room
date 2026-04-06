@@ -33,6 +33,50 @@ from .utils import get_analysis_run_id, infer_data_confidence_from_result, run_a
 logger = logging.getLogger(__name__)
 
 
+def _coerce_int_env(name: str, default: int) -> int:
+    try:
+        return int((os.getenv(name) or str(default)).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float_env(name: str, default: float) -> float:
+    try:
+        return float((os.getenv(name) or str(default)).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _source_override_guardrail() -> Dict[str, Any]:
+    """
+    Parse SOURCE_STATUS_OVERRIDES and emit a synthesis warning when too many
+    manual overrides are active (usually intended only for temporary incidents).
+    """
+    raw = (os.getenv("SOURCE_STATUS_OVERRIDES") or "").strip()
+    if not raw:
+        return {"active": False, "count": 0}
+    entries = [p.strip() for p in raw.split(";") if p.strip()]
+    parsed = []
+    for e in entries:
+        if "=" not in e:
+            continue
+        src, status = e.split("=", 1)
+        src = src.strip()
+        status = status.strip().lower()
+        if not src:
+            continue
+        if status in ("ok", "degraded", "down", "error"):
+            parsed.append((src, status))
+    warn_min = max(1, _coerce_int_env("CEO_SOURCE_OVERRIDE_WARN_MIN", 3))
+    return {
+        "active": bool(parsed),
+        "count": len(parsed),
+        "warn": len(parsed) >= warn_min,
+        "warn_min": warn_min,
+        "sample": [f"{s}={st}" for s, st in parsed[:6]],
+    }
+
+
 def _build_trends_summary(temporal_context: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compact trends block derived from services.agent_score_history.get_temporal_context().
@@ -349,6 +393,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "pentagon": pentagon_score,
     }
     legacy_combined, legacy_active_weight = legacy_combined_excluding_degraded(scores_by_agent, agent_data_confidence)
+    active_stream_count = len([k for k in CEO_LEGACY_AGENT_WEIGHTS if agent_data_confidence.get(k) != "degraded"])
     has_agent_scores = any(
         (
             "escalation_score" in finint_result,
@@ -369,7 +414,33 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         )
     )
     has_legacy_signal = has_agent_scores and legacy_active_weight > 0
-    synthesis_score = legacy_combined if has_legacy_signal else division_composite
+    min_active_for_legacy = max(1, _coerce_int_env("CEO_MIN_ACTIVE_STREAMS_FOR_LEGACY_SCORE", 5))
+    sparse_blend_division_weight = max(0.0, min(1.0, _coerce_float_env("CEO_SPARSE_STREAM_DIVISION_BLEND", 0.65)))
+    if has_legacy_signal and active_stream_count >= min_active_for_legacy:
+        synthesis_score = legacy_combined
+        score_selection_meta: Dict[str, Any] = {
+            "mode": "legacy_weighted",
+            "active_stream_count": active_stream_count,
+            "min_active_for_legacy": min_active_for_legacy,
+        }
+    elif has_legacy_signal:
+        # Sparse-stream guardrail: keep legacy signal, but bias toward division stability.
+        synthesis_score = (division_composite * sparse_blend_division_weight) + (
+            legacy_combined * (1.0 - sparse_blend_division_weight)
+        )
+        score_selection_meta = {
+            "mode": "blended_sparse_streams",
+            "active_stream_count": active_stream_count,
+            "min_active_for_legacy": min_active_for_legacy,
+            "division_weight": sparse_blend_division_weight,
+        }
+    else:
+        synthesis_score = division_composite
+        score_selection_meta = {
+            "mode": "division_fallback",
+            "active_stream_count": active_stream_count,
+            "min_active_for_legacy": min_active_for_legacy,
+        }
 
     qf = store.get("quality_fusion") or {}
     if not isinstance(qf, dict):
@@ -473,7 +544,7 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     )
 
     # Pre-synthesis noise reduction: score cross-stream finding candidates and gate them.
-    finding_gate: Dict[str, Any] = {"accepted": [], "archived": [], "meta": {"disabled": True}}
+    finding_gate: Dict[str, Any] = {"accepted": [], "archived": [], "recovered": [], "meta": {"disabled": True}}
     try:
         from .findings_builder import collect_agent_finding_candidates
 
@@ -492,10 +563,39 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                 max_llm=int(os.getenv("FINDING_SIGNAL_GATE_MAX_LLM", "20")),
             )
         )
+        accepted_rows = finding_gate.get("accepted") if isinstance(finding_gate.get("accepted"), list) else []
+        archived_rows = finding_gate.get("archived") if isinstance(finding_gate.get("archived"), list) else []
+        min_accepted = max(0, _coerce_int_env("FINDING_SIGNAL_GATE_MIN_ACCEPTED", 3))
+        recover_min_total = max(0.0, min(1.0, _coerce_float_env("FINDING_SIGNAL_GATE_RECOVER_MIN_TOTAL", 0.55)))
+        recovered_rows: List[Dict[str, Any]] = []
+        if len(accepted_rows) < min_accepted and archived_rows:
+            deficit = min_accepted - len(accepted_rows)
+            for row in archived_rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    total = float(row.get("total") or 0.0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                if total < recover_min_total:
+                    continue
+                recovered_rows.append(row)
+                if len(recovered_rows) >= deficit:
+                    break
+        finding_gate["recovered"] = recovered_rows
+        finding_gate_meta = finding_gate.get("meta") if isinstance(finding_gate.get("meta"), dict) else {}
+        finding_gate["meta"] = {
+            **finding_gate_meta,
+            "min_accepted_target": min_accepted,
+            "recovered_count": len(recovered_rows),
+            "recover_min_total": recover_min_total,
+            "was_restrictive": bool(len(accepted_rows) < min_accepted and len(archived_rows) > 0),
+        }
         supervisor_payload["finding_signal_gate"] = {
             "threshold": gate_threshold,
             "accepted": [f.get("text") for f in (finding_gate.get("accepted") or [])[:12] if isinstance(f, dict)],
             "archived_count": len(finding_gate.get("archived") or []),
+            "recovered_count": len(finding_gate.get("recovered") or []),
             "meta": finding_gate.get("meta") or {},
         }
         supervisor_payload["cross_agent_corroboration"] = corroboration_meta
@@ -592,18 +692,26 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     key_findings_confidence = align_key_findings_confidence(key_findings, key_findings_confidence)
     next_steps = normalize_next_steps(next_steps)
 
-    # Replace "append everything" with gated high-signal append (optional, small).
+    # Replace "append everything" with gated append + soft recovery from near-threshold rows.
     try:
         accepted = finding_gate.get("accepted") or []
-        accepted_texts = [a.get("text") for a in accepted if isinstance(a, dict) and a.get("text")]
+        recovered = finding_gate.get("recovered") or []
+        archived = finding_gate.get("archived") or []
+        ranked_rows = [r for r in [*accepted, *recovered] if isinstance(r, dict) and r.get("text")]
+        ranked_texts = [a.get("text") for a in ranked_rows if isinstance(a.get("text"), str)]
         existing = {str(k).strip() for k in key_findings if isinstance(k, str)}
         appended = 0
-        for t in accepted_texts:
+        min_key_findings = max(1, _coerce_int_env("CEO_MIN_KEY_FINDINGS", 6))
+        base_append_max = max(1, _coerce_int_env("FINDING_SIGNAL_GATE_APPEND_MAX", 3))
+        append_cap = max(base_append_max, _coerce_int_env("FINDING_SIGNAL_GATE_APPEND_MAX_CAP", 8))
+        deficit = max(0, min_key_findings - len(key_findings))
+        append_budget = min(append_cap, max(base_append_max, base_append_max + deficit))
+        for t in ranked_texts:
             if t in existing:
                 continue
             key_findings.append(t)
             total = 0.0
-            for a in accepted:
+            for a in ranked_rows:
                 if isinstance(a, dict) and a.get("text") == t:
                     try:
                         total = float(a.get("total") or 0.0)
@@ -613,8 +721,27 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             lv = "high" if total >= 0.85 else "medium" if total >= 0.7 else "low"
             key_findings_confidence.append(lv)
             appended += 1
-            if appended >= int(os.getenv("FINDING_SIGNAL_GATE_APPEND_MAX", "3")):
+            if appended >= append_budget:
                 break
+
+        # Hard floor: if we still have too few findings, backfill from top archived rows.
+        if len(key_findings) < min_key_findings:
+            for row in archived:
+                if not isinstance(row, dict):
+                    continue
+                t = row.get("text")
+                if not isinstance(t, str) or not t.strip() or t in existing:
+                    continue
+                try:
+                    total = float(row.get("total") or 0.0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                key_findings.append(t)
+                lv = "medium" if total >= 0.65 else "low"
+                key_findings_confidence.append(lv)
+                existing.add(t)
+                if len(key_findings) >= min_key_findings:
+                    break
     except Exception:
         pass
 
@@ -775,6 +902,23 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         division_results=division_results,
         as_dict_fn=as_dict,
     )
+    source_override_meta = _source_override_guardrail()
+    synthesis_meta = {
+        **(synthesis_meta if isinstance(synthesis_meta, dict) else {}),
+        "score_selection": score_selection_meta,
+        "finding_gate_recovery": {
+            "accepted_n": len(finding_gate.get("accepted") or []),
+            "recovered_n": len(finding_gate.get("recovered") or []),
+            "archived_n": len(finding_gate.get("archived") or []),
+        },
+    }
+    if source_override_meta.get("warn"):
+        synthesis_meta["source_overrides_warning"] = {
+            "message": "Multiple SOURCE_STATUS_OVERRIDES are active; this can suppress findings and understate confidence.",
+            "count": source_override_meta.get("count"),
+            "sample": source_override_meta.get("sample"),
+        }
+    response["synthesis_meta"] = synthesis_meta
     response["assessment"] = assessment
     response["confidence_scoring"] = confidence_scoring
     if briefing_interpretation_meta:

@@ -18,6 +18,7 @@ import type {
   ThreatLevel,
 } from "@/features/daily-briefing/types/briefing.types";
 import { normalizeConfidence } from "@/features/daily-briefing/utils/confidenceLabel";
+import { effectiveWatchScenarios } from "@/lib/effectiveWatchScenarios";
 
 const INITIAL_STATE: BriefingState = {
   data: null,
@@ -187,34 +188,58 @@ function toSourceTier(confidence: string | undefined): "A" | "B" | "C" | "D" {
   return "D";
 }
 
+type FindingTheme = {
+  pattern: RegExp;
+  weight: number;
+  implication: string;
+};
+
+const FINDING_THEME_RULES: FindingTheme[] = [
+  {
+    pattern: /\b(hormuz|strait|chokepoint|shipping|tankers?|route|closure)\b/,
+    weight: 95,
+    implication:
+      "Prioritize route and logistics checks now; validate fallback shipping options within this shift.",
+  },
+  {
+    pattern: /\b(strike|missile|airstrike|troops?|mobilization|incursion|aircraft)\b/,
+    weight: 90,
+    implication:
+      "Escalate monitoring cadence for 24h and pre-brief operations on rapid posture changes.",
+  },
+  {
+    pattern: /\b(sanction|ofac|export|compliance|embargo|ban)\b/,
+    weight: 84,
+    implication:
+      "Run sanctions and supplier exposure screening before any new transaction or movement.",
+  },
+  {
+    pattern: /\b(protest|riot|civil unrest|demonstration)\b/,
+    weight: 76,
+    implication:
+      "Review personnel and site risk; tighten local movement guidance for affected areas.",
+  },
+  {
+    pattern: /\b(ceasefire|talks|negotiation|diplomatic)\b/,
+    weight: 68,
+    implication: "Hold contingency triggers but keep collection active to detect reversals early.",
+  },
+];
+
+function classifyFindingTheme(text: string): FindingTheme | null {
+  const normalized = text.toLowerCase();
+  return FINDING_THEME_RULES.find((rule) => rule.pattern.test(normalized)) ?? null;
+}
+
 function decisionPriorityWeight(text: string): number {
-  const t = text.toLowerCase();
-  if (/\b(hormuz|strait|chokepoint|shipping|tankers?|route|closure)\b/.test(t)) return 95;
-  if (/\b(strike|missile|airstrike|troops?|mobilization|incursion|aircraft)\b/.test(t)) return 90;
-  if (/\b(sanction|ofac|export|compliance|embargo|ban)\b/.test(t)) return 84;
-  if (/\b(protest|riot|civil unrest|demonstration)\b/.test(t)) return 76;
-  if (/\b(ceasefire|talks|negotiation|diplomatic)\b/.test(t)) return 68;
-  return 55;
+  return classifyFindingTheme(text)?.weight ?? 55;
 }
 
 function deriveOperationalImplication(text: string): string {
-  const t = text.toLowerCase();
-  if (/\b(hormuz|strait|chokepoint|shipping|tankers?|route|closure)\b/.test(t)) {
-    return "Prioritize route and logistics checks now; validate fallback shipping options within this shift.";
-  }
-  if (/\b(strike|missile|airstrike|troops?|mobilization|incursion|aircraft)\b/.test(t)) {
-    return "Escalate monitoring cadence for 24h and pre-brief operations on rapid posture changes.";
-  }
-  if (/\b(sanction|ofac|export|compliance|embargo|ban)\b/.test(t)) {
-    return "Run sanctions and supplier exposure screening before any new transaction or movement.";
-  }
-  if (/\b(protest|riot|civil unrest|demonstration)\b/.test(t)) {
-    return "Review personnel and site risk; tighten local movement guidance for affected areas.";
-  }
-  if (/\b(ceasefire|talks|negotiation|diplomatic)\b/.test(t)) {
-    return "Hold contingency triggers but keep collection active to detect reversals early.";
-  }
-  return "Validate this signal against one independent source before changing operational posture.";
+  return (
+    classifyFindingTheme(text)?.implication ??
+    "Validate this signal against one independent source before changing operational posture."
+  );
 }
 
 function buildAgentBlock(conflict: ConflictData, agent: AgentId, generatedAt: Date): AgentDataBlock {
@@ -282,7 +307,12 @@ function toDailyBriefingData(conflict: ConflictData, generatedAt: Date): DailyBr
     })
     .slice(0, 8);
 
-  const scenarios: Scenario[] = (conflict.scenarios ?? []).slice(0, 4).map((s, idx) => ({
+  const rawWatch = effectiveWatchScenarios(
+    conflict.conflict,
+    escalationRounded,
+    conflict.scenarios,
+  );
+  const scenarios: Scenario[] = rawWatch.slice(0, 4).map((s, idx) => ({
     id: `scenario-${idx + 1}`,
     type: toScenarioType(s.description),
     probability: Math.round((s.probability ?? 0) * 100),

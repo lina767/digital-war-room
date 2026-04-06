@@ -287,7 +287,7 @@ async def score_and_gate_findings(
     *,
     candidates: List[FindingCandidate],
     conflict: str,
-    threshold: float = 0.7,
+    threshold: float = 0.65,
     weights: Optional[Dict[str, float]] = None,
     max_llm: int = 20,
 ) -> Dict[str, Any]:
@@ -303,10 +303,10 @@ async def score_and_gate_findings(
     if weights is None:
         weights = _load_json_env(
             "FINDING_SIGNAL_GATE_WEIGHTS_JSON",
-            {"corroboration": 0.4, "novelty": 0.3, "actionability": 0.3},
+            {"corroboration": 0.35, "novelty": 0.25, "actionability": 0.4},
         )
     if not isinstance(weights, dict):
-        weights = {"corroboration": 0.4, "novelty": 0.3, "actionability": 0.3}
+        weights = {"corroboration": 0.35, "novelty": 0.25, "actionability": 0.4}
     threshold = float(threshold)
     max_llm = max(0, int(max_llm))
 
@@ -397,6 +397,8 @@ async def score_and_gate_findings(
             "candidates_in": len(candidates or []),
             "accepted_n": len(out_ok),
             "archived_n": len(out_low),
+            "acceptance_ratio": round((len(out_ok) / len(candidates or [])), 3) if (candidates or []) else 0.0,
+            "was_restrictive": len(out_ok) < 3 and len(out_low) > 0,
         },
     }
 

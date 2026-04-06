@@ -24,6 +24,7 @@ import {
   SHARE_TITLE_DAILY_BRIEFING,
   STRUCTURED_DESC_DAILY_BRIEFING,
 } from "@/lib/seoCopy";
+import { effectiveWatchScenarios, toScenarioProbabilityPercent } from "@/lib/effectiveWatchScenarios";
 
 /** Reference start date for "Day X of operations" – counting from 28 February 2026. */
 const OPERATIONS_START_DATE = new Date(2026, 1, 28); // 2026-02-28
@@ -128,6 +129,10 @@ export default function DailyIntelligenceBriefing() {
   const escalation24h = escalationList.find((f) => f.horizon === "24h") ?? escalationList[0];
   const escalation7d = escalationList.find((f) => f.horizon === "7d");
   const escalationForecasts = [escalation24h, escalation7d].filter(Boolean) as typeof escalationList;
+
+  const watchScenarios = data
+    ? effectiveWatchScenarios(data.conflict, data.escalation_score, data.scenarios)
+    : [];
 
   const dailyBriefingStructuredData = {
     "@type": "Report",
@@ -511,22 +516,22 @@ export default function DailyIntelligenceBriefing() {
                   5. Things to Watch
                 </h2>
                 <div className="rounded-lg border border-border bg-card/50 p-4">
-                  {(data.scenarios?.length ?? 0) > 0 ? (
-                    <ol className="space-y-2 text-sm list-decimal list-inside">
-                      {data.scenarios!.map((s, i) => (
+                  <p className="text-[11px] text-muted-foreground mb-3">
+                    Standing watch items when the supervisor emits no scenarios; probabilities are rough emphasis only.
+                  </p>
+                  <ol className="space-y-2 text-sm list-decimal list-inside">
+                    {watchScenarios.map((s, i) => {
+                      const probabilityPercent = toScenarioProbabilityPercent(s.probability);
+                      return (
                         <li key={i}>
                           <span className="font-medium">{s.description}</span>
-                          {typeof s.probability === "number" && (
-                            <span className="text-muted-foreground ml-1">
-                              ({Math.round(s.probability * 100)}%)
-                            </span>
+                          {probabilityPercent != null && (
+                            <span className="text-muted-foreground ml-1">({probabilityPercent}%)</span>
                           )}
                         </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">No scenarios on watch for this period.</p>
-                  )}
+                      );
+                    })}
+                  </ol>
                 </div>
               </section>
 

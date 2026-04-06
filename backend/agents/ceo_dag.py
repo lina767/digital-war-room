@@ -24,6 +24,65 @@ from .utils import get_analysis_run_id, reset_analysis_run_id, set_analysis_run_
 logger = logging.getLogger(__name__)
 
 
+_SCORE_FIELD_BY_AGENT: Dict[str, str] = {
+    "finint": "escalation_score",
+    "sigint": "sigint_score",
+    "news": "news_score",
+    "geoint": "geoint_score",
+    "satintel": "satintel_score",
+    "socmint": "socmint_score",
+    "mediaint": "mediaint_score",
+    "techint": "techint_score",
+    "cyber": "cyber_score",
+    "energy": "energy_score",
+    "protest": "protest_score",
+    "diplo": "diplo_score",
+    "proximity": "proximity_score",
+    "narrative": "narrative_score",
+    "chokepoint": "chokepoint_score",
+    "pentagon": "pentagon_score",
+}
+
+
+def _agent_fallback_payload(agent_id: str) -> Any:
+    if agent_id == "acled_refs":
+        return []
+    if agent_id == "agent_context":
+        return AgentContext().model_dump(mode="json")
+    score_key = _SCORE_FIELD_BY_AGENT.get(agent_id, f"{agent_id}_score")
+    payload: Dict[str, Any] = {
+        score_key: 0.0,
+        "summary": f"{agent_id} unavailable (timeout/fallback).",
+        "_meta": {
+            "agent": agent_id,
+            "fallback_used": True,
+            "data_confidence": "degraded",
+            "data_freshness": "unavailable",
+            "sources": [],
+            "error_summary": "timeout_or_execution_failure",
+        },
+    }
+    if agent_id == "narrative":
+        payload.setdefault("synthesis_text", "")
+        payload.setdefault("synthesis_probability", 0.0)
+    return payload
+
+
+def _enrichment_fallback_payload(node_id: str) -> Any:
+    if node_id == "compliance_build":
+        return {"compliance": {}, "alerts": []}
+    if node_id == "quality_fusion":
+        return {"signals": [], "summary": "", "fusion_meta": {"fallback_used": True}}
+    if node_id == "research_enrichment":
+        return {"triggered": False, "fallback_used": True}
+    if node_id == "comtrade_chokepoint_validate":
+        return {"triggered": False, "fallback_used": True}
+    if node_id == "agent_context":
+        return AgentContext().model_dump(mode="json")
+    # Generic safe object for enrichment nodes.
+    return {"fallback_used": True}
+
+
 def _all_divisions() -> List[DivisionHead]:
     """Instantiate all five divisions."""
     return [
@@ -122,6 +181,11 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     for node in all_nodes:
         if node.id in WAVE2_AGENTS:
             node.dependencies = list(node.dependencies) + ["agent_context"]
+        if node.fallback is None:
+            if node.node_type == "agent":
+                node.fallback = _agent_fallback_payload(node.id)
+            elif node.node_type == "enrichment":
+                node.fallback = _enrichment_fallback_payload(node.id)
 
     summary_ids = [f"{d.name}_summary" for d in divisions]
 

@@ -7,6 +7,7 @@ import { TextSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { formatTimeAgo } from "@/lib/utils";
 import { DASHBOARD_PANEL_TOOLTIPS } from "@/lib/dashboardPanelCopy";
+import { effectiveWatchScenarios, toScenarioProbabilityPercent } from "@/lib/effectiveWatchScenarios";
 import { Play } from "lucide-react";
 
 interface UpdatedBriefingProps {
@@ -37,7 +38,9 @@ function UpdatedBriefingContent({
   const briefingInterpretation = data?.briefing_interpretation ?? null;
   const interpretationMeta = data?.briefing_interpretation_meta;
   const narrativeStory = data?.narrative_story ?? null;
-  const scenarios = data?.scenarios ?? [];
+  const scenarios = data
+    ? effectiveWatchScenarios(data.conflict, data.escalation_score, data.scenarios)
+    : [];
   const keyFindings = data?.key_findings ?? [];
   const rootCauses = data?.root_cause_suggestions ?? [];
   const implications = data?.implications ?? [];
@@ -185,20 +188,19 @@ function UpdatedBriefingContent({
         {data != null && (
           <div>
             <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Things to Watch</p>
-            {scenarios.length > 0 ? (
-              <ol className="space-y-2 list-decimal list-inside">
-                {scenarios.slice(0, 5).map((s, i) => (
+            <ol className="space-y-2 list-decimal list-inside">
+              {scenarios.slice(0, 5).map((s, i) => {
+                const probabilityPercent = toScenarioProbabilityPercent(s.probability);
+                return (
                   <li key={i} className="text-xs leading-relaxed">
                     <span className="font-medium">{s.description}</span>
-                    {typeof s.probability === "number" && (
-                      <span className="ml-1 text-muted-foreground">({Math.round(s.probability * 100)}%)</span>
+                    {probabilityPercent != null && (
+                      <span className="ml-1 text-muted-foreground">({probabilityPercent}%)</span>
                     )}
                   </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="text-xs text-muted-foreground italic">No scenarios on watch for this period.</p>
-            )}
+                );
+              })}
+            </ol>
           </div>
         )}
         {hasContent && !summary && scenarios.length === 0 && keyFindings.length > 0 && (
