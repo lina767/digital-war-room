@@ -20,6 +20,7 @@ import {
   type AnalysisRunSummary,
   type MonitoringErrorEntry,
 } from "@/lib/api";
+import { getChatFeedbackSummary, type ChatFeedbackSummaryResponse } from "@/lib/api/chat";
 import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 import { AGENT_NAME_TO_KEY } from "@/components/dashboard/agentsConfig";
 import { toast } from "sonner";
@@ -40,6 +41,7 @@ import {
   Layers,
   ScrollText,
   Search,
+  MessageCircle,
 } from "lucide-react";
 import {
   LineChart,
@@ -229,6 +231,7 @@ function AgentMonitorContent() {
   const [history, setHistory] = useState<AnalysisRunSummary[]>([]);
   const [monitoring, setMonitoring] = useState<AgentsMonitoringResponse | null>(null);
   const [opsStatus, setOpsStatus] = useState<AgentsOpsStatusResponse | null>(null);
+  const [chatFeedbackSummary, setChatFeedbackSummary] = useState<ChatFeedbackSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runAgainLoading, setRunAgainLoading] = useState(false);
@@ -253,18 +256,20 @@ function AgentMonitorContent() {
   const fetchAll = useCallback(async () => {
     setError(null);
     try {
-      const [statusRes, healthRes, historyRes, monRes, opsRes] = await Promise.all([
+      const [statusRes, healthRes, historyRes, monRes, opsRes, chatFeedbackRes] = await Promise.all([
         getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
         getAgentsMonitoring(),
         getAgentsOpsStatus(),
+        getChatFeedbackSummary(14),
       ]);
       if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
       if (healthRes) setHealth(healthRes);
       if (historyRes?.runs) setHistory(historyRes.runs);
       if (monRes) setMonitoring(monRes);
       if (opsRes) setOpsStatus(opsRes);
+      if (chatFeedbackRes) setChatFeedbackSummary(chatFeedbackRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load monitoring data");
     } finally {
@@ -361,18 +366,20 @@ function AgentMonitorContent() {
           break;
         }
       }
-      const [statusRes, healthRes, historyRes, monRes, opsRes] = await Promise.all([
+      const [statusRes, healthRes, historyRes, monRes, opsRes, chatFeedbackRes] = await Promise.all([
         getAgentsStatus(),
         getAgentsHealth(),
         getAgentsHistory(30),
         getAgentsMonitoring(),
         getAgentsOpsStatus(),
+        getChatFeedbackSummary(14),
       ]);
       if (statusRes && typeof statusRes === "object") setStatus(statusRes as Record<string, AgentStatusEntry>);
       if (healthRes) setHealth(healthRes);
       if (historyRes?.runs) setHistory(historyRes.runs);
       if (monRes) setMonitoring(monRes);
       if (opsRes) setOpsStatus(opsRes);
+      if (chatFeedbackRes) setChatFeedbackSummary(chatFeedbackRes);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to refresh");
       toast.error("Refresh failed", { description: e instanceof Error ? e.message : "Unknown error" });
@@ -534,6 +541,72 @@ function AgentMonitorContent() {
             {error}
           </div>
         )}
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono flex items-center gap-2">
+              <MessageCircle className="h-4 w-4" />
+              Chat feedback learning loop
+            </CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Helpful-rate and confidence by chat question type (last 14 days), per tenant scope.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {chatFeedbackSummary ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Storage</span>
+                    <p className="font-mono">{chatFeedbackSummary.storage}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Total feedback</span>
+                    <p className="font-mono tabular-nums">{chatFeedbackSummary.total_feedback}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Helpful total</span>
+                    <p className="font-mono tabular-nums">{chatFeedbackSummary.helpful_total}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground text-[10px] font-mono uppercase">Helpful rate</span>
+                    <p className="font-mono tabular-nums">{Math.round(chatFeedbackSummary.helpful_rate * 100)}%</p>
+                  </div>
+                </div>
+                {chatFeedbackSummary.by_question_type.length > 0 ? (
+                  <div className="overflow-x-auto rounded border border-border/60">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="text-left py-1.5 px-2 font-mono">Question type</th>
+                          <th className="text-right py-1.5 px-2 font-mono">Count</th>
+                          <th className="text-right py-1.5 px-2 font-mono">Helpful</th>
+                          <th className="text-right py-1.5 px-2 font-mono">Rate</th>
+                          <th className="text-right py-1.5 px-2 font-mono">Avg conf</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chatFeedbackSummary.by_question_type.map((row) => (
+                          <tr key={row.question_type} className="border-b border-border/40">
+                            <td className="py-1.5 px-2 font-mono">{row.question_type}</td>
+                            <td className="py-1.5 px-2 text-right tabular-nums">{row.count}</td>
+                            <td className="py-1.5 px-2 text-right tabular-nums">{row.helpful_count}</td>
+                            <td className="py-1.5 px-2 text-right tabular-nums">{Math.round(row.helpful_rate * 100)}%</td>
+                            <td className="py-1.5 px-2 text-right tabular-nums">{Math.round(row.avg_confidence * 100)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No chat feedback yet.</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Chat feedback summary unavailable.</p>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="pb-2">

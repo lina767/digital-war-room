@@ -50,6 +50,7 @@ import { LiveSocialMonitor } from "@/components/dashboard/LiveSocialMonitor";
 import { CollapsiblePanel } from "@/components/dashboard/CollapsiblePanel";
 import { CollapsibleDomainGroup } from "@/components/dashboard/CollapsibleDomainGroup";
 import { CorroboratedPatternsBlock } from "@/components/dashboard/CorroboratedPatternsBlock";
+import { ChatMvpPanel } from "@/components/dashboard/ChatMvpPanel";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import {
   FEED_VIEW_STORAGE_KEY,
@@ -825,6 +826,10 @@ export function DashboardRightPanel({
             <WorldMap />
           </ErrorBoundary>
         </div>
+      </div>
+
+      <div className="mb-4">
+        <ChatMvpPanel conflict={activeConflict || displayConflictLabel || "Iran"} />
       </div>
 
       {/* Feed content */}
