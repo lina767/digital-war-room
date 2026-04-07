@@ -7,6 +7,8 @@ import { getAgentConfidenceFromConflict, type DataQualityLevel } from "@/compone
 import { Badge } from "@/components/ui/badge";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
+const HIDDEN_LEGACY_AGENTS = new Set(["PROTEST", "CIVIL_UNREST"]);
+
 const DATA_QUALITY_STYLES: Record<DataQualityLevel, string> = {
   live: "bg-emerald-500/15 text-emerald-300 border-emerald-500/35",
   estimated: "bg-amber-500/15 text-amber-200 border-amber-500/35",
@@ -41,6 +43,8 @@ export function DashboardLeftPanel({
   setAgentExpanded,
   conflictData,
 }: DashboardLeftPanelProps) {
+  const visibleAgents = AGENTS_WITH_SOURCES.filter((agent) => !HIDDEN_LEGACY_AGENTS.has(agent.name.toUpperCase()));
+
   const getAgentStatus = (agentName: string): "ok" | "error" => {
     if (!conflictData) return "ok";
     const key = AGENT_NAME_TO_KEY[agentName];
@@ -77,7 +81,7 @@ export function DashboardLeftPanel({
         </button>
       </div>
       <div className="space-y-2">
-        {AGENTS_WITH_SOURCES.map((agent) => {
+        {visibleAgents.map((agent) => {
           const status = getAgentStatus(agent.name);
           const agentKey = AGENT_NAME_TO_KEY[agent.name] ?? agent.name.replace(/\s+/g, "-").toLowerCase();
           const sourcesPanelId = `agent-sources-${agentKey}`;
