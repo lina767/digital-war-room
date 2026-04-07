@@ -27,7 +27,7 @@ except ImportError:
 AGENT_ENV = {
     "finint": ["ALPHAVANTAGE_API_KEY"],
     "sigint": [],
-    "news": ["NEWS_API_KEY"],
+    "news": [],  # RSS always available; NEWS_API_KEY / NEWSDATA_API_KEY / GNEWS_API_KEY are optional
     "geoint": ["NASA_FIRMS_KEY"],
     "satintel": [],  # Sentinel Hub creds optional; agent runs in degraded mode without them
     "socmint": [],
@@ -205,7 +205,7 @@ def main():
     print("=" * 60)
     if not verbose and ok_count == len(results):
         print("Tip: run with -v to see data hints (e.g. article/outage counts).")
-    print("Env vars for full data: ALPHAVANTAGE_API_KEY, NEWS_API_KEY, NASA_FIRMS_KEY,")
+    print("Env vars for full data: ALPHAVANTAGE_API_KEY, NEWS_API_KEY, NEWSDATA_API_KEY, GNEWS_API_KEY, NASA_FIRMS_KEY,")
     print(
         "  CLOUDFLARE_RADAR_API_TOKEN, SHODAN_API_KEY, OTX_API_KEY, GREYNOISE_API_KEY, "
         "ACLED_EMAIL+ACLED_PASSWORD (or ACLED_API_KEY legacy)"

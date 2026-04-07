@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any
 
+from services.pg_sync import effective_postgres_url
 from services.privacy_sanitize import pseudonymize
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ async def emit_audit_event(
     }
     logger.info("audit_event %s", json.dumps(event, ensure_ascii=True, sort_keys=True))
 
-    db_url = (os.getenv("DATABASE_URL") or "").strip()
+    db_url = effective_postgres_url()
     if not db_url:
         return
     try:
@@ -96,7 +96,7 @@ async def emit_audit_event(
 
 
 async def prune_compliance_audit_events(days: int) -> int:
-    db_url = (os.getenv("DATABASE_URL") or "").strip()
+    db_url = effective_postgres_url()
     if not db_url:
         return 0
     try:

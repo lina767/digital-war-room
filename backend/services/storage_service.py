@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import uuid
 from typing import Any, Dict, List, Optional
 
+from services.pg_sync import effective_postgres_url
+
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
 _pool = None
 
 
@@ -41,14 +41,15 @@ async def _get_pool():
     global _pool
     if _pool is not None:
         return _pool
-    if not DATABASE_URL:
+    database_url = effective_postgres_url()
+    if not database_url:
         return None
     try:
         import asyncpg
         from pgvector.asyncpg import register_vector
 
         _pool = await asyncpg.create_pool(
-            DATABASE_URL,
+            database_url,
             min_size=2,
             max_size=10,
             command_timeout=30,
@@ -65,7 +66,7 @@ async def _get_pool():
 
 def is_available() -> bool:
     """Quick check: is DATABASE_URL configured?"""
-    return bool(DATABASE_URL)
+    return bool(effective_postgres_url())
 
 
 def _content_hash(text: str) -> str:

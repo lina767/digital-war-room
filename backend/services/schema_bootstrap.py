@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
+
+from services.pg_sync import effective_postgres_url
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ _ORDER = (
 
 
 async def bootstrap_schema() -> None:
-    url = (os.getenv("DATABASE_URL") or "").strip()
+    url = effective_postgres_url()
     if not url:
         return
     try:

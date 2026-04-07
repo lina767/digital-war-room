@@ -1276,6 +1276,9 @@ def _news_manager(
 ) -> Dict[str, Any]:
     """Middle management: take analyst results, run fusion + escalation + NER, return full NEWS result."""
     fetched_at = utc_now_iso()
+    has_newsapi = "newsapi" in analyst_results
+    has_newsdata = "newsdata" in analyst_results
+    has_gnews = "gnews" in analyst_results
     newsapi_res = analyst_results.get("newsapi") or {}
     rss_res = analyst_results.get("rss") or {}
     newsdata_res = analyst_results.get("newsdata") or {}
@@ -1311,15 +1314,19 @@ def _news_manager(
     n_rss = len(rss_res.get("articles") or [])
     n_newsdata = len(newsdata_res.get("articles") or [])
     n_gnews = len(gnews_res.get("articles") or [])
-    source_results = [
-        SourceResult(
-            name="NewsAPI",
-            status="ok" if n_newsapi else "error",
-            fetched_at=fetched_at,
-            record_count=n_newsapi,
-            reference_urls=_urls_from_articles_by_source_type(articles, "newsapi"),
-            endpoint_kind="rest",
-        ),
+    source_results = []
+    if has_newsapi:
+        source_results.append(
+            SourceResult(
+                name="NewsAPI",
+                status="ok" if n_newsapi else "error",
+                fetched_at=fetched_at,
+                record_count=n_newsapi,
+                reference_urls=_urls_from_articles_by_source_type(articles, "newsapi"),
+                endpoint_kind="rest",
+            )
+        )
+    source_results.append(
         SourceResult(
             name="RSS",
             status="ok" if n_rss else "error",
@@ -1327,9 +1334,9 @@ def _news_manager(
             record_count=n_rss,
             reference_urls=_urls_from_articles_by_source_type(articles, "rss"),
             endpoint_kind="rss",
-        ),
-    ]
-    if "newsdata" in analyst_results:
+        )
+    )
+    if has_newsdata:
         source_results.append(
             SourceResult(
                 name="NewsData",
@@ -1340,7 +1347,7 @@ def _news_manager(
                 endpoint_kind="rest",
             )
         )
-    if "gnews" in analyst_results:
+    if has_gnews:
         source_results.append(
             SourceResult(
                 name="GNews",
@@ -1392,10 +1399,12 @@ def _news_manager(
     handoff_note = ""
     if context and getattr(context, "peer_summaries", None) and getattr(context, "peer_summaries", {}):
         handoff_note = " Handoff: cross-referenced with peer agent summaries."
-    summary_parts = [f"{bd.get('newsapi', 0)} NewsAPI", f"{bd.get('rss', 0)} RSS"]
-    if "newsdata" in analyst_results:
+    summary_parts = [f"{bd.get('rss', 0)} RSS"]
+    if has_newsapi:
+        summary_parts.insert(0, f"{bd.get('newsapi', 0)} NewsAPI")
+    if has_newsdata:
         summary_parts.append(f"{bd.get('newsdata', 0)} NewsData")
-    if "gnews" in analyst_results:
+    if has_gnews:
         summary_parts.append(f"{bd.get('gnews', 0)} GNews")
     if gdelt_bq.get("ok") and bq_n:
         summary_parts.append(f"GDELT BQ {bq_n} coded events ({gdelt_bq.get('lookback_days', '?')}d)")
@@ -1425,10 +1434,9 @@ def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None
     """Execute NEWS as multi-agent: analysts in parallel, then manager (fusion + escalation + NER)."""
     start = time.perf_counter()
     fetched_at = utc_now_iso()
-    analysts: List[tuple] = [
-        ("newsapi", _run_newsapi_source_agent),
-        ("rss", _run_rss_source_agent),
-    ]
+    analysts: List[tuple] = [("rss", _run_rss_source_agent)]
+    if os.getenv("NEWS_API_KEY"):
+        analysts.insert(0, ("newsapi", _run_newsapi_source_agent))
     if os.getenv("NEWSDATA_API_KEY"):
         analysts.append(("newsdata", _run_newsdata_source_agent))
     if os.getenv("GNEWS_API_KEY"):

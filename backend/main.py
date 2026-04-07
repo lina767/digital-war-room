@@ -29,6 +29,7 @@ from agents.config import CORS_ORIGINS
 from observability import init as init_observability
 from services.job_queue import JobQueue
 from services.http_client import close_http_client
+from services.pg_sync import effective_postgres_url
 from services.startup_tasks import start_startup_tasks, stop_startup_tasks
 from services.state_service import StateService
 from services.tenant_auth import build_request_context
@@ -156,7 +157,7 @@ async def health_ready():
     result: dict = {"status": "ok"}
     http_status = 200
 
-    db_url = os.getenv("DATABASE_URL", "").strip()
+    db_url = effective_postgres_url()
     if not db_url:
         result["database"] = "not_configured"
     else:

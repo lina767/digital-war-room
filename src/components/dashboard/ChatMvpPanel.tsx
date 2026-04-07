@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { MessageCircle, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import { postChatAsk, postChatFeedback, type ChatAskResponse, type ChatQuestionType } from "@/lib/api/chat";
+import { getAnalyzeStatus, triggerRefreshAnalysis } from "@/lib/api/analyze";
 
 const QUICK_PROMPTS: Array<{ label: string; text: string }> = [
   { label: "Situation", text: "Give me a concise situation overview for this conflict." },
@@ -41,9 +42,22 @@ export function ChatMvpPanel({ conflict }: ChatMvpPanelProps) {
     setLoading(true);
     setFeedbackSent(null);
     try {
+      const status = await getAnalyzeStatus(conflict);
+      if (status && !status.cached) {
+        try {
+          await triggerRefreshAnalysis(conflict);
+        } catch {
+          // If already running or temporarily unavailable, keep a clear user hint.
+        }
+        toast.info("Analysis for this conflict is still warming up. Please retry in ~30-60 seconds.");
+        return;
+      }
       const response = await postChatAsk({ question: q, conflict });
       setResult(response);
       setLastQuestion(q);
+      if (response.fallback_used) {
+        toast.info("Answer quality was too low for Chat MVP, so a safe fallback was returned.");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Chat request failed");
     } finally {

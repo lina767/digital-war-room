@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional
+
+from services.pg_sync import effective_postgres_url
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def build_provenance_snapshot(result: Dict[str, Any]) -> Dict[str, Any]:
 
 async def persist_analysis_audit(conflict: str, result: Dict[str, Any]) -> None:
     """Insert or update one row in ``analysis_audit`` for this run."""
-    url = os.getenv("DATABASE_URL", "").strip()
+    url = effective_postgres_url()
     if not url:
         return
     run_id = result.get("analysis_run_id")
@@ -97,7 +98,7 @@ async def persist_analysis_audit(conflict: str, result: Dict[str, Any]) -> None:
 
 async def fetch_analysis_audit(run_id: str) -> Optional[Dict[str, Any]]:
     """Load a stored provenance snapshot by run UUID string."""
-    url = os.getenv("DATABASE_URL", "").strip()
+    url = effective_postgres_url()
     if not url:
         return None
     try:
@@ -138,7 +139,7 @@ async def fetch_analysis_audit(run_id: str) -> Optional[Dict[str, Any]]:
 
 async def prune_analysis_audit(days: int) -> int:
     """Delete old analysis_audit rows older than N days."""
-    url = os.getenv("DATABASE_URL", "").strip()
+    url = effective_postgres_url()
     if not url:
         return 0
     try:
