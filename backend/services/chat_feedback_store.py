@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 _MEMORY_MAX = int(os.getenv("CHAT_FEEDBACK_MEMORY_MAX", "500"))
 _memory_feedback: deque = deque(maxlen=max(50, _MEMORY_MAX))
+_memory_responses: deque = deque(maxlen=max(50, _MEMORY_MAX))
 
 
 def _now_iso() -> str:
@@ -220,6 +221,146 @@ async def get_chat_feedback_summary(
         if tenant_id:
             rows = [r for r in rows if str(r.get("tenant_id") or "") == str(tenant_id)]
         return {"storage": "memory", **_summarize_rows(rows)}
+    finally:
+        if conn is not None:
+            await conn.close()
+
+
+async def persist_chat_response(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Persist one chat answer keyed by response_id for authoritative feedback linkage.
+    Returns storage details, never raises.
+    """
+    safe_event = dict(event)
+    safe_event.setdefault("created_at", _now_iso())
+    safe_event["sources"] = list(safe_event.get("sources") or [])
+    _memory_responses.append(safe_event)
+
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return {"stored": True, "storage": "memory"}
+
+    try:
+        import asyncpg
+    except ImportError:
+        return {"stored": True, "storage": "memory"}
+
+    conn = None
+    try:
+        conn = await asyncpg.connect(url, timeout=10.0)
+        await conn.execute(
+            """
+            INSERT INTO chat_responses (
+                response_id,
+                tenant_id,
+                conflict,
+                question_type,
+                question,
+                answer,
+                confidence_score,
+                sources_json,
+                fallback_used
+            ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8::jsonb, $9)
+            ON CONFLICT (response_id) DO UPDATE SET
+                tenant_id = EXCLUDED.tenant_id,
+                conflict = EXCLUDED.conflict,
+                question_type = EXCLUDED.question_type,
+                question = EXCLUDED.question,
+                answer = EXCLUDED.answer,
+                confidence_score = EXCLUDED.confidence_score,
+                sources_json = EXCLUDED.sources_json,
+                fallback_used = EXCLUDED.fallback_used
+            """,
+            safe_event.get("response_id"),
+            safe_event.get("tenant_id"),
+            safe_event.get("conflict", "Unknown"),
+            safe_event.get("question_type", "situation_overview"),
+            safe_event.get("question", ""),
+            safe_event.get("answer", ""),
+            float(safe_event.get("confidence_score") or 0.0),
+            json.dumps(safe_event.get("sources") or []),
+            bool(safe_event.get("fallback_used")),
+        )
+        return {"stored": True, "storage": "database"}
+    except Exception as e:
+        logger.warning("chat response persist failed, using memory fallback: %s", e)
+        return {"stored": True, "storage": "memory"}
+    finally:
+        if conn is not None:
+            await conn.close()
+
+
+async def resolve_chat_response(*, response_id: str, tenant_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    Resolve a previously persisted chat response by ID and tenant.
+    """
+    rid = str(response_id or "").strip()
+    if not rid:
+        return None
+
+    for row in reversed(_memory_responses):
+        if str(row.get("response_id") or "") != rid:
+            continue
+        if tenant_id and str(row.get("tenant_id") or "") not in ("", str(tenant_id)):
+            continue
+        return {
+            "response_id": rid,
+            "conflict": row.get("conflict"),
+            "question_type": row.get("question_type"),
+            "question": row.get("question"),
+            "answer": row.get("answer"),
+            "confidence_score": row.get("confidence_score"),
+            "sources": list(row.get("sources") or []),
+            "fallback_used": bool(row.get("fallback_used")),
+        }
+
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return None
+
+    try:
+        import asyncpg
+    except ImportError:
+        return None
+
+    conn = None
+    try:
+        conn = await asyncpg.connect(url, timeout=10.0)
+        row = await conn.fetchrow(
+            """
+            SELECT
+                response_id,
+                tenant_id,
+                conflict,
+                question_type,
+                question,
+                answer,
+                confidence_score,
+                sources_json,
+                fallback_used
+            FROM chat_responses
+            WHERE response_id = $1::uuid
+              AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
+            LIMIT 1
+            """,
+            rid,
+            tenant_id,
+        )
+        if not row:
+            return None
+        return {
+            "response_id": str(row["response_id"]),
+            "conflict": row["conflict"],
+            "question_type": row["question_type"],
+            "question": row["question"],
+            "answer": row["answer"],
+            "confidence_score": float(row["confidence_score"] or 0.0),
+            "sources": list(row["sources_json"] or []),
+            "fallback_used": bool(row["fallback_used"]),
+        }
+    except Exception as e:
+        logger.warning("chat response resolve failed: %s", e)
+        return None
     finally:
         if conn is not None:
             await conn.close()

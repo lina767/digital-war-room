@@ -58,25 +58,50 @@ def test_chat_ask_returns_structured_answer(monkeypatch):
 def test_chat_feedback_persists(monkeypatch):
     client = _client()
 
+    async def _fake_resolve_chat_response(**_kwargs):
+        return {
+            "response_id": "f3cb6497-57c0-45e1-8f66-f4f68bb13755",
+            "conflict": "Iran",
+            "question_type": "changes_since_yesterday",
+            "question": "What changed since yesterday?",
+            "answer": "No major military posture shift is visible.",
+            "confidence_score": 0.7,
+            "sources": ["https://example.com/report"],
+            "fallback_used": False,
+        }
+
     async def _fake_persist(_event):
         return {"stored": True, "storage": "memory"}
 
+    monkeypatch.setattr("api.routes_chat.resolve_chat_response", _fake_resolve_chat_response)
     monkeypatch.setattr("api.routes_chat.persist_chat_feedback", _fake_persist)
     r = client.post(
         "/api/chat/feedback",
         json={
             "response_id": "f3cb6497-57c0-45e1-8f66-f4f68bb13755",
-            "conflict": "Iran",
-            "question": "What changed since yesterday?",
-            "question_type": "changes_since_yesterday",
-            "answer": "No major military posture shift is visible.",
-            "confidence_score": 0.7,
-            "sources": ["https://example.com/report"],
             "helpful": True,
         },
     )
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+def test_chat_feedback_unknown_response_returns_404(monkeypatch):
+    client = _client()
+
+    async def _fake_resolve_chat_response(**_kwargs):
+        return None
+
+    monkeypatch.setattr("api.routes_chat.resolve_chat_response", _fake_resolve_chat_response)
+    r = client.post(
+        "/api/chat/feedback",
+        json={
+            "response_id": "00000000-0000-4000-8000-000000000099",
+            "helpful": True,
+        },
+    )
+    assert r.status_code == 404
+    assert r.json()["detail"]["status"] == "not_found"
 
 
 def test_chat_feedback_summary(monkeypatch):

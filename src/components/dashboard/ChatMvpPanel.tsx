@@ -28,7 +28,6 @@ export function ChatMvpPanel({ conflict }: ChatMvpPanelProps) {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ChatAskResponse | null>(null);
-  const [lastQuestion, setLastQuestion] = useState("");
   const [feedbackSent, setFeedbackSent] = useState<boolean | null>(null);
 
   const confidenceLabel = useMemo(() => {
@@ -54,7 +53,6 @@ export function ChatMvpPanel({ conflict }: ChatMvpPanelProps) {
       }
       const response = await postChatAsk({ question: q, conflict });
       setResult(response);
-      setLastQuestion(q);
       if (response.fallback_used) {
         toast.info("Answer quality was too low for Chat MVP, so a safe fallback was returned.");
       }
@@ -70,16 +68,10 @@ export function ChatMvpPanel({ conflict }: ChatMvpPanelProps) {
   }
 
   async function onFeedback(helpful: boolean) {
-    if (!result || !lastQuestion || feedbackSent !== null) return;
+    if (!result || feedbackSent !== null) return;
     try {
       await postChatFeedback({
         response_id: result.response_id,
-        conflict,
-        question: lastQuestion,
-        question_type: result.question_type,
-        answer: result.answer,
-        confidence_score: result.confidence_score,
-        sources: result.sources,
         helpful,
       });
       setFeedbackSent(helpful);

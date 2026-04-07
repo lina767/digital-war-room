@@ -29,12 +29,6 @@ export async function postChatAsk(body: { question: string; conflict: string }):
 
 export interface ChatFeedbackBody {
   response_id: string;
-  conflict: string;
-  question: string;
-  question_type: ChatQuestionType;
-  answer: string;
-  confidence_score: number;
-  sources: string[];
   helpful: boolean;
   comment?: string;
 }
