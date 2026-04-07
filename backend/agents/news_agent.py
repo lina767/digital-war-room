@@ -42,6 +42,12 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
+NEWSAPI_CACHE_TTL_SEC = max(60, int(os.getenv("NEWSAPI_CACHE_TTL_SEC", "900")))
+NEWSAPI_RATE_LIMIT_COOLDOWN_SEC = max(300, int(os.getenv("NEWSAPI_RATE_LIMIT_COOLDOWN_SEC", "3600")))
+
+_newsapi_cache: Dict[str, Dict[str, Any]] = {}
+_newsapi_rate_limited_until_ts: float = 0.0
+
 
 def _urls_from_articles_by_source_type(articles: List[Dict[str, Any]], source_type: str) -> List[str]:
     """Collect article URLs for provenance (capped)."""
@@ -585,6 +591,52 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
     if not api_key:
         return [{"error": "NEWS_API_KEY not set"}]
 
+    conflict_key = (conflict or "").strip().lower()
+    cache_key = f"{conflict_key}:{int(hours_back)}"
+    now_ts = time.time()
+
+    def _cache_get(key: str) -> Optional[List[Dict[str, Any]]]:
+        entry = _newsapi_cache.get(key)
+        if not entry:
+            return None
+        age = now_ts - float(entry.get("ts") or 0.0)
+        if age > NEWSAPI_CACHE_TTL_SEC:
+            return None
+        data = entry.get("articles")
+        if not isinstance(data, list):
+            return None
+        return data
+
+    def _cache_get_stale(key: str) -> Optional[List[Dict[str, Any]]]:
+        entry = _newsapi_cache.get(key)
+        if not entry:
+            return None
+        data = entry.get("articles")
+        return data if isinstance(data, list) else None
+
+    def _cache_set(key: str, articles: List[Dict[str, Any]]) -> None:
+        _newsapi_cache[key] = {"ts": now_ts, "articles": articles}
+
+    cached_fresh = _cache_get(cache_key)
+    if cached_fresh is not None:
+        return list(cached_fresh)
+
+    global _newsapi_rate_limited_until_ts
+    if now_ts < _newsapi_rate_limited_until_ts:
+        cached_stale = _cache_get_stale(cache_key)
+        if cached_stale is not None:
+            logger.info("NewsAPI: cooldown active; serving stale cache for '%s'", conflict)
+            return list(cached_stale)
+        retry_after = int(max(1, _newsapi_rate_limited_until_ts - now_ts))
+        logger.warning("NewsAPI: cooldown active (%ss remaining), skipping request", retry_after)
+        return [
+            {
+                "error": "NewsAPI rate limited (cooldown active)",
+                "error_code": "rate_limited",
+                "retry_after_sec": retry_after,
+            }
+        ]
+
     async def _fetch(hours: int):
         from_date = datetime.now(timezone.utc) - timedelta(hours=hours)
         params = {
@@ -612,7 +664,18 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
         data = run_async(_fetch(hours_back))
         if data.get("_rate_limited"):
             logger.warning("NewsAPI: rate limited (free tier: 100 req/day). Wait or upgrade plan.")
-            return [{"error": "NewsAPI rate limited (free tier: 100 req/day)"}]
+            _newsapi_rate_limited_until_ts = now_ts + NEWSAPI_RATE_LIMIT_COOLDOWN_SEC
+            cached_stale = _cache_get_stale(cache_key)
+            if cached_stale is not None:
+                logger.info("NewsAPI: serving stale cache after rate limit for '%s'", conflict)
+                return list(cached_stale)
+            return [
+                {
+                    "error": "NewsAPI rate limited (free tier: 100 req/day)",
+                    "error_code": "rate_limited",
+                    "retry_after_sec": NEWSAPI_RATE_LIMIT_COOLDOWN_SEC,
+                }
+            ]
         articles = []
         for art in data.get("articles", []):
             title = art.get("title") or ""
@@ -633,8 +696,13 @@ def search_conflict_news(conflict: str, hours_back: int = 48) -> List[Dict[str, 
                     "source_type": "newsapi",
                 }
             )
+        _cache_set(cache_key, articles)
         return articles
     except Exception as e:
+        cached_stale = _cache_get_stale(cache_key)
+        if cached_stale is not None:
+            logger.warning("NewsAPI: request failed, serving stale cache: %s", e)
+            return list(cached_stale)
         return [{"error": str(e)}]
 
 
@@ -982,10 +1050,15 @@ def _run_newsapi_source_agent(conflict: str, hours_back: int = 48) -> Dict[str, 
     """Source agent: NewsAPI-only view of the conflict."""
     raw = search_conflict_news(conflict=conflict, hours_back=hours_back)
     articles = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
+    rate_limited = any(
+        isinstance(a, dict) and (a.get("error_code") == "rate_limited")
+        for a in (raw if isinstance(raw, list) else [])
+    )
     return {
         "source": "newsapi",
         "articles": articles,
         "count": len(articles),
+        "rate_limited": rate_limited,
     }
 
 
@@ -1397,7 +1470,7 @@ def _news_manager(
         source_results.append(
             SourceResult(
                 name="NewsAPI",
-                status="ok" if n_newsapi else "error",
+                status="ok" if n_newsapi else ("degraded" if newsapi_res.get("rate_limited") else "error"),
                 fetched_at=fetched_at,
                 record_count=n_newsapi,
                 reference_urls=_urls_from_articles_by_source_type(articles, "newsapi"),

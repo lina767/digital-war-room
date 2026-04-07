@@ -54,9 +54,14 @@ class HttpClient:
                 except httpx.HTTPStatusError as e:
                     status = e.response.status_code
                     safe_url = redact_url(url)
+                    host = (parsed.hostname or "").lower()
                     # Retry only on 5xx, everything andere sofort durchreichen
                     if status < 500 or attempt > retries:
-                        logger.warning("HTTP error %s %s: %s", method.upper(), safe_url, e)
+                        if status == 404 and host == "internetdb.shodan.io":
+                            # InternetDB returns 404 for IPs without data; this is expected.
+                            logger.debug("HTTP expected 404 %s %s", method.upper(), safe_url)
+                        else:
+                            logger.warning("HTTP error %s %s: %s", method.upper(), safe_url, e)
                         raise
                     logger.warning(
                         "HTTP %s %s -> %s, retrying (attempt %s/%s)",

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
 # Serverless Inference API host (no trailing path). Pipeline routes disambiguate tasks; see _hf_post_pipeline.
-HF_INFERENCE_API = os.getenv("HF_INFERENCE_API", "https://api-inference.huggingface.co").rstrip("/")
+HF_INFERENCE_API = os.getenv("HF_INFERENCE_API", "https://router.huggingface.co/hf-inference").rstrip("/")
 # Legacy: full URL prefix ending before the model id, e.g. https://router.huggingface.co/hf-inference/models
 # If set, NER/QA still POST to {HF_API_BASE}/{model}. Prefer HF_INFERENCE_API for new deployments.
 HF_API_BASE = os.getenv("HF_API_BASE", "").rstrip("/")
@@ -35,8 +35,9 @@ HF_API_TIMEOUT = int(os.getenv("HF_API_TIMEOUT", "45"))
 HF_CACHE_MAX_SIZE = int(os.getenv("HF_CACHE_MAX_SIZE", "10000"))
 
 # Models
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-CROSS_ENCODER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+# Router-compatible reranker default. Override via HF_CROSS_ENCODER_MODEL if needed.
+CROSS_ENCODER_MODEL = os.getenv("HF_CROSS_ENCODER_MODEL", "BAAI/bge-reranker-base")
 NER_BULK_MODEL = "Davlan/bert-base-multilingual-cased-ner-hrl"
 DOC_QA_MODEL = os.getenv("HF_DOC_QA_MODEL", "deepset/roberta-base-squad2")
 
@@ -97,6 +98,9 @@ def _models_url(model: str) -> str:
 
 def _pipeline_url(task: str, model: str) -> str:
     """URL for /pipeline/{task}/{model} (feature-extraction, text-classification, …)."""
+    if "router.huggingface.co" in HF_INFERENCE_API:
+        # HF Router expects model-first pipeline routes.
+        return f"{HF_INFERENCE_API}/models/{model}/pipeline/{task}"
     return f"{HF_INFERENCE_API}/pipeline/{task}/{model}"
 
 
@@ -373,7 +377,7 @@ async def rank_by_relevance(
     if not HUGGINGFACE_API_KEY:
         return [(i, 0.0) for i in range(min(top_k, len(texts)))]
 
-    pairs = [[query, t[:512]] for t in texts]
+    pairs = [{"text": query, "text_pair": t[:512]} for t in texts]
     result = await _hf_post_pipeline(
         "text-classification",
         CROSS_ENCODER_MODEL,
@@ -381,11 +385,19 @@ async def rank_by_relevance(
         timeout=max(HF_API_TIMEOUT, 60),
     )
 
-    if result and isinstance(result, list) and len(result) == len(texts):
-        scores = [_cross_encoder_relevance_score(item) for item in result]
-        indexed = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
-        return indexed[:top_k]
-
+    if result and isinstance(result, list):
+        # Some router models return [[{...}, {...}]] for batched inputs.
+        normalized: List[Any]
+        if len(result) == len(texts):
+            normalized = result
+        elif len(result) == 1 and isinstance(result[0], list) and len(result[0]) == len(texts):
+            normalized = result[0]
+        else:
+            normalized = []
+        if normalized:
+            scores = [_cross_encoder_relevance_score(item) for item in normalized]
+            indexed = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+            return indexed[:top_k]
     logger.warning("[hf] Cross-encoder ranking failed, returning original order")
     return [(i, 0.0) for i in range(min(top_k, len(texts)))]
 
@@ -541,7 +553,7 @@ async def warmup():
     await _hf_post_pipeline(
         "text-classification",
         CROSS_ENCODER_MODEL,
-        {"inputs": [["warmup query", "warmup text"]], "options": {"wait_for_model": True}},
+        {"inputs": [{"text": "warmup query", "text_pair": "warmup text"}], "options": {"wait_for_model": True}},
     )
     await _hf_post_models(
         NER_BULK_MODEL,

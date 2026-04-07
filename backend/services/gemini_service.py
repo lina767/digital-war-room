@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import base64
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
@@ -17,7 +18,11 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_BASE = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
 GEMINI_MODEL = os.getenv("RESEARCH_GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_FALLBACK_MODEL = (os.getenv("RESEARCH_GEMINI_FALLBACK_MODEL") or "").strip()
 GEMINI_TIMEOUT_SEC = float(os.getenv("RESEARCH_GEMINI_TIMEOUT_SEC", "20"))
+GEMINI_MAX_RETRIES = max(0, int(os.getenv("RESEARCH_GEMINI_MAX_RETRIES", "2")))
+GEMINI_RETRY_BASE_DELAY_SEC = max(0.1, float(os.getenv("RESEARCH_GEMINI_RETRY_BASE_DELAY_SEC", "1.0")))
+GEMINI_RETRY_MAX_DELAY_SEC = max(0.5, float(os.getenv("RESEARCH_GEMINI_RETRY_MAX_DELAY_SEC", "8.0")))
 
 # USD / 1M tokens (defaults for Gemini 2.5 Flash standard tier)
 GEMINI_INPUT_USD_PER_MTOK = float(os.getenv("RESEARCH_GEMINI_INPUT_USD_PER_MTOK", "0.30"))
@@ -130,8 +135,65 @@ def _extract_usage(payload: Dict[str, Any]) -> Tuple[int, int]:
         return 0, 0
 
 
-def _gemini_url(api_key: str) -> str:
-    return f"{GEMINI_API_BASE}/models/{GEMINI_MODEL}:generateContent?key={api_key}"
+def _gemini_url(api_key: str, model: str) -> str:
+    return f"{GEMINI_API_BASE}/models/{model}:generateContent?key={api_key}"
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    return status_code in {429, 500, 502, 503, 504}
+
+
+def _backoff_delay_sec(attempt: int) -> float:
+    return min(GEMINI_RETRY_MAX_DELAY_SEC, GEMINI_RETRY_BASE_DELAY_SEC * (2**attempt))
+
+
+def _model_candidates() -> list[str]:
+    models = [GEMINI_MODEL]
+    if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+        models.append(GEMINI_FALLBACK_MODEL)
+    return models
+
+
+def _post_with_retries(
+    *,
+    api_key: str,
+    payload: Dict[str, Any],
+    call_kind: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """POST to Gemini with retry/backoff and optional fallback model."""
+    last_error: Optional[str] = None
+    for model in _model_candidates():
+        url = _gemini_url(api_key, model)
+        for attempt in range(GEMINI_MAX_RETRIES + 1):
+            try:
+                with httpx.Client(timeout=GEMINI_TIMEOUT_SEC) as client:
+                    resp = client.post(url, json=payload)
+            except Exception as exc:
+                last_error = f"request_failed:{type(exc).__name__}"
+                if attempt < GEMINI_MAX_RETRIES:
+                    time.sleep(_backoff_delay_sec(attempt))
+                    continue
+                break
+
+            if resp.status_code == 200:
+                try:
+                    return resp.json(), None
+                except Exception:
+                    return None, "invalid_json_response"
+
+            body = (resp.text or "")[:240]
+            last_error = f"http_{resp.status_code}:{body}"
+            if _is_retryable_status(resp.status_code) and attempt < GEMINI_MAX_RETRIES:
+                time.sleep(_backoff_delay_sec(attempt))
+                continue
+            break
+
+        if model != GEMINI_MODEL:
+            logger.info("Gemini %s call used fallback model: %s", call_kind, model)
+        elif GEMINI_FALLBACK_MODEL and last_error and last_error.startswith("http_429"):
+            logger.warning("Gemini %s rate-limited on %s, trying fallback model %s", call_kind, GEMINI_MODEL, GEMINI_FALLBACK_MODEL)
+
+    return None, last_error or "request_failed:unknown"
 
 
 def run_gemini_research(prompt: str) -> GeminiResearchResponse:
@@ -147,19 +209,14 @@ def run_gemini_research(prompt: str) -> GeminiResearchResponse:
             error="missing_gemini_api_key",
         )
 
-    url = _gemini_url(api_key)
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
     }
 
-    try:
-        with httpx.Client(timeout=GEMINI_TIMEOUT_SEC) as client:
-            resp = client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:
-        logger.warning("Gemini research call failed: %s", exc)
+    data, err = _post_with_retries(api_key=api_key, payload=payload, call_kind="research")
+    if not data:
+        logger.warning("Gemini research call failed: %s", err or "unknown_error")
         return GeminiResearchResponse(
             ok=False,
             raw_text="",
@@ -167,7 +224,7 @@ def run_gemini_research(prompt: str) -> GeminiResearchResponse:
             input_tokens=0,
             output_tokens=0,
             cost_usd=0.0,
-            error=f"request_failed:{type(exc).__name__}",
+            error=err or "request_failed:unknown",
         )
 
     text = _extract_text(data)
@@ -198,26 +255,21 @@ def run_gemini_text(prompt: str) -> GeminiTextResponse:
             error="missing_gemini_api_key",
         )
 
-    url = _gemini_url(api_key)
     payload: Dict[str, Any] = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "text/plain"},
     }
 
-    try:
-        with httpx.Client(timeout=GEMINI_TIMEOUT_SEC) as client:
-            resp = client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:
-        logger.warning("Gemini text call failed: %s", exc)
+    data, err = _post_with_retries(api_key=api_key, payload=payload, call_kind="text")
+    if not data:
+        logger.warning("Gemini text call failed: %s", err or "unknown_error")
         return GeminiTextResponse(
             ok=False,
             text="",
             input_tokens=0,
             output_tokens=0,
             cost_usd=0.0,
-            error=f"request_failed:{type(exc).__name__}",
+            error=err or "request_failed:unknown",
         )
 
     text = _extract_text(data)
@@ -255,7 +307,6 @@ def run_gemini_vision_json(prompt: str, image_bytes: bytes, mime_type: str = "im
             error="missing_image_bytes",
         )
 
-    url = _gemini_url(api_key)
     encoded = base64.b64encode(image_bytes).decode("ascii")
     payload: Dict[str, Any] = {
         "contents": [
@@ -268,20 +319,16 @@ def run_gemini_vision_json(prompt: str, image_bytes: bytes, mime_type: str = "im
         ],
         "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
     }
-    try:
-        with httpx.Client(timeout=GEMINI_TIMEOUT_SEC) as client:
-            resp = client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:
-        logger.warning("Gemini vision call failed: %s", exc)
+    data, err = _post_with_retries(api_key=api_key, payload=payload, call_kind="vision")
+    if not data:
+        logger.warning("Gemini vision call failed: %s", err or "unknown_error")
         return GeminiVisionResponse(
             ok=False,
             parsed_json=None,
             input_tokens=0,
             output_tokens=0,
             cost_usd=0.0,
-            error=f"request_failed:{type(exc).__name__}",
+            error=err or "request_failed:unknown",
         )
     text = _extract_text(data)
     parsed = _parse_json_text(text)

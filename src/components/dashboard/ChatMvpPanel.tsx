@@ -59,7 +59,11 @@ export function ChatMvpPanel({ conflict }: ChatMvpPanelProps) {
         toast.info("Answer quality was too low for Chat MVP, so a safe fallback was returned.");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Chat request failed");
+      if (e instanceof TypeError) {
+        toast.error("Backend is currently unreachable. Please retry in a few seconds.");
+      } else {
+        toast.error(e instanceof Error ? e.message : "Chat request failed");
+      }
     } finally {
       setLoading(false);
     }

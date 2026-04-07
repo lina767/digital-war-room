@@ -1025,7 +1025,10 @@ def run_greynoise_agent(conflict: str) -> Dict[str, Any]:
 
     try:
         result = run_async(_run_greynoise_pipeline(conflict))
-        save_snapshot(result)
+        try:
+            save_snapshot(result)
+        except Exception as e:
+            logger.warning("GreyNoise agent: snapshot persist failed for %s: %s", conflict, e)
         return result.model_dump(mode="json")
     except Exception as e:
         logger.exception("GreyNoise agent failed for %s: %s", conflict, e)
@@ -1047,7 +1050,10 @@ async def run_greynoise_scheduler_cycle() -> None:
         try:
             logger.info("GreyNoise scheduler: running pipeline for %s", conflict)
             result = await _run_greynoise_pipeline(conflict)
-            save_snapshot(result)
+            try:
+                save_snapshot(result)
+            except Exception as e:
+                logger.warning("GreyNoise scheduler: snapshot persist failed for %s: %s", conflict, e)
             logger.info("GreyNoise scheduler: %s done (score=%.1f)", conflict, result.greynoise_score)
         except Exception as e:
             logger.exception("GreyNoise scheduler: pipeline failed for %s: %s", conflict, e)

@@ -3,6 +3,10 @@
  */
 
 export const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
+const KNOWN_API_FALLBACKS = [
+  "https://api.digital-war-room.com",
+  "https://digital-war-room-production.up.railway.app",
+];
 
 /** Optional Supabase session token or DWR API key (multi-tenant backend). */
 export function getAuthHeaders(): Record<string, string> {
@@ -56,7 +60,18 @@ export function getApiBaseCandidates(): string[] {
     .split(",")
     .map((s) => s.trim().replace(/\/$/, ""))
     .filter(Boolean);
-  if (fromEnv.length > 0) return [...new Set(fromEnv)];
+  if (fromEnv.length > 0) {
+    // Only activate built-in failover for this project's known production domains.
+    const knownOrigins = new Set(KNOWN_API_FALLBACKS.map((u) => new URL(u).origin));
+    const envTouchesKnownOrigin = fromEnv.some((u) => {
+      try {
+        return knownOrigins.has(new URL(u).origin);
+      } catch {
+        return false;
+      }
+    });
+    return envTouchesKnownOrigin ? [...new Set([...fromEnv, ...KNOWN_API_FALLBACKS])] : [...new Set(fromEnv)];
+  }
   if (typeof window !== "undefined") return [window.location.origin];
   return ["http://localhost:8000"];
 }

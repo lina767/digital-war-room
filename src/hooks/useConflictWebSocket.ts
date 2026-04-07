@@ -38,6 +38,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conflictRef = useRef(conflict);
+  const lastRunIdRef = useRef<string | null>(null);
   conflictRef.current = conflict;
   const sameConflict = useCallback((incoming: unknown) => {
     if (typeof incoming !== "string") return false;
@@ -46,6 +47,26 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
   const backendUnreachableText = useCallback(() => {
     return `Backend unreachable at ${getApiBase()}. Check VITE_API_URL and backend deployment status.`;
   }, []);
+
+  const applyAnalysisData = useCallback(
+    (incoming: AnalyzeResponse, fromCache: boolean) => {
+      const normalized = normalizeAnalysisResponse(incoming as Record<string, unknown>) as unknown as ConflictData;
+      setData(normalized);
+      setDataFromCache(fromCache);
+      setAnalysisError(null);
+
+      const runIdRaw = (normalized as unknown as { analysis_run_id?: unknown })?.analysis_run_id;
+      const runId = typeof runIdRaw === "string" && runIdRaw.trim() ? runIdRaw.trim() : null;
+      const isNewRun = runId ? runId !== lastRunIdRef.current : true;
+      if (isNewRun) {
+        setLastUpdated(new Date());
+      }
+      if (runId) {
+        lastRunIdRef.current = runId;
+      }
+    },
+    [],
+  );
 
   const connect = useCallback(() => {
     if (!enabled) return;
@@ -84,11 +105,8 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
           if (highCount > 0) {
             toast.info(`${highCount} alert(s)`, { description: alerts[0]?.text?.slice(0, 80) ?? "New intelligence alerts" });
           }
-          setData(next);
-          setLastUpdated(new Date());
-          setDataFromCache(false);
+          applyAnalysisData(msg as AnalyzeResponse, false);
           setStatus("connected");
-          setAnalysisError(null);
         } else if (msg.status === "error") {
           console.error("[WS] Server error:", msg.message);
           setStatus("error");
@@ -120,10 +138,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       getLatestAnalysis(conflict).then((result) => {
         if (cancelled) return;
         if (result.data) {
-          setData(normalizeAnalysisResponse(result.data as Record<string, unknown>) as unknown as ConflictData);
-          setLastUpdated(new Date());
-          setDataFromCache(result.fromCache);
-          setAnalysisError(null);
+          applyAnalysisData(result.data, result.fromCache);
           setInitialLoadPending(false);
         } else {
           getAnalyzeStatus(conflict).then((statusRes) => {
@@ -159,10 +174,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       getLatestAnalysis(conflict).then((result) => {
         if (result.data) {
-          setData(normalizeAnalysisResponse(result.data as Record<string, unknown>) as unknown as ConflictData);
-          setLastUpdated(new Date());
-          setDataFromCache(result.fromCache);
-          setAnalysisError(null);
+          applyAnalysisData(result.data, result.fromCache);
         }
       });
     }, 120_000);
@@ -192,11 +204,8 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
     try {
       const { data: latest, fromCache } = await getLatestAnalysis(conflictRef.current);
       if (latest) {
-        setData(latest as unknown as ConflictData);
-        setLastUpdated(new Date());
-        setDataFromCache(fromCache);
+        applyAnalysisData(latest, fromCache);
         setStatus("connected");
-        setAnalysisError(null);
         return latest;
       }
       const statusRes = await getAnalyzeStatus(conflictRef.current);
@@ -223,11 +232,8 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
         }
         const { data: fresh, fromCache } = await getLatestAnalysis(conflictRef.current);
         if (fresh) {
-          setData(fresh as unknown as ConflictData);
-          setLastUpdated(new Date());
-          setDataFromCache(fromCache);
+          applyAnalysisData(fresh, fromCache);
           setStatus("connected");
-          setAnalysisError(null);
           return fresh;
         }
       }
@@ -246,7 +252,7 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
       setStatus("error");
       return null;
     }
-  }, [backendUnreachableText, enabled]);
+  }, [applyAnalysisData, backendUnreachableText, enabled]);
 
   return { data, status, lastUpdated, dataFromCache, analysisError, initialLoadPending, refresh, runAnalysis, setData };
 }
