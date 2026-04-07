@@ -62,6 +62,34 @@ def test_chat_ask_returns_structured_answer(monkeypatch):
     assert body["sources"] == ["https://example.com/report"]
 
 
+def test_chat_ask_passes_chat_model_to_analyst_summary(monkeypatch):
+    captured: dict = {}
+    client = _client()
+    client.app.state.state_service.set_cache(
+        "Iran",
+        {
+            "conflict": "Iran",
+            "summary": "Escalation pressure remains elevated.",
+            "key_findings": ["Air activity increased near key corridor."],
+            "news": {"articles": [{"url": "https://example.com/report"}]},
+        },
+        at=1710840000.0,
+    )
+
+    async def _fake_analyst_summary(**kwargs):
+        captured.update(kwargs)
+        return (
+            '{"answer":"Escalation risk is elevated.",'
+            '"confidence_score":0.82,"sources":["https://example.com/report"]}'
+        )
+
+    monkeypatch.setattr("api.routes_chat.analyst_summary", _fake_analyst_summary)
+    monkeypatch.setattr("api.routes_chat.CHAT_MODEL", "claude-sonnet-4-6")
+    r = client.post("/api/chat/ask", json={"question": "What is the current risk level?", "conflict": "Iran"})
+    assert r.status_code == 200
+    assert captured.get("model") == "claude-sonnet-4-6"
+
+
 def test_chat_feedback_persists(monkeypatch):
     client = _client()
 

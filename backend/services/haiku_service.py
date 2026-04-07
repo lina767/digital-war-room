@@ -1,5 +1,5 @@
 """
-Haiku Service — Central wrapper for Claude Haiku 4.5 calls.
+Haiku Service — Central wrapper for Claude Haiku 4.5 calls (optional per-call model override).
 
 All agent tasks requiring language understanding (translation, sentiment, NER,
 classification, summarization) route through this service. Provides:

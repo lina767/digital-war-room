@@ -33,6 +33,8 @@ CONFIDENCE_MIN = float(os.getenv("CHAT_CONFIDENCE_MIN", "0.30"))
 LOW_CONFIDENCE_FLOOR = float(os.getenv("CHAT_LOW_CONFIDENCE_MIN", "0.15"))
 SOURCE_REQUIRED_CONFIDENCE = float(os.getenv("CHAT_SOURCE_REQUIRED_CONFIDENCE", "0.60"))
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "800"))
+# Optional: override model for POST /api/chat/ask only (e.g. claude-sonnet-4-6). Empty = HAIKU_MODEL.
+CHAT_MODEL = os.getenv("CHAT_MODEL", "").strip()
 MAX_SOURCES = 8
 SOURCE_FREE_QUESTION_TYPES = {"changes_since_yesterday"}
 CONTEXT_CHAR_BUDGET = 12000
@@ -588,7 +590,13 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
         f"Context:\n{context}\n\n"
         f"Candidate sources:\n{json.dumps(sources)}\n"
     )
-    raw = await analyst_summary(system=system, data=user_content, max_tokens=CHAT_MAX_TOKENS, usage_agent="analyst")
+    raw = await analyst_summary(
+        system=system,
+        data=user_content,
+        max_tokens=CHAT_MAX_TOKENS,
+        usage_agent="analyst",
+        model=CHAT_MODEL or None,
+    )
     if not raw:
         response = _build_fallback(question_type, response_id)
         await persist_chat_response(
