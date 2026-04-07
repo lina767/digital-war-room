@@ -48,8 +48,11 @@ export function ChatMvpPanel({ conflict }: ChatMvpPanelProps) {
         } catch {
           // If already running or temporarily unavailable, keep a clear user hint.
         }
-        toast.info("Analysis for this conflict is still warming up. Please retry in ~30-60 seconds.");
-        return;
+        if (status.running) {
+          toast.info("Analysis is warming up. I'll still try to answer with currently available cache.");
+        } else {
+          toast.info("Analysis was started in background. I'll still try to answer now.");
+        }
       }
       const response = await postChatAsk({ question: q, conflict });
       setResult(response);

@@ -63,16 +63,18 @@ export const ANALYSIS_TIMEOUT_MS = 180_000;
 /** Timeout for fetching cached analysis (e.g. cold start on Railway). */
 export const LATEST_ANALYSIS_TIMEOUT_MS = 22_000;
 
-/** GET /api/analyze/status – cached, `at`, and optional error from last failed run. */
-export async function getAnalyzeStatus(conflict: string): Promise<{ cached: boolean; at?: number; error?: string } | null> {
+/** GET /api/analyze/status – cached, running, `at`, and optional last error. */
+export async function getAnalyzeStatus(
+  conflict: string,
+): Promise<{ cached: boolean; running?: boolean; at?: number; error?: string } | null> {
   try {
     const res = await apiFetch(apiUrl("analyze/status", { conflict }), {
       method: "GET",
       timeoutMs: 10_000,
     });
     if (!res.ok) return null;
-    const raw = (await res.json()) as { cached?: boolean; at?: number; error?: string };
-    return { cached: raw?.cached ?? false, at: raw?.at, error: raw?.error };
+    const raw = (await res.json()) as { cached?: boolean; running?: boolean; at?: number; error?: string };
+    return { cached: raw?.cached ?? false, running: raw?.running, at: raw?.at, error: raw?.error };
   } catch {
     return null;
   }
