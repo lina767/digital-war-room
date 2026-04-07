@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from typing import Any, Dict, List, Literal, Optional, Set
 
@@ -26,6 +27,14 @@ from services.chat_feedback_store import (
 )
 from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
+import asyncio
+import logging
+import re
+
+import httpx
+
+_chat_logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 FALLBACK_TEXT = "No reliable answer available."
@@ -38,7 +47,11 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "").strip()
 MAX_SOURCES = 8
 SOURCE_FREE_QUESTION_TYPES = {"changes_since_yesterday"}
 CONTEXT_CHAR_BUDGET = 12000
-PRIMARY_CONTEXT_BUDGET = 8000
+# Per agent / section chunk after header (plan: ~700–900; avoids one stream consuming the whole budget).
+AGENT_CHUNK_MAX_CHARS = int(os.getenv("CHAT_AGENT_CHUNK_MAX_CHARS", "800"))
+# Recency window for changes_since_yesterday (NEWS published_at, SIGINT _meta.fetched_at).
+CHANGES_RECENT_HOURS = int(os.getenv("CHAT_CHANGES_RECENT_HOURS", "36"))
+
 QuestionType = Literal[
     "situation_overview",
     "risk_assessment",
@@ -46,6 +59,26 @@ QuestionType = Literal[
     "next_24h_outlook",
     "source_check",
 ]
+
+QUESTION_TYPE_AGENTS: Dict[QuestionType, Dict[str, List[str]]] = {
+    "situation_overview": {
+        "primary": ["news", "geoint", "diplo"],
+        "secondary": ["sigint", "narrative"],
+    },
+    "risk_assessment": {
+        "primary": ["compliance", "finint", "cyber", "chokepoint", "socmint"],
+        "secondary": ["narrative", "proximity"],
+    },
+    "changes_since_yesterday": {
+        "primary": ["news", "sigint", "socmint"],
+        "secondary": [],
+    },
+    "next_24h_outlook": {
+        "primary": ["scenarios", "cyber", "socmint", "diplo", "sigint"],
+        "secondary": ["chokepoint", "finint"],
+    },
+    "source_check": {"primary": [], "secondary": []},
+}
 
 
 class ChatAskRequest(BaseModel):
@@ -220,6 +253,68 @@ def _short_text(value: Any, max_len: int = 240) -> str:
     return text[: max_len - 1].rstrip() + "..."
 
 
+def _clip_chunk(text: str, max_len: int) -> str:
+    t = (text or "").strip()
+    if not t:
+        return ""
+    if max_len <= 0:
+        return ""
+    if len(t) <= max_len:
+        return t
+    if max_len <= 3:
+        return t[:max_len]
+    return t[: max_len - 3].rstrip() + "..."
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    s = s.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _filter_recent_news_articles(articles: Any, since: datetime) -> List[Dict[str, Any]]:
+    """Keep articles with published_at >= since; keep items without parseable time (best effort)."""
+    if not isinstance(articles, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for art in articles:
+        if not isinstance(art, dict):
+            continue
+        raw = art.get("published_at") or art.get("publishedAt")
+        dt = _parse_iso_datetime(raw)
+        if dt is None:
+            out.append(art)
+            continue
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        if dt >= since:
+            out.append(art)
+    return out
+
+
+def _sigint_block_recent_enough(block: Dict[str, Any], since: datetime) -> bool:
+    meta = block.get("_meta")
+    if not isinstance(meta, dict):
+        return True
+    fa = _parse_iso_datetime(meta.get("fetched_at"))
+    if fa is None:
+        return True
+    if fa.tzinfo is None:
+        fa = fa.replace(tzinfo=timezone.utc)
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    return fa >= since
+
+
 def _slice_items(value: Any, limit: int = 3) -> List[Any]:
     if not isinstance(value, list):
         return []
@@ -247,10 +342,21 @@ def _dict_items_as_text(rows: List[Any], keys: List[str], item_limit: int = 3) -
     return out
 
 
-def _extract_agent_context(agent_key: str, block: Any) -> str:
+def _extract_agent_block(
+    agent_key: str,
+    block: Any,
+    *,
+    max_chars: int = 800,
+    question_type: Optional[QuestionType] = None,
+) -> str:
     if not isinstance(block, dict):
         return ""
     lines: List[str] = []
+    since = datetime.now(timezone.utc) - timedelta(hours=CHANGES_RECENT_HOURS)
+
+    if agent_key == "sigint" and question_type == "changes_since_yesterday" and not _sigint_block_recent_enough(block, since):
+        lines.append("SIGINT note: cached snapshot may be older than the recency window; treat as non-fresh.")
+
     summary = _short_text(block.get("summary"), 320)
     if summary:
         lines.append(f"{agent_key.upper()} summary: {summary}")
@@ -278,7 +384,10 @@ def _extract_agent_context(agent_key: str, block: Any) -> str:
         if block.get("fear_greed") is not None:
             lines.append(f"- fear_greed={_short_text(block.get('fear_greed'), 120)}")
     elif agent_key == "news":
-        lines.extend(_dict_items_as_text(_slice_items(block.get("articles"), 5), ["title", "source", "sentiment", "url"], 5))
+        articles: Any = block.get("articles")
+        if question_type == "changes_since_yesterday":
+            articles = _filter_recent_news_articles(articles, since)
+        lines.extend(_dict_items_as_text(_slice_items(articles, 5), ["title", "source", "sentiment", "url"], 5))
     elif agent_key == "socmint":
         lines.extend(_dict_items_as_text(_slice_items(block.get("top_signals"), 4), ["platform", "signal", "score"], 4))
         if block.get("total_signals") is not None:
@@ -299,7 +408,7 @@ def _extract_agent_context(agent_key: str, block: Any) -> str:
     elif agent_key == "pentagon":
         lines.extend(_dict_items_as_text(_slice_items(block.get("venues"), 3), ["name", "status", "location"], 3))
 
-    return "\n".join(lines).strip()
+    return _clip_chunk("\n".join(lines).strip(), max_chars)
 
 
 def _extract_compliance_context(analysis: Dict[str, Any]) -> str:
@@ -345,7 +454,7 @@ def _extract_scenarios_context(analysis: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _extract_cyber_greynoise_focus(block: Any) -> str:
+def _extract_cyber_greynoise_focus(block: Any, *, max_chars: int = 800) -> str:
     """Narrow CYBER excerpt for next_24h_outlook: summary + GreyNoise scan rows only (saves tokens vs full cyber context)."""
     if not isinstance(block, dict):
         return ""
@@ -362,7 +471,63 @@ def _extract_cyber_greynoise_focus(block: Any) -> str:
     )
     if not lines:
         return ""
-    return "CYBER GREYNOISE (focused):\n" + "\n".join(lines)
+    return _clip_chunk("CYBER GREYNOISE (focused):\n" + "\n".join(lines), max_chars)
+
+
+def _extract_source_check_index(analysis: Dict[str, Any]) -> str:
+    """Deduplicated URLs from all agent _meta.sources plus NEWS article URLs; minimal prose."""
+    lines: List[str] = []
+    seen_urls: Set[str] = set()
+
+    for key, block in analysis.items():
+        if not isinstance(block, dict):
+            continue
+        meta = block.get("_meta")
+        if not isinstance(meta, dict):
+            continue
+        for src in meta.get("sources") or []:
+            if not isinstance(src, dict):
+                continue
+            label = _short_text(src.get("name") or src.get("source") or "", 80)
+            for url in src.get("reference_urls") or []:
+                if not isinstance(url, str):
+                    continue
+                u = url.strip()
+                if not _is_http_url(u):
+                    continue
+                lk = u.lower()
+                if lk in seen_urls:
+                    continue
+                seen_urls.add(lk)
+                if label:
+                    lines.append(f"- [{key}] {label}: {u}")
+                else:
+                    lines.append(f"- [{key}]: {u}")
+
+    news = analysis.get("news") or {}
+    if isinstance(news, dict):
+        for art in news.get("articles") or []:
+            if not isinstance(art, dict):
+                continue
+            url = art.get("url")
+            if not isinstance(url, str):
+                continue
+            u = url.strip()
+            if not _is_http_url(u):
+                continue
+            lk = u.lower()
+            if lk in seen_urls:
+                continue
+            seen_urls.add(lk)
+            title = _short_text(art.get("title"), 120)
+            if title:
+                lines.append(f"- [news] {title}: {u}")
+            else:
+                lines.append(f"- [news]: {u}")
+
+    if not lines:
+        return "SOURCE INDEX:\n(no HTTP URLs in cache)"
+    return "SOURCE INDEX:\n" + "\n".join(lines)
 
 
 def _has_reference_urls(block: Any) -> bool:
@@ -380,34 +545,26 @@ def _has_reference_urls(block: Any) -> bool:
 
 
 def _question_context_plan(question_type: QuestionType, analysis: Dict[str, Any]) -> Dict[str, List[str]]:
-    if question_type == "risk_assessment":
-        # Compliance (incl. risk drivers) + FININT + CYBER; narrative/proximity as secondary escalation context.
-        return {
-            "primary": ["compliance", "finint", "cyber"],
-            "secondary": ["narrative", "proximity"],
-        }
+    base = QUESTION_TYPE_AGENTS.get(question_type) or QUESTION_TYPE_AGENTS["situation_overview"]
+    primary = list(base.get("primary") or [])
+    secondary = list(base.get("secondary") or [])
+
     if question_type == "changes_since_yesterday":
-        secondary_agents = [k for k in analysis.keys() if isinstance(analysis.get(k), dict) and analysis.get(k, {}).get("summary")]
-        return {
-            "primary": ["news", "socmint", "narrative"],
-            "secondary": secondary_agents,
-        }
-    if question_type == "next_24h_outlook":
-        # Scenarios + GREYNOISE (via cyber slim) + SOCMINT (proxy until a dedicated protest/civil-unrest stream exists) + DIPLO.
-        return {
-            "primary": ["scenarios", "cyber", "socmint", "diplo"],
-            "secondary": ["narrative", "finint", "chokepoint"],
-        }
+        prim_set = set(primary)
+        secondary_agents = [
+            k
+            for k in analysis.keys()
+            if k not in prim_set
+            and isinstance(analysis.get(k), dict)
+            and (analysis.get(k) or {}).get("summary")
+        ]
+        secondary = secondary + secondary_agents
+
     if question_type == "source_check":
         primary = [k for k, v in analysis.items() if isinstance(v, dict) and _has_reference_urls(v)]
-        return {
-            "primary": primary,
-            "secondary": ["news"],
-        }
-    return {
-        "primary": ["news", "narrative", "socmint"],
-        "secondary": ["sigint", "geoint", "diplo"],
-    }
+        secondary = ["news"] if isinstance(analysis.get("news"), dict) else []
+
+    return {"primary": primary, "secondary": secondary}
 
 
 def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, question_type: QuestionType) -> str:
@@ -416,6 +573,17 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
     threat = analysis.get("threat_level")
     summary = _short_text(analysis.get("summary"), 600)
     findings = [str(f) for f in (analysis.get("key_findings") or []) if isinstance(f, str)][:8]
+
+    if question_type == "source_check":
+        header_lines = [
+            f"Conflict: {conflict}",
+            f"Question type: {question_type}",
+            "Use the following provenance index (URLs from cached agents). Prefer citing these over paraphrase.",
+        ]
+        header = "\n".join(header_lines).strip()
+        idx = _extract_source_check_index(analysis)
+        combined = f"{header}\n\n{_clip_chunk(idx, max(CONTEXT_CHAR_BUDGET - len(header) - 2, 0))}"
+        return _clip_chunk(combined, CONTEXT_CHAR_BUDGET)
 
     header_lines = [
         f"Conflict: {conflict}",
@@ -429,63 +597,89 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
     header = "\n".join(header_lines).strip()
 
     plan = _question_context_plan(question_type, analysis)
-    chunks: List[str] = [header]
-    used = len(header)
+    body_chunks: List[str] = []
     seen_keys: Set[str] = set()
+    remaining = max(CONTEXT_CHAR_BUDGET - len(header) - 2, 0)
+
+    def add_body(text: str) -> None:
+        nonlocal remaining
+        if remaining <= 0:
+            return
+        cap = min(AGENT_CHUNK_MAX_CHARS, remaining)
+        clipped = _clip_chunk(text, cap)
+        if not clipped:
+            return
+        body_chunks.append(clipped)
+        remaining -= len(clipped) + 2
 
     def agent_chunk(agent_key: str) -> str:
+        cap = min(AGENT_CHUNK_MAX_CHARS, max(remaining, 0))
         if agent_key == "cyber" and question_type == "next_24h_outlook":
-            return _extract_cyber_greynoise_focus(analysis.get("cyber"))
-        return _extract_agent_context(agent_key, analysis.get(agent_key))
-
-    def add_chunk(text: str, budget: int) -> bool:
-        nonlocal used
-        chunk = (text or "").strip()
-        if not chunk:
-            return False
-        if used + len(chunk) + 2 > budget:
-            return False
-        chunks.append(chunk)
-        used += len(chunk) + 2
-        return True
+            return _extract_cyber_greynoise_focus(analysis.get("cyber"), max_chars=cap)
+        return _extract_agent_block(
+            agent_key,
+            analysis.get(agent_key),
+            max_chars=cap,
+            question_type=question_type,
+        )
 
     for key in plan.get("primary", []):
         if key in seen_keys:
             continue
         seen_keys.add(key)
         if key == "compliance":
-            add_chunk(_extract_compliance_context(analysis), PRIMARY_CONTEXT_BUDGET)
+            add_body(_extract_compliance_context(analysis))
             continue
         if key == "scenarios":
-            add_chunk(_extract_scenarios_context(analysis), PRIMARY_CONTEXT_BUDGET)
+            add_body(_extract_scenarios_context(analysis))
             continue
-        add_chunk(agent_chunk(key), PRIMARY_CONTEXT_BUDGET)
+        add_body(agent_chunk(key))
 
     for key in plan.get("secondary", []):
         if key in seen_keys:
             continue
         seen_keys.add(key)
         if key == "compliance":
-            add_chunk(_extract_compliance_context(analysis), CONTEXT_CHAR_BUDGET)
+            add_body(_extract_compliance_context(analysis))
             continue
         if key == "scenarios":
-            add_chunk(_extract_scenarios_context(analysis), CONTEXT_CHAR_BUDGET)
+            add_body(_extract_scenarios_context(analysis))
             continue
-        add_chunk(agent_chunk(key), CONTEXT_CHAR_BUDGET)
+        add_body(agent_chunk(key))
 
-    return "\n\n".join(chunks)[:CONTEXT_CHAR_BUDGET]
+    if not body_chunks:
+        return _clip_chunk(header, CONTEXT_CHAR_BUDGET)
+    out = header + "\n\n" + "\n\n".join(body_chunks)
+    return _clip_chunk(out, CONTEXT_CHAR_BUDGET)
 
 
 def _fallback_agent_sources(question_type: QuestionType, analysis: Dict[str, Any]) -> List[str]:
     labels = {
-        "situation_overview": ["NEWS analysis", "NARRATIVE synthesis", "SOCMINT monitoring"],
-        "risk_assessment": ["COMPLIANCE risk model", "FININT indicators", "CYBER indicators"],
-        "changes_since_yesterday": ["NEWS updates", "SOCMINT updates", "NARRATIVE synthesis"],
+        "situation_overview": [
+            "NEWS analysis",
+            "GEOINT analysis",
+            "DIPLO sanctions track",
+            "SIGINT monitoring",
+            "NARRATIVE synthesis",
+        ],
+        "risk_assessment": [
+            "COMPLIANCE risk model",
+            "FININT indicators",
+            "CYBER indicators",
+            "CHOKEPOINT indicators",
+            "SOCMINT civil-unrest proxy",
+        ],
+        "changes_since_yesterday": [
+            "NEWS updates",
+            "SIGINT monitoring",
+            "SOCMINT civil-unrest proxy",
+        ],
         "next_24h_outlook": [
             "SCENARIO projection",
             "CYBER GREYNOISE focus",
             "SOCMINT civil-unrest proxy",
             "DIPLO sanctions track",
+            "SIGINT monitoring",
         ],
         "source_check": ["Cross-agent provenance index"],
     }
@@ -596,6 +790,7 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
         max_tokens=CHAT_MAX_TOKENS,
         usage_agent="analyst",
         model=CHAT_MODEL or None,
+        skip_run_limits=True,
     )
     if not raw:
         response = _build_fallback(question_type, response_id)

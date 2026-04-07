@@ -632,20 +632,26 @@ async def analyst_summary(
     *,
     usage_agent: str = "analyst",
     model: Optional[str] = None,
+    skip_run_limits: bool = False,
 ) -> Optional[str]:
     """
     Generic analyst-style summary with custom system prompt. Use for GreyNoise, TECHINT,
     CYBER, ENERGY, IAEA, etc. Budget-tracked; separate limit from content summarization.
     Optional ``model`` overrides ``HAIKU_MODEL`` for this call (e.g. CHAT_MODEL for /chat/ask).
+    When ``skip_run_limits`` is True the per-run analyst counter and the
+    ``_run_haiku_failed`` flag are bypassed (used by the chat endpoint so it is
+    not blocked by a concurrent or previous analysis run).  Monthly budget and
+    global call-count limits still apply.
     """
     global _run_analyst_summary_count
     if not data or not data.strip():
         return None
-    if _run_haiku_failed:
-        return None
-    if _run_analyst_summary_count >= HAIKU_MAX_ANALYST_SUMMARY_PER_RUN:
-        logger.debug("[haiku] Analyst summary limit reached (%d)", HAIKU_MAX_ANALYST_SUMMARY_PER_RUN)
-        return None
+    if not skip_run_limits:
+        if _run_haiku_failed:
+            return None
+        if _run_analyst_summary_count >= HAIKU_MAX_ANALYST_SUMMARY_PER_RUN:
+            logger.debug("[haiku] Analyst summary limit reached (%d)", HAIKU_MAX_ANALYST_SUMMARY_PER_RUN)
+            return None
 
     result = await _call_haiku(
         system.strip(),

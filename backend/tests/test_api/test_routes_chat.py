@@ -7,6 +7,7 @@ from api.routes_chat import (
     _build_context_for_type,
     _collect_sources,
     _detect_question_type,
+    _extract_source_check_index,
     _fallback_agent_sources,
     _question_context_plan,
     router as chat_router,
@@ -142,11 +143,21 @@ def test_chat_feedback_unknown_response_returns_404(monkeypatch):
 def test_question_context_plan_risk_and_outlook():
     analysis = {"finint": {"summary": "x"}}
     risk = _question_context_plan("risk_assessment", analysis)
-    assert risk["primary"] == ["compliance", "finint", "cyber"]
+    assert risk["primary"] == ["compliance", "finint", "cyber", "chokepoint", "socmint"]
     assert risk["secondary"] == ["narrative", "proximity"]
     outlook = _question_context_plan("next_24h_outlook", analysis)
-    assert outlook["primary"] == ["scenarios", "cyber", "socmint", "diplo"]
-    assert outlook["secondary"] == ["narrative", "finint", "chokepoint"]
+    assert outlook["primary"] == ["scenarios", "cyber", "socmint", "diplo", "sigint"]
+    assert outlook["secondary"] == ["chokepoint", "finint"]
+
+
+def test_question_context_plan_situation_and_changes():
+    analysis = {"finint": {"summary": "x"}, "news": {"summary": "n"}}
+    so = _question_context_plan("situation_overview", analysis)
+    assert so["primary"] == ["news", "geoint", "diplo"]
+    assert so["secondary"] == ["sigint", "narrative"]
+    ch = _question_context_plan("changes_since_yesterday", analysis)
+    assert ch["primary"] == ["news", "sigint", "socmint"]
+    assert "finint" in ch["secondary"]
 
 
 def test_build_context_risk_assessment_includes_compliance_finint_cyber():
@@ -189,12 +200,14 @@ def test_build_context_next_24h_uses_greynoise_focus_and_streams():
         },
         "socmint": {"summary": "Social signals.", "top_signals": []},
         "diplo": {"summary": "Diplomatic track."},
+        "sigint": {"summary": "ISR snapshot.", "aircraft": []},
     }
     ctx = _build_context_for_type(analysis, "Test", "next_24h_outlook")
     assert "SCENARIOS:" in ctx
     assert "CYBER GREYNOISE (focused):" in ctx
     assert "SOCMINT summary" in ctx
     assert "DIPLO summary" in ctx
+    assert "SIGINT summary" in ctx
     assert "CVE-1" not in ctx
 
 
@@ -206,16 +219,26 @@ def test_fallback_agent_sources_aligned_with_matrix():
         "scenarios": [{"description": "x"}],
         "socmint": {"summary": "s"},
         "diplo": {"summary": "d"},
+        "chokepoint": {"summary": "cp"},
+        "geoint": {"summary": "g"},
+        "sigint": {"summary": "si"},
+        "news": {"summary": "n"},
     }
     risk = _fallback_agent_sources("risk_assessment", analysis)
     assert "COMPLIANCE risk model" in risk
     assert "FININT indicators" in risk
     assert "CYBER indicators" in risk
+    assert "CHOKEPOINT indicators" in risk
+    assert "SOCMINT civil-unrest proxy" in risk
+    so = _fallback_agent_sources("situation_overview", analysis)
+    assert "GEOINT analysis" in so
+    assert "NEWS analysis" in so
     out = _fallback_agent_sources("next_24h_outlook", analysis)
     assert "SCENARIO projection" in out
     assert "CYBER GREYNOISE focus" in out
     assert "SOCMINT civil-unrest proxy" in out
     assert "DIPLO sanctions track" in out
+    assert "SIGINT monitoring" in out
 
 
 def test_chat_feedback_summary(monkeypatch):
@@ -259,6 +282,39 @@ def test_detect_question_type_supports_german_keywords():
     assert _detect_question_type("Wie hoch ist das Eskalationsrisiko?") == "risk_assessment"
     assert _detect_question_type("Gib mir einen Ausblick fuer die naechsten 24 Stunden") == "next_24h_outlook"
     assert _detect_question_type("Welche Quellen hast du dafuer?") == "source_check"
+
+
+def test_build_context_source_check_is_url_index_not_agent_prose():
+    analysis = {
+        "conflict": "Test",
+        "summary": "Should not dominate source_check context.",
+        "key_findings": ["Finding one"],
+        "finint": {
+            "summary": "Market noise",
+            "_meta": {
+                "sources": [{"name": "OFAC", "reference_urls": ["https://example.com/ofac"]}],
+            },
+        },
+        "news": {
+            "articles": [{"title": "Wire", "url": "https://example.com/news"}],
+        },
+    }
+    ctx = _build_context_for_type(analysis, "Test", "source_check")
+    assert "SOURCE INDEX:" in ctx
+    assert "https://example.com/ofac" in ctx
+    assert "https://example.com/news" in ctx
+    assert "Should not dominate" not in ctx
+
+
+def test_extract_source_check_index_dedupes_urls():
+    analysis = {
+        "sigint": {
+            "_meta": {"sources": [{"reference_urls": ["https://Example.COM/x"]}]},
+        },
+        "news": {"articles": [{"url": "https://example.com/x", "title": "Dup"}]},
+    }
+    idx = _extract_source_check_index(analysis)
+    assert idx.lower().count("example.com/x") == 1
 
 
 def test_collect_sources_keeps_only_http_urls_and_dedupes_case_insensitive():
