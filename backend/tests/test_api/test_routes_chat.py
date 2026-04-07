@@ -88,6 +88,7 @@ def test_chat_feedback_summary(monkeypatch):
             "total_feedback": 3,
             "helpful_total": 2,
             "helpful_rate": 0.667,
+            "trend_days": [{"day": "2026-04-07", "count": 3, "helpful_count": 2, "helpful_rate": 0.667}],
             "by_question_type": [
                 {
                     "question_type": "risk_assessment",
@@ -106,3 +107,4 @@ def test_chat_feedback_summary(monkeypatch):
     assert body["status"] == "ok"
     assert body["days"] == 14
     assert body["total_feedback"] == 3
+    assert body["trend_days"][0]["day"] == "2026-04-07"

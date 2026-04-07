@@ -65,6 +65,12 @@ export interface ChatFeedbackSummaryResponse {
   helpful_total: number;
   helpful_rate: number;
   by_question_type: ChatFeedbackTypeSummary[];
+  trend_days: Array<{
+    day: string;
+    count: number;
+    helpful_count: number;
+    helpful_rate: number;
+  }>;
 }
 
 export async function getChatFeedbackSummary(days = 7): Promise<ChatFeedbackSummaryResponse | null> {

@@ -601,6 +601,62 @@ function AgentMonitorContent() {
                 ) : (
                   <p className="text-xs text-muted-foreground">No chat feedback yet.</p>
                 )}
+                {chatFeedbackSummary.trend_days.length > 0 && (
+                  <div className="h-[180px] w-full pt-1">
+                    <p className="text-[11px] font-mono text-muted-foreground mb-2">Helpful-rate trend (daily)</p>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={chatFeedbackSummary.trend_days.map((d) => ({
+                          ...d,
+                          label: d.day.length >= 10 ? d.day.slice(5) : d.day,
+                          helpfulRatePct: Math.round(d.helpful_rate * 100),
+                        }))}
+                        margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                        <YAxis
+                          yAxisId="left"
+                          domain={[0, 100]}
+                          tick={{ fontSize: 10 }}
+                          width={36}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          tick={{ fontSize: 10 }}
+                          width={36}
+                        />
+                        <Tooltip
+                          formatter={(v: number, key: string) =>
+                            key === "helpfulRatePct"
+                              ? [`${v}%`, "Helpful rate"]
+                              : [v, "Feedback count"]
+                          }
+                        />
+                        <Legend />
+                        <Line
+                          yAxisId="left"
+                          type="monotone"
+                          dataKey="helpfulRatePct"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth={2}
+                          dot={false}
+                          name="Helpful %"
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="count"
+                          stroke="hsl(var(--muted-foreground))"
+                          strokeWidth={1.5}
+                          dot={false}
+                          name="Feedback count"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">Chat feedback summary unavailable.</p>
