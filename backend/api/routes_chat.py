@@ -39,7 +39,7 @@ router = APIRouter()
 
 FALLBACK_TEXT = "No reliable answer available."
 CONFIDENCE_MIN = float(os.getenv("CHAT_CONFIDENCE_MIN", "0.30"))
-LOW_CONFIDENCE_FLOOR = float(os.getenv("CHAT_LOW_CONFIDENCE_MIN", "0.15"))
+LOW_CONFIDENCE_FLOOR = float(os.getenv("CHAT_LOW_CONFIDENCE_MIN", "0.05"))
 SOURCE_REQUIRED_CONFIDENCE = float(os.getenv("CHAT_SOURCE_REQUIRED_CONFIDENCE", "0.60"))
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "800"))
 # Optional: override model for POST /api/chat/ask only (e.g. claude-sonnet-4-6). Empty = HAIKU_MODEL.
@@ -698,6 +698,143 @@ def _fallback_agent_sources(question_type: QuestionType, analysis: Dict[str, Any
     return _dedupe(out)[:MAX_SOURCES]
 
 
+LIVE_ENRICHMENT_TIMEOUT = 8.0
+_GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+_RELIEFWEB_API_URL = "https://api.reliefweb.int/v2/reports"
+_RELIEFWEB_COUNTRIES: Dict[str, str] = {
+    "iran": "Iran",
+    "israel": "Israel",
+    "gaza": "State of Palestine",
+    "yemen": "Yemen",
+    "lebanon": "Lebanon",
+    "syria": "Syria",
+    "iraq": "Iraq",
+    "ukraine": "Ukraine",
+    "russia": "Russian Federation",
+}
+
+
+def _gdelt_query(conflict: str) -> str:
+    cl = conflict.lower()
+    if "iran" in cl or "israel" in cl:
+        return "Iran Israel Gaza IRGC"
+    if "ukraine" in cl or "russia" in cl:
+        return "Ukraine Russia Donbas"
+    if "yemen" in cl:
+        return "Yemen Houthi Red Sea"
+    if "syria" in cl:
+        return "Syria Damascus Idlib"
+    if "lebanon" in cl:
+        return "Lebanon Hezbollah Beirut"
+    cleaned = " ".join(re.findall(r"[A-Za-z0-9]{2,}", conflict or ""))[:80]
+    return cleaned or "conflict"
+
+
+async def _fetch_gdelt_articles(conflict: str) -> List[Dict[str, str]]:
+    """Quick GDELT DOC artlist fetch — returns up to 10 article dicts with title/url."""
+    query = _gdelt_query(conflict)
+    try:
+        async with httpx.AsyncClient(timeout=LIVE_ENRICHMENT_TIMEOUT) as client:
+            resp = await client.get(
+                _GDELT_DOC_URL,
+                params={"query": query, "mode": "artlist", "format": "json", "maxrecords": 20, "timespan": "48H"},
+            )
+            if resp.status_code != 200:
+                return []
+            ct = (resp.headers.get("content-type") or "").lower()
+            if "json" not in ct and "javascript" not in ct:
+                return []
+            data = resp.json() if resp.text else {}
+            raw_articles = data.get("articles") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+            out: List[Dict[str, str]] = []
+            for art in (raw_articles or [])[:10]:
+                if not isinstance(art, dict):
+                    continue
+                title = str(art.get("title") or "").strip()[:200]
+                url = str(art.get("url") or "").strip()
+                domain = str(art.get("domain") or "").strip()
+                if title:
+                    out.append({"title": title, "url": url, "source": domain})
+            return out
+    except Exception as exc:
+        _chat_logger.debug("Chat live GDELT fetch failed: %s", exc)
+        return []
+
+
+async def _fetch_reliefweb_headlines(conflict: str) -> List[Dict[str, str]]:
+    """Quick ReliefWeb API v2 fetch — returns up to 8 report dicts with title/url."""
+    cl = conflict.lower()
+    country = next((v for k, v in _RELIEFWEB_COUNTRIES.items() if k in cl), "Iran")
+    try:
+        async with httpx.AsyncClient(timeout=LIVE_ENRICHMENT_TIMEOUT) as client:
+            resp = await client.get(
+                _RELIEFWEB_API_URL,
+                params={
+                    "appname": "digital-war-room",
+                    "limit": 8,
+                    "filter[field]": "country",
+                    "filter[value]": country,
+                    "preset": "latest",
+                    "fields[include][]": ["title", "url", "source.name"],
+                },
+                headers={"User-Agent": "Mozilla/5.0 (compatible; DWR-Chat/1.0)"},
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            items = data.get("data", []) if isinstance(data, dict) else []
+            out: List[Dict[str, str]] = []
+            for item in (items or [])[:8]:
+                if not isinstance(item, dict):
+                    continue
+                fields = item.get("fields") or {}
+                title = str(fields.get("title") or "").strip()[:200]
+                url_raw = fields.get("url", "")
+                url = url_raw if isinstance(url_raw, str) else ""
+                src_list = fields.get("source") or []
+                source = src_list[0].get("name", "ReliefWeb") if src_list and isinstance(src_list[0], dict) else "ReliefWeb"
+                if title:
+                    out.append({"title": title, "url": url.strip(), "source": source})
+            return out
+    except Exception as exc:
+        _chat_logger.debug("Chat live ReliefWeb fetch failed: %s", exc)
+        return []
+
+
+async def _enrich_context_live(conflict: str) -> tuple:
+    """
+    Lightweight live data fetch (GDELT + ReliefWeb) for when cached context
+    is thin or absent.  Returns (context_str, source_urls).
+    """
+    gdelt_task = asyncio.create_task(_fetch_gdelt_articles(conflict))
+    rw_task = asyncio.create_task(_fetch_reliefweb_headlines(conflict))
+    gdelt_articles, rw_reports = await asyncio.gather(gdelt_task, rw_task, return_exceptions=True)
+    if isinstance(gdelt_articles, BaseException):
+        gdelt_articles = []
+    if isinstance(rw_reports, BaseException):
+        rw_reports = []
+
+    lines: List[str] = []
+    urls: List[str] = []
+
+    if gdelt_articles:
+        lines.append("LIVE NEWS (GDELT):")
+        for art in gdelt_articles[:8]:
+            lines.append(f"- {art['title']} ({art.get('source', '')})")
+            if art.get("url") and _is_http_url(art["url"]):
+                urls.append(art["url"])
+
+    if rw_reports:
+        lines.append("LIVE REPORTS (ReliefWeb):")
+        for rpt in rw_reports[:6]:
+            lines.append(f"- {rpt['title']} ({rpt.get('source', '')})")
+            if rpt.get("url") and _is_http_url(rpt["url"]):
+                urls.append(rpt["url"])
+
+    context = "\n".join(lines)
+    return context, _dedupe(urls)[:MAX_SOURCES]
+
+
 def _safe_parse_json(raw: str) -> Optional[Dict[str, Any]]:
     cleaned = (raw or "").strip()
     if cleaned.startswith("```"):
@@ -742,41 +879,39 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
     question_type = _detect_question_type(question)
     tenant_id = str(get_request_ctx(request).tenant_id)
     cached = state.get_cache(conflict, tenant_id=tenant_id)
-    if not cached or not isinstance(cached.get("result"), dict):
-        response = _build_fallback(question_type, response_id)
-        await persist_chat_response(
-            {
-                "tenant_id": tenant_id,
-                "response_id": response.response_id,
-                "conflict": conflict,
-                "question_type": response.question_type,
-                "question": question,
-                "answer": response.answer,
-                "confidence_score": response.confidence_score,
-                "sources": response.sources,
-                "fallback_used": response.fallback_used,
-            }
-        )
-        return response
-    analysis = cached["result"]
-    context = _build_context_for_type(analysis, conflict, question_type)
-    sources = _collect_sources(analysis)
+    analysis: Dict[str, Any] = {}
+    if cached and isinstance(cached.get("result"), dict):
+        analysis = cached["result"]
+
+    context = _build_context_for_type(analysis, conflict, question_type) if analysis else ""
+    sources = _collect_sources(analysis) if analysis else []
+
+    MIN_CONTEXT_LEN = 200
+    if len(context) < MIN_CONTEXT_LEN:
+        live_ctx, live_urls = await _enrich_context_live(conflict)
+        if live_ctx:
+            context = (context + "\n\n" + live_ctx).strip() if context else live_ctx
+        if live_urls:
+            sources = _dedupe(sources + live_urls)[:MAX_SOURCES]
 
     system = (
         "You are a geopolitical analyst assistant for a dashboard chat MVP.\n"
         "Answer strictly in English, based only on provided context.\n"
         "Never fabricate facts or sources.\n"
+        "If context contains any relevant signals, always attempt an answer.\n"
         "Prefer a partial answer with caveats over refusing to answer.\n"
         "Confidence calibration:\n"
         "- >=0.70: grounded in multiple context signals.\n"
         "- 0.50-0.69: grounded but limited to partial or single-source context.\n"
         "- 0.30-0.49: plausible inference from context with uncertainty.\n"
-        "- <0.30: context insufficient for a meaningful answer.\n"
+        "- 0.10-0.29: limited context but some relevant data points exist.\n"
+        "- <0.10: context truly empty or irrelevant.\n"
         "Answer format: 1-3 sentence lead, then concise bullet points when useful.\n"
         "Return only valid JSON with keys: answer, confidence_score, sources.\n"
         "confidence_score must be a float between 0 and 1.\n"
-        "sources must be an array with source strings.\n"
-        'Example: {"answer":"Risk remains elevated due to maritime and sanctions pressure.","confidence_score":0.64,"sources":["https://example.com/report"]}'
+        "sources must be an array of strings — use URLs when available, "
+        "otherwise use descriptive labels like 'FININT market data' or 'GDELT news monitoring'.\n"
+        'Example: {"answer":"Risk remains elevated due to maritime and sanctions pressure.","confidence_score":0.64,"sources":["https://example.com/report","FININT market data"]}'
     )
     user_content = (
         f"Question type: {question_type}\n"
@@ -833,12 +968,14 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
         confidence = 0.0
     confidence = max(0.0, min(1.0, confidence))
     out_sources_raw = parsed.get("sources")
-    out_sources = _dedupe([str(s).strip() for s in out_sources_raw if isinstance(s, str)])[:MAX_SOURCES] if isinstance(out_sources_raw, list) else []
+    llm_sources = _dedupe([str(s).strip() for s in out_sources_raw if isinstance(s, str)])[:MAX_SOURCES] if isinstance(out_sources_raw, list) else []
+    if not llm_sources:
+        llm_sources = sources[:MAX_SOURCES]
+    out_sources = [s for s in llm_sources if _is_http_url(s)]
     if not out_sources:
-        out_sources = sources[:MAX_SOURCES]
-    out_sources = [s for s in out_sources if _is_http_url(s)]
-    if not out_sources:
-        out_sources = _fallback_agent_sources(question_type, analysis)
+        non_url_labels = [s for s in llm_sources if s and not _is_http_url(s)]
+        agent_labels = _fallback_agent_sources(question_type, analysis)
+        out_sources = _dedupe(non_url_labels + agent_labels)[:MAX_SOURCES]
 
     requires_sources = question_type == "source_check" or confidence >= SOURCE_REQUIRED_CONFIDENCE
     missing_required_sources = requires_sources and question_type not in SOURCE_FREE_QUESTION_TYPES and len(out_sources) == 0
@@ -868,23 +1005,6 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
             sources=out_sources,
             fallback_used=False,
         )
-        await persist_chat_response(
-            {
-                "tenant_id": tenant_id,
-                "response_id": response.response_id,
-                "conflict": conflict,
-                "question_type": response.question_type,
-                "question": question,
-                "answer": response.answer,
-                "confidence_score": response.confidence_score,
-                "sources": response.sources,
-                "fallback_used": response.fallback_used,
-            }
-        )
-        return response
-
-    if missing_required_sources:
-        response = _build_fallback(question_type, response_id)
         await persist_chat_response(
             {
                 "tenant_id": tenant_id,
