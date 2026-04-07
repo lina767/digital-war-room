@@ -4,7 +4,6 @@
 
 export const DEFAULT_FETCH_TIMEOUT_MS = 15_000;
 const KNOWN_API_FALLBACKS = [
-  "https://api.digital-war-room.com",
   "https://digital-war-room-production.up.railway.app",
 ];
 
