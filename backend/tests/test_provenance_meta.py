@@ -86,7 +86,6 @@ def test_ceo_synthesize_includes_provenance_index(monkeypatch: pytest.MonkeyPatc
         store.set("techint", {"techint_score": 10.0})
         store.set("cyber", {"cyber_score": 10.0})
         store.set("energy", {"energy_score": 10.0})
-        store.set("protest", {"protest_score": 10.0})
         store.set("diplo", {"diplo_score": 10.0})
         store.set("proximity", {"proximity_score": 10.0})
         store.set("narrative", {})

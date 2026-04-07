@@ -109,7 +109,6 @@ def _derive_topic_tags(briefing_data: Dict[str, Any]) -> str:
         ("sigint", "SIGINT"),
         ("news", "NEWS"),
         ("geoint", "GEOINT"),
-        ("protest", "PROTEST"),
         ("diplo", "DIPLO"),
         ("chokepoint", "CHOKEPOINT"),
         ("cyber", "CYBER"),

@@ -65,7 +65,7 @@ def _safe_str(x: Any) -> str:
 
 
 def _gather_text_blobs(result: Dict[str, Any]) -> List[str]:
-    """Extract searchable text from news, SIGINT, SOCMINT, protest headlines."""
+    """Extract searchable text from news, SIGINT, and SOCMINT headlines."""
     news = result.get("news") or {}
     articles = news.get("articles") if isinstance(news, dict) else None
     blobs: List[str] = []
@@ -93,12 +93,6 @@ def _gather_text_blobs(result: Dict[str, Any]) -> List[str]:
     if isinstance(sm, dict):
         for t in (sm.get("top_signals") or [])[:40]:
             blobs.append(_safe_str(t))
-
-    pr = result.get("protest") or {}
-    if isinstance(pr, dict):
-        for pa in (pr.get("protest_articles") or [])[:20]:
-            if isinstance(pa, dict):
-                blobs.append(_safe_str(pa.get("title")))
 
     return [b for b in blobs if b.strip()]
 

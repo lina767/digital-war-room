@@ -13,7 +13,7 @@
 - **`data_freshness_from_sources(source_results, has_any_data=True)`** – leitet `"live" | "recent" | "stale" | "unavailable"` aus den SourceResults ab.
 - **`build_agent_meta(agent, fetched_at, duration_ms, source_results, fallback_used=..., error_summary=..., has_any_data=...)`** – baut das komplette `_meta`-Dict (inkl. Confidence und data_freshness).
 
-**Nächster Schritt:** In den Agents (z. B. protest, energy, techint, diplo, cyber, socmint, chokepoint, proximity) die lokale Meta-Logik durch Aufrufe dieser Hilfen ersetzen. Spart viele Zeilen und hält das Verhalten einheitlich.
+**Nächster Schritt:** In den Agents (z. B. civil unrest, energy, techint, diplo, cyber, socmint, chokepoint, proximity) die lokale Meta-Logik durch Aufrufe dieser Hilfen ersetzen. Spart viele Zeilen und hält das Verhalten einheitlich.
 
 ---
 
@@ -23,7 +23,7 @@
 
 **Vorschläge:**
 
-- **Rückgabetyp:** Wo es passt, den konkreten Contract-Typ als „Zieltyp“ dokumentieren oder per TypedDict/Protocol abbilden, z. B. `def run_protest_agent(...) -> Dict[str, Any]:  # ProtestResult-shaped`.
+- **Rückgabetyp:** Wo es passt, den konkreten Contract-Typ als „Zieltyp“ dokumentieren oder per TypedDict/Protocol abbilden, z. B. `def run_civil unrest_agent(...) -> Dict[str, Any]:  # ProtestResult-shaped`.
 - **Validierung:** Optional beim Eintritt in den Supervisor (oder in Tests) Agent-Result mit dem passenden `*Result`-Modell parsen (`model_validate(result)`), um Fehlfelder früh zu erkennen.
 - **Neue Agent-Funktionen** von vornherein so schreiben, dass das zurückgegebene Dict dem jeweiligen `*Result`-Schema entspricht.
 
@@ -70,7 +70,7 @@ CI/Local: `ruff check .`, `ruff format .`, ggf. `mypy agents/`. So bleibt der St
 - **Unit:** `build_context_from_results` mit verschiedenen `wave1_results` (leer, fehlerhafte Koordinaten, gemischt) – prüfen, dass kein Crash und sinnvolle focus_regions/peer_summaries.
 - **Unit:** `get_agent_fallback(agent_name)` für alle registrierten Agent-Namen – Rückgabe ist nicht leer und enthält erwartete Keys.
 - **Unit:** `domain_runner.run_domain_with_analysts` mit Dummy-Analysts (einer timeout, einer Exception, einer ok) – Manager bekommt partielle Ergebnisse, kein Abbruch.
-- **Integration:** Ein Agent end-to-end (z. B. protest oder news) mit gemockten HTTP-Antworten – prüfen, dass Rückgabe-Dict die erwarteten Keys und _meta enthält.
+- **Integration:** Ein Agent end-to-end (z. B. civil unrest oder news) mit gemockten HTTP-Antworten – prüfen, dass Rückgabe-Dict die erwarteten Keys und _meta enthält.
 
 So bleiben Refactorings (z. B. _meta-Hilfen, Config-Zentralisierung) sicher.
 
@@ -80,7 +80,7 @@ So bleiben Refactorings (z. B. _meta-Hilfen, Config-Zentralisierung) sicher.
 
 **Problem:** Bei Exceptions bauen manche Agents das Fallback-Dict und _meta nochmal von Hand (duration_ms, leere Listen, error_summary).
 
-**Vorschlag:** Wo möglich das gleiche `build_agent_meta(..., fallback_used=True, error_summary=str(e))` nutzen und das Fallback-Dict aus dem Contract holen: `fallback = get_agent_fallback("protest")` (oder dem jeweiligen Agent-Namen), dann `fallback["_meta"] = build_agent_meta(...)` und `return fallback`. So ist das Fallback-Shape immer konsistent mit den Contracts und weniger Duplikation.
+**Vorschlag:** Wo möglich das gleiche `build_agent_meta(..., fallback_used=True, error_summary=str(e))` nutzen und das Fallback-Dict aus dem Contract holen: `fallback = get_agent_fallback("civil unrest")` (oder dem jeweiligen Agent-Namen), dann `fallback["_meta"] = build_agent_meta(...)` und `return fallback`. So ist das Fallback-Shape immer konsistent mit den Contracts und weniger Duplikation.
 
 ---
 

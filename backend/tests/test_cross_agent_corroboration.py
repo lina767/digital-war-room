@@ -13,15 +13,15 @@ def test_cross_agent_corroboration_applies_bonus_and_penalty():
             metadata={},
         ),
         FindingCandidate(
-            text="PROTEST (GDELT) – Explosion near Basra refinery triggers unrest claims",
+            text="GEOINT (GDELT) – Explosion near Basra refinery triggers unrest claims",
             sources=[{"name": "GDELT", "url": "https://gdeltproject.org/article/123", "kind": "gdelt"}],
-            agents=["protest"],
+            agents=["geoint"],
             metadata={},
         ),
         FindingCandidate(
-            text="PROTEST (GDELT) – Isolated rally mention in one city district",
+            text="GEOINT (GDELT) – Isolated rally mention in one city district",
             sources=[{"name": "GDELT", "url": "https://gdeltproject.org/article/999", "kind": "gdelt"}],
-            agents=["protest"],
+            agents=["geoint"],
             metadata={},
         ),
     ]
@@ -49,9 +49,9 @@ def test_signal_gate_uses_corroboration_adjustment():
             metadata={"corroboration_adjustment": 0.2},
         ),
         FindingCandidate(
-            text="PROTEST (GDELT) – Single-source mention only",
+            text="GEOINT (GDELT) – Single-source mention only",
             sources=[{"name": "GDELT", "url": "https://gdeltproject.org/x", "kind": "gdelt"}],
-            agents=["protest"],
+            agents=["geoint"],
             metadata={"corroboration_adjustment": -0.2},
         ),
     ]
@@ -82,9 +82,9 @@ def test_corroboration_requires_anchor_for_medium_similarity():
             metadata={},
         ),
         FindingCandidate(
-            text="PROTEST (GDELT) – Explosion claims discussed in Khartoum this week",
+            text="GEOINT (GDELT) – Explosion claims discussed in Khartoum this week",
             sources=[{"name": "GDELT", "url": "https://gdeltproject.org/b", "kind": "gdelt"}],
-            agents=["protest"],
+            agents=["geoint"],
             metadata={},
         ),
     ]

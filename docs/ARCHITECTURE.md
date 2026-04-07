@@ -28,7 +28,7 @@ This document defines the backend layers and dependency rules. See [ARCHITECTURE
 ## Execution path
 
 1. **Entry:** `analyze_conflict(conflict)` and `run_analysis_streaming(conflict)` in `agents/supervisor.py` are the public entrypoints.
-2. **Pipeline:** Both delegate to `agents/ceo.analyze_conflict_dag` / `analyze_conflict_dag_streaming`. DAG order: WAVE1 agents (finint, sigint, news, diplo, techint, cyber) → `agent_context` (shared context) → WAVE2 agents (geoint, socmint, energy, protest, proximity, chokepoint, narrative) → division summaries → CEO synthesis.
+2. **Pipeline:** Both delegate to `agents/ceo.analyze_conflict_dag` / `analyze_conflict_dag_streaming`. DAG order: WAVE1 agents (finint, sigint, news, diplo, techint, cyber) → `agent_context` (shared context) → WAVE2 agents (geoint, socmint, energy, civil unrest, proximity, chokepoint, narrative) → division summaries → CEO synthesis.
 3. **Division summaries:** Pure functions (scores + anomalies + rule-based text). No LLM by default; set `USE_DIVISION_HAIKU=1` to enable optional Haiku per division.
 4. **State:** Cache, agent status, escalation timeline, and run history are stored via `StateService` (in-memory).
 5. **API:** Routes in `api/routes.py` read/write state through the state service and return typed `AnalysisResult` where applicable.

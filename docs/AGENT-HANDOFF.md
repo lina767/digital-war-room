@@ -10,7 +10,7 @@ Kurzfassung für den ersten Prompt an einen neuen Agenten (z. B. neuen Chat).
 
 1. **Wave 1 (Foundation):** finint, sigint, news, diplo, techint, cyber – parallel wie bisher.
 2. **Kontext-Bau:** Aus den Ergebnissen wird ein **AgentContext** gebaut: `peer_summaries`, `focus_regions` (z. B. aus SIGINT Flugzeugen/Schiffen), `key_findings_so_far`, `escalation_signals` (z. B. aus NEWS).
-3. **Wave 2 (kontextbewusst):** geoint, socmint, energy, protest, proximity, chokepoint, narrative – erhalten diesen Kontext und können gezielter suchen (z. B. GEOINT zusätzlich FIRMS um SIGINT-Regionen, NEWS-Summary erwähnt Handoff).
+3. **Wave 2 (kontextbewusst):** geoint, socmint, energy, civil unrest, proximity, chokepoint, narrative – erhalten diesen Kontext und können gezielter suchen (z. B. GEOINT zusätzlich FIRMS um SIGINT-Regionen, NEWS-Summary erwähnt Handoff).
 
 - **AgentContext** lebt in `backend/agents/context.py`; Kontext-Builder: `build_context_from_results(wave1_results)`.
 - Agents können optional `run_*_agent(conflict, context=None)` implementieren; wenn sie kein zweites Argument akzeptieren, wird weiterhin nur `conflict` aufgerufen.

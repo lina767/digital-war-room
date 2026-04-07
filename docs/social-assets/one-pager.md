@@ -39,7 +39,7 @@ An AI-powered multi-agent OSINT platform that monitors geopolitical conflicts in
                                                                   + TECHINT
                                                                   + CYBER
                                                                   + ENERGY
-                                                                  + PROTEST
+                                                                  + CIVIL_UNREST
                                                                   + DIPLO
                                                                   + NARRATIVE
 ```
@@ -59,7 +59,7 @@ flowchart TB
     TECHINT["TECHINT\nIODA, OONI\nShodan, Cloudflare"]
     CYBER["CYBER\nCISA KEV, OTX\nGreyNoise"]
     ENERGY["ENERGY\nAGSI+, Commodities"]
-    PROTEST["PROTEST\nACLED, GDELT"]
+    CIVIL_UNREST["CIVIL_UNREST\nACLED, GDELT"]
     DIPLO["DIPLO\nOFAC SDN, EU\nUN/ICJ"]
     PROX["PROXIMITY\nFIRMS + OSM\nHuman-Shield Detection"]
   end
@@ -91,7 +91,7 @@ flowchart TB
 | **TECHINT** | IODA, OONI, Shodan, Cloudflare Radar, Wayback Machine | Internet disruptions, censorship, cyber exposure |
 | **CYBER** | CISA KEV, Mandiant/CrowdStrike RSS, AlienVault OTX, GreyNoise | Active exploits, threat intel, malicious scanning activity |
 | **ENERGY** | AGSI+ (EU gas storage), Alpha Vantage (Brent/WTI) | Energy supply stress and commodity price shocks |
-| **PROTEST** | ACLED (protests/riots), GDELT (protest coverage) | Civil society unrest and protest intensity |
+| **CIVIL_UNREST** | ACLED (civil unrest events/riots), GDELT (civil unrest coverage) | Civil society unrest and civil unrest intensity |
 | **DIPLO** | OFAC SDN, EU Consolidated List, UN Press, ICJ RSS | Diplomatic/legal signals, sanctions activity |
 | **PROXIMITY** | NASA FIRMS + OSM (Overpass API) | Strike-to-civilian-infrastructure correlation, human-shield flags |
 

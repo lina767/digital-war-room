@@ -25,7 +25,7 @@ In the SPA router, additional utility routes are available: `/docs` redirects to
 An OSINT fusion dashboard: multiple specialist agents pull open data, normalize it, and a supervisor layer produces a single escalation-style assessment with structured panels (not operational orders).
 
 **What intelligence streams does the platform use?**  
-Twelve streams are represented in scoring and UI: SIGINT, Chokepoint, FININT, NEWS, SOCMINT, Proximity, GEOINT, TECHINT, CYBER, ENERGY, PROTEST, and DIPLO. Each stream is handled by a dedicated agent that calls external APIs and computes a stream-specific score.
+Twelve streams are represented in scoring and UI: SIGINT, Chokepoint, FININT, NEWS, SOCMINT, Proximity, GEOINT, TECHINT, CYBER, ENERGY, CIVIL_UNREST, and DIPLO. Each stream is handled by a dedicated agent that calls external APIs and computes a stream-specific score.
 
 **Where can I see the data sources?**  
 In [Documentation → Source Directory](https://digital-war-room.com/docs/documentation?doc=source-directory) (searchable list). [Methodology](https://digital-war-room.com/docs/documentation?doc=methodology) explains composite scoring and threat levels.
@@ -84,9 +84,9 @@ For conflict **Iran**, keywords and synthesis explicitly include Hezbollah–IDF
 - For Iran: global impact note when oil moves significantly (Strait of Hormuz / chokepoint risk)
 - Energy score and commodities feed supervisor and Global Impact panel
 
-### PROTEST – Civil Society
+### CIVIL_UNREST – Civil Society
 
-- ACLED protests/riots, GDELT protest coverage
+- ACLED civil unrest events/riots, GDELT civil unrest coverage
 - Civil society unrest score for the supervisor
 
 ### DIPLO – Diplomacy / Legal

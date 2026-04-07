@@ -52,9 +52,9 @@ Sanctions lists, multilateral statements, and formal legal processes surfaced as
 
 Commodity and storage stress plus **maritime chokepoint** traffic (e.g. constrained straits). Connects local conflict to **global market** and logistics risk.
 
-### PROTEST and civil unrest
+### CIVIL_UNREST and civil unrest
 
-Public protest and riot indicators from event datasets and media, as a measure of **internal pressure** and instability.
+Public civil unrest and riot indicators from event datasets and media, as a measure of **internal pressure** and instability.
 
 ### PROXIMITY (operational concept)
 

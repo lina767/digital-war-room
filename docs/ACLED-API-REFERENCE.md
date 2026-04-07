@@ -266,7 +266,7 @@ rows = data.get("data", [])
 - **OAuth:** `backend/services/acled_auth.py` — nutzt `ACLED_EMAIL` und `ACLED_PASSWORD`, sendet `username` (=E-Mail), `password`, `grant_type=password`, `client_id=acled`. Token wird gecacht und vor Ablauf erneuert.
 - **ACLED-Aufrufe:**  
   - GEOINT (Heatmap/Theater Map): `backend/agents/geoint_agent.py` → `get_conflict_events_for_heatmap()`, `get_conflict_hotspot_news()` (ReliefWeb + ACLED).  
-  - PROTEST: entfernt; Stub: `backend/agents/protest_stub.py` (kein ACLED-Fetch).
+  - CIVIL_UNREST: entfernt; Stub: `backend/agents/civil unrest_stub.py` (kein ACLED-Fetch).
 - **Endpoints:**  
   - OAuth: `https://acleddata.com/oauth/token`  
   - Daten: `https://acleddata.com/api/acled/read` (mit `_format=json`, `country`, `limit`; optional `event_date` + `event_date_where=BETWEEN` für aktuelle Zeiträume).

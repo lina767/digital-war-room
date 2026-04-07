@@ -31,7 +31,7 @@ def test_score_cluster_confirmed():
     t0 = time.time()
     cands = [
         _Cand("iran missile test reported in region", "news", "reuters", t0),
-        _Cand("iran missile test coverage continues", "protest", "GDELT", t0 + 100),
+        _Cand("iran missile test coverage continues", "geoint", "GDELT", t0 + 100),
     ]
     idx = [0, 1]
     out = _score_cluster(idx, cands)
@@ -93,7 +93,6 @@ def test_run_quality_fusion_no_hf_key(monkeypatch):
     agent_results = {
         "news": {"articles": []},
         "geoint": {},
-        "protest": {},
         "socmint": {},
         "diplo": {},
     }

@@ -30,7 +30,7 @@ An AI-powered OSINT conflict monitoring platform: 11 specialized AI agents run i
 | TECHINT | Internet disruptions, censorship | IODA, OONI, Shodan |
 | CYBER | Threat intel, exploits | CISA KEV, OTX, GreyNoise |
 | ENERGY | Gas storage, commodity prices | AGSI+, Alpha Vantage |
-| PROTEST | Protests and riots | ACLED, GDELT |
+| CIVIL_UNREST | Protests and riots | ACLED, GDELT |
 | DIPLO | Sanctions, UN/ICJ activity | OFAC SDN, EU list, UN RSS |
 | PROXIMITY | Strike-civilian correlation | NASA FIRMS + OpenStreetMap |
 

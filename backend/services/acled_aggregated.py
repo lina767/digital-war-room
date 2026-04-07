@@ -2,7 +2,7 @@
 ACLED Aggregated Data Downloader.
 
 Downloads real-time weekly aggregated XLSX from acleddata.com (Research-level access)
-using cookie-based authentication, then extracts country-specific CSV for the protest agent.
+using cookie-based authentication, then extracts country-specific CSV files.
 
 The download page URL pattern:
   https://acleddata.com/aggregated/aggregated-data-middle-east

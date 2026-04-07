@@ -17,7 +17,6 @@ _AGENT_INFERENCE: List[tuple[str, tuple[str, ...]]] = [
     ("FININT", ("finint", "brent", "wti", "oil", "market", "polymarket", "gold")),
     ("CYBER", ("cyber", "cisa", "kev", "exploit", "malware", "shodan")),
     ("ENERGY", ("energy", "commodit", "storage", "eia")),
-    ("PROTEST", ("protest", "riot", "acled", "unrest")),
     ("DIPLO", ("diplo", "sanction", "ofac", "icj", "un ")),
     ("TECHINT", ("techint", "ioda", "ooni", "outage", "internet")),
     ("COMPLIANCE", ("compliance", "geofenc", "sanction", "ofac")),

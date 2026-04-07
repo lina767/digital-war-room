@@ -85,9 +85,9 @@ Per-agent description: inputs, data sources, main output fields, and typical use
 
 ---
 
-## PROTEST
+## CIVIL_UNREST
 
-- **Status:** Implementierung entfernt; `run_protest_agent` liegt in `backend/agents/protest_stub.py` und liefert ein leeres `ProtestResult` (Score 0, degraded meta), damit DAG/API-Shape erhalten bleibt.
+- **Status:** Implementierung entfernt; `run_civil unrest_agent` liegt in `backend/agents/civil unrest_stub.py` und liefert ein leeres `ProtestResult` (Score 0, degraded meta), damit DAG/API-Shape erhalten bleibt.
 - **Input:** `conflict` (wird ignoriert).
 - **Outputs:** Wie `ProtestResult`-Fallback; keine Live-Quellen.
 

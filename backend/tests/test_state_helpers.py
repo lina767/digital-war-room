@@ -25,7 +25,6 @@ def test_build_agent_status_from_result_empty():
         "techint",
         "cyber",
         "energy",
-        "protest",
         "diplo",
         "proximity",
         "narrative",

@@ -11,7 +11,7 @@ Use this template when a live geopolitical event happens and you want to analyze
 ```
 [Event] just happened.
 
-I ran it through 11 intelligence agents — SIGINT, GEOINT, FININT, NEWS, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY.
+I ran it through 11 intelligence agents — SIGINT, GEOINT, FININT, NEWS, SOCMINT, TECHINT, CYBER, ENERGY, CIVIL_UNREST, DIPLO, PROXIMITY.
 
 All open-source data. Here's what they found:
 ```
@@ -84,12 +84,12 @@ CYBER: [GreyNoise/CISA KEV finding if relevant — e.g., "Malicious scanning tar
 
 ---
 
-### Tweet 7 — DIPLO + PROTEST + PROXIMITY (Context)
+### Tweet 7 — DIPLO + CIVIL_UNREST + PROXIMITY (Context)
 
 ```
 DIPLO: [Sanctions or UN/ICJ finding — e.g., "OFAC SDN has 847 Iran-related entries. No new designations in the last 48 hours."]
 
-PROTEST: [ACLED finding — e.g., "ACLED reports 5 protest events in [region] this week."]
+CIVIL_UNREST: [ACLED finding — e.g., "ACLED reports 5 civil unrest events in [region] this week."]
 
 PROXIMITY: [If relevant — e.g., "2 thermal anomalies within 150m of schools. Risk flag: HIGH_RISK."]
 ```

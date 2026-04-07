@@ -91,8 +91,6 @@ def trust_for_agent_source(agent: str, source_hint: Optional[str] = None) -> flo
         base = 0.65
     if a in ("socmint", "narrative", "mediaint"):
         base = 0.4
-    if a == "protest":
-        base = 0.7
     if source_hint:
         return max(base * 0.85, min(1.0, trust_for_source_name(source_hint, default=base)))
     return base

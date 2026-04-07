@@ -21,7 +21,7 @@ def _collect_all_agents(conflict: str) -> Dict[str, Any]:
                           {"news_score": 0.0, "articles": [], "summary": ""}),
             "geoint":    (executor.submit(run_geoint_agent, conflict),
                           {"geoint_score": 0.0, "anomalies": [], "hotspots": []}),
-            # ... 7 more agents (SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY)
+            # ... 7 more agents (SOCMINT, TECHINT, CYBER, ENERGY, CIVIL_UNREST, DIPLO, PROXIMITY)
         }
 
         results = {}
@@ -127,7 +127,7 @@ combined_score = (
     techint_score  * 0.08 +
     cyber_score    * 0.08 +
     energy_score   * 0.08 +
-    protest_score  * 0.08 +
+    civil unrest_score  * 0.08 +
     diplo_score    * 0.07 +
     proximity_score * 0.10    # Proximity weighted high — civilian risk
 )

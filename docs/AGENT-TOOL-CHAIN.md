@@ -9,9 +9,9 @@
 ## Regelbasierten Modus aktivieren
 
 - **Umgebungsvariable:** `USE_RULE_BASED_AGENTS` ist standardmäßig `true`. Zum Deaktivieren: `USE_RULE_BASED_AGENTS=false`.
-- **Wirkung:** Jeder Agent (FININT, SIGINT, NEWS, GEOINT, SOCMINT) führt seine **feste Tool-Kette** in der unten dokumentierten Reihenfolge aus – **ohne** LLM-Aufruf (Haiku). TECHINT, CYBER, ENERGY, PROTEST, DIPLO sind ohnehin regelbasiert.
-- **Supervisor:** **Ein** LLM-Aufruf (Haiku/Sonnet) nach den **11** Agent-Ergebnissen. Der Supervisor ist darauf vorbereitet, dass die Agent-Daten aus regelbasierten Ketten stammen; er synthetisiert aus Scores und Rohdaten (articles, aircraft, anomalies, sanctions, protests, proximity evidence, etc.) zu key_findings, scenarios und summary.
-- **Ausgabeformat:** Frontend und API liefern zusätzlich `cyber`, `energy`, `protest`, `diplo`, `proximity` im Analyse-Ergebnis.
+- **Wirkung:** Jeder Agent (FININT, SIGINT, NEWS, GEOINT, SOCMINT) führt seine **feste Tool-Kette** in der unten dokumentierten Reihenfolge aus – **ohne** LLM-Aufruf (Haiku). TECHINT, CYBER, ENERGY, CIVIL_UNREST, DIPLO sind ohnehin regelbasiert.
+- **Supervisor:** **Ein** LLM-Aufruf (Haiku/Sonnet) nach den **11** Agent-Ergebnissen. Der Supervisor ist darauf vorbereitet, dass die Agent-Daten aus regelbasierten Ketten stammen; er synthetisiert aus Scores und Rohdaten (articles, aircraft, anomalies, sanctions, civil unrest events, proximity evidence, etc.) zu key_findings, scenarios und summary.
+- **Ausgabeformat:** Frontend und API liefern zusätzlich `cyber`, `energy`, `civil unrest`, `diplo`, `proximity` im Analyse-Ergebnis.
 
 ---
 
@@ -30,12 +30,12 @@
 |   | 6. TECHINT| `run_techint_agent(conflict)` |
 |   | 7. CYBER  | `run_cyber_agent(conflict)` |
 |   | 8. ENERGY | `run_energy_agent(conflict)` |
-|   | 9. PROTEST| `run_protest_agent(conflict)` |
+|   | 9. CIVIL_UNREST| `run_civil unrest_agent(conflict)` |
 |   | 10. DIPLO | `run_diplo_agent(conflict)` |
 |   | 11. PROXIMITY | `run_proximity_agent(conflict)` |
 | 2 | **Sequentiell** | Sobald alle 11 Ergebnisse da sind: `supervisor_node` (Claude Haiku/Sonnet) synthetisiert. |
 
-Die **Reihenfolge der Agent-Ausführung** ist also: FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY (Submission); sie laufen parallel. Danach genau **ein** Supervisor-Aufruf.
+Die **Reihenfolge der Agent-Ausführung** ist also: FININT, SIGINT, NEWS, GEOINT, SOCMINT, TECHINT, CYBER, ENERGY, CIVIL_UNREST, DIPLO, PROXIMITY (Submission); sie laufen parallel. Danach genau **ein** Supervisor-Aufruf.
 
 ---
 
@@ -136,12 +136,12 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 
 ---
 
-### PROTEST (Civil Society, regelbasiert, kein LLM)
+### CIVIL_UNREST (Civil Society, regelbasiert, kein LLM)
 
 - **Interne async Funktionen:**
-  1. `_fetch_acled_protests(api_key, conflict)` – ACLED mit event_type Protests/Riots (optional `ACLED_API_KEY`)
-  2. `_fetch_gdelt_protest(conflict)` – GDELT Doc API für Protest-Artikel (kostenlos)
-- Danach: `_compute_protest_score`, `_build_summary`. Ausgabe: `protest_score`, `protest_events`, `protest_articles`.
+  1. `_fetch_acled_civil unrest events(api_key, conflict)` – ACLED mit event_type Protests/Riots (optional `ACLED_API_KEY`)
+  2. `_fetch_gdelt_civil unrest(conflict)` – GDELT Doc API für Protest-Artikel (kostenlos)
+- Danach: `_compute_civil unrest_score`, `_build_summary`. Ausgabe: `civil unrest_score`, `civil unrest_events`, `civil unrest_articles`.
 
 ---
 
@@ -175,7 +175,7 @@ Die **Fallback-Reihenfolge** ist die fest verdrahtete Tool-Kette, die du für ei
 | TECHINT| 7 (intern) | _fetch_tech_indicators → _fetch_export_control_news → _fetch_ioda_events → _fetch_ooni_measurements → _fetch_cloudflare_outages → _fetch_shodan_activity → _fetch_wayback_snapshots |
 | CYBER  | 4 (intern) | _fetch_cisa_kev → _fetch_threat_rss → _fetch_otx_pulses → _fetch_greynoise_scan_context |
 | ENERGY | 2 (intern) | _fetch_agsi_storage → _fetch_commodity_prices |
-| PROTEST| 2 (intern) | _fetch_acled_protests → _fetch_gdelt_protest |
+| CIVIL_UNREST| 2 (intern) | _fetch_acled_civil unrest events → _fetch_gdelt_civil unrest |
 | DIPLO  | 3 (intern) | _fetch_ofac_sdn → _fetch_eu_sanctions → _fetch_un_icj_news |
 | PROXIMITY | 3 (intern) | get_thermal_anomalies(region) → optional tunnel GeoJSON → run_correlation_for_events (Overpass) |
 

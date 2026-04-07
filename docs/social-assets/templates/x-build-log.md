@@ -59,7 +59,7 @@ The code is stupidly simple:
 ```
 I study political science. I build intelligence tools.
 
-11 AI agents monitoring Iran in parallel: military aircraft, naval vessels, NASA satellites, oil futures, sanctions lists, social media, internet outages, protests, media narratives.
+11 AI agents monitoring Iran in parallel: military aircraft, naval vessels, NASA satellites, oil futures, sanctions lists, social media, internet outages, civil unrest events, media narratives.
 
 No agent framework. Just Python's ThreadPoolExecutor with 75s timeouts.
 

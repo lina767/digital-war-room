@@ -26,7 +26,7 @@ Weights emphasize leading indicators (e.g. signal mobility, chokepoint stress) w
 | TECHINT | 7% | Technical Intelligence |
 | CYBER | 7% | Threat Intelligence |
 | ENERGY | 7% | Energy / Commodities |
-| PROTEST | 0% | Civil Society / Protest (Agent stub; Gewicht auf andere Streams umgelegt) |
+| CIVIL_UNREST | 0% | Civil Society / Protest (Agent stub; Gewicht auf andere Streams umgelegt) |
 | DIPLO | 6% | Diplomacy / Legal |
 
 Equivalent code-style summary: `combined_score = Σ (agent_score × weight)` with `Σ weight = 100%`.

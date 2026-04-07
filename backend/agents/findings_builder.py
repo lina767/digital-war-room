@@ -66,7 +66,6 @@ def append_agent_findings(
     techint_result = agent_results.get("techint") or {}
     cyber_result = agent_results.get("cyber") or {}
     energy_result = agent_results.get("energy") or {}
-    protest_result = agent_results.get("protest") or {}
     diplo_result = agent_results.get("diplo") or {}
     proximity_result = agent_results.get("proximity") or {}
     chokepoint_result = agent_results.get("chokepoint") or {}
@@ -262,24 +261,6 @@ def append_agent_findings(
                 )
                 break
 
-    protest_events = protest_result.get("protest_events") or []
-    valid_pe = [e for e in protest_events if isinstance(e, dict) and "error" not in e]
-    if valid_pe:
-        _append_finding(
-            key_findings,
-            confidences,
-            f"PROTEST (ACLED) – {len(valid_pe)} protest/riot events",
-            "medium",
-        )
-    for a in (protest_result.get("protest_articles") or [])[:1]:
-        if isinstance(a, dict) and a.get("title") and "error" not in a:
-            lvl = _confidence_from_source(agent="protest", source=a.get("source"), url=a.get("url"))
-            _append_finding(
-                key_findings,
-                confidences,
-                f"PROTEST (GDELT) – {a.get('title', '')[:55]}",
-                lvl,
-            )
 
     ofac_matches = diplo_result.get("ofac_sdn", {}).get("total_matches") or 0
     if ofac_matches:
@@ -428,7 +409,6 @@ def collect_agent_finding_candidates(
     techint_result = agent_results.get("techint") or {}
     cyber_result = agent_results.get("cyber") or {}
     energy_result = agent_results.get("energy") or {}
-    protest_result = agent_results.get("protest") or {}
     diplo_result = agent_results.get("diplo") or {}
     proximity_result = agent_results.get("proximity") or {}
     chokepoint_result = agent_results.get("chokepoint") or {}
@@ -483,21 +463,6 @@ def collect_agent_finding_candidates(
                 sources=[{"name": r.get("source"), "url": r.get("url"), "kind": "cyber_report"}],
             )
 
-    protest_events = protest_result.get("protest_events") or []
-    valid_pe = [e for e in protest_events if isinstance(e, dict) and "error" not in e]
-    if valid_pe:
-        add(
-            f"PROTEST (ACLED) – {len(valid_pe)} protest/riot events",
-            agent="protest",
-            sources=[{"name": "ACLED", "kind": "acled"}],
-        )
-    for a in (protest_result.get("protest_articles") or [])[:2]:
-        if isinstance(a, dict) and a.get("title") and "error" not in a:
-            add(
-                f"PROTEST (GDELT) – {a.get('title', '')[:120]}",
-                agent="protest",
-                sources=[{"name": a.get("source") or "GDELT", "url": a.get("url"), "kind": "gdelt"}],
-            )
 
     ofac_matches = diplo_result.get("ofac_sdn", {}).get("total_matches") or 0
     if ofac_matches:
@@ -526,7 +491,7 @@ def collect_agent_finding_candidates(
         if isinstance(ref, dict) and ref.get("title"):
             add(
                 f"ACLED reference – {ref.get('title', '')[:160]}",
-                agent="protest",
+                agent="geoint",
                 sources=[{"name": "ACLED", "url": ref.get("url"), "kind": "acled_analysis"}],
             )
 

@@ -9,7 +9,6 @@ def _base_result(**overrides):
         "news": {"articles": [{"title": "Markets steady", "description": ""}]},
         "sigint": {"conflict_reports": [], "aircraft": [], "ships": []},
         "socmint": {"top_signals": []},
-        "protest": {"protest_articles": []},
     }
     r.update(overrides)
     return r

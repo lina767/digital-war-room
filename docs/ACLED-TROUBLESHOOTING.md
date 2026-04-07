@@ -25,7 +25,7 @@ Backend-Logs (Stdout, Docker, Railway, …) nach diesen Mustern filtern:
 | Aggregated XLSX | `ACLED aggregated`, `cookie login failed`, `no XLSX link`, `XLSX download failed`, `page scrape error` |
 | Startup | `ACLED aggregated startup refresh`, `ACLED aggregated data checked` |
 | Theater / CEO | `Theater: ACLED`, `ACLED reference fetch failed` |
-| PROTEST-Agent | `ACLED aggregated CSV not found`, `ACLED: no OAuth credentials`, `ACLED: fetched` |
+| CIVIL_UNREST-Agent | `ACLED aggregated CSV not found`, `ACLED: no OAuth credentials`, `ACLED: fetched` |
 
 **Ripgrep im Repo** (nur für Entwickler, um Meldungen im Code zu finden):
 
@@ -40,12 +40,12 @@ Für **Research-Level** liefert die **ACLED Read-API** oft **keine** oder kaum E
 Das ist **kein Bug im War Room**, sondern ein **Zugangs-/Tier-Thema** bei ACLED. Aktuellere **regionale** Signale kommen zusätzlich aus:
 
 - **Wöchentliche Aggregated-Downloads** (Nahost-XLSX, Cookie-Login mit denselben Credentials) – siehe `backend/services/acled_aggregated.py`
-- **Fallbacks** in GEOINT: ReliefWeb, GDELT, HDX HAPI (siehe `geoint_fetchers.py`). PROTEST-Agent entfernt (`protest_stub.py`).
+- **Fallbacks** in GEOINT: ReliefWeb, GDELT, HDX HAPI (siehe `geoint_fetchers.py`). CIVIL_UNREST-Agent entfernt (`civil unrest_stub.py`).
 
 ## 4. Was ACLED im War Room trotzdem liefert
 
 - **Event-Raster** (Lat/Lon, Typen) für Heatmap und Theater, soweit die API Zeilen zurückgibt.
-- **Wöchentliche Aggregates** für PROTEST-Scoring und `ACLED-Aggregated` auf der Karte (wenn Download und Parsing gelingen).
+- **Wöchentliche Aggregates** für CIVIL_UNREST-Scoring und `ACLED-Aggregated` auf der Karte (wenn Download und Parsing gelingen).
 - **Referenz-Analysen** (gecuratete acleddata.com-Seiten für die CEO-Synthese, unabhängig von der Event-API).
 - **Ergänzung** zu rein medialen oder Report-Feeds (strukturierte Ereigniscodierung).
 

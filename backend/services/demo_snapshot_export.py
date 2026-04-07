@@ -40,7 +40,6 @@ AGENT_KEYS = [
     "techint",
     "cyber",
     "energy",
-    "protest",
     "diplo",
     "proximity",
     "narrative",

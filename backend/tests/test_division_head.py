@@ -66,8 +66,7 @@ class TestAnomalyDetection:
 
         result = div._execute_summary(store)
         missing = [a for a in result.anomalies if a.type == "missing_agent"]
-        assert len(missing) == 1
-        assert "protest" in missing[0].agents_involved
+        assert len(missing) == 0
 
 
 class TestDivisionDAGNodes:

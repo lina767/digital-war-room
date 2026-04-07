@@ -2,7 +2,7 @@
 
 Canonical domain: https://digital-war-room.com
 
-Digital War Room is an OSINT platform for conflict monitoring. It combines multiple intelligence streams (including GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, ENERGY, PROTEST, DIPLO, and PROXIMITY) into a composite escalation score and analyst-friendly briefing output.
+Digital War Room is an OSINT platform for conflict monitoring. It combines multiple intelligence streams (including GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, ENERGY, CIVIL_UNREST, DIPLO, and PROXIMITY) into a composite escalation score and analyst-friendly briefing output.
 
 ## Primary pages
 

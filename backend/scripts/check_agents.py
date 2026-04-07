@@ -34,7 +34,6 @@ AGENT_ENV = {
     "techint": [],  # Alpha Vantage, News, Cloudflare, Shodan are optional; agent runs without
     "cyber": [],  # CISA KEV no key; OTX optional
     "energy": [],  # AGSI, Alpha Vantage optional
-    "protest": [],  # ACLED optional; GDELT free
     "diplo": [],  # OFAC/EU/UN/ICJ no key
 }
 
@@ -71,8 +70,6 @@ def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:
             return False, "Missing cyber_score", result
         if name == "energy" and "energy_score" not in result:
             return False, "Missing energy_score", result
-        if name == "protest" and "protest_score" not in result:
-            return False, "Missing protest_score", result
         if name == "diplo" and "diplo_score" not in result:
             return False, "Missing diplo_score", result
         score_key = {
@@ -85,7 +82,6 @@ def run_one(name: str, run_fn, required_keys: list) -> tuple[bool, str, dict]:
             "techint": "techint_score",
             "cyber": "cyber_score",
             "energy": "energy_score",
-            "protest": "protest_score",
             "diplo": "diplo_score",
         }.get(name)
         score = result.get(score_key, "?")
@@ -153,19 +149,6 @@ def data_hint(name: str, data: dict) -> str:
     elif name == "energy":
         hints.append(f"commodities={len(data.get('commodities') or [])}")
         hints.append(f"food_commodities={len(data.get('food_commodities') or [])}")
-    elif name == "protest":
-        hints.append(f"protest_events={len(data.get('protest_events') or [])}")
-        hints.append(f"protest_articles={len(data.get('protest_articles') or [])}")
-        bq_ev = data.get("gdelt_events_bigquery") or {}
-        if bq_ev.get("ok"):
-            hints.append(f"gdelt_bq_events={bq_ev.get('total_matched', 0)}")
-        gkg = data.get("gdelt_gkg_bigquery") or {}
-        if gkg.get("ok"):
-            hints.append(f"gkg_rows={gkg.get('row_count', 0)}")
-        hints.append(f"crisis_pages={len(data.get('acled_crisis_pages') or [])}")
-        inf = data.get("inform_risk") or {}
-        if inf.get("ok"):
-            hints.append(f"inform_matches={inf.get('match_count', 0)}")
     elif name == "diplo":
         hints.append(f"ofac_matches={data.get('ofac_sdn', {}).get('total_matches', 0)}")
         hints.append(f"un_icj_news={len(data.get('un_icj_news') or [])}")
@@ -189,7 +172,6 @@ def main():
         ("techint", "run_techint_agent", AGENT_ENV["techint"]),
         ("cyber", "run_cyber_agent", AGENT_ENV["cyber"]),
         ("energy", "run_energy_agent", AGENT_ENV["energy"]),
-        ("protest", "run_protest_agent", AGENT_ENV["protest"]),
         ("diplo", "run_diplo_agent", AGENT_ENV["diplo"]),
     ]
 
@@ -197,7 +179,7 @@ def main():
     for name, fn_name, required_keys in agents:
         print(f"\n--- {name.upper()} ---")
         try:
-            mod_path = "agents.protest_stub" if name == "protest" else f"agents.{name}_agent"
+            mod_path = f"agents.{name}_agent"
             mod = __import__(mod_path, fromlist=[fn_name])
             run_fn = getattr(mod, fn_name)
         except Exception as e:
@@ -300,7 +282,7 @@ def test_gdelt():
     time.sleep(8)
     r = httpx.get(
         "https://api.gdeltproject.org/api/v2/doc/doc",
-        params={"query": "Iran protest", "mode": "artlist", "format": "json", "maxrecords": 5, "timespan": "72H"},
+        params={"query": "Iran unrest", "mode": "artlist", "format": "json", "maxrecords": 5, "timespan": "72H"},
         timeout=20.0,
     )
     print(f"Status: {r.status_code}")

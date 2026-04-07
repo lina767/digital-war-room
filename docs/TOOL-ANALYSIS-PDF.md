@@ -15,7 +15,7 @@ Stand: März 2025. Gegenüberstellung der **aktuell im Projekt integrierten Tool
 | **TECHINT** | Alpha Vantage (ETFs), NewsAPI (Export Control), IODA, OONI, Cloudflare Radar, Shodan |
 | **CYBER** | CISA KEV, Threat RSS (Mandiant/CrowdStrike), AlienVault OTX, GreyNoise |
 | **ENERGY** | AGSI+ (Gasspeicher), Alpha Vantage (Commodities) |
-| **PROTEST** | ACLED (Protests/Riots), GDELT |
+| **CIVIL_UNREST** | ACLED (Protests/Riots), GDELT |
 | **DIPLO** | OFAC SDN, EU Consolidated List, UN/ICJ RSS |
 | **PROXIMITY** | NASA FIRMS, Overpass (Schulen/Krankenhäuser), optional Tunnel-GeoJSON |
 

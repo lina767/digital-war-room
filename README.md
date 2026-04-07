@@ -26,7 +26,7 @@ Real-time conflict monitoring with specialized agents across GEOINT, SIGINT, SOC
 
 ## OSINT Multi-Agent Intelligence Platform
 
-Digital War Room deploys **11+ specialized OSINT agents** — supervised by a Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from open sources. Instead of aggregating headlines, it produces **structured assessments** (scores, BLUF-style briefings, and source-linked findings) across multiple streams: sanctions/finance, flight patterns, protests, cyber signals, and more.
+Digital War Room deploys **11+ specialized OSINT agents** — supervised by a Claude Sonnet orchestrator — to monitor, analyze, and synthesize intelligence from open sources. Instead of aggregating headlines, it produces **structured assessments** (scores, BLUF-style briefings, and source-linked findings) across multiple streams: sanctions/finance, flight patterns, civil unrest events, cyber signals, and more.
 
 **Why it matters:** Many dashboards show *what happened*. Digital War Room aims to help you interpret *what it may mean* — by cross-referencing streams and surfacing where signals corroborate (or contradict) each other.
 
@@ -67,7 +67,7 @@ Optional GIF (10–20s):
 
 ### Why better than aggregators?
 
-- **Multi-stream corroboration**: signals are compared across domains (finance, flights, protests, cyber, energy)
+- **Multi-stream corroboration**: signals are compared across domains (finance, flights, civil unrest events, cyber, energy)
 - **Structured outputs**: scores + key findings + briefings (not a pile of links)
 - **Inspectable methodology & sources**: the “why” is part of the product (docs hub + source directory)
 
@@ -135,7 +135,7 @@ Optional GIF (10–20s):
     │  💰 FININT Agent     │            │  📱 SOCMINT Agent    │
     │  🔒 CYBER Agent      │            │  📰 NEWS Agent       │
     │  🏛️ DIPLO Agent      │            │  ⚡ ENERGY Agent     │
-    │  🔬 TECHINT Agent    │            │  ✊ PROTEST Agent    │
+    │  🔬 TECHINT Agent    │            │  ✊ CIVIL_UNREST Agent    │
     │                      │            │  📍 PROXIMITY Agent  │
     └──────────┬───────────┘            └──────────┬───────────┘
                │                                   │
@@ -155,12 +155,12 @@ Optional GIF (10–20s):
 | **SIGINT** | Flight patterns, airspace, ADS-B | ADS-B Exchange, Flightradar24 | GEOINT, PROXIMITY |
 | **FININT** | Sanctions, ownership chains, commodities | OpenSanctions, OFAC SDN, EU list | ENERGY, DIPLO |
 | **GEOINT** | Geographic conflict events, mapping | ACLED, GDELT | SIGINT, NEWS |
-| **SOCMINT** | Social narratives, sentiment | X/Twitter, Telegram | PROTEST, NEWS |
+| **SOCMINT** | Social narratives, sentiment | X/Twitter, Telegram | CIVIL_UNREST, NEWS |
 | **NEWS** | Breaking news, multilingual | RSS, wires | All agents |
 | **CYBER** | Outages, DDoS, hacktivism | GreyNoise, OONI, IODA | SIGINT, TECHINT |
 | **ENERGY** | Infrastructure, Hormuz / commodity stress | Maritime AIS, oil APIs | FININT, GEOINT |
 | **TECHINT** | Tech / defense industry signals | SIPRI, defense wires | SIGINT, DIPLO |
-| **PROTEST** | Unrest, crackdowns | ACLED, SOCMINT | SOCMINT, CYBER |
+| **CIVIL_UNREST** | Unrest, crackdowns | ACLED, SOCMINT | SOCMINT, CYBER |
 | **DIPLO** | Diplomatic / legal signals | UN, ICJ, sanctions lists | FININT, ENERGY |
 | **PROXIMITY** | Geographic risk / proximity | FIRMS, OSM | GEOINT, SIGINT |
 
@@ -168,7 +168,7 @@ Optional GIF (10–20s):
 
 ## Key features
 
-- **Interactive theater map** — Conflict visualization with overlays (events, flights, maritime, protests).
+- **Interactive theater map** — Conflict visualization with overlays (events, flights, maritime, civil unrest events).
 - **Daily intelligence briefings** — Synthesized assessments with confidence and attribution.
 - **Predictive outlook** — Scenario-style views using market-implied signals (e.g. Polymarket) where configured.
 - **Source directory** — Trace claims back to primary sources with reliability context.

@@ -20,7 +20,6 @@ AGENT_NAMES = (
     "techint",
     "cyber",
     "energy",
-    "protest",
     "diplo",
     "proximity",
     "narrative",

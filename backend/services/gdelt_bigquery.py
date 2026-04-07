@@ -287,8 +287,8 @@ def fetch_chokepoint_maritime_events_summary() -> Dict[str, Any]:
     )
 
 
-def _protest_root_codes_from_env() -> List[str]:
-    raw = (os.getenv("PROTEST_GDELT_EVENT_ROOTS") or "12,13,14,15,17,18").strip()
+def _unrest_root_codes_from_env() -> List[str]:
+    raw = (os.getenv("UNREST_GDELT_EVENT_ROOTS") or "12,13,14,15,17,18").strip()
     out: List[str] = []
     for part in raw.split(","):
         p = part.strip()
@@ -297,20 +297,20 @@ def _protest_root_codes_from_env() -> List[str]:
     return out[:24]
 
 
-def fetch_gdelt_protest_events_summary(
+def fetch_gdelt_unrest_events_summary(
     conflict: str,
     *,
     search_terms: Optional[Sequence[str]] = None,
     lookback_days: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """GDELT Events (BigQuery): conflict keyword match limited to CAMEO EventRootCodes typical of unrest/protest.
+    """GDELT Events (BigQuery): conflict keyword match limited to CAMEO EventRootCodes typical of unrest.
 
-    Root codes default to 12–18 range (appeal → assault spectrum); override via PROTEST_GDELT_EVENT_ROOTS (comma).
-    Lookback defaults to PROTEST_GDELT_LOOKBACK_DAYS or GDELT_BQ_LOOKBACK_DAYS.
+    Root codes default to 12–18 range (appeal → assault spectrum); override via UNREST_GDELT_EVENT_ROOTS (comma).
+    Lookback defaults to UNREST_GDELT_LOOKBACK_DAYS or GDELT_BQ_LOOKBACK_DAYS.
     """
     fetched_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     base: Dict[str, Any] = {
-        "source": "gdelt_bigquery_protest",
+        "source": "gdelt_bigquery_unrest",
         "fetched_at": fetched_at,
         "table": "gdelt-bq.gdeltv2.events",
     }
@@ -326,7 +326,7 @@ def fetch_gdelt_protest_events_summary(
         cfg.lookback_days = min(30, max(1, lookback_days))
     else:
         cfg.lookback_days = min(
-            30, max(1, _int_env("PROTEST_GDELT_LOOKBACK_DAYS", _int_env("GDELT_BQ_LOOKBACK_DAYS", 7)))
+            30, max(1, _int_env("UNREST_GDELT_LOOKBACK_DAYS", _int_env("GDELT_BQ_LOOKBACK_DAYS", 7)))
         )
 
     if search_terms is not None:
@@ -342,7 +342,7 @@ def fetch_gdelt_protest_events_summary(
     if not terms:
         return {**base, "ok": False, "skipped": True, "reason": "no_search_terms", "conflict": conflict}
 
-    roots = _protest_root_codes_from_env()
+    roots = _unrest_root_codes_from_env()
     if not roots:
         return {**base, "ok": False, "skipped": True, "reason": "no_event_root_codes"}
 
@@ -384,7 +384,7 @@ LIMIT @max_roots
         job = client.query(sql, job_config=job_config)
         rows = list(job.result(timeout=cfg.timeout_sec))
     except Exception as e:
-        logger.warning("GDELT protest events BigQuery failed: %s", e)
+        logger.warning("GDELT unrest events BigQuery failed: %s", e)
         return {
             **base,
             "ok": False,
@@ -425,18 +425,18 @@ LIMIT @max_roots
 
 
 def _gkg_enabled() -> bool:
-    v = (os.getenv("PROTEST_GKG_BQ_ENABLED") or "1").strip().lower()
+    v = (os.getenv("UNREST_GKG_BQ_ENABLED") or "1").strip().lower()
     return v not in ("0", "false", "no", "off") and _env_enabled()
 
 
-def fetch_gdelt_gkg_protest_context(
+def fetch_gdelt_gkg_unrest_context(
     conflict: str,
     *,
     iso3_list: Optional[Sequence[str]] = None,
     country_names: Optional[Sequence[str]] = None,
     lookback_days: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Aggregate GKG rows for geography: theme hits (protest lexicon) and average document tone."""
+    """Aggregate GKG rows for geography: theme hits (unrest lexicon) and average document tone."""
     fetched_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     base: Dict[str, Any] = {
         "source": "gdelt_bigquery_gkg",
@@ -444,15 +444,15 @@ def fetch_gdelt_gkg_protest_context(
         "table": "gdelt-bq.gdeltv2.gkg",
     }
     if not _gkg_enabled():
-        return {**base, "ok": False, "skipped": True, "reason": "PROTEST_GKG_BQ_ENABLED or GDELT_BQ off"}
+        return {**base, "ok": False, "skipped": True, "reason": "UNREST_GKG_BQ_ENABLED or GDELT_BQ off"}
     try:
         from google.cloud import bigquery
     except ImportError:
         return {**base, "ok": False, "skipped": True, "reason": "google-cloud-bigquery not installed"}
 
-    days = lookback_days if lookback_days is not None else _int_env("PROTEST_GKG_LOOKBACK_DAYS", 3)
+    days = lookback_days if lookback_days is not None else _int_env("UNREST_GKG_LOOKBACK_DAYS", 3)
     days = min(14, max(1, days))
-    timeout_sec = _float_env("PROTEST_GKG_BQ_TIMEOUT_SEC", 22.0)
+    timeout_sec = _float_env("UNREST_GKG_BQ_TIMEOUT_SEC", 22.0)
     end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=days)
     start_d = int(start.strftime("%Y%m%d"))
@@ -484,7 +484,7 @@ def fetch_gdelt_gkg_protest_context(
     sql = f"""
 SELECT
   COUNT(*) AS row_count,
-  COUNTIF(REGEXP_CONTAINS(IFNULL(V2Themes, ''), r'(?i)(PROTEST|RIOT|UNREST|DEMONSTRATION|STRIKE|CIVIL_DISORDER|POLITICAL_VIOLENCE)')) AS protest_theme_rows,
+  COUNTIF(REGEXP_CONTAINS(IFNULL(V2Themes, ''), r'(?i)(RIOT|UNREST|DEMONSTRATION|STRIKE|CIVIL_DISORDER|POLITICAL_VIOLENCE)')) AS unrest_theme_rows,
   ROUND(AVG(SAFE_CAST(REGEXP_EXTRACT(V2Tone, r'^(-?[0-9]+(?:\\.[0-9]+)?)') AS FLOAT64)), 4) AS avg_doc_tone
 FROM {GDELT_GKG_TABLE}
 WHERE `DATE` BETWEEN @start_d AND @end_d
@@ -514,14 +514,14 @@ WHERE `DATE` BETWEEN @start_d AND @end_d
             "conflict": conflict,
             "lookback_days": days,
             "row_count": 0,
-            "protest_theme_rows": 0,
-            "protest_theme_ratio": 0.0,
+            "unrest_theme_rows": 0,
+            "unrest_theme_ratio": 0.0,
             "avg_doc_tone": None,
         }
 
     r = dict(rows[0])
     rc = int(r.get("row_count") or 0)
-    pr = int(r.get("protest_theme_rows") or 0)
+    pr = int(r.get("unrest_theme_rows") or 0)
     ratio = (float(pr) / float(rc)) if rc else 0.0
     tone = r.get("avg_doc_tone")
     return {
@@ -532,7 +532,7 @@ WHERE `DATE` BETWEEN @start_d AND @end_d
         "sqldate_start": start_d,
         "sqldate_end": end_d,
         "row_count": rc,
-        "protest_theme_rows": pr,
-        "protest_theme_ratio": round(ratio, 4),
+        "unrest_theme_rows": pr,
+        "unrest_theme_ratio": round(ratio, 4),
         "avg_doc_tone": float(tone) if tone is not None else None,
     }

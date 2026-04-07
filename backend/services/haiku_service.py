@@ -433,7 +433,7 @@ _GEOPOLITICAL_CATEGORIES = [
     "cyber_warfare",
     "energy_disruption",
     "humanitarian_crisis",
-    "protest_civil_unrest",
+    "civil_unrest",
     "maritime_security",
     "other",
 ]

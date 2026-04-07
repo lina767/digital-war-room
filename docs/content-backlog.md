@@ -77,7 +77,7 @@ Ideas organized by platform and content pillar. Pick one when you have time. Cro
 ### Geopolitical Analysis (r/geopolitics)
 - [ ] Long-form analysis: "Patterns in Iranian military posture — what open-source data reveals" (reference methodology without naming tool)
 - [ ] "The information gap between state and exile Iranian media: a systematic comparison"
-- [ ] "How protest data (ACLED) and internet outages (IODA) correlate in Iran"
+- [ ] "How civil unrest data (ACLED) and internet outages (IODA) correlate in Iran"
 - [ ] "Strait of Hormuz and energy supply chain risk: a data-driven analysis"
 - [ ] "What thermal satellite data tells us about conflict intensity in the Middle East"
 

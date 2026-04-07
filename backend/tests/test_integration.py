@@ -40,7 +40,6 @@ EXPECTED_RESPONSE_KEYS = {
     "techint",
     "cyber",
     "energy",
-    "protest",
     "diplo",
     "proximity",
     "narrative",
@@ -71,7 +70,6 @@ def _mock_store():
         "mediaint",
         "narrative",
         "diplo",
-        "protest",
         "techint",
         "cyber",
     ]:

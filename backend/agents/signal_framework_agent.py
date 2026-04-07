@@ -71,8 +71,8 @@ STATE_FRAMING_TERMS = [
     "foreign-backed",
 ]
 EXILE_FRAMING_TERMS = [
-    "protester",
-    "protest",
+    "demonstrator",
+    "demonstration",
     "demonstration",
     "crackdown",
     "killed",
@@ -901,7 +901,7 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             lexical={
                 "state_terms": state_terms[:15],
                 "exile_terms": exile_terms[:15],
-                "interpretation": "Compare terms: state framing (e.g. rioter/sedition) vs exile framing (e.g. protester/crackdown) reveals narrative intent.",
+                "interpretation": "Compare terms: state framing (e.g. rioter/sedition) vs exile framing (e.g. demonstrator/crackdown) reveals narrative intent.",
             },
             latency=latency_str,
             discrepancy=credibility_gaps,

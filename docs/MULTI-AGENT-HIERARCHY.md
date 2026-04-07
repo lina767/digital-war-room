@@ -151,7 +151,7 @@ Bestehende `run_*_agent` bleiben die Einstiegspunkte; intern können sie `run_do
 
 - **FININT:** Analysts = Brent/WTI, Polymarket, OFAC, Metaculus, …; Manager = gewichteter Score, Summary, einheitliches FinintResult.
 - **SIGINT:** Analysts = ADSB, Conflict Reports, Hormuz Tankers (Chokepoint); Manager = sigint_score, aircraft/ships Listen, summary.
-- Analog für ENERGY, TECHINT, CYBER, PROTEST, DIPLO, PROXIMITY, CHOKEPOINT, NARRATIVE: pro Domain 3–6 Analysts + 1 Manager definieren.
+- Analog für ENERGY, TECHINT, CYBER, CIVIL_UNREST, DIPLO, PROXIMITY, CHOKEPOINT, NARRATIVE: pro Domain 3–6 Analysts + 1 Manager definieren.
 
 ### 5. Keine Änderung am Supervisor
 

@@ -1135,7 +1135,7 @@ def _load_aggregated_theater_events(conflict: str, weeks: int = 4) -> List[Dict[
                     if row.get("event_type") not in MILITARY_EVENT_TYPES:
                         continue
                     sub = row.get("sub_event_type", "")
-                    if sub in ("Peaceful protest", "Protest with intervention", "Excessive force against protesters"):
+                    if sub in ("Peaceful demonstration", "Demonstration with intervention", "Excessive force against demonstrators"):
                         continue
                     lat = _safe_float(row.get("centroid_lat"), 0)
                     lon = _safe_float(row.get("centroid_lon"), 0)

@@ -11,7 +11,7 @@ Digital War Room is an AI-powered OSINT platform for conflict monitoring. It com
 
 - a React + TypeScript frontend dashboard
 - a FastAPI backend
-- a multi-agent analysis pipeline (FININT, SIGINT, GEOINT, SOCMINT, NEWS, CYBER, ENERGY, PROTEST, DIPLO, PROXIMITY, and related modules)
+- a multi-agent analysis pipeline (FININT, SIGINT, GEOINT, SOCMINT, NEWS, CYBER, ENERGY, CIVIL_UNREST, DIPLO, PROXIMITY, and related modules)
 - scheduled analysis jobs with in-memory state and live update channels
 
 Main user-facing capabilities:
@@ -336,7 +336,7 @@ Typical output includes:
 Core families in current project docs and code:
 
 - FININT, SIGINT, NEWS, DIPLO, TECHINT, CYBER
-- GEOINT, SOCMINT, ENERGY, PROTEST, PROXIMITY
+- GEOINT, SOCMINT, ENERGY, CIVIL_UNREST, PROXIMITY
 - additional specialized layers/modules: chokepoint, narrative, compliance enrichments
 
 The orchestration pipeline executes in waves and synthesizes into one final analysis result consumed by the UI and API clients.
