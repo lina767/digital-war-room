@@ -333,12 +333,29 @@ _SENTIMENT_SYSTEM = (
 
 async def sentiment(text: str, lang: str = "auto") -> Optional[Dict[str, Any]]:
     """
-    Multilingual sentiment analysis on original text.
+    Multilingual sentiment analysis — HuggingFace first, Haiku fallback.
     Returns {"label", "score", "confidence", "reasoning"} or None.
     """
     global _run_sentiment_count
     if not text or not text.strip():
         return None
+
+    # ── HuggingFace primary path (free, fast) ──
+    try:
+        from services.hf_service import sentiment_classify
+
+        hf_result = await sentiment_classify(text)
+        if hf_result and hf_result.get("label"):
+            return {
+                "label": hf_result["label"],
+                "score": hf_result.get("score", 0),
+                "confidence": hf_result.get("confidence", 0),
+                "reasoning": "HF-classified",
+            }
+    except Exception as e:
+        logger.debug("[haiku] HF sentiment fallthrough: %s", e)
+
+    # ── Haiku fallback (only if HF unavailable) ──
     if _run_haiku_failed:
         return None
     if _run_sentiment_count >= HAIKU_MAX_SENTIMENT_PER_RUN:
@@ -376,28 +393,66 @@ _NER_SYSTEM = (
 )
 
 
+_DOMAIN_NER_KEYWORDS = [
+    "missile", "drone", "s-300", "s-400", "patriot", "iron dome", "centrifuge",
+    "enrichment", "reactor", "warhead", "battalion", "brigade", "division",
+    "irgc", "quds", "basij", "hezbollah", "hamas", "houthi", "wagner",
+    "vessel", "destroyer", "frigate", "carrier", "submarine", "tanker",
+    "f-35", "su-35", "mig", "tu-95", "shahed", "predator", "reaper",
+    "nuclear facility", "natanz", "fordow", "bushehr", "dimona",
+]
+
+
+def _needs_domain_ner(text: str) -> bool:
+    """Check if text likely contains domain-specific entities that HF NER can't detect."""
+    lower = text.lower()
+    return any(kw in lower for kw in _DOMAIN_NER_KEYWORDS)
+
+
 async def ner(text: str) -> Optional[List[Dict[str, str]]]:
     """
-    Domain-specific Named Entity Recognition.
+    Named Entity Recognition — HuggingFace first (PER/ORG/LOC), Haiku only for
+    domain-specific types (WEAPON_SYSTEM, MILITARY_UNIT, NUCLEAR_FACILITY, etc.).
     Returns [{"entity", "type", "context"}] or None.
     """
     global _run_ner_count
     if not text or not text.strip():
         return None
+
+    # ── HuggingFace primary path (free) ──
+    hf_entities: Optional[List[Dict[str, str]]] = None
+    try:
+        from services.hf_service import ner_bulk
+
+        hf_results = await ner_bulk([text.strip()[:3000]])
+        if hf_results and hf_results[0]:
+            hf_entities = [
+                {"entity": e["entity"], "type": e["type"], "context": e.get("context", "")}
+                for e in hf_results[0]
+                if isinstance(e, dict) and e.get("entity")
+            ]
+    except Exception as e:
+        logger.debug("[haiku] HF NER fallthrough: %s", e)
+
+    if not _needs_domain_ner(text):
+        if hf_entities is not None:
+            return hf_entities if hf_entities else []
+
+    # ── Haiku for domain-specific entity types ──
     if _run_haiku_failed:
-        return None
+        return hf_entities
     if _run_ner_count >= HAIKU_MAX_NER_PER_RUN:
         logger.debug("[haiku] NER limit reached (%d)", HAIKU_MAX_NER_PER_RUN)
-        return None
+        return hf_entities
 
     raw = await _call_haiku(_NER_SYSTEM, text.strip()[:3000], max_tokens=1024, usage_agent="news")
     if not raw:
-        return None
+        return hf_entities
     try:
         parsed = json.loads(_strip_json_block(raw))
         if isinstance(parsed, list):
             _run_ner_count += 1
-            return [
+            haiku_entities = [
                 {
                     "entity": e.get("entity", ""),
                     "type": e.get("type", "MISC"),
@@ -406,9 +461,16 @@ async def ner(text: str) -> Optional[List[Dict[str, str]]]:
                 for e in parsed
                 if isinstance(e, dict) and e.get("entity")
             ]
+            # Merge: Haiku is authoritative for domain types, HF for standard types.
+            if hf_entities:
+                seen = {(e["entity"].lower(), e["type"]) for e in haiku_entities}
+                for e in hf_entities:
+                    if (e["entity"].lower(), e["type"]) not in seen:
+                        haiku_entities.append(e)
+            return haiku_entities
     except (json.JSONDecodeError, ValueError, TypeError):
         logger.warning("[haiku] NER response not valid JSON: %.100s", raw)
-    return None
+    return hf_entities
 
 
 # ── Batch functions (Phase 2) ───────────────────────────────────────────────
@@ -467,23 +529,90 @@ _CLASSIFY_SYSTEM = (
 )
 
 
+_KEYWORD_RULES: Dict[str, List[str]] = {
+    "military_conflict": [
+        "military", "troops", "strike", "attack", "war", "drone", "missile",
+        "combat", "airstrike", "battle", "offensive", "shelling", "artillery",
+        "airbase", "deployment", "killed", "soldiers", "incursion", "clashes",
+        "bombardment", "mortar", "armor", "tank", "fighter jet",
+    ],
+    "nuclear_proliferation": [
+        "nuclear", "uranium", "centrifuge", "enrichment", "iaea", "reactor",
+        "warhead", "proliferation", "plutonium", "atomic", "fissile",
+    ],
+    "sanctions_trade": [
+        "sanction", "embargo", "ofac", "trade restriction", "asset freeze",
+        "blacklist", "designation", "trade ban", "treasury", "sdn list",
+    ],
+    "diplomacy": [
+        "diplomat", "ambassador", "treaty", "negotiation", "summit",
+        "bilateral", "multilateral", "un resolution", "peace talk",
+        "ceasefire", "accord", "envoy", "foreign minister",
+    ],
+    "cyber_warfare": [
+        "cyber", "hack", "ransomware", "malware", "ddos", "phishing",
+        "apt", "breach", "exploit", "zero-day", "botnet",
+    ],
+    "energy_disruption": [
+        "oil price", "gas pipeline", "opec", "refinery", "fuel shortage",
+        "energy crisis", "power grid", "blackout", "lng", "oil tanker",
+    ],
+    "humanitarian_crisis": [
+        "humanitarian", "refugee", "displaced", "famine", "aid",
+        "relief", "un aid", "idp", "food insecurity", "cholera",
+    ],
+    "civil_unrest": [
+        "protest", "riot", "demonstration", "uprising", "unrest",
+        "opposition", "crackdown", "tear gas", "curfew",
+    ],
+    "maritime_security": [
+        "maritime", "shipping lane", "vessel seized", "tanker",
+        "chokepoint", "strait", "naval blockade", "piracy", "ais",
+        "houthi", "bab el-mandeb",
+    ],
+}
+
+
+def _keyword_classify(text: str) -> Optional[Dict[str, Any]]:
+    """Deterministic keyword-based geopolitical classification. Returns best match or None."""
+    lower = text.lower()
+    scores: Dict[str, int] = {}
+    for cat, keywords in _KEYWORD_RULES.items():
+        hits = sum(1 for kw in keywords if kw in lower)
+        if hits:
+            scores[cat] = hits
+    if not scores:
+        return None
+    best = max(scores, key=scores.__getitem__)
+    total_kw = sum(len(v) for v in _KEYWORD_RULES.values())
+    confidence = min(0.95, 0.4 + scores[best] * 0.15)
+    return {"category": best, "confidence": round(confidence, 3)}
+
+
 async def classify(text: str) -> Optional[Dict[str, Any]]:
     """
-    Zero-shot geopolitical classification.
+    Geopolitical classification — keyword matching first, Haiku fallback for ambiguous cases.
     Returns {"category": str, "confidence": float} or None.
     """
     global _run_classify_count
     if not text or not text.strip():
         return None
+
+    # ── Keyword primary path (free, deterministic — no counter bump) ──
+    kw_result = _keyword_classify(text)
+    if kw_result and kw_result["confidence"] >= 0.55:
+        return kw_result
+
+    # ── Haiku fallback for ambiguous texts ──
     if _run_haiku_failed:
-        return None
+        return kw_result
     if _run_classify_count >= HAIKU_MAX_CLASSIFY_PER_RUN:
         logger.debug("[haiku] Classify limit reached (%d)", HAIKU_MAX_CLASSIFY_PER_RUN)
-        return None
+        return kw_result
 
     raw = await _call_haiku(_CLASSIFY_SYSTEM, text.strip()[:2000], max_tokens=128, usage_agent="news")
     if not raw:
-        return None
+        return kw_result
     try:
         parsed = json.loads(_strip_json_block(raw))
         _run_classify_count += 1
@@ -496,7 +625,7 @@ async def classify(text: str) -> Optional[Dict[str, Any]]:
         }
     except (json.JSONDecodeError, ValueError, TypeError):
         logger.warning("[haiku] Classify response not valid JSON: %.100s", raw)
-        return None
+        return kw_result
 
 
 async def batch_classify(texts: List[str]) -> List[Optional[Dict[str, Any]]]:

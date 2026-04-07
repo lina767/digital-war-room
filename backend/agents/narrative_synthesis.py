@@ -286,7 +286,7 @@ def synthesize_briefing_interpretation(
         return _fallback_briefing_interpretation(payload), meta
 
     model_env = (os.getenv("BRIEFING_INTERPRETATION_MODEL") or "").strip()
-    model = model_env or get_model_name("assessment")
+    model = model_env or get_model_name("agent")
     meta["model"] = model
 
     user_json = json.dumps(payload, default=str)

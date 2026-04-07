@@ -34,9 +34,9 @@ def _vision_model() -> str:
     try:
         from agents.llm import get_model_name
 
-        return get_model_name("supervisor")
+        return get_model_name("agent")
     except Exception:
-        return "claude-sonnet-4-20250514"
+        return "claude-haiku-4-5-20251001"
 
 
 def _prepare_image_jpeg(data: bytes) -> Optional[Tuple[bytes, str]]:

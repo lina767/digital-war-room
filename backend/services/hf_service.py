@@ -41,6 +41,7 @@ EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v
 # Router-compatible reranker default. Override via HF_CROSS_ENCODER_MODEL if needed.
 CROSS_ENCODER_MODEL = os.getenv("HF_CROSS_ENCODER_MODEL", "BAAI/bge-reranker-base")
 NER_BULK_MODEL = "Davlan/bert-base-multilingual-cased-ner-hrl"
+SENTIMENT_MODEL = os.getenv("HF_SENTIMENT_MODEL", "lxyuan/distilbert-base-multilingual-cased-sentiments-student")
 DOC_QA_MODEL = os.getenv("HF_DOC_QA_MODEL", "deepset/roberta-base-squad2")
 
 # Per-task cache TTL (seconds)
@@ -48,6 +49,7 @@ CACHE_TTL = {
     "embed": 7 * 24 * 3600,
     "cross_encode": 7 * 24 * 3600,
     "ner_bulk": 3 * 24 * 3600,
+    "sentiment": 6 * 3600,
     "doc_qa": 6 * 3600,
 }
 
@@ -426,6 +428,80 @@ async def rank_by_relevance(
             return indexed[:top_k]
     logger.warning("[hf] Cross-encoder ranking failed, returning original order")
     return [(i, 0.0) for i in range(min(top_k, len(texts)))]
+
+
+# ── Sentiment Classification (HF) ────────────────────────────────────────
+
+_SENTIMENT_LABEL_MAP = {
+    "positive": "positive",
+    "negative": "negative",
+    "neutral": "neutral",
+    "LABEL_0": "negative",
+    "LABEL_1": "neutral",
+    "LABEL_2": "positive",
+    "1 star": "negative",
+    "2 stars": "negative",
+    "3 stars": "neutral",
+    "4 stars": "positive",
+    "5 stars": "positive",
+}
+
+_SENTIMENT_SCORE_MAP = {
+    "positive": 0.6,
+    "negative": -0.6,
+    "neutral": 0.0,
+}
+
+
+async def sentiment_classify(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Multilingual sentiment via HF text-classification model.
+    Returns {"label": str, "score": float, "confidence": float} or None.
+    """
+    if not text or not text.strip():
+        return None
+    if not HUGGINGFACE_API_KEY:
+        return None
+
+    trimmed = text.strip()[:2000]
+    cache_key = _cache_key("sentiment", trimmed)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = await _hf_post_pipeline(
+        "text-classification",
+        SENTIMENT_MODEL,
+        {"inputs": trimmed, "options": {"wait_for_model": True}},
+    )
+
+    if not result:
+        return None
+
+    # HF returns [[{"label": ..., "score": ...}]] or [{"label": ..., "score": ...}]
+    items = result
+    if isinstance(items, list) and items and isinstance(items[0], list):
+        items = items[0]
+    if not isinstance(items, list) or not items:
+        return None
+
+    best = max(items, key=lambda x: float(x.get("score", 0)) if isinstance(x, dict) else 0)
+    if not isinstance(best, dict):
+        return None
+
+    raw_label = str(best.get("label", "neutral")).strip()
+    label = _SENTIMENT_LABEL_MAP.get(raw_label, "neutral")
+    confidence = float(best.get("score", 0))
+    score = _SENTIMENT_SCORE_MAP.get(label, 0.0) * confidence
+
+    out = {"label": label, "score": round(score, 4), "confidence": round(confidence, 4)}
+    _cache_set(cache_key, out)
+    return out
+
+
+async def batch_sentiment_hf(texts: List[str]) -> List[Optional[Dict[str, Any]]]:
+    """Run HF sentiment on multiple texts sequentially."""
+    return [await sentiment_classify(t) for t in texts]
 
 
 # ── NER Bulk Fallback (Phase 2) ──────────────────────────────────────────────

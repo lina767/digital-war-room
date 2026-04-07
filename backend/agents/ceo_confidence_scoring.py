@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from .llm import call_llm, get_model_name, require_api_key
 from .utils import parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -131,6 +130,46 @@ def _normalize(parsed: Any, requested_findings: List[str]) -> Dict[str, Any]:
     return {"schema_version": 1, "scores": norm[: len(requested_findings)]}
 
 
+_STREAMS = {
+    "finint", "sigint", "news", "geoint", "socmint", "mediaint",
+    "techint", "cyber", "energy", "diplo", "proximity", "chokepoint",
+    "satintel", "pentagon", "acled",
+}
+
+
+def _rule_based_source_quality(confidence: str, provenance_urls: List[str]) -> float:
+    base = {"high": 0.80, "medium": 0.55, "low": 0.30}.get(confidence.lower(), 0.50)
+    url_bonus = min(0.20, len(provenance_urls) * 0.04)
+    return min(1.0, base + url_bonus)
+
+
+def _rule_based_corroboration(context: str, finding_text: str) -> float:
+    combined = (context + " " + finding_text).lower()
+    mentioned = sum(1 for s in _STREAMS if s in combined)
+    if mentioned >= 3:
+        return 0.90
+    if mentioned == 2:
+        return 0.65
+    if mentioned == 1:
+        return 0.35
+    return 0.20
+
+
+def _rule_based_specificity(finding_text: str) -> float:
+    import re
+
+    score = 0.15
+    if re.search(r"\b[A-Z][a-z]{2,}", finding_text):
+        score += 0.25
+    if re.search(r"\d", finding_text):
+        score += 0.20
+    if re.search(r"\b(in|at|near|from)\s+[A-Z]", finding_text):
+        score += 0.20
+    if re.search(r"\b(today|yesterday|hours?|days?|week|utc|\d{4}-\d{2})", finding_text, re.IGNORECASE):
+        score += 0.20
+    return min(1.0, score)
+
+
 def score_findings_confidence(
     *,
     conflict: str,
@@ -139,49 +178,42 @@ def score_findings_confidence(
     stakeholder: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Score synthesized findings with a cheap model (default: Haiku).
+    Rule-based 3D confidence scoring for synthesized findings (no LLM calls).
+    Applies: 0.40*source_quality + 0.35*corroboration + 0.25*specificity.
 
     findings: list of {"finding": str, "confidence": "high|medium|low", "context": str?}
     """
-    requested = [str(f.get("finding") or "").strip() for f in findings if isinstance(f, dict)]
-    requested = [r for r in requested if r]
-    if not requested:
-        return {"schema_version": 1, "scores": [], "_meta": {"mode": "disabled", "reason": "no_findings"}}
+    urls = provenance_urls or []
+    out_scores: List[Dict[str, Any]] = []
 
-    user_payload = {
-        "conflict": conflict,
-        "stakeholder": stakeholder or {},
-        "provenance_urls": (provenance_urls or [])[:25],
-        "findings": [
-            {"finding": str(f.get("finding") or ""), "confidence": str(f.get("confidence") or ""), "context": f.get("context") or ""}
-            for f in findings[:25]
-            if isinstance(f, dict) and f.get("finding")
-        ],
+    for f in (findings or [])[:25]:
+        if not isinstance(f, dict):
+            continue
+        text = str(f.get("finding") or "").strip()
+        if not text:
+            continue
+        conf = str(f.get("confidence") or "medium").strip()
+        ctx = str(f.get("context") or "")
+
+        sq = _rule_based_source_quality(conf, urls)
+        co = _rule_based_corroboration(ctx, text)
+        sp = _rule_based_specificity(text)
+        overall = 0.40 * sq + 0.35 * co + 0.25 * sp
+
+        out_scores.append({
+            "finding": text,
+            "dimensions": {
+                "source_quality": round(sq, 3),
+                "corroboration": round(co, 3),
+                "specificity": round(sp, 3),
+            },
+            "overall_confidence": round(overall, 3),
+            "rationale": f"Rule-based: sq={sq:.2f} (label={conf}), co={co:.2f}, sp={sp:.2f}",
+        })
+
+    return {
+        "schema_version": 1,
+        "scores": out_scores,
+        "_meta": {"mode": "rule_based", "reason": "deterministic_scoring"},
     }
-
-    tried_model = None
-    try:
-        require_api_key()
-        import json
-
-        model = get_model_name("confidence_scoring")
-        tried_model = model
-        raw = call_llm(
-            system=CONFIDENCE_SCORING_SYSTEM_PROMPT,
-            user_content=json.dumps(user_payload, default=str)[:200_000],
-            model=model,
-            temperature=0.1,
-            max_tokens=2500,
-        )
-        parsed = parse_llm_json(raw) if raw else None
-        norm = _normalize(parsed, requested)
-        if norm.get("scores"):
-            norm["_meta"] = {"mode": "llm", "model": model}
-            return norm
-    except Exception as e:
-        logger.warning("CEO confidence scoring failed (model=%s): %s", tried_model, e)
-
-    fb = _fallback_scores(findings)
-    fb["_meta"] = {"mode": "rule_based", "reason": "llm_unavailable_or_invalid"}
-    return fb
 
