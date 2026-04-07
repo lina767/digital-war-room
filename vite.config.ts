@@ -14,10 +14,22 @@ export default defineConfig(() => {
 
   return {
   build: {
+    // Vercel builders are 2 vCPU / limited RAM; large map stacks can OOM or crash native tools during chunk render.
+    reportCompressedSize: false,
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
         app: path.resolve(__dirname, "app/index.html"),
+      },
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("mapbox-gl")) return "vendor-mapbox";
+          if (id.includes("maplibre-gl")) return "vendor-maplibre";
+          if (id.includes("@deck.gl") || id.includes("deck.gl")) return "vendor-deck";
+          if (id.includes("recharts") || id.includes("d3-")) return "vendor-charts";
+        },
       },
     },
   },

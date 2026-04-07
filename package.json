@@ -7,7 +7,7 @@
     "dev": "vite",
     "generate-sitemap": "node scripts/generate-sitemap.js",
     "prebuild": "node scripts/generate-sitemap.js",
-    "build": "ENABLE_PRERENDER=1 vite build",
+    "build": "NODE_OPTIONS=--max-old-space-size=6144 ENABLE_PRERENDER=1 vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",

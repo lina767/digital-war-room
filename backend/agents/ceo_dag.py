@@ -1,10 +1,12 @@
 """DAG construction, executors, and analyze_conflict_dag entrypoints."""
 
 import logging
+import os
 import time
 import uuid
 from typing import Any, Dict, List, Tuple
 
+from .config import DISABLED_AGENTS
 from .agent_state_store import get_agent_state_store
 from .ceo_synthesize import _ceo_synthesize
 from .ceo_util import as_dict
@@ -22,6 +24,15 @@ from .registry import AgentRegistry, get_agent_registry
 from .utils import get_analysis_run_id, reset_analysis_run_id, set_analysis_run_id
 
 logger = logging.getLogger(__name__)
+
+
+def _disabled_dag_nodes() -> set[str]:
+    raw = os.getenv("DISABLED_DAG_NODES", "")
+    return {n.strip() for n in raw.split(",") if n.strip()}
+
+
+def _all_disabled_ids() -> set[str]:
+    return set(DISABLED_AGENTS) | _disabled_dag_nodes()
 
 
 _SCORE_FIELD_BY_AGENT: Dict[str, str] = {
@@ -238,7 +249,11 @@ def _invoke_agent_entry(
 def _build_agent_executors(conflict: str, registry: AgentRegistry) -> Dict[str, Any]:
     """Build executor callables for all Tier 1 agent nodes; jeder Agent erhält optional ``peers``."""
     executors: Dict[str, Any] = {}
+    disabled_agents = set(DISABLED_AGENTS)
     for desc in registry.all_agents():
+        if desc.name in disabled_agents:
+            logger.info("Skipping disabled agent executor: %s", desc.name)
+            continue
         entry_func = registry.get_entry_func(desc.name)
         if entry_func is None:
             continue
@@ -423,6 +438,10 @@ def analyze_conflict_dag(conflict: str) -> Dict[str, Any]:
             **infra_executors,
             **ceo_executors,
         }
+        disabled_ids = _all_disabled_ids()
+        if disabled_ids:
+            all_executors = {k: v for k, v in all_executors.items() if k not in disabled_ids}
+            logger.info("Disabled DAG executors for this run: %s", sorted(disabled_ids))
 
         store_mgr = ResultStoreManager()
         cycle_id = f"{conflict}_{int(time.time())}"
@@ -487,6 +506,10 @@ def analyze_conflict_dag_streaming(conflict: str):
             **infra_executors,
             **ceo_executors,
         }
+        disabled_ids = _all_disabled_ids()
+        if disabled_ids:
+            all_executors = {k: v for k, v in all_executors.items() if k not in disabled_ids}
+            logger.info("Disabled DAG executors for this streaming run: %s", sorted(disabled_ids))
 
         store_mgr = ResultStoreManager()
         cycle_id = f"{conflict}_{int(time.time())}"
