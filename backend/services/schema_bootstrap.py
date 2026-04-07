@@ -18,6 +18,11 @@ _ORDER = (
     "005_agent_score_history.sql",
     "006_greynoise.sql",
     "007_newsletter_reminder.sql",
+    "008_chat_responses.sql",
+    "009_raw_feed_snapshots.sql",
+    "010_entities.sql",
+    "011_agent_snapshots.sql",
+    "012_daily_world_snapshots.sql",
 )
 
 

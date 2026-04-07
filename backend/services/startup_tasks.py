@@ -26,6 +26,7 @@ class StartupTasks:
     newsletter_task: asyncio.Task[Any] | None = None
     newsletter_reminder_task: asyncio.Task[Any] | None = None
     retention_task: asyncio.Task[Any] | None = None
+    daily_snapshot_task: asyncio.Task[Any] | None = None
 
     def as_list(self) -> list[asyncio.Task[Any]]:
         out = [self.analysis_task, self.worker_task, self.acled_task]
@@ -39,6 +40,8 @@ class StartupTasks:
             out.append(self.newsletter_reminder_task)
         if self.retention_task:
             out.append(self.retention_task)
+        if self.daily_snapshot_task:
+            out.append(self.daily_snapshot_task)
         return out
 
 
@@ -232,6 +235,59 @@ def _create_newsletter_tasks(app: Any, logger: logging.Logger) -> tuple[asyncio.
     return newsletter_task, newsletter_reminder_task
 
 
+def _seconds_until_next_daily_snapshot_run() -> float:
+    now = datetime.now(timezone.utc)
+    next_run = now.replace(
+        hour=settings.daily_snapshot_send_hour_utc,
+        minute=settings.daily_snapshot_send_minute_utc,
+        second=0,
+        microsecond=0,
+    )
+    if next_run <= now:
+        next_run = next_run + timedelta(days=1)
+    return max(60.0, (next_run - now).total_seconds())
+
+
+def _create_daily_snapshot_task(logger: logging.Logger) -> asyncio.Task[Any] | None:
+    if not settings.daily_snapshot_in_process_scheduler:
+        logger.info(
+            "Daily snapshot in-process scheduler disabled (DAILY_SNAPSHOT_IN_PROCESS_SCHEDULER=false). "
+            "Use cron for POST /api/analyze/daily-snapshot/materialize"
+        )
+        return None
+
+    logger.info(
+        "Daily snapshot scheduler: %02d:%02d UTC for conflict=%s",
+        settings.daily_snapshot_send_hour_utc,
+        settings.daily_snapshot_send_minute_utc,
+        settings.daily_snapshot_conflict,
+    )
+
+    async def _daily_snapshot_loop() -> None:
+        from services.daily_snapshot_job import materialize_daily_snapshot
+
+        while True:
+            delay = _seconds_until_next_daily_snapshot_run()
+            await asyncio.sleep(delay)
+            try:
+                out = materialize_daily_snapshot(conflict=settings.daily_snapshot_conflict)
+                if out.get("status") == "ok":
+                    logger.info(
+                        "Daily snapshot materialized for %s (date=%s, run_curr=%s)",
+                        out.get("conflict"),
+                        out.get("snapshot_date"),
+                        out.get("run_id_curr"),
+                    )
+                else:
+                    logger.info("Daily snapshot skipped/status=%s for %s", out.get("status"), out.get("conflict"))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("Daily snapshot scheduler error: %s", e)
+
+    return asyncio.create_task(_daily_snapshot_loop())
+
+
 def start_startup_tasks(app: Any, logger: logging.Logger) -> StartupTasks:
     acled_task = _create_acled_task(logger)
     analysis_task = create_periodic_analysis_task(
@@ -245,6 +301,7 @@ def start_startup_tasks(app: Any, logger: logging.Logger) -> StartupTasks:
     greynoise_task, greynoise_discovery_task = _create_greynoise_tasks(logger)
     retention_task = _create_retention_task(logger)
     newsletter_task, newsletter_reminder_task = _create_newsletter_tasks(app, logger)
+    daily_snapshot_task = _create_daily_snapshot_task(logger)
     # Ensure shared HTTP client is created early (so DNS pools etc. warm up).
     get_http_client()
     return StartupTasks(
@@ -256,6 +313,7 @@ def start_startup_tasks(app: Any, logger: logging.Logger) -> StartupTasks:
         newsletter_task=newsletter_task,
         newsletter_reminder_task=newsletter_reminder_task,
         retention_task=retention_task,
+        daily_snapshot_task=daily_snapshot_task,
     )
 
 

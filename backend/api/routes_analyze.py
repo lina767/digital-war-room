@@ -366,6 +366,108 @@ async def get_escalation_timeline_route(request: Request, conflict: str = DEFAUL
     return {"conflict": conflict, "points": points}
 
 
+@router.get("/analyze/snapshots")
+async def get_agent_snapshots_runs(request: Request, conflict: str = DEFAULT_CONFLICT, limit: int = 20) -> Any:
+    """
+    GET /api/analyze/snapshots?conflict=Iran&limit=20
+    Returns recent analysis runs persisted in Layer 3 (agent_snapshots).
+    """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return conflict_bad_request(e)
+    from services.agent_snapshot_store import list_recent_runs
+
+    runs = list_recent_runs(conflict=conflict, tenant_id=get_request_ctx(request).tenant_id, limit=limit)
+    return {"conflict": conflict, "runs": runs}
+
+
+@router.get("/analyze/diff")
+async def analyze_diff(
+    request: Request,
+    conflict: str = DEFAULT_CONFLICT,
+    run_id_prev: str | None = None,
+    run_id_curr: str | None = None,
+) -> Any:
+    """
+    GET /api/analyze/diff?conflict=Iran&run_id_prev=<uuid>&run_id_curr=<uuid>
+    Deterministic structured diff between two Layer 3 runs.
+    If run ids are omitted, picks latest two runs for the conflict.
+    """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return conflict_bad_request(e)
+
+    from services.diff_engine import auto_pick_runs_for_diff, diff_runs
+
+    tid = get_request_ctx(request).tenant_id
+    if not run_id_prev or not run_id_curr:
+        picked = auto_pick_runs_for_diff(conflict=conflict, tenant_id=tid)
+        if not picked:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "insufficient_runs", "conflict": conflict, "message": "Need at least two persisted runs."},
+            )
+        run_id_prev = picked["run_id_prev"]
+        run_id_curr = picked["run_id_curr"]
+
+    try:
+        uuid.UUID(str(run_id_prev))
+        uuid.UUID(str(run_id_curr))
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "invalid_run_id"})
+
+    out = diff_runs(
+        conflict=conflict,
+        run_id_prev=str(run_id_prev),
+        run_id_curr=str(run_id_curr),
+        tenant_id=tid,
+    )
+    if out.get("error"):
+        return JSONResponse(status_code=404, content=out)
+    return out
+
+
+@router.get("/analyze/daily-snapshot")
+async def get_daily_snapshot(request: Request, conflict: str = DEFAULT_CONFLICT) -> Any:
+    """
+    GET /api/analyze/daily-snapshot?conflict=Iran
+    Returns latest Layer 5 daily materialized snapshot for this conflict.
+    """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return conflict_bad_request(e)
+
+    from services.daily_snapshot_store import get_latest_daily_snapshot
+
+    row = get_latest_daily_snapshot(conflict=conflict, tenant_id=get_request_ctx(request).tenant_id)
+    if not row:
+        return JSONResponse(status_code=404, content={"error": "not_found", "conflict": conflict})
+    return {"conflict": conflict, "snapshot": row}
+
+
+@router.post("/analyze/daily-snapshot/materialize")
+@limiter.limit("10/minute")
+async def materialize_daily_snapshot_route(request: Request, conflict: str = DEFAULT_CONFLICT) -> Any:
+    """
+    POST /api/analyze/daily-snapshot/materialize?conflict=Iran
+    Builds Layer 5 snapshot from latest Layer 3 + Layer 4 data.
+    """
+    try:
+        conflict = sanitize_conflict(conflict)
+    except ValueError as e:
+        return conflict_bad_request(e)
+
+    from services.daily_snapshot_job import materialize_daily_snapshot
+
+    out = materialize_daily_snapshot(conflict=conflict, tenant_id=get_request_ctx(request).tenant_id)
+    if out.get("status") != "ok":
+        return JSONResponse(status_code=404, content=out)
+    return out
+
+
 @router.post("/analyze")
 @limiter.limit("10/minute")
 async def analyze(request: Request, body: AnalyzeRequest) -> Any:

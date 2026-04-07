@@ -37,6 +37,12 @@ class AppSettings(BaseSettings):
         "no",
     )
     retention_interval_sec: int = max(3600, int(os.getenv("RETENTION_INTERVAL_SEC", "86400")))
+    daily_snapshot_in_process_scheduler: bool = (
+        (os.getenv("DAILY_SNAPSHOT_IN_PROCESS_SCHEDULER", "true") or "").strip().lower() not in ("0", "false", "no")
+    )
+    daily_snapshot_send_hour_utc: int = max(0, min(23, int(os.getenv("DAILY_SNAPSHOT_SEND_HOUR_UTC", "2"))))
+    daily_snapshot_send_minute_utc: int = max(0, min(59, int(os.getenv("DAILY_SNAPSHOT_SEND_MINUTE_UTC", "0"))))
+    daily_snapshot_conflict: str = (os.getenv("DAILY_SNAPSHOT_CONFLICT") or DEFAULT_CONFLICT).strip() or DEFAULT_CONFLICT
 
 
 settings = AppSettings()

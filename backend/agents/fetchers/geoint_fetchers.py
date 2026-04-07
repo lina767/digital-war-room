@@ -21,11 +21,32 @@ if TYPE_CHECKING:
 import httpx
 
 from services.acled_auth import get_acled_token_async, has_acled_oauth
+from services.feed_snapshot_store import write_feed_snapshot
 
 from ..config import RELIEFWEB_APPNAME
 from ..utils import run_async, safe_float
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot_feed_best_effort(
+    *,
+    source: str,
+    conflict: str,
+    raw_payload: Any,
+    query_params: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Persist pre-filtered raw feed snapshots without affecting fetch flow."""
+    try:
+        write_feed_snapshot(
+            source=source,
+            raw_payload=raw_payload,
+            query_params=query_params or {},
+            conflict_key=conflict,
+        )
+    except Exception:
+        # Snapshot persistence is best-effort and must not break fetchers.
+        pass
 
 # Format: /api/area/csv/{key}/{source}/{area}/{days} — area = "W,S,E,N" (lon_min, lat_min, lon_max, lat_max)
 FIRMS_AREA_URL = "https://firms.modaps.eosdis.nasa.gov/api/area/csv/{key}/VIIRS_SNPP_NRT/{area}/{days}"
@@ -897,7 +918,14 @@ def get_conflict_hotspot_news(conflict: str) -> List[Dict[str, Any]]:
         logger.info(
             "ReliefWeb/ACLED: No data. ReliefWeb returned empty and ACLED credentials not set (ACLED_EMAIL + ACLED_PASSWORD in backend/.env)."
         )
-    return reports if isinstance(reports, list) else [{"error": "unknown"}]
+    out = reports if isinstance(reports, list) else [{"error": "unknown"}]
+    _snapshot_feed_best_effort(
+        source="geoint_hotspot_news",
+        conflict=conflict,
+        raw_payload=out,
+        query_params={"conflict": conflict, "sources": ["reliefweb", "gdacs", "hapi", "crisiswatch", "acled"]},
+    )
+    return out
 
 
 def _acled_event_date_range(days: int = 90) -> Tuple[str, str]:
@@ -1020,6 +1048,12 @@ def get_conflict_events_for_heatmap(conflict: str, limit: int = 200) -> List[Dic
         events = run_async(_fetch())
     except (httpx.HTTPError, RuntimeError, ValueError, TypeError) as exc:
         logger.warning("GEOINT heatmap ACLED fetch failed for %s: %s", conflict, exc)
+    _snapshot_feed_best_effort(
+        source="acled_conflict_events",
+        conflict=conflict,
+        raw_payload=events,
+        query_params={"conflict": conflict, "limit": limit},
+    )
     return events
 
 
@@ -1377,6 +1411,13 @@ def get_gdelt_geo_countries(conflict: str) -> List[Dict[str, Any]]:
 
     try:
         articles = run_async(_fetch())
+        if isinstance(articles, list) and articles:
+            _snapshot_feed_best_effort(
+                source="gdelt_doc_artlist",
+                conflict=conflict,
+                raw_payload=articles,
+                query_params={"query": query, "mode": "artlist", "timespan": "48H", "maxrecords": 75},
+            )
         if not articles:
             return []
         country_counts: Dict[str, int] = {}
@@ -1473,7 +1514,15 @@ def fetch_gdelt_doc_summary(conflict: str, timespan: str = "7d") -> Dict[str, An
         }
 
     try:
-        return run_async(_fetch())
+        out = run_async(_fetch())
+        if isinstance(out, dict) and out.get("ok"):
+            _snapshot_feed_best_effort(
+                source="gdelt_doc_timelinevol",
+                conflict=conflict,
+                raw_payload=out,
+                query_params={"query": query, "mode": "timelinevol", "timespan": timespan},
+            )
+        return out
     except Exception as e:
         logger.debug("GDELT DOC summary fetch failed: %s", e)
         return {

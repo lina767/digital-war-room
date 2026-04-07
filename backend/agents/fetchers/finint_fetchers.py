@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import httpx
 
 from ..utils import run_async, safe_float, utc_now_iso
+from services.feed_snapshot_store import write_feed_snapshot
 from services.http_client import get_http_client
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
@@ -132,6 +133,24 @@ _ofac_raw_csv: str | None = None
 _ofac_cache_ts: float = 0.0
 _ofac_previous_keys: set[str] = set()
 OFAC_CACHE_TTL = 6 * 3600
+
+
+def _snapshot_feed_best_effort(
+    *,
+    source: str,
+    conflict: str,
+    raw_payload: Any,
+    query_params: Dict[str, Any] | None = None,
+) -> None:
+    try:
+        write_feed_snapshot(
+            source=source,
+            raw_payload=raw_payload,
+            query_params=query_params or {},
+            conflict_key=conflict,
+        )
+    except Exception:
+        pass
 
 
 def _from_price_points(points: List[tuple[float, str]]) -> Dict[str, Any]:
@@ -651,6 +670,16 @@ async def _fetch_ofac_cached(client: Any, conflict: str) -> Dict[str, Any]:
             _ofac_cache_ts = time.monotonic()
             out = _filter_ofac(_ofac_raw_csv, conflict)
             out["fetched_at"] = fetched_at
+            _snapshot_feed_best_effort(
+                source="finint_ofac_sdn",
+                conflict=conflict,
+                raw_payload={
+                    "total_matches": out.get("total_matches", 0),
+                    "sample": out.get("sample", []),
+                    "fetched_at": fetched_at,
+                },
+                query_params={"conflict": conflict, "feed": "sdn.csv"},
+            )
         except Exception as e:
             out = {"total_matches": 0, "sample": [], "error": str(e), "fetched_at": fetched_at, "match_keys": set()}
 

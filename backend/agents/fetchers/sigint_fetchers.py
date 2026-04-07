@@ -10,9 +10,28 @@ import httpx
 from ..config import USER_AGENT
 from ..utils import run_async
 from ..utils import parse_adsb_response, safe_float
+from services.feed_snapshot_store import write_feed_snapshot
 from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot_feed_best_effort(
+    *,
+    source: str,
+    conflict: str,
+    raw_payload: Any,
+    query_params: Dict[str, Any] | None = None,
+) -> None:
+    try:
+        write_feed_snapshot(
+            source=source,
+            raw_payload=raw_payload,
+            query_params=query_params or {},
+            conflict_key=conflict,
+        )
+    except Exception:
+        pass
 
 
 def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
@@ -84,7 +103,14 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
         return results[:10]
 
     try:
-        return run_async(_fetch())
+        out = run_async(_fetch())
+        _snapshot_feed_best_effort(
+            source="sigint_conflict_rss",
+            conflict=conflict,
+            raw_payload=out,
+            query_params={"conflict": conflict},
+        )
+        return out
     except Exception as e:
         return [{"error": str(e)}]
 
@@ -332,7 +358,14 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
         return results
 
     try:
-        return run_async(_run())
+        out = run_async(_run())
+        _snapshot_feed_best_effort(
+            source="sigint_adsb_military_aircraft",
+            conflict=region,
+            raw_payload=out,
+            query_params={"region": region, "scan_regions": [r[0] for r in ADSB_REGIONS]},
+        )
+        return out
     except Exception as e:
         return [{"error": str(e)}]
 

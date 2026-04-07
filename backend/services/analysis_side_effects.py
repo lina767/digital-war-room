@@ -58,14 +58,23 @@ async def persist_analysis_side_effects(
         logger.warning("agent_state_store sigint write failed for %s: %s", conflict, e)
     try:
         from services.quality_store import insert_ais_track_samples
+        from services.entity_resolver import resolve_vessel_entity
 
         sig = result.get("sigint") or {}
         ships = sig.get("ships") or []
         samples: list[dict[str, Any]] = []
+        resolved_entities = 0
         now_ts = time.time()
         for s in ships:
             if not isinstance(s, dict) or "error" in s:
                 continue
+            try:
+                entity_id = resolve_vessel_entity(s, tenant_id=tenant_id)
+                if entity_id:
+                    s["entity_id"] = entity_id
+                    resolved_entities += 1
+            except Exception:
+                pass
             mmsi = s.get("mmsi") or s.get("name")
             if mmsi is None:
                 continue
@@ -76,6 +85,8 @@ async def persist_analysis_side_effects(
             samples.append({"mmsi": str(mmsi), "observed_at": ts, "lat": lat, "lon": lon})
         if samples:
             await insert_ais_track_samples(conflict, samples, tenant_id=tenant_id)
+        if resolved_entities:
+            logger.info("entity_resolver resolved %d vessels for %s", resolved_entities, conflict)
     except Exception as e:
         logger.warning("insert_ais_track_samples failed for %s: %s", conflict, e)
     try:
@@ -85,3 +96,11 @@ async def persist_analysis_side_effects(
         evaluate_and_notify(conflict, result, tenant_id=tid_str)
     except Exception as e:
         logger.warning("evaluate_and_notify alerts failed for %s: %s", conflict, e)
+    try:
+        from services.agent_snapshot_store import persist_agent_snapshots_for_result
+
+        snapshot_count = persist_agent_snapshots_for_result(conflict=conflict, result=result, tenant_id=tenant_id)
+        if snapshot_count:
+            logger.info("agent_snapshot_store persisted %d snapshots for %s", snapshot_count, conflict)
+    except Exception as e:
+        logger.warning("agent_snapshot_store persist failed for %s: %s", conflict, e)
