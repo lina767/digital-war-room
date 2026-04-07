@@ -16,15 +16,44 @@ export interface ChatAskResponse {
   fallback_used: boolean;
 }
 
+async function toApiError(res: Response, fallback: string): Promise<Error> {
+  let text = "";
+  try {
+    text = await res.text();
+  } catch {
+    return new Error(fallback);
+  }
+  if (!text.trim()) return new Error(fallback);
+  try {
+    const parsed = JSON.parse(text) as { detail?: unknown; error?: unknown; message?: unknown };
+    const detail = parsed?.detail;
+    if (typeof detail === "string" && detail.trim()) return new Error(detail.trim());
+    if (detail && typeof detail === "object") {
+      const status = "status" in detail ? String((detail as Record<string, unknown>).status ?? "").trim() : "";
+      if (status) return new Error(status);
+    }
+    const alt = [parsed?.error, parsed?.message].find((x) => typeof x === "string" && x.trim()) as string | undefined;
+    if (alt) return new Error(alt.trim());
+  } catch {
+    // Fall through to plaintext handling.
+  }
+  return new Error(text.trim() || fallback);
+}
+
 export async function postChatAsk(body: { question: string; conflict: string }): Promise<ChatAskResponse> {
-  const res = await apiFetch(apiUrl("chat/ask"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    timeoutMs: 25_000,
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return (await res.json()) as ChatAskResponse;
+  try {
+    const res = await apiFetch(apiUrl("chat/ask"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      timeoutMs: 25_000,
+    });
+    if (!res.ok) throw await toApiError(res, `Chat request failed (HTTP ${res.status})`);
+    return (await res.json()) as ChatAskResponse;
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    throw new Error("Chat request failed");
+  }
 }
 
 export interface ChatFeedbackBody {
@@ -34,13 +63,18 @@ export interface ChatFeedbackBody {
 }
 
 export async function postChatFeedback(body: ChatFeedbackBody): Promise<void> {
-  const res = await apiFetch(apiUrl("chat/feedback"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    timeoutMs: 12_000,
-  });
-  if (!res.ok) throw new Error(await res.text());
+  try {
+    const res = await apiFetch(apiUrl("chat/feedback"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      timeoutMs: 12_000,
+    });
+    if (!res.ok) throw await toApiError(res, `Feedback failed (HTTP ${res.status})`);
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    throw new Error("Feedback request failed");
+  }
 }
 
 export interface ChatFeedbackTypeSummary {
@@ -49,6 +83,8 @@ export interface ChatFeedbackTypeSummary {
   helpful_count: number;
   helpful_rate: number;
   avg_confidence: number;
+  fallback_count?: number;
+  fallback_rate?: number;
 }
 
 export interface ChatFeedbackSummaryResponse {
@@ -58,6 +94,8 @@ export interface ChatFeedbackSummaryResponse {
   total_feedback: number;
   helpful_total: number;
   helpful_rate: number;
+  fallback_total?: number;
+  fallback_rate?: number;
   by_question_type: ChatFeedbackTypeSummary[];
   trend_days: Array<{
     day: string;

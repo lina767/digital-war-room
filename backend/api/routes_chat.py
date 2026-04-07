@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Literal, Optional, Set
 
 from fastapi import APIRouter, HTTPException, Request
@@ -27,8 +28,9 @@ from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
 router = APIRouter()
 
-FALLBACK_TEXT = "Keine belastbare Antwort"
+FALLBACK_TEXT = "No reliable answer available."
 CONFIDENCE_MIN = float(os.getenv("CHAT_CONFIDENCE_MIN", "0.30"))
+LOW_CONFIDENCE_FLOOR = float(os.getenv("CHAT_LOW_CONFIDENCE_MIN", "0.15"))
 SOURCE_REQUIRED_CONFIDENCE = float(os.getenv("CHAT_SOURCE_REQUIRED_CONFIDENCE", "0.60"))
 CHAT_MAX_TOKENS = int(os.getenv("CHAT_MAX_TOKENS", "800"))
 MAX_SOURCES = 8
@@ -90,13 +92,72 @@ class ChatFeedbackRequest(BaseModel):
 
 def _detect_question_type(question: str) -> QuestionType:
     q = question.lower()
-    if any(k in q for k in ("since yesterday", "since last", "changed", "change", "new today", "what changed")):
+    if any(
+        k in q
+        for k in (
+            "since yesterday",
+            "since last",
+            "changed",
+            "change",
+            "new today",
+            "what changed",
+            "seit gestern",
+            "seit heute",
+            "was hat sich geändert",
+            "änderung",
+            "veraenderung",
+        )
+    ):
         return "changes_since_yesterday"
-    if any(k in q for k in ("risk", "danger", "threat", "escalation", "severity", "safe")):
+    if any(
+        k in q
+        for k in (
+            "risk",
+            "danger",
+            "threat",
+            "escalation",
+            "severity",
+            "safe",
+            "risiko",
+            "bedrohung",
+            "eskalation",
+            "gefähr",
+            "gefahr",
+        )
+    ):
         return "risk_assessment"
-    if any(k in q for k in ("next 24h", "next 24", "next day", "tomorrow", "outlook", "forecast")):
+    if any(
+        k in q
+        for k in (
+            "next 24h",
+            "next 24",
+            "next day",
+            "tomorrow",
+            "outlook",
+            "forecast",
+            "nächsten 24",
+            "naechsten 24",
+            "morgen",
+            "ausblick",
+            "prognose",
+        )
+    ):
         return "next_24h_outlook"
-    if any(k in q for k in ("source", "evidence", "proof", "link", "citation", "where from")):
+    if any(
+        k in q
+        for k in (
+            "source",
+            "evidence",
+            "proof",
+            "link",
+            "citation",
+            "where from",
+            "quelle",
+            "beleg",
+            "nachweis",
+            "woher",
+        )
+    ):
         return "source_check"
     return "situation_overview"
 
@@ -108,11 +169,20 @@ def _dedupe(items: List[str]) -> List[str]:
         s = (item or "").strip()
         if not s:
             continue
-        if s in seen:
+        key = s.lower()
+        if key in seen:
             continue
-        seen.add(s)
+        seen.add(key)
         out.append(s)
     return out
+
+
+def _is_http_url(value: str) -> bool:
+    try:
+        parsed = urlparse((value or "").strip())
+    except Exception:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def _collect_sources(analysis: Dict[str, Any]) -> List[str]:
@@ -134,7 +204,7 @@ def _collect_sources(analysis: Dict[str, Any]) -> List[str]:
         for article in news.get("articles") or []:
             if isinstance(article, dict) and isinstance(article.get("url"), str):
                 gathered.append(article["url"].strip())
-    return _dedupe([s for s in gathered if s])[:MAX_SOURCES]
+    return _dedupe([s for s in gathered if _is_http_url(s)])[:MAX_SOURCES]
 
 
 def _build_context(analysis: Dict[str, Any], fallback_conflict: str) -> str:
@@ -273,6 +343,26 @@ def _extract_scenarios_context(analysis: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _extract_cyber_greynoise_focus(block: Any) -> str:
+    """Narrow CYBER excerpt for next_24h_outlook: summary + GreyNoise scan rows only (saves tokens vs full cyber context)."""
+    if not isinstance(block, dict):
+        return ""
+    lines: List[str] = []
+    summary = _short_text(block.get("summary"), 320)
+    if summary:
+        lines.append(f"CYBER summary: {summary}")
+    lines.extend(
+        _dict_items_as_text(
+            _slice_items(block.get("greynoise_scan_context"), 5),
+            ["ip", "classification", "last_seen"],
+            5,
+        )
+    )
+    if not lines:
+        return ""
+    return "CYBER GREYNOISE (focused):\n" + "\n".join(lines)
+
+
 def _has_reference_urls(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
@@ -289,9 +379,10 @@ def _has_reference_urls(block: Any) -> bool:
 
 def _question_context_plan(question_type: QuestionType, analysis: Dict[str, Any]) -> Dict[str, List[str]]:
     if question_type == "risk_assessment":
+        # Compliance (incl. risk drivers) + FININT + CYBER; narrative/proximity as secondary escalation context.
         return {
-            "primary": ["compliance", "finint", "proximity"],
-            "secondary": ["cyber", "energy", "news"],
+            "primary": ["compliance", "finint", "cyber"],
+            "secondary": ["narrative", "proximity"],
         }
     if question_type == "changes_since_yesterday":
         secondary_agents = [k for k in analysis.keys() if isinstance(analysis.get(k), dict) and analysis.get(k, {}).get("summary")]
@@ -300,9 +391,10 @@ def _question_context_plan(question_type: QuestionType, analysis: Dict[str, Any]
             "secondary": secondary_agents,
         }
     if question_type == "next_24h_outlook":
+        # Scenarios + GREYNOISE (via cyber slim) + SOCMINT (proxy until a dedicated protest/civil-unrest stream exists) + DIPLO.
         return {
-            "primary": ["scenarios", "narrative", "cyber", "energy"],
-            "secondary": ["finint", "sigint", "chokepoint"],
+            "primary": ["scenarios", "cyber", "socmint", "diplo"],
+            "secondary": ["narrative", "finint", "chokepoint"],
         }
     if question_type == "source_check":
         primary = [k for k, v in analysis.items() if isinstance(v, dict) and _has_reference_urls(v)]
@@ -339,6 +431,11 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
     used = len(header)
     seen_keys: Set[str] = set()
 
+    def agent_chunk(agent_key: str) -> str:
+        if agent_key == "cyber" and question_type == "next_24h_outlook":
+            return _extract_cyber_greynoise_focus(analysis.get("cyber"))
+        return _extract_agent_context(agent_key, analysis.get(agent_key))
+
     def add_chunk(text: str, budget: int) -> bool:
         nonlocal used
         chunk = (text or "").strip()
@@ -360,7 +457,7 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
         if key == "scenarios":
             add_chunk(_extract_scenarios_context(analysis), PRIMARY_CONTEXT_BUDGET)
             continue
-        add_chunk(_extract_agent_context(key, analysis.get(key)), PRIMARY_CONTEXT_BUDGET)
+        add_chunk(agent_chunk(key), PRIMARY_CONTEXT_BUDGET)
 
     for key in plan.get("secondary", []):
         if key in seen_keys:
@@ -372,7 +469,7 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
         if key == "scenarios":
             add_chunk(_extract_scenarios_context(analysis), CONTEXT_CHAR_BUDGET)
             continue
-        add_chunk(_extract_agent_context(key, analysis.get(key)), CONTEXT_CHAR_BUDGET)
+        add_chunk(agent_chunk(key), CONTEXT_CHAR_BUDGET)
 
     return "\n\n".join(chunks)[:CONTEXT_CHAR_BUDGET]
 
@@ -380,9 +477,14 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
 def _fallback_agent_sources(question_type: QuestionType, analysis: Dict[str, Any]) -> List[str]:
     labels = {
         "situation_overview": ["NEWS analysis", "NARRATIVE synthesis", "SOCMINT monitoring"],
-        "risk_assessment": ["COMPLIANCE risk model", "FININT indicators", "PROXIMITY evidence"],
+        "risk_assessment": ["COMPLIANCE risk model", "FININT indicators", "CYBER indicators"],
         "changes_since_yesterday": ["NEWS updates", "SOCMINT updates", "NARRATIVE synthesis"],
-        "next_24h_outlook": ["SCENARIO projection", "CYBER indicators", "ENERGY indicators"],
+        "next_24h_outlook": [
+            "SCENARIO projection",
+            "CYBER GREYNOISE focus",
+            "SOCMINT civil-unrest proxy",
+            "DIPLO sanctions track",
+        ],
         "source_check": ["Cross-agent provenance index"],
     }
     planned = labels.get(question_type, [])
@@ -420,6 +522,19 @@ def _build_fallback(question_type: QuestionType, response_id: str) -> ChatAskRes
         sources=[],
         fallback_used=True,
     )
+
+
+def _build_low_confidence_answer(answer: str, question_type: QuestionType) -> str:
+    prefix = (
+        "Evidence is currently limited in cache, so this answer may be incomplete. "
+        "Treat it as an early signal and verify with new incoming sources."
+    )
+    if question_type == "source_check":
+        prefix = (
+            "Source evidence is currently sparse in cache, so this answer is only a partial check. "
+            "Treat it as provisional and validate with fresh references."
+        )
+    return f"{prefix}\n\n{answer.strip()}"
 
 
 @router.post("/chat/ask")
@@ -518,15 +633,54 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
     out_sources = _dedupe([str(s).strip() for s in out_sources_raw if isinstance(s, str)])[:MAX_SOURCES] if isinstance(out_sources_raw, list) else []
     if not out_sources:
         out_sources = sources[:MAX_SOURCES]
+    out_sources = [s for s in out_sources if _is_http_url(s)]
     if not out_sources:
         out_sources = _fallback_agent_sources(question_type, analysis)
 
     requires_sources = question_type == "source_check" or confidence >= SOURCE_REQUIRED_CONFIDENCE
-    if (
-        not answer
-        or confidence < CONFIDENCE_MIN
-        or (requires_sources and question_type not in SOURCE_FREE_QUESTION_TYPES and len(out_sources) == 0)
-    ):
+    missing_required_sources = requires_sources and question_type not in SOURCE_FREE_QUESTION_TYPES and len(out_sources) == 0
+    if not answer or confidence < LOW_CONFIDENCE_FLOOR or (question_type == "source_check" and missing_required_sources):
+        response = _build_fallback(question_type, response_id)
+        await persist_chat_response(
+            {
+                "tenant_id": tenant_id,
+                "response_id": response.response_id,
+                "conflict": conflict,
+                "question_type": response.question_type,
+                "question": question,
+                "answer": response.answer,
+                "confidence_score": response.confidence_score,
+                "sources": response.sources,
+                "fallback_used": response.fallback_used,
+            }
+        )
+        return response
+
+    if confidence < CONFIDENCE_MIN or (missing_required_sources and confidence < SOURCE_REQUIRED_CONFIDENCE):
+        response = ChatAskResponse(
+            response_id=response_id,
+            question_type=question_type,
+            answer=_build_low_confidence_answer(answer, question_type),
+            confidence_score=confidence,
+            sources=out_sources,
+            fallback_used=False,
+        )
+        await persist_chat_response(
+            {
+                "tenant_id": tenant_id,
+                "response_id": response.response_id,
+                "conflict": conflict,
+                "question_type": response.question_type,
+                "question": question,
+                "answer": response.answer,
+                "confidence_score": response.confidence_score,
+                "sources": response.sources,
+                "fallback_used": response.fallback_used,
+            }
+        )
+        return response
+
+    if missing_required_sources:
         response = _build_fallback(question_type, response_id)
         await persist_chat_response(
             {
@@ -586,6 +740,7 @@ async def chat_feedback(request: Request, body: ChatFeedbackRequest) -> Dict[str
         "answer": resolved.get("answer") or "",
         "confidence_score": float(resolved.get("confidence_score") or 0.0),
         "sources": list(resolved.get("sources") or []),
+        "fallback_used": bool(resolved.get("fallback_used")),
         "helpful": body.helpful,
         "comment": body.comment,
     }

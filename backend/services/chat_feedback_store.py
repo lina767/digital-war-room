@@ -62,9 +62,16 @@ async def persist_chat_feedback(event: Dict[str, Any]) -> Dict[str, Any]:
                 answer TEXT NOT NULL,
                 confidence_score DOUBLE PRECISION NOT NULL,
                 sources_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                fallback_used BOOLEAN NOT NULL DEFAULT FALSE,
                 helpful BOOLEAN NOT NULL,
                 comment TEXT NULL
             )
+            """
+        )
+        await conn.execute(
+            """
+            ALTER TABLE chat_feedback
+            ADD COLUMN IF NOT EXISTS fallback_used BOOLEAN NOT NULL DEFAULT FALSE
             """
         )
         await conn.execute(
@@ -79,9 +86,10 @@ async def persist_chat_feedback(event: Dict[str, Any]) -> Dict[str, Any]:
                 answer,
                 confidence_score,
                 sources_json,
+                fallback_used,
                 helpful,
                 comment
-            ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+            ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12)
             """,
             str(uuid.uuid4()),
             safe_event.get("tenant_id"),
@@ -92,6 +100,7 @@ async def persist_chat_feedback(event: Dict[str, Any]) -> Dict[str, Any]:
             safe_event.get("answer", ""),
             float(safe_event.get("confidence_score") or 0.0),
             json.dumps(safe_event.get("sources") or []),
+            bool(safe_event.get("fallback_used")),
             bool(safe_event.get("helpful")),
             (safe_event.get("comment") or None),
         )
@@ -114,6 +123,7 @@ def get_memory_feedback(limit: int = 50) -> List[Dict[str, Any]]:
 def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     total = len(rows)
     helpful_total = sum(1 for r in rows if bool(r.get("helpful")))
+    fallback_total = sum(1 for r in rows if bool(r.get("fallback_used")))
     by_type: Dict[str, Dict[str, Any]] = {}
     by_day: Dict[str, Dict[str, Any]] = {}
     for row in rows:
@@ -126,11 +136,15 @@ def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "helpful_count": 0,
                 "helpful_rate": 0.0,
                 "avg_confidence": 0.0,
+                "fallback_count": 0,
+                "fallback_rate": 0.0,
             },
         )
         bucket["count"] += 1
         if bool(row.get("helpful")):
             bucket["helpful_count"] += 1
+        if bool(row.get("fallback_used")):
+            bucket["fallback_count"] += 1
         try:
             bucket["avg_confidence"] += float(row.get("confidence_score") or 0.0)
         except Exception:
@@ -153,6 +167,7 @@ def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         c = max(1, int(bucket["count"]))
         bucket["helpful_rate"] = round(float(bucket["helpful_count"]) / c, 3)
         bucket["avg_confidence"] = round(float(bucket["avg_confidence"]) / c, 3)
+        bucket["fallback_rate"] = round(float(bucket["fallback_count"]) / c, 3)
     for day_bucket in by_day.values():
         c = max(1, int(day_bucket["count"]))
         day_bucket["helpful_rate"] = round(float(day_bucket["helpful_count"]) / c, 3)
@@ -160,6 +175,8 @@ def _summarize_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "total_feedback": total,
         "helpful_total": helpful_total,
         "helpful_rate": round(float(helpful_total) / max(1, total), 3),
+        "fallback_total": fallback_total,
+        "fallback_rate": round(float(fallback_total) / max(1, total), 3),
         "by_question_type": sorted(by_type.values(), key=lambda x: x["count"], reverse=True),
         "trend_days": sorted(by_day.values(), key=lambda x: x["day"]),
     }
@@ -194,7 +211,7 @@ async def get_chat_feedback_summary(
         conn = await asyncpg.connect(url, timeout=10.0)
         records = await conn.fetch(
             """
-            SELECT question_type, confidence_score, helpful, created_at
+            SELECT question_type, confidence_score, helpful, fallback_used, created_at
             FROM chat_feedback
             WHERE created_at >= NOW() - ($1::text || ' days')::interval
               AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
@@ -210,6 +227,7 @@ async def get_chat_feedback_summary(
                 "question_type": r["question_type"],
                 "confidence_score": r["confidence_score"],
                 "helpful": r["helpful"],
+                "fallback_used": bool(r["fallback_used"]),
                 "created_at": r["created_at"].isoformat() if r["created_at"] else "",
             }
             for r in records
