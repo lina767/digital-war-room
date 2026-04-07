@@ -96,6 +96,13 @@ function UpdatedBriefingContent({
                 Synthesized read of the full briefing ({interpretationMeta.model}).
               </p>
             )}
+            {interpretationMeta?.mode && interpretationMeta.mode !== "llm" && interpretationMeta.mode !== "disabled_by_env" && (
+              <p className="text-[10px] text-amber-500/80 mb-2 leading-snug">
+                {interpretationMeta.mode === "credit_exhausted"
+                  ? "LLM credits exhausted — showing rule-based fallback. Top up Anthropic credits to restore."
+                  : "Automatic synthesis unavailable — showing rule-based fallback."}
+              </p>
+            )}
             <NarrativeBody text={briefingInterpretation} />
           </div>
         )}

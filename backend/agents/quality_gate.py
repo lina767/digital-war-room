@@ -92,7 +92,6 @@ def run_cross_agent_quality_gate(
         ("techint", ("techint_score",)),
         ("cyber", ("cyber_score",)),
         ("energy", ("energy_score",)),
-        ("protest", ("protest_score",)),
         ("diplo", ("diplo_score",)),
         ("proximity", ("proximity_score",)),
         ("chokepoint", ("chokepoint_score",)),

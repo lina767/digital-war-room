@@ -393,7 +393,6 @@ function DashboardContent() {
     n += asArray(techint?.tech_indicators).length + asArray(techint?.export_controls).length + asArray(techint?.ioda_events).length;
     n += (conflictData.cyber?.cisa_kev?.total ?? 0) + asArray(conflictData.cyber?.threat_reports).length + asArray(conflictData.cyber?.otx_pulses).length + (conflictData.cyber?.greynoise_scan_context?.available ? (conflictData.cyber.greynoise_scan_context.count ?? 0) : 0);
     n += asArray(conflictData.energy?.agsi_storage?.full).length + asArray(conflictData.energy?.commodities).length;
-    n += asArray(conflictData.protest?.protest_events).length + asArray(conflictData.protest?.protest_articles).length;
     n += (conflictData.diplo?.ofac_sdn?.total_matches ?? 0) + asArray(conflictData.diplo?.un_icj_news).length;
     n += asArray(conflictData.proximity?.evidence).length;
     return n;

@@ -11,7 +11,6 @@ import type {
   NewsResult as GeneratedNewsResult,
   PentagonResult,
   ProximityResult,
-  ProtestResult,
   SigintResult as GeneratedSigintResult,
   TechintResult,
 } from "@/types/conflict.generated";
@@ -247,7 +246,6 @@ export interface ConflictData {
   techint?: TechintResult & { _meta?: AgentMeta };
   cyber?: CyberResult & { _meta?: AgentMeta };
   energy?: EnergyResult & { _meta?: AgentMeta };
-  protest?: ProtestResult & { _meta?: AgentMeta };
   diplo?: DiploResult & { _meta?: AgentMeta };
   proximity?: ProximityResult & { _meta?: AgentMeta };
   narrative?: NarrativeBlock;

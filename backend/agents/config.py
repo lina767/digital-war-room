@@ -106,7 +106,6 @@ AGENT_TTLS = {
     "geoint": 0,
     "satintel": 0,
     "cyber": 0,
-    "protest": 0,
     "proximity": 0,
     # Default 6h cache/TTL to protect SerpAPI quota (2 searches per fresh run).
     "pentagon": int(os.getenv("AGENT_TTL_PENTAGON", os.getenv("AGENT_TTL_PENTAGON_SIGNALS", "21600"))),

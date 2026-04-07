@@ -21,7 +21,6 @@ REQUIRED_FIELD_RULES: Dict[str, Any] = {
     "sigint.aircraft": list,
     "news.articles": list,
     "geoint.anomalies": list,
-    "protest.protest_events": list,
     "diplo.ofac_sdn": dict,
 }
 
@@ -36,7 +35,6 @@ SCORE_KEYS: List[Tuple[str, str]] = [
     ("techint", "techint_score"),
     ("cyber", "cyber_score"),
     ("energy", "energy_score"),
-    ("protest", "protest_score"),
     ("diplo", "diplo_score"),
     ("proximity", "proximity_score"),
     ("chokepoint", "chokepoint_score"),

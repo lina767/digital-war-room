@@ -26,7 +26,7 @@ Formatting:
 - Write in English only (no German or other languages).
 - Use 2–4 short paragraphs separated by a blank line between paragraphs (double newline in plain text).
 - Each paragraph: 2–4 sentences. No bullet lists, no markdown headings, no JSON.
-- Name streams when useful: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, MEDIAINT, TECHINT, CYBER, ENERGY, PROTEST,
+- Name streams when useful: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, MEDIAINT, TECHINT, CYBER, ENERGY,
   DIPLO, PROXIMITY, CHOKEPOINT, PENTAGON (informal DC venue proxy only), Signal Framework (payload key "narrative") when present.
 - If two signals contradict, say so briefly and which stream is softer evidence.
 - If PAYLOAD_JSON includes "degraded_agents" (non-empty), name those streams and clarify that low scores there reflect missing feeds, not necessarily calm conditions.
@@ -43,7 +43,6 @@ _AGENT_ORDER = (
     "techint",
     "cyber",
     "energy",
-    "protest",
     "diplo",
     "proximity",
     "narrative",
@@ -90,7 +89,7 @@ def synthesize_narrative(agent_outputs: Dict[str, Any]) -> str:
     and per-agent compact dicts (finint, sigint, news, ...).
     """
     try:
-        from .llm import call_llm, get_model_name, require_api_key
+        from .llm import LLMCreditExhaustedError, call_llm, get_model_name, require_api_key
 
         require_api_key()
     except Exception as e:
@@ -128,6 +127,9 @@ def synthesize_narrative(agent_outputs: Dict[str, Any]) -> str:
             temperature=0.25,
             max_tokens=900,
         )
+    except LLMCreditExhaustedError as e:
+        logger.error("Narrative synthesis skipped — LLM credits exhausted: %s", e)
+        return _fallback_narrative(agent_outputs)
     except Exception as e:
         logger.warning("Narrative synthesis LLM failed: %s", e)
         return _fallback_narrative(agent_outputs)
@@ -276,7 +278,7 @@ def synthesize_briefing_interpretation(
         return text, meta
 
     try:
-        from .llm import call_llm, get_model_name, require_api_key
+        from .llm import LLMCreditExhaustedError, call_llm, get_model_name, require_api_key
 
         require_api_key()
     except Exception as e:
@@ -299,9 +301,16 @@ def synthesize_briefing_interpretation(
             temperature=0.3,
             max_tokens=1400,
         )
+    except LLMCreditExhaustedError as e:
+        logger.error("Briefing interpretation skipped — LLM credits exhausted: %s", e)
+        return _fallback_briefing_interpretation(payload), {
+            **meta, "mode": "credit_exhausted", "model": model, "error": str(e),
+        }
     except Exception as e:
         logger.warning("Briefing interpretation LLM failed: %s", e)
-        return _fallback_briefing_interpretation(payload), {**meta, "mode": "llm_error", "model": model}
+        return _fallback_briefing_interpretation(payload), {
+            **meta, "mode": "llm_error", "model": model, "error": str(e),
+        }
 
     text = (raw or "").strip()
     if not text:

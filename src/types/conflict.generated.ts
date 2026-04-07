@@ -322,29 +322,6 @@ export interface PentagonSignalsResult {
   disclaimer?: string;
   data_confidence?: string;
 }
-export interface ProtestResult {
-  schema_version?: number;
-  conflict?: string;
-  score?: number;
-  summary?: string;
-  content_hash?: string;
-  dq_confidence?: number;
-  data_freshness?: "live" | "recent" | "stale" | "unavailable";
-  source_count?: number;
-  fallback_used?: boolean;
-  error_summary?: string | null;
-  provenance_refs?: string[];
-  protest_score?: number;
-  protest_events?: {
-    [k: string]: unknown;
-  }[];
-  protest_articles?: {
-    [k: string]: unknown;
-  }[];
-  acled_aggregated?: {
-    [k: string]: unknown;
-  };
-}
 export interface ProximityResult {
   schema_version?: number;
   conflict?: string;

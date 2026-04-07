@@ -19,7 +19,6 @@ export const AGENT_NAME_TO_KEY: Record<string, string> = {
   "CYBER": "cyber",
   "ENERGY": "energy",
   "CHOKEPOINT": "chokepoint",
-  "PROTEST": "protest",
   "DIPLO": "diplo",
   "PROXIMITY": "proximity",
   "PENTAGON": "pentagon",
@@ -88,6 +87,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "Telegram", description: "Public channels (t.me/s/…); scraping (fragile without API)" },
       { name: "Twitter/Nitter", description: "Twitter/X via Nitter instances – OSINT accounts" },
+      { name: "Truth Social", description: "Public Truth Social posts from monitored OSINT-relevant accounts and hashtags" },
       { name: "Reddit", description: "Subreddits (geopolitics, worldnews, region-specific)" },
       { name: "RSS", description: "CriticalThreats, LongWarJournal, ISW, KyivPost, etc." },
       { name: "ReliefWeb", description: "Conflict reports by country" },
@@ -162,14 +162,6 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "External status", description: "Optional CHOKEPOINT_STATUS_URL for external status feed" },
       { name: "AISHub", description: "Community AIS (optional AISHUB_USERNAME)" },
       { name: "MarineTraffic", description: "Area vessel queries (optional MARINETRAFFIC_API_KEY)" },
-    ],
-  },
-  {
-    name: "PROTEST",
-    fullName: "Civil Society / Protest",
-    sources: [
-      { name: "ACLED", description: "Protests, riots (ACLED OAuth or API). Iran: acleddata.com/iran-crisis-live" },
-      { name: "GDELT", description: "api.gdeltproject.org – protest-related articles (free)" },
     ],
   },
   {

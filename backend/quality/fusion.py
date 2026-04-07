@@ -149,37 +149,6 @@ def _extract_geoint(g: Dict[str, Any]) -> List[_Cand]:
     return out
 
 
-def _extract_protest(pr: Dict[str, Any]) -> List[_Cand]:
-    out: List[_Cand] = []
-    for e in (pr.get("protest_events") or [])[:25]:
-        if not isinstance(e, dict) or e.get("error"):
-            continue
-        notes = (e.get("notes") or e.get("location") or "")[:400]
-        et = (e.get("event_type") or "")[:120]
-        text = _normalize_text(f"{et} {notes}")
-        if len(text) < 12:
-            continue
-        lat = e.get("latitude") or e.get("lat")
-        lon = e.get("longitude") or e.get("lon")
-        try:
-            lat_f = float(lat) if lat is not None else None
-            lon_f = float(lon) if lon is not None else None
-        except (TypeError, ValueError):
-            lat_f, lon_f = None, None
-        ts = _parse_ts(e.get("event_date") or e.get("timestamp"))
-        out.append(_Cand(text=text, agent="protest", source_hint="ACLED", ts=ts, lat=lat_f, lon=lon_f))
-    for a in (pr.get("protest_articles") or [])[:12]:
-        if not isinstance(a, dict) or a.get("error"):
-            continue
-        title = (a.get("title") or "")[:400]
-        text = _normalize_text(title)
-        if len(text) < 15:
-            continue
-        ts = _parse_ts(a.get("seendate") or a.get("date"))
-        out.append(_Cand(text=text, agent="protest", source_hint="GDELT", ts=ts))
-    return out
-
-
 def _extract_diplo(d: Dict[str, Any]) -> List[_Cand]:
     out: List[_Cand] = []
     for key in ("un_press", "icj_items", "headlines"):
@@ -204,7 +173,6 @@ def _collect_candidates(agent_results: Dict[str, Dict[str, Any]]) -> List[_Cand]
     cands.extend(_extract_news(agent_results.get("news") or {}))
     cands.extend(_extract_socmint(agent_results.get("socmint") or {}))
     cands.extend(_extract_geoint(agent_results.get("geoint") or {}))
-    cands.extend(_extract_protest(agent_results.get("protest") or {}))
     cands.extend(_extract_diplo(agent_results.get("diplo") or {}))
     return cands[:MAX_CANDIDATES]
 

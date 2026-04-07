@@ -35,7 +35,6 @@ _SCORE_FIELD_BY_AGENT: Dict[str, str] = {
     "techint": "techint_score",
     "cyber": "cyber_score",
     "energy": "energy_score",
-    "protest": "protest_score",
     "diplo": "diplo_score",
     "proximity": "proximity_score",
     "narrative": "narrative_score",
@@ -124,7 +123,7 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
     all_nodes.append(
         DAGNode(
             id="quality_fusion",
-            dependencies=["news", "geoint", "protest", "socmint", "diplo"],
+            dependencies=["news", "geoint", "socmint", "diplo"],
             node_type="enrichment",
             timeout_s=45.0,
         )
@@ -143,7 +142,6 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
                 "techint",
                 "cyber",
                 "energy",
-                "protest",
                 "diplo",
                 "proximity",
                 "narrative",
@@ -321,7 +319,7 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
             from quality.fusion import run_quality_fusion
 
             agent_results = {
-                k: as_dict(store.get(k)) for k in ("news", "geoint", "protest", "socmint", "diplo")
+                k: as_dict(store.get(k)) for k in ("news", "geoint", "socmint", "diplo")
             }
             return run_quality_fusion(conflict, agent_results)
         except Exception as e:
@@ -345,7 +343,6 @@ def _build_infrastructure_executors(conflict: str) -> Dict[str, Any]:
                     "techint",
                     "cyber",
                     "energy",
-                    "protest",
                     "diplo",
                     "proximity",
                     "narrative",

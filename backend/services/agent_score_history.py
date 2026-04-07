@@ -30,7 +30,6 @@ TRACKED_AGENT_KEYS: Tuple[str, ...] = (
     "techint",
     "cyber",
     "energy",
-    "protest",
     "diplo",
     "proximity",
     "chokepoint",

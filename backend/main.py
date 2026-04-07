@@ -126,29 +126,65 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+def _check_llm_status() -> dict:
+    """Non-blocking probe: checks API key presence and attempts a minimal LLM call."""
+    from agents.llm import _get_provider, require_api_key, call_llm, get_model_name
+
+    provider = _get_provider()
+    try:
+        require_api_key()
+    except RuntimeError as e:
+        return {"provider": provider, "status": "no_api_key", "error": str(e)}
+
+    try:
+        call_llm(system="Reply with OK", user_content="health check", model=get_model_name("agent"), max_tokens=4)
+        return {"provider": provider, "status": "ok"}
+    except Exception as e:
+        err = str(e).lower()
+        if any(k in err for k in ("credit balance", "insufficient_quota", "billing", "exceeded your current quota")):
+            return {"provider": provider, "status": "credit_exhausted", "error": str(e)}
+        return {"provider": provider, "status": "error", "error": str(e)}
+
+
 @app.get("/health/ready")
 async def health_ready():
     """
-    Readiness: app is ready to serve. If DATABASE_URL is set, checks DB connectivity.
+    Readiness: app is ready to serve. Checks DB (when configured) and LLM connectivity.
     Returns 200 when ready, 503 when DB is unreachable (only when DATABASE_URL is set).
+    LLM status is informational and does not affect the HTTP status code.
     """
+    result: dict = {"status": "ok"}
+    http_status = 200
+
     db_url = os.getenv("DATABASE_URL", "").strip()
     if not db_url:
-        return {"status": "ok", "database": "not_configured"}
+        result["database"] = "not_configured"
+    else:
+        try:
+            import asyncpg
+
+            conn = await asyncio.wait_for(asyncpg.connect(db_url), timeout=3.0)
+            await conn.close()
+            result["database"] = "connected"
+        except Exception as e:
+            logger.warning("Readiness DB check failed: %s", e)
+            result["status"] = "degraded"
+            result["database"] = "unreachable"
+            http_status = 503
+
     try:
-        import asyncpg
-
-        conn = await asyncio.wait_for(asyncpg.connect(db_url), timeout=3.0)
-        await conn.close()
-        return {"status": "ok", "database": "connected"}
-    except Exception as e:
-        logger.warning("Readiness DB check failed: %s", e)
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "database": "unreachable", "error": str(e)},
+        llm_info = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(None, _check_llm_status),
+            timeout=8.0,
         )
+    except asyncio.TimeoutError:
+        llm_info = {"status": "timeout"}
+    result["llm"] = llm_info
+
+    if http_status != 200:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=http_status, content=result)
+    return result
 
 
 @app.get("/")

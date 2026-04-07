@@ -17,7 +17,6 @@
   --agent-news: #6366f1;
   --agent-cyber: #06b6d4;
   --agent-energy: #f59e0b;
-  --agent-protest: #ec4899;
   --agent-diplo: #8b5cf6;
   --agent-proximity: #f97316;
   --agent-techint: #14b8a6;
@@ -500,9 +499,6 @@ a:hover {
 }
 .l-agent-card--energy {
   --agent-accent: var(--agent-energy);
-}
-.l-agent-card--protest {
-  --agent-accent: var(--agent-protest);
 }
 .l-agent-card--diplo {
   --agent-accent: var(--agent-diplo);

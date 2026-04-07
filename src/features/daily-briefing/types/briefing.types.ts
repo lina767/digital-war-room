@@ -8,7 +8,6 @@ export type AgentId =
   | "NEWS"
   | "CYBER"
   | "ENERGY"
-  | "PROTEST"
   | "DIPLO"
   | "PROXIMITY"
   | "TECHINT"

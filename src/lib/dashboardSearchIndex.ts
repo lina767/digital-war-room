@@ -214,7 +214,6 @@ export function buildSearchHits(data: ConflictData | null): SearchHit[] {
   pushAgent(hits, "techint", "TECHINT", tech?.summary, "Tech / export controls");
 
   pushAgent(hits, "energy", "ENERGY", data.energy?.summary, "Energy & commodities");
-  pushAgent(hits, "protest", "PROTEST", data.protest?.summary, "Protest");
   pushAgent(hits, "diplo", "DIPLOMATIC", data.diplo?.summary, "Sanctions & diplomacy");
   pushAgent(hits, "proximity", "PROXIMITY", data.proximity?.summary, "Proximity");
   pushAgent(hits, "chokepoint", "CHOKEPOINT", data.chokepoint?.summary, "Chokepoints");

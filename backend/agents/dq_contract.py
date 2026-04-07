@@ -126,7 +126,6 @@ def apply_quality_to_all_agents(
         "techint",
         "cyber",
         "energy",
-        "protest",
         "diplo",
         "proximity",
         "narrative",

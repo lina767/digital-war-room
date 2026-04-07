@@ -29,6 +29,15 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+class LLMCreditExhaustedError(RuntimeError):
+    """Raised when the LLM provider rejects a request due to insufficient credits/balance."""
+
+
+def _is_credit_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in ("credit balance", "insufficient_quota", "billing", "exceeded your current quota"))
+
+
 def _get_provider() -> str:
     p = (os.getenv("LLM_PROVIDER") or "anthropic").strip().lower()
     return p if p in ("openai", "anthropic") else "anthropic"
@@ -79,36 +88,46 @@ def call_llm(
     temperature: float = 0,
     max_tokens: int = 4096,
 ) -> str:
-    """Simple LLM call. Returns the text response."""
+    """Simple LLM call. Returns the text response.
+
+    Raises LLMCreditExhaustedError when the provider rejects the request
+    due to insufficient credits so callers can handle it specifically.
+    """
     provider = _get_provider()
     model = model or get_model_name("agent")
 
-    if provider == "openai" and os.getenv("OPENAI_API_KEY"):
-        from openai import OpenAI
+    try:
+        if provider == "openai" and os.getenv("OPENAI_API_KEY"):
+            from openai import OpenAI
 
-        client = OpenAI()
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return resp.choices[0].message.content or ""
-    else:
-        from anthropic import Anthropic
+            client = OpenAI()
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content or ""
+        else:
+            from anthropic import Anthropic
 
-        client = Anthropic()
-        resp = client.messages.create(
-            model=model,
-            system=system,
-            messages=[{"role": "user", "content": user_content}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return resp.content[0].text if resp.content else ""
+            client = Anthropic()
+            resp = client.messages.create(
+                model=model,
+                system=system,
+                messages=[{"role": "user", "content": user_content}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return resp.content[0].text if resp.content else ""
+    except Exception as exc:
+        if _is_credit_error(exc):
+            logger.error("LLM credit balance exhausted (%s): %s", provider, exc)
+            raise LLMCreditExhaustedError(str(exc)) from exc
+        raise
 
 
 def _to_openai_tools(schemas: List[Dict]) -> List[Dict]:

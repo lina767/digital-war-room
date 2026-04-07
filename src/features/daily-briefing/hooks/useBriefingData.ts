@@ -163,7 +163,6 @@ function agentScore(conflict: ConflictData, agent: AgentId): number | null {
     GEOINT: conflict.geoint?.geoint_score,
     CYBER: conflict.cyber?.cyber_score,
     ENERGY: conflict.energy?.energy_score,
-    PROTEST: conflict.protest?.protest_score,
     DIPLO: conflict.diplo?.diplo_score,
     PROXIMITY: conflict.proximity?.proximity_score,
     CHOKEPOINT: conflict.chokepoint?.chokepoint_score,
@@ -212,12 +211,6 @@ const FINDING_THEME_RULES: FindingTheme[] = [
     weight: 84,
     implication:
       "Run sanctions and supplier exposure screening before any new transaction or movement.",
-  },
-  {
-    pattern: /\b(protest|riot|civil unrest|demonstration)\b/,
-    weight: 76,
-    implication:
-      "Review personnel and site risk; tighten local movement guidance for affected areas.",
   },
   {
     pattern: /\b(ceasefire|talks|negotiation|diplomatic)\b/,

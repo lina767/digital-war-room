@@ -48,7 +48,6 @@ export interface AnalyzeResponse {
   techint?: Record<string, unknown>;
   cyber?: Record<string, unknown>;
   energy?: Record<string, unknown>;
-  protest?: Record<string, unknown>;
   diplo?: Record<string, unknown>;
   proximity?: Record<string, unknown>;
   predictive?: Record<string, unknown>;
@@ -281,14 +280,6 @@ export function normalizeAnalysisResponse(raw: Record<string, unknown>): Analyze
     (out as Record<string, unknown>).diplo = {
       ...diplo,
       un_icj_news: asArray(diplo.un_icj_news),
-    };
-  }
-  const protest = raw.protest as Record<string, unknown> | undefined;
-  if (protest) {
-    (out as Record<string, unknown>).protest = {
-      ...protest,
-      protest_events: asArray(protest.protest_events),
-      protest_articles: asArray(protest.protest_articles),
     };
   }
   const finint = raw.finint as Record<string, unknown> | undefined;

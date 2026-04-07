@@ -322,7 +322,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "techint",
             "cyber",
             "energy",
-            "protest",
             "diplo",
             "proximity",
             "narrative",
@@ -347,7 +346,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     techint_result = agent_results.get("techint") or {}
     cyber_result = agent_results.get("cyber") or {}
     energy_result = agent_results.get("energy") or {}
-    protest_result = agent_results.get("protest") or {}
     diplo_result = agent_results.get("diplo") or {}
     proximity_result = agent_results.get("proximity") or {}
     narrative_result = agent_results.get("narrative") or {}
@@ -369,7 +367,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     techint_score = coerce_float(techint_result.get("techint_score"), 0.0)
     cyber_score = coerce_float(cyber_result.get("cyber_score"), 0.0)
     energy_score = coerce_float(energy_result.get("energy_score"), 0.0)
-    protest_score = coerce_float(protest_result.get("protest_score"), 0.0)
     diplo_score = coerce_float(diplo_result.get("diplo_score"), 0.0)
     proximity_score = coerce_float(proximity_result.get("proximity_score"), 0.0)
     chokepoint_score = coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
@@ -386,7 +383,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "techint": techint_score,
         "cyber": cyber_score,
         "energy": energy_score,
-        "protest": protest_score,
         "diplo": diplo_score,
         "proximity": proximity_score,
         "chokepoint": chokepoint_score,
@@ -406,7 +402,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "techint_score" in techint_result,
             "cyber_score" in cyber_result,
             "energy_score" in energy_result,
-            "protest_score" in protest_result,
             "diplo_score" in diplo_result,
             "proximity_score" in proximity_result,
             "chokepoint_score" in chokepoint_result,
@@ -469,7 +464,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "techint": techint_score,
         "cyber": cyber_score,
         "energy": energy_score,
-        "protest": protest_score,
         "diplo": diplo_score,
         "proximity": proximity_score,
         "chokepoint": chokepoint_score,
@@ -532,7 +526,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         techint_result,
         cyber_result,
         energy_result,
-        protest_result,
         diplo_result,
         proximity_result,
         narrative_result,
@@ -661,7 +654,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             techint_score,
             cyber_score,
             energy_score,
-            protest_score,
             diplo_score,
             proximity_score,
             chokepoint_score,

@@ -8,7 +8,7 @@ export const LANDING = {
   tagline: "AI-native OSINT, built in public",
   headline: "Open-source noise is not a strategy.",
   subhead:
-    "Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROTEST, PROXIMITY, and related streams into one escalation score and BLUF-style briefings—so you see the pattern before the headline. Not a finished enterprise product: a serious pipeline you can follow, fork, and challenge.",
+    "Analysts and editors drown in feeds while escalation moves in hours. Digital War Room fuses GEOINT, SIGINT, SOCMINT, FININT, TECHINT, CYBER, NEWS, DIPLO, ENERGY, PROXIMITY, and related streams into one escalation score and BLUF-style briefings—so you see the pattern before the headline. Not a finished enterprise product: a serious pipeline you can follow, fork, and challenge.",
   primaryCta: "Open live dashboard",
   primaryCtaHref: "/app/dashboard",
   secondaryCta: "View curated demo",

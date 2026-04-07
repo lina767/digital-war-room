@@ -20,7 +20,6 @@ CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to mult
 - TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
 - CYBER: CISA KEV, threat intel reports, OTX pulses (APT/exploit indicators)
 - ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI), food commodities (Wheat, Corn, Soy), FAO Food Price Index, fertilizer prices (Urea, DAP), food security risk
-- PROTEST: ACLED protests/riots, GDELT protest coverage (civil society unrest)
 - DIPLO: OFAC/EU sanctions, UN/ICJ press (diplomatic/legal signals)
 - PROXIMITY: Strike-civilian correlation (NASA FIRMS + OSM schools/hospitals, human-shield / collateral risk)
 - CHOKEPOINT: Maritime chokepoint monitoring (Strait of Hormuz, Bab el-Mandeb, Suez Canal) - tanker density, oil flow estimates, disruption risk scoring, data quality transparency
@@ -79,14 +78,12 @@ def compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         "top_signals",
         "conflict_reports",
         "threat_reports",
-        "protest_articles",
         "un_icj_news",
         "evidence",
         "hotspots",
         "tech_indicators",
         "export_controls",
         "ioda_events",
-        "protest_events",
         "commodities",
         "otx_pulses",
         "imagery_signals",
@@ -196,7 +193,6 @@ def build_supervisor_user_payload(
     techint_result: Dict[str, Any],
     cyber_result: Dict[str, Any],
     energy_result: Dict[str, Any],
-    protest_result: Dict[str, Any],
     diplo_result: Dict[str, Any],
     proximity_result: Dict[str, Any],
     narrative_result: Dict[str, Any],
@@ -217,7 +213,6 @@ def build_supervisor_user_payload(
     techint_score = coerce_float(techint_result.get("techint_score"), 0.0)
     cyber_score = coerce_float(cyber_result.get("cyber_score"), 0.0)
     energy_score = coerce_float(energy_result.get("energy_score"), 0.0)
-    protest_score = coerce_float(protest_result.get("protest_score"), 0.0)
     diplo_score = coerce_float(diplo_result.get("diplo_score"), 0.0)
     proximity_score = coerce_float(proximity_result.get("proximity_score"), 0.0)
     chokepoint_score = coerce_float(chokepoint_result.get("chokepoint_score"), 0.0)
@@ -247,7 +242,6 @@ def build_supervisor_user_payload(
             "techint": techint_score,
             "cyber": cyber_score,
             "energy": energy_score,
-            "protest": protest_score,
             "diplo": diplo_score,
             "proximity": proximity_score,
             "chokepoint": chokepoint_score,
@@ -263,7 +257,6 @@ def build_supervisor_user_payload(
         "techint": compact_for_llm("techint", techint_result),
         "cyber": compact_for_llm("cyber", cyber_result),
         "energy": compact_for_llm("energy", energy_result),
-        "protest": compact_for_llm("protest", protest_result),
         "diplo": compact_for_llm("diplo", diplo_result),
         "proximity": compact_for_llm("proximity", proximity_result),
         "narrative": compact_for_llm("narrative", narrative_result),
@@ -289,7 +282,6 @@ def build_supervisor_user_payload(
         techint_result,
         cyber_result,
         energy_result,
-        protest_result,
         diplo_result,
         proximity_result,
         narrative_result,

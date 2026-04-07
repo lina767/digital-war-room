@@ -35,7 +35,6 @@ TIER1_AGENT_NAMES = [
     "mediaint",
     "narrative",
     "diplo",
-    "protest",
     "techint",
     "cyber",
     "acled_refs",

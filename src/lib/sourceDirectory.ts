@@ -62,6 +62,7 @@ const SOURCE_META: Record<
   Firecrawl: { reliability: "curated", keyRequired: true, free: true, url: "https://firecrawl.dev" },
   Telegram: { reliability: "community", keyRequired: false, free: true },
   "Twitter/Nitter": { reliability: "community", keyRequired: false, free: true },
+  "Truth Social": { reliability: "community", keyRequired: false, free: true },
   Nitter: { reliability: "community", keyRequired: false, free: true },
   Reddit: { reliability: "community", keyRequired: false, free: true },
   "Tech indicators": { reliability: "curated", keyRequired: true, free: true, url: "https://www.alphavantage.co/support/#api-key" },

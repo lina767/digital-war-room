@@ -40,8 +40,8 @@ export const AGENTS: Record<
     label: "SOCMINT",
     fullName: "Social Media Intelligence",
     color: "var(--agent-socmint)",
-    description: "Monitors social channels for protest mobilization and information operations.",
-    dataSources: ["Telegram", "Reddit", "RSS feeds"],
+    description: "Monitors social channels for narrative shifts and information operations.",
+    dataSources: ["Telegram", "Truth Social", "Reddit", "RSS feeds"],
   },
   NEWS: {
     id: "NEWS",
@@ -66,14 +66,6 @@ export const AGENTS: Record<
     color: "var(--agent-energy)",
     description: "Tracks commodities, supply disruptions, and energy market stress.",
     dataSources: ["EIA API", "FRED API"],
-  },
-  PROTEST: {
-    id: "PROTEST",
-    label: "PROTEST",
-    fullName: "Protest & Civil Unrest",
-    color: "var(--agent-protest)",
-    description: "Tracks protest events, unrest patterns, and mobilization momentum.",
-    dataSources: ["ACLED", "GDELT"],
   },
   DIPLO: {
     id: "DIPLO",
@@ -125,7 +117,6 @@ export const AGENT_ORDER: AgentId[] = [
   "NEWS",
   "CYBER",
   "ENERGY",
-  "PROTEST",
   "DIPLO",
   "PROXIMITY",
   "TECHINT",

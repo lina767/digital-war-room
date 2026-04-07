@@ -219,23 +219,6 @@ class CyberResult(BaseAgentResult):
 
 
 # ---------------------------------------------------------------------------
-# PROTEST
-# ---------------------------------------------------------------------------
-
-
-class ProtestResult(BaseAgentResult):
-    schema_version: int = 1
-    protest_score: float = 0.0
-    protest_events: List[Dict[str, Any]] = Field(default_factory=list)
-    protest_articles: List[Dict[str, Any]] = Field(default_factory=list)
-    acled_aggregated: Dict[str, Any] = Field(default_factory=dict)
-    gdelt_events_bigquery: Dict[str, Any] = Field(default_factory=dict)
-    gdelt_gkg_bigquery: Dict[str, Any] = Field(default_factory=dict)
-    acled_crisis_pages: List[Dict[str, Any]] = Field(default_factory=list)
-    inform_risk: Dict[str, Any] = Field(default_factory=dict)
-
-
-# ---------------------------------------------------------------------------
 # DIPLO
 # ---------------------------------------------------------------------------
 
@@ -328,7 +311,6 @@ AGENT_RESULT_TYPES: Dict[str, type] = {
     "mediaint": MediaintResult,
     "techint": TechintResult,
     "cyber": CyberResult,
-    "protest": ProtestResult,
     "diplo": DiploResult,
     "proximity": ProximityResult,
     "narrative": NarrativeResult,
