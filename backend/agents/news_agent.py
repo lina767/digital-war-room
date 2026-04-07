@@ -1,7 +1,8 @@
 """
 NEWS Agent.
 Fetches and analyzes conflict-related news articles from NewsAPI, GDELT, RSS,
-and optionally NewsData.io and GNews when NEWSDATA_API_KEY / GNEWS_API_KEY are set.
+and optionally NewsData.io / GNews / The Guardian API when
+NEWSDATA_API_KEY / GNEWS_API_KEY / THE_GUARDIAN_API_KEY are set.
 
 Multi-API strategy: one request per API per run (respects 100/day NewsAPI & GNews,
 200/day NewsData). Same query via _build_query(conflict); merge, URL-dedupe, then
@@ -60,6 +61,7 @@ def _urls_from_articles_by_source_type(articles: List[Dict[str, Any]], source_ty
 NEWS_API_URL = "https://newsapi.org/v2/everything"
 NEWSDATA_LATEST_URL = "https://newsdata.io/api/1/latest"
 GNEWS_SEARCH_URL = "https://gnews.io/api/v4/search"
+GUARDIAN_SEARCH_URL = "https://content.guardianapis.com/search"
 # GDELT DOC 2.0 API (fulltext, artlist); overview: https://www.gdeltproject.org/data.html
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 FOREIGN_POLICY_IRAN_PROJECT_URL = "https://foreignpolicy.com/projects/iran-israel-conflict-news-nuclear-sites-proxies/"
@@ -424,7 +426,7 @@ def _normalize_url(url: str) -> str:
         return url or ""
 
 
-SOURCE_WEIGHTS = {"newsapi": 0.35, "gdelt": 0.25, "rss": 0.2, "newsdata": 0.1, "gnews": 0.1}
+SOURCE_WEIGHTS = {"newsapi": 0.35, "gdelt": 0.25, "rss": 0.2, "newsdata": 0.1, "gnews": 0.1, "guardian": 0.1}
 
 
 # Max articles per source in top-N so one outlet (e.g. Al Jazeera) doesn't dominate. Override via env.
@@ -472,10 +474,11 @@ def _merge_news_results(
     conflict: str = "",
     newsdata_list: Optional[List[Dict[str, Any]]] = None,
     gnews_list: Optional[List[Dict[str, Any]]] = None,
+    guardian_list: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Deduplicate by URL, then semantically, rank by relevance, apply per-source cap, compute weighted overall_sentiment, source_breakdown."""
     seen: Dict[str, Dict[str, Any]] = {}
-    all_items = newsapi_list + gdelt_list + rss_list + (newsdata_list or []) + (gnews_list or [])
+    all_items = newsapi_list + gdelt_list + rss_list + (newsdata_list or []) + (gnews_list or []) + (guardian_list or [])
     for item in all_items:
         if "error" in item or not item.get("url"):
             continue
@@ -560,7 +563,7 @@ def _merge_news_results(
         weight_sum += w
     overall_sentiment = weighted_sum / weight_sum if weight_sum else 0.0
 
-    source_breakdown = {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0}
+    source_breakdown = {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0, "guardian": 0}
     for a in top20:
         st = a.get("source_type") or "newsapi"
         if st in source_breakdown:
@@ -768,6 +771,61 @@ def search_gnews_news(conflict: str) -> List[Dict[str, Any]]:
                     "sentiment_label": _label(score),
                     "language": "en",
                     "source_type": "gnews",
+                }
+            )
+        return articles[:10]
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+def search_guardian_news(conflict: str, hours_back: int = 72) -> List[Dict[str, Any]]:
+    """Search The Guardian Content API. Developer key supports non-commercial use (free tier)."""
+    api_key = os.getenv("THE_GUARDIAN_API_KEY")
+    if not api_key:
+        return []
+
+    from_date = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).strftime("%Y-%m-%d")
+    query = (_build_query(conflict) or conflict).strip()[:500]
+    params = {
+        "api-key": api_key,
+        "q": query or "conflict",
+        "from-date": from_date,
+        "order-by": "newest",
+        "page-size": 10,
+        "show-fields": "trailText",
+    }
+
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(GUARDIAN_SEARCH_URL, params=params)
+            resp.raise_for_status()
+            return resp.json()
+
+    try:
+        data = run_async(_fetch())
+        results = ((data.get("response") or {}).get("results")) or []
+        articles: List[Dict[str, Any]] = []
+        for art in results:
+            if not isinstance(art, dict):
+                continue
+            title = (art.get("webTitle") or "").strip()
+            url = art.get("webUrl") or ""
+            if not url:
+                continue
+            fields = art.get("fields") or {}
+            desc = (fields.get("trailText") or "").strip() if isinstance(fields, dict) else ""
+            score = _sentiment_keyword(f"{title} {desc}")
+            articles.append(
+                {
+                    "title": title[:500] if title else "(No title)",
+                    "source": "The Guardian",
+                    "url": url,
+                    "published_at": art.get("webPublicationDate"),
+                    "description": desc[:1000] if desc else "",
+                    "sentiment_score": score,
+                    "sentiment_label": _label(score),
+                    "language": "en",
+                    "source_type": "guardian",
                 }
             )
         return articles[:10]
@@ -1152,6 +1210,17 @@ def _run_gnews_source_agent(conflict: str) -> Dict[str, Any]:
     }
 
 
+def _run_guardian_source_agent(conflict: str) -> Dict[str, Any]:
+    """Source agent: The Guardian Content API. Only runs when THE_GUARDIAN_API_KEY is set."""
+    raw = search_guardian_news(conflict=conflict)
+    articles = [a for a in (raw if isinstance(raw, list) else []) if isinstance(a, dict) and "error" not in a]
+    return {
+        "source": "guardian",
+        "articles": articles,
+        "count": len(articles),
+    }
+
+
 def _run_news_fusion_agent(
     newsapi_res: Dict[str, Any],
     gdelt_res: Dict[str, Any],
@@ -1159,10 +1228,12 @@ def _run_news_fusion_agent(
     conflict: str = "",
     newsdata_res: Optional[Dict[str, Any]] = None,
     gnews_res: Optional[Dict[str, Any]] = None,
+    guardian_res: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Fusion agent: dedupe + global sentiment/score across all sources."""
     newsdata_list = (newsdata_res or {}).get("articles", [])
     gnews_list = (gnews_res or {}).get("articles", [])
+    guardian_list = (guardian_res or {}).get("articles", [])
     merged = _merge_news_results(
         newsapi_list=newsapi_res.get("articles", []),
         gdelt_list=gdelt_res.get("articles", []),
@@ -1170,11 +1241,12 @@ def _run_news_fusion_agent(
         conflict=conflict,
         newsdata_list=newsdata_list,
         gnews_list=gnews_list,
+        guardian_list=guardian_list,
     )
     articles = merged.get("articles", [])
     overall = merged.get("overall_sentiment", 0.0)
     label = merged.get("sentiment_label", "NEUTRAL")
-    breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
+    breakdown = merged.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0, "guardian": 0})
 
     score = 50.0
     if overall > 0.5:
@@ -1279,10 +1351,12 @@ def _news_manager(
     has_newsapi = "newsapi" in analyst_results
     has_newsdata = "newsdata" in analyst_results
     has_gnews = "gnews" in analyst_results
+    has_guardian = "guardian" in analyst_results
     newsapi_res = analyst_results.get("newsapi") or {}
     rss_res = analyst_results.get("rss") or {}
     newsdata_res = analyst_results.get("newsdata") or {}
     gnews_res = analyst_results.get("gnews") or {}
+    guardian_res = analyst_results.get("guardian") or {}
     gdelt_res = {"source": "gdelt", "articles": [], "count": 0}
     if newsapi_res.get("error"):
         newsapi_res = {"source": "newsapi", "articles": [], "count": 0}
@@ -1292,6 +1366,8 @@ def _news_manager(
         newsdata_res = {"source": "newsdata", "articles": [], "count": 0}
     if gnews_res.get("error"):
         gnews_res = {"source": "gnews", "articles": [], "count": 0}
+    if guardian_res.get("error"):
+        guardian_res = {"source": "guardian", "articles": [], "count": 0}
 
     gdelt_bq = fetch_gdelt_event_roots_summary(conflict)
 
@@ -1302,6 +1378,7 @@ def _news_manager(
         conflict=conflict,
         newsdata_res=newsdata_res or None,
         gnews_res=gnews_res or None,
+        guardian_res=guardian_res or None,
     )
     articles = fusion.get("articles", [])
     escalation_meta = _run_escalation_headline_agent(articles)
@@ -1314,6 +1391,7 @@ def _news_manager(
     n_rss = len(rss_res.get("articles") or [])
     n_newsdata = len(newsdata_res.get("articles") or [])
     n_gnews = len(gnews_res.get("articles") or [])
+    n_guardian = len(guardian_res.get("articles") or [])
     source_results = []
     if has_newsapi:
         source_results.append(
@@ -1358,6 +1436,17 @@ def _news_manager(
                 endpoint_kind="rest",
             )
         )
+    if has_guardian:
+        source_results.append(
+            SourceResult(
+                name="The Guardian",
+                status="ok" if n_guardian else "error",
+                fetched_at=fetched_at,
+                record_count=n_guardian,
+                reference_urls=_urls_from_articles_by_source_type(articles, "guardian"),
+                endpoint_kind="rest",
+            )
+        )
     bq_n = int(gdelt_bq.get("total_matched") or 0) if gdelt_bq.get("ok") else 0
     source_results.append(
         SourceResult(
@@ -1380,7 +1469,11 @@ def _news_manager(
         f"{len(sources_missing)} source(s) failed: {', '.join(sources_missing)}" if sources_missing else None
     )
     proc_steps = [
-        ProcessingStep(step="parallel_source_analysts", at=fetched_at, detail="newsapi_rss_optional_newsdata_gnews"),
+        ProcessingStep(
+            step="parallel_source_analysts",
+            at=fetched_at,
+            detail="newsapi_rss_optional_newsdata_gnews_guardian",
+        ),
         ProcessingStep(step="gdelt_bigquery_events", at=fetched_at),
         ProcessingStep(step="fusion_dedupe_rank", at=fetched_at),
         ProcessingStep(step="escalation_headlines", at=fetched_at),
@@ -1395,7 +1488,7 @@ def _news_manager(
         has_any_data=bool(articles),
         processing_steps=proc_steps,
     )
-    bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0})
+    bd = fusion.get("source_breakdown", {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0, "guardian": 0})
     handoff_note = ""
     if context and getattr(context, "peer_summaries", None) and getattr(context, "peer_summaries", {}):
         handoff_note = " Handoff: cross-referenced with peer agent summaries."
@@ -1406,6 +1499,8 @@ def _news_manager(
         summary_parts.append(f"{bd.get('newsdata', 0)} NewsData")
     if has_gnews:
         summary_parts.append(f"{bd.get('gnews', 0)} GNews")
+    if has_guardian:
+        summary_parts.append(f"{bd.get('guardian', 0)} Guardian")
     if gdelt_bq.get("ok") and bq_n:
         summary_parts.append(f"GDELT BQ {bq_n} coded events ({gdelt_bq.get('lookback_days', '?')}d)")
     return {
@@ -1441,6 +1536,8 @@ def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None
         analysts.append(("newsdata", _run_newsdata_source_agent))
     if os.getenv("GNEWS_API_KEY"):
         analysts.append(("gnews", _run_gnews_source_agent))
+    if os.getenv("THE_GUARDIAN_API_KEY"):
+        analysts.append(("guardian", _run_guardian_source_agent))
     try:
         result = run_domain_with_analysts(
             conflict,
@@ -1481,7 +1578,7 @@ def _run_rule_based_news(conflict: str, context: Optional["AgentContext"] = None
         fb["news_score"] = 50.0
         fb["summary"] = "NEWS data unavailable."
         fb["sentiment_label"] = "NEUTRAL"
-        fb["source_breakdown"] = {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0}
+        fb["source_breakdown"] = {"newsapi": 0, "gdelt": 0, "rss": 0, "newsdata": 0, "gnews": 0, "guardian": 0}
         fb["_meta"] = build_agent_meta(
             "news",
             fetched_at,

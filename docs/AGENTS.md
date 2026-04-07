@@ -25,7 +25,7 @@ Per-agent description: inputs, data sources, main output fields, and typical use
 ## NEWS
 
 - **Input:** `conflict`.
-- **Sources:** NewsAPI, GDELT Doc API, RSS (BBC, DW, Al Jazeera, RFE/RL).
+- **Sources:** NewsAPI (`NEWS_API_KEY`, optional), GNews (`GNEWS_API_KEY`, optional), NewsData.io (`NEWSDATA_API_KEY`, optional), The Guardian Content API (`THE_GUARDIAN_API_KEY`, optional), curated RSS feeds (BBC, DW, Al Jazeera, RFE/RL), plus GDELT BigQuery event-root summary.
 - **Outputs:** `news_score`, `articles`, `summary`.
 - **Use:** Open-source media sentiment and coverage volume.
 

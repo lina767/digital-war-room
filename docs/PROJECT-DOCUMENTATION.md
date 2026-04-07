@@ -223,7 +223,7 @@ Critical variables:
   - `ANTHROPIC_API_KEY`
   - or `LLM_PROVIDER=openai` + `OPENAI_API_KEY`
 - data-provider keys (depending on enabled features), e.g.:
-  - `NEWS_API_KEY`
+  - `NEWS_API_KEY` and/or `GNEWS_API_KEY` (`NEWSDATA_API_KEY` and `THE_GUARDIAN_API_KEY` optional)
   - `NASA_FIRMS_KEY`
   - `ALPHAVANTAGE_API_KEY`
 

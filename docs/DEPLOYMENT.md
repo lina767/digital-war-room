@@ -14,7 +14,7 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
   - **Pflicht für Analyse (LLM):**  
     Entweder `ANTHROPIC_API_KEY` (Standard) **oder** `LLM_PROVIDER=openai` + `OPENAI_API_KEY` (günstigere Alternative, z. B. GPT-4o-mini).
   - **Pro Agent (siehe `backend/scripts/check_agents.py`):**
-    - `NEWS_API_KEY` (News-Agent)
+    - `NEWS_API_KEY` **oder** `GNEWS_API_KEY` (News-Agent; `NEWSDATA_API_KEY` und `THE_GUARDIAN_API_KEY` optional zusätzlich)
     - `NASA_FIRMS_KEY` (GEOINT)
     - `ALPHAVANTAGE_API_KEY` (FININT, optional TECHINT)
   - **Optional:**  

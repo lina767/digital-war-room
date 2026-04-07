@@ -65,6 +65,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "RSS", description: "BBC, DW, Al Jazeera, RFE/RL, Iran International, Middle East Eye, CriticalThreats, LongWarJournal, ISW, Bellingcat, Crisis Group, ECFR, CSIS, FDD, France 24, Guardian" },
       { name: "NewsData", description: "NewsData.io – 200 credits/day, 10 articles/request; Location, Language, Category filters (optional NEWSDATA_API_KEY)" },
       { name: "GNews", description: "GNews (gnews.io) – 100 requests/day; q, lang, country (optional GNEWS_API_KEY)" },
+      { name: "Guardian API", description: "The Guardian Content API – Developer key (non-commercial), up to 500 requests/day, 1 req/sec (optional THE_GUARDIAN_API_KEY)" },
     ],
   },
   {
