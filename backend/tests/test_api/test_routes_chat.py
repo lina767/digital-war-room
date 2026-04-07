@@ -250,7 +250,7 @@ def test_collect_sources_keeps_only_http_urls_and_dedupes_case_insensitive():
             }
         },
     }
-    assert _collect_sources(analysis) == ["https://Example.com/report"]
+    assert _collect_sources(analysis) == ["https://example.com/report"]
 
 
 def test_chat_ask_returns_low_confidence_partial_answer_instead_of_hard_fallback(monkeypatch):

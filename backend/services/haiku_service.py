@@ -33,6 +33,9 @@ HAIKU_MONTHLY_BUDGET = float(os.getenv("HAIKU_MONTHLY_BUDGET", "20.0"))
 # Pricing per million tokens (Haiku 4.5)
 _INPUT_COST_PER_MTOK = 1.0
 _OUTPUT_COST_PER_MTOK = 5.0
+# Sonnet-class (e.g. claude-sonnet-4-6) — approximate; used when model id contains "sonnet"
+_SONNET_INPUT_COST_PER_MTOK = float(os.getenv("SONNET_INPUT_COST_PER_MTOK", "3.0"))
+_SONNET_OUTPUT_COST_PER_MTOK = float(os.getenv("SONNET_OUTPUT_COST_PER_MTOK", "15.0"))
 
 # ── Budget Tracker ───────────────────────────────────────────────────────────
 
@@ -52,6 +55,7 @@ _run_docqa_count = 0
 _run_analyst_summary_count = 0
 _run_input_tokens = 0
 _run_output_tokens = 0
+_run_cost_usd = 0.0
 
 # Per-agent token attribution (Haiku calls only; keys e.g. news, cyber, diplo)
 _run_tokens_by_agent: Dict[str, Dict[str, int]] = {}
@@ -78,6 +82,14 @@ def _ensure_month():
         _monthly_tokens_by_agent = {}
 
 
+def _mtok_rates_for_model(model: str) -> tuple[float, float]:
+    """Return (input_per_mtok, output_per_mtok) for budget logging."""
+    m = (model or "").lower()
+    if "sonnet" in m:
+        return _SONNET_INPUT_COST_PER_MTOK, _SONNET_OUTPUT_COST_PER_MTOK
+    return _INPUT_COST_PER_MTOK, _OUTPUT_COST_PER_MTOK
+
+
 def _bump_agent_tokens(agent: str, input_tokens: int, output_tokens: int) -> None:
     global _run_tokens_by_agent, _monthly_tokens_by_agent
     if agent not in _run_tokens_by_agent:
@@ -90,18 +102,26 @@ def _bump_agent_tokens(agent: str, input_tokens: int, output_tokens: int) -> Non
     _monthly_tokens_by_agent[agent]["out"] += output_tokens
 
 
-def _increment_usage(input_tokens: int, output_tokens: int, usage_agent: str = "other") -> None:
+def _increment_usage(
+    input_tokens: int,
+    output_tokens: int,
+    usage_agent: str = "other",
+    *,
+    model: Optional[str] = None,
+) -> None:
     """Track real token usage from the API response."""
     global _monthly_input_tokens, _monthly_output_tokens, _monthly_cost_usd
-    global _run_call_count, _run_input_tokens, _run_output_tokens
+    global _run_call_count, _run_input_tokens, _run_output_tokens, _run_cost_usd
     _ensure_month()
     _monthly_input_tokens += input_tokens
     _monthly_output_tokens += output_tokens
-    cost = (input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + (output_tokens / 1_000_000) * _OUTPUT_COST_PER_MTOK
+    in_rate, out_rate = _mtok_rates_for_model(model or HAIKU_MODEL)
+    cost = (input_tokens / 1_000_000) * in_rate + (output_tokens / 1_000_000) * out_rate
     _monthly_cost_usd += cost
     _run_call_count += 1
     _run_input_tokens += input_tokens
     _run_output_tokens += output_tokens
+    _run_cost_usd += cost
     _bump_agent_tokens(usage_agent or "other", input_tokens, output_tokens)
 
     if _monthly_cost_usd >= HAIKU_MONTHLY_BUDGET * 0.8:
@@ -123,7 +143,7 @@ def reset_run_counters():
     """Call at the start of each 6h analysis run."""
     global _run_call_count, _run_translation_count, _run_sentiment_count, _run_ner_count
     global _run_classify_count, _run_summarize_count, _run_docqa_count, _run_analyst_summary_count
-    global _run_input_tokens, _run_output_tokens, _run_haiku_failed, _run_tokens_by_agent
+    global _run_input_tokens, _run_output_tokens, _run_cost_usd, _run_haiku_failed, _run_tokens_by_agent
     _run_call_count = 0
     _run_translation_count = 0
     _run_sentiment_count = 0
@@ -134,6 +154,7 @@ def reset_run_counters():
     _run_analyst_summary_count = 0
     _run_input_tokens = 0
     _run_output_tokens = 0
+    _run_cost_usd = 0.0
     _run_haiku_failed = False
     _run_tokens_by_agent = {}
 
@@ -146,9 +167,7 @@ def is_haiku_failed() -> bool:
 def log_run_stats():
     """Log summary at the end of each run."""
     _ensure_month()
-    run_cost = (_run_input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + (
-        _run_output_tokens / 1_000_000
-    ) * _OUTPUT_COST_PER_MTOK
+    run_cost = _run_cost_usd
     logger.info(
         "[haiku] Run stats: %d calls, %d input tokens, %d output tokens, ~$%.4f. Month total: ~$%.2f / $%.2f",
         _run_call_count,
@@ -177,9 +196,7 @@ def log_run_stats():
 def get_haiku_metrics_for_api() -> Dict[str, Any]:
     """Token and spend snapshot for Agent Monitor (Haiku / Claude)."""
     _ensure_month()
-    run_cost = (_run_input_tokens / 1_000_000) * _INPUT_COST_PER_MTOK + (
-        _run_output_tokens / 1_000_000
-    ) * _OUTPUT_COST_PER_MTOK
+    run_cost = _run_cost_usd
     return {
         "provider": "anthropic_haiku",
         "model": HAIKU_MODEL,
@@ -224,6 +241,7 @@ async def _call_haiku(
     max_tokens: int = 1024,
     *,
     usage_agent: str = "other",
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """
     Low-level Haiku call with budget/limit checks and usage tracking.
@@ -239,6 +257,8 @@ async def _call_haiku(
     if not api_key:
         return None
 
+    effective_model = (model or HAIKU_MODEL).strip() or HAIKU_MODEL
+
     try:
         import asyncio
 
@@ -247,7 +267,7 @@ async def _call_haiku(
         resp = await loop.run_in_executor(
             None,
             lambda: client.messages.create(
-                model=HAIKU_MODEL,
+                model=effective_model,
                 system=system,
                 messages=[{"role": "user", "content": user_content}],
                 temperature=0,
@@ -258,6 +278,7 @@ async def _call_haiku(
             resp.usage.input_tokens,
             resp.usage.output_tokens,
             usage_agent,
+            model=effective_model,
         )
         if resp.content:
             return resp.content[0].text
@@ -610,10 +631,12 @@ async def analyst_summary(
     max_tokens: int = 256,
     *,
     usage_agent: str = "analyst",
+    model: Optional[str] = None,
 ) -> Optional[str]:
     """
     Generic analyst-style summary with custom system prompt. Use for GreyNoise, TECHINT,
     CYBER, ENERGY, IAEA, etc. Budget-tracked; separate limit from content summarization.
+    Optional ``model`` overrides ``HAIKU_MODEL`` for this call (e.g. CHAT_MODEL for /chat/ask).
     """
     global _run_analyst_summary_count
     if not data or not data.strip():
@@ -629,6 +652,7 @@ async def analyst_summary(
         data.strip()[:8000],
         max_tokens=max_tokens,
         usage_agent=usage_agent,
+        model=model,
     )
     if result:
         _run_analyst_summary_count += 1
