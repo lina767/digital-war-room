@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -164,20 +165,17 @@ async def _fetch_world_bank_country_indicators(wb_iso3: str) -> Dict[str, Any]:
     iso = wb_iso3.upper()
 
     async def _one(
-        client: httpx.AsyncClient, indicator_id: str, key: str, label: str
+        client: Any, indicator_id: str, key: str, label: str
     ) -> Dict[str, Any]:
         try:
-            resp = await client.get(
+            resp = await client.request(
+                "GET",
                 f"{WORLD_BANK_BASE}/{iso}/indicator/{indicator_id}",
                 params={"format": "json", "per_page": "1", "mrv": "1"},
+                timeout=15.0,
+                retries=2,
+                service_name="world_bank_country_indicators",
             )
-            if resp.status_code != 200:
-                return {
-                    "key": key,
-                    "label": label,
-                    "id": indicator_id,
-                    "error": f"HTTP {resp.status_code}",
-                }
             data = resp.json()
             if not isinstance(data, list) or len(data) < 2:
                 return {"key": key, "label": label, "id": indicator_id, "error": "invalid response"}
@@ -208,11 +206,11 @@ async def _fetch_world_bank_country_indicators(wb_iso3: str) -> Dict[str, Any]:
             return {"key": key, "label": label, "id": indicator_id, "error": str(e)}
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            parts = await asyncio.gather(
-                *(_one(client, iid, key, lbl) for iid, key, lbl in WB_MACRO_INDICATORS)
-            )
-            out["indicators"] = list(parts)
+        client = get_http_client()
+        parts = await asyncio.gather(
+            *(_one(client, iid, key, lbl) for iid, key, lbl in WB_MACRO_INDICATORS)
+        )
+        out["indicators"] = list(parts)
     except Exception as e:
         logger.debug("ENERGY: World Bank country indicators failed: %s", e)
         out["error"] = str(e)
@@ -226,35 +224,42 @@ async def _async_empty_wb() -> Dict[str, Any]:
 async def _fetch_fao_fpi() -> Dict[str, Any]:
     """Fetch FAO Food Price Index (monthly, free CSV)."""
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(FAO_FPI_URL, follow_redirects=True)
-            if resp.status_code != 200:
-                if resp.status_code == 404:
-                    logger.warning(
-                        "ENERGY: FAO FPI URL returned 404 (file may have been moved). Set FAO_FPI_URL env to current CSV URL."
-                    )
-                return {"error": f"FAO FPI HTTP {resp.status_code}"}
-            reader = csv.reader(io.StringIO(resp.text))
-            rows = list(reader)
-            if len(rows) < 3:
-                return {"error": "FAO FPI: insufficient data"}
-            header = [h.strip().lower() for h in rows[0]]
-            # Find "food price index" or "date" columns
-            date_col = next((i for i, h in enumerate(header) if "date" in h), 0)
-            fpi_col = next(
-                (i for i, h in enumerate(header) if "food" in h and "price" in h and "index" in h),
-                next((i for i, h in enumerate(header) if "nominal" in h), 1),
+        client = get_http_client()
+        resp = await client.request(
+            "GET",
+            FAO_FPI_URL,
+            follow_redirects=True,
+            timeout=15.0,
+            retries=2,
+            service_name="fao_fpi",
+        )
+        reader = csv.reader(io.StringIO(resp.text))
+        rows = list(reader)
+        if len(rows) < 3:
+            return {"error": "FAO FPI: insufficient data"}
+        header = [h.strip().lower() for h in rows[0]]
+        # Find "food price index" or "date" columns
+        date_col = next((i for i, h in enumerate(header) if "date" in h), 0)
+        fpi_col = next(
+            (i for i, h in enumerate(header) if "food" in h and "price" in h and "index" in h),
+            next((i for i, h in enumerate(header) if "nominal" in h), 1),
+        )
+        latest = rows[-1]
+        prev_year_row = rows[-13] if len(rows) > 13 else rows[1]
+        index_val = _safe_float(latest[fpi_col]) if fpi_col < len(latest) else None
+        prev_val = _safe_float(prev_year_row[fpi_col]) if fpi_col < len(prev_year_row) else None
+        yoy = ((index_val - prev_val) / prev_val * 100) if index_val and prev_val and prev_val > 0 else None
+        return {
+            "index": index_val,
+            "month": latest[date_col] if date_col < len(latest) else "",
+            "yoy_change_pct": round(yoy, 1) if yoy is not None else None,
+        }
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.warning(
+                "ENERGY: FAO FPI URL returned 404 (file may have been moved). Set FAO_FPI_URL env to current CSV URL."
             )
-            latest = rows[-1]
-            prev_year_row = rows[-13] if len(rows) > 13 else rows[1]
-            index_val = _safe_float(latest[fpi_col]) if fpi_col < len(latest) else None
-            prev_val = _safe_float(prev_year_row[fpi_col]) if fpi_col < len(prev_year_row) else None
-            yoy = ((index_val - prev_val) / prev_val * 100) if index_val and prev_val and prev_val > 0 else None
-            return {
-                "index": index_val,
-                "month": latest[date_col] if date_col < len(latest) else "",
-                "yoy_change_pct": round(yoy, 1) if yoy is not None else None,
-            }
+        return {"error": f"FAO FPI HTTP {e.response.status_code}"}
     except Exception as e:
         logger.debug("ENERGY: FAO FPI fetch failed: %s", e)
         return {"error": str(e)}
@@ -264,20 +269,23 @@ async def _fetch_fertilizer_prices() -> Dict[str, Any]:
     """Fetch Urea/DAP prices from World Bank API (free, monthly)."""
     result: Dict[str, Any] = {"source": "world_bank"}
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for indicator, key in [(UREA_INDICATOR, "urea_price"), (DAP_INDICATOR, "dap_price")]:
-                try:
-                    resp = await client.get(
-                        f"{WORLD_BANK_COMMODITIES_URL}/{indicator}",
-                        params={"format": "json", "per_page": "2", "mrv": "1"},
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if isinstance(data, list) and len(data) > 1 and isinstance(data[1], list) and data[1]:
-                            val = _safe_float(data[1][0].get("value"))
-                            result[key] = val
-                except (httpx.HTTPError, ValueError, TypeError):
-                    continue
+        client = get_http_client()
+        for indicator, key in [(UREA_INDICATOR, "urea_price"), (DAP_INDICATOR, "dap_price")]:
+            try:
+                resp = await client.request(
+                    "GET",
+                    f"{WORLD_BANK_COMMODITIES_URL}/{indicator}",
+                    params={"format": "json", "per_page": "2", "mrv": "1"},
+                    timeout=15.0,
+                    retries=2,
+                    service_name="world_bank_commodities",
+                )
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 1 and isinstance(data[1], list) and data[1]:
+                    val = _safe_float(data[1][0].get("value"))
+                    result[key] = val
+            except (httpx.HTTPError, ValueError, TypeError):
+                continue
     except Exception as e:
         logger.debug("ENERGY: fertilizer price fetch failed: %s", e)
         result["error"] = str(e)
@@ -305,37 +313,39 @@ async def _fetch_eia_oil_prices(api_key: str) -> List[Dict[str, Any]]:
     results = []
     mapping = [(EIA_BRENT_SERIES, "BRENT", "Brent crude"), (EIA_WTI_SERIES, "WTI", "WTI crude")]
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for series_id, symbol, label in mapping:
-                try:
-                    resp = await client.get(
-                        f"{EIA_BASE}/{series_id}/data",
-                        params={
-                            "api_key": api_key.strip(),
-                            "length": 5,
-                            "sort[0][column]": "period",
-                            "sort[0][direction]": "desc",
-                        },
-                    )
-                    if resp.status_code != 200:
-                        continue
-                    data = resp.json()
-                    # EIA v2: response.data with period, value (strings)
-                    records = (data.get("response") or {}).get("data") if isinstance(data, dict) else None
-                    if not isinstance(records, list) or len(records) < 2:
-                        continue
-                    valid = [r for r in records if isinstance(r, dict) and r.get("value") not in (None, "", ".")]
-                    if len(valid) < 2:
-                        continue
-                    latest, prev = valid[0], valid[1]
-                    price = _safe_float(latest.get("value"), 0)
-                    prev_p = _safe_float(prev.get("value"), 0)
-                    if not price or not prev_p:
-                        continue
-                    period = latest.get("period") or latest.get("date") or ""
-                    results.append(_commodity_entry(symbol, label, price, prev_p, period))
-                except Exception as e:
-                    logger.debug("ENERGY: EIA series %s failed: %s", series_id, e)
+        client = get_http_client()
+        for series_id, symbol, label in mapping:
+            try:
+                resp = await client.request(
+                    "GET",
+                    f"{EIA_BASE}/{series_id}/data",
+                    params={
+                        "api_key": api_key.strip(),
+                        "length": 5,
+                        "sort[0][column]": "period",
+                        "sort[0][direction]": "desc",
+                    },
+                    timeout=15.0,
+                    retries=2,
+                    service_name="eia_energy_series",
+                )
+                data = resp.json()
+                # EIA v2: response.data with period, value (strings)
+                records = (data.get("response") or {}).get("data") if isinstance(data, dict) else None
+                if not isinstance(records, list) or len(records) < 2:
+                    continue
+                valid = [r for r in records if isinstance(r, dict) and r.get("value") not in (None, "", ".")]
+                if len(valid) < 2:
+                    continue
+                latest, prev = valid[0], valid[1]
+                price = _safe_float(latest.get("value"), 0)
+                prev_p = _safe_float(prev.get("value"), 0)
+                if not price or not prev_p:
+                    continue
+                period = latest.get("period") or latest.get("date") or ""
+                results.append(_commodity_entry(symbol, label, price, prev_p, period))
+            except Exception as e:
+                logger.debug("ENERGY: EIA series %s failed: %s", series_id, e)
     except Exception as e:
         logger.debug("ENERGY: EIA oil fetch failed: %s", e)
     return results
@@ -347,35 +357,37 @@ async def _fetch_fred_oil_prices(api_key: str) -> List[Dict[str, Any]]:
         return []
     results = []
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for series_id, symbol, label in FRED_OIL_SERIES:
-                try:
-                    resp = await client.get(
-                        FRED_BASE,
-                        params={
-                            "series_id": series_id,
-                            "api_key": api_key.strip(),
-                            "file_type": "json",
-                            "sort_order": "desc",
-                            "limit": 5,
-                        },
-                    )
-                    if resp.status_code != 200:
-                        continue
-                    data = resp.json()
-                    obs = (data.get("observations") or []) if isinstance(data, dict) else []
-                    valid = [o for o in obs if isinstance(o, dict) and o.get("value") not in (None, "", ".")]
-                    if len(valid) < 2:
-                        continue
-                    latest, prev = valid[0], valid[1]
-                    price = _safe_float(latest.get("value"), 0)
-                    prev_p = _safe_float(prev.get("value"), 0)
-                    if not price or not prev_p:
-                        continue
-                    as_of = latest.get("date") or ""
-                    results.append(_commodity_entry(symbol, label, price, prev_p, as_of))
-                except Exception as e:
-                    logger.debug("ENERGY: FRED oil series %s failed: %s", series_id, e)
+        client = get_http_client()
+        for series_id, symbol, label in FRED_OIL_SERIES:
+            try:
+                resp = await client.request(
+                    "GET",
+                    FRED_BASE,
+                    params={
+                        "series_id": series_id,
+                        "api_key": api_key.strip(),
+                        "file_type": "json",
+                        "sort_order": "desc",
+                        "limit": 5,
+                    },
+                    timeout=15.0,
+                    retries=2,
+                    service_name="fred_energy_series",
+                )
+                data = resp.json()
+                obs = (data.get("observations") or []) if isinstance(data, dict) else []
+                valid = [o for o in obs if isinstance(o, dict) and o.get("value") not in (None, "", ".")]
+                if len(valid) < 2:
+                    continue
+                latest, prev = valid[0], valid[1]
+                price = _safe_float(latest.get("value"), 0)
+                prev_p = _safe_float(prev.get("value"), 0)
+                if not price or not prev_p:
+                    continue
+                as_of = latest.get("date") or ""
+                results.append(_commodity_entry(symbol, label, price, prev_p, as_of))
+            except Exception as e:
+                logger.debug("ENERGY: FRED oil series %s failed: %s", series_id, e)
     except Exception as e:
         logger.debug("ENERGY: FRED oil fetch failed: %s", e)
     return results
@@ -387,35 +399,37 @@ async def _fetch_fred_food_prices(api_key: str) -> List[Dict[str, Any]]:
         return []
     results = []
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for series_id, symbol, label in FRED_FOOD_SERIES:
-                try:
-                    resp = await client.get(
-                        FRED_BASE,
-                        params={
-                            "series_id": series_id,
-                            "api_key": api_key.strip(),
-                            "file_type": "json",
-                            "sort_order": "desc",
-                            "limit": 5,
-                        },
-                    )
-                    if resp.status_code != 200:
-                        continue
-                    data = resp.json()
-                    obs = (data.get("observations") or []) if isinstance(data, dict) else []
-                    valid = [o for o in obs if isinstance(o, dict) and o.get("value") not in (None, "", ".")]
-                    if len(valid) < 2:
-                        continue
-                    latest, prev = valid[0], valid[1]
-                    price = _safe_float(latest.get("value"), 0)
-                    prev_p = _safe_float(prev.get("value"), 0)
-                    if not price or not prev_p:
-                        continue
-                    as_of = latest.get("date") or ""
-                    results.append(_commodity_entry(symbol, label, price, prev_p, as_of))
-                except Exception as e:
-                    logger.debug("ENERGY: FRED food series %s failed: %s", series_id, e)
+        client = get_http_client()
+        for series_id, symbol, label in FRED_FOOD_SERIES:
+            try:
+                resp = await client.request(
+                    "GET",
+                    FRED_BASE,
+                    params={
+                        "series_id": series_id,
+                        "api_key": api_key.strip(),
+                        "file_type": "json",
+                        "sort_order": "desc",
+                        "limit": 5,
+                    },
+                    timeout=15.0,
+                    retries=2,
+                    service_name="fred_food_series",
+                )
+                data = resp.json()
+                obs = (data.get("observations") or []) if isinstance(data, dict) else []
+                valid = [o for o in obs if isinstance(o, dict) and o.get("value") not in (None, "", ".")]
+                if len(valid) < 2:
+                    continue
+                latest, prev = valid[0], valid[1]
+                price = _safe_float(latest.get("value"), 0)
+                prev_p = _safe_float(prev.get("value"), 0)
+                if not price or not prev_p:
+                    continue
+                as_of = latest.get("date") or ""
+                results.append(_commodity_entry(symbol, label, price, prev_p, as_of))
+            except Exception as e:
+                logger.debug("ENERGY: FRED food series %s failed: %s", series_id, e)
     except Exception as e:
         logger.debug("ENERGY: FRED food fetch failed: %s", e)
     return results
@@ -435,36 +449,39 @@ async def _fetch_commodity_prices_for(api_key: str, symbols: List[tuple]) -> Lis
     if not api_key:
         return []
     results = []
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        for sym, label in symbols:
-            try:
-                resp = await client.get(
-                    ALPHAVANTAGE_URL,
-                    params={"function": sym, "interval": "daily", "apikey": api_key},
+    client = get_http_client()
+    for sym, label in symbols:
+        try:
+            resp = await client.request(
+                "GET",
+                ALPHAVANTAGE_URL,
+                params={"function": sym, "interval": "daily", "apikey": api_key},
+                timeout=15.0,
+                retries=2,
+                service_name="alphavantage_commodities",
+            )
+            data = resp.json()
+            series = data.get("data") or []
+            if len(series) >= 2:
+                latest = series[0]
+                prev = series[1]
+                price = _safe_float(latest.get("value"))
+                prev_p = _safe_float(prev.get("value"))
+                change_pct = ((price - prev_p) / prev_p * 100) if prev_p and prev_p != 0 else None
+                results.append(
+                    {
+                        "symbol": sym,
+                        "label": label,
+                        "price": f"{price:.2f}" if price else None,
+                        "change_pct": f"{change_pct:+.1f}%" if change_pct is not None else "0%",
+                        "change_pct_raw": change_pct,
+                        "as_of": latest.get("date", ""),
+                    }
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                series = data.get("data") or []
-                if len(series) >= 2:
-                    latest = series[0]
-                    prev = series[1]
-                    price = _safe_float(latest.get("value"))
-                    prev_p = _safe_float(prev.get("value"))
-                    change_pct = ((price - prev_p) / prev_p * 100) if prev_p and prev_p != 0 else None
-                    results.append(
-                        {
-                            "symbol": sym,
-                            "label": label,
-                            "price": f"{price:.2f}" if price else None,
-                            "change_pct": f"{change_pct:+.1f}%" if change_pct is not None else "0%",
-                            "change_pct_raw": change_pct,
-                            "as_of": latest.get("date", ""),
-                        }
-                    )
-                else:
-                    results.append({"symbol": sym, "label": label, "error": "Insufficient data"})
-            except Exception as e:
-                results.append({"symbol": sym, "label": label, "error": str(e)})
+            else:
+                results.append({"symbol": sym, "label": label, "error": "Insufficient data"})
+        except Exception as e:
+            results.append({"symbol": sym, "label": label, "error": str(e)})
     return results
 
 

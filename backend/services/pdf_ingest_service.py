@@ -17,7 +17,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-import httpx
+from services.http_client import CircuitOpenError, get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -36,16 +36,25 @@ def _doc_id(url_or_path: str) -> str:
 
 async def download_pdf(url: str) -> Optional[bytes]:
     """Download a PDF from a URL. Returns raw bytes or None."""
+    client = get_http_client()
     try:
-        async with httpx.AsyncClient(timeout=PDF_DOWNLOAD_TIMEOUT, follow_redirects=True) as client:
-            resp = await client.get(url)
-            if resp.status_code == 200 and len(resp.content) > 100:
-                content_type = resp.headers.get("content-type", "")
-                if "pdf" in content_type or resp.content[:5] == b"%PDF-":
-                    return resp.content
-                logger.warning("[pdf] URL %s returned non-PDF content-type: %s", url, content_type)
-            else:
-                logger.warning("[pdf] Failed to download %s: status %d", url, resp.status_code)
+        resp = await client.request(
+            "GET",
+            url,
+            timeout=PDF_DOWNLOAD_TIMEOUT,
+            retries=2,
+            service_name="pdf_download",
+            retry_statuses={429, 500, 502, 503, 504},
+        )
+        if len(resp.content) > 100:
+            content_type = resp.headers.get("content-type", "")
+            if "pdf" in content_type or resp.content[:5] == b"%PDF-":
+                return resp.content
+            logger.warning("[pdf] URL %s returned non-PDF content-type: %s", url, content_type)
+        else:
+            logger.warning("[pdf] Failed to download %s: empty/short body", url)
+    except CircuitOpenError:
+        logger.warning("[pdf] Download skipped for %s: circuit breaker open", url)
     except Exception as e:
         logger.error("[pdf] Download error for %s: %s", url, e)
     return None

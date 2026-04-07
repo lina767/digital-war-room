@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import httpx
 
 from ..utils import run_async, safe_float, utc_now_iso
+from services.http_client import get_http_client
 
 ALPHAVANTAGE_URL = "https://www.alphavantage.co/query"
 EIA_BASE = "https://api.eia.gov/v2/seriesid"
@@ -148,10 +149,16 @@ def _fetch_alpha_series(function_name: str) -> Dict[str, Any]:
         return {"error": "ALPHAVANTAGE_API_KEY not set"}
 
     async def _fetch():
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(ALPHAVANTAGE_URL, params={"function": function_name, "interval": "daily", "apikey": api_key})
-            resp.raise_for_status()
-            return resp.json()
+        client = get_http_client()
+        resp = await client.request(
+            "GET",
+            ALPHAVANTAGE_URL,
+            params={"function": function_name, "interval": "daily", "apikey": api_key},
+            timeout=15.0,
+            retries=2,
+            service_name="alphavantage",
+        )
+        return resp.json()
 
     data = run_async(_fetch())
     series = data.get("data", [])
@@ -173,13 +180,16 @@ def _fetch_eia_spot(series_id: str) -> Dict[str, Any]:
         return {"error": "EIA_API_KEY not set"}
 
     async def _fetch():
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{EIA_BASE}/{series_id}",
-                params={"api_key": api_key, "sort[0][column]": "period", "sort[0][direction]": "desc", "offset": 0, "length": 5},
-            )
-            resp.raise_for_status()
-            return resp.json()
+        client = get_http_client()
+        resp = await client.request(
+            "GET",
+            f"{EIA_BASE}/{series_id}",
+            params={"api_key": api_key, "sort[0][column]": "period", "sort[0][direction]": "desc", "offset": 0, "length": 5},
+            timeout=15.0,
+            retries=2,
+            service_name="eia_api",
+        )
+        return resp.json()
 
     data = run_async(_fetch())
     rows = (((data or {}).get("response") or {}).get("data") or [])
@@ -202,10 +212,16 @@ def _fetch_fred_series(series_id: str) -> Dict[str, Any]:
         params["api_key"] = fred_key
 
     async def _fetch():
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(FRED_BASE, params=params)
-            resp.raise_for_status()
-            return resp.json()
+        client = get_http_client()
+        resp = await client.request(
+            "GET",
+            FRED_BASE,
+            params=params,
+            timeout=15.0,
+            retries=2,
+            service_name="fred_api",
+        )
+        return resp.json()
 
     data = run_async(_fetch())
     rows = (data or {}).get("observations") or []
@@ -382,11 +398,19 @@ def get_gold_price() -> Dict[str, Any]:
         return {"error": "METALS_API_KEY not set (optional; get key at metals-api.com)"}
 
     async def _fetch():
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            resp = await client.get(f"{METALS_API_BASE}/latest", params={"access_key": api_key, "base": "XAU", "currencies": "USD"})
-            if resp.status_code != 200:
-                return {"error": f"Metals API {resp.status_code}"}
+        client = get_http_client()
+        try:
+            resp = await client.request(
+                "GET",
+                f"{METALS_API_BASE}/latest",
+                params={"access_key": api_key, "base": "XAU", "currencies": "USD"},
+                timeout=12.0,
+                retries=2,
+                service_name="metals_api",
+            )
             return resp.json()
+        except httpx.HTTPStatusError as e:
+            return {"error": f"Metals API {e.response.status_code}"}
 
     try:
         data = run_async(_fetch())
@@ -414,24 +438,24 @@ def get_vix() -> Dict[str, Any]:
 
 def get_fear_greed() -> Dict[str, Any]:
     async def _fetch():
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            if FEAR_GREED_CNN_API_URL:
-                try:
-                    resp = await client.get(FEAR_GREED_CNN_API_URL)
-                    data = resp.json()
-                    if isinstance(data, dict) and data.get("value") is not None:
-                        return {"value": int(data.get("value")), "value_classification": data.get("value_classification")}
-                except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
-                    # Fall back to alternative.me source if CNN endpoint fails.
-                    pass
-            resp = await client.get(FEAR_GREED_FALLBACK_URL)
-            data = resp.json()
-            arr = data.get("data") if isinstance(data, dict) else []
-            if not arr or not isinstance(arr, list):
-                return {"error": "No data"}
-            item = arr[0]
-            value = item.get("value")
-            return {"value": int(value) if value is not None else None, "value_classification": item.get("value_classification")}
+        client = get_http_client()
+        if FEAR_GREED_CNN_API_URL:
+            try:
+                resp = await client.request("GET", FEAR_GREED_CNN_API_URL, timeout=10.0, retries=1, service_name="fear_greed_cnn")
+                data = resp.json()
+                if isinstance(data, dict) and data.get("value") is not None:
+                    return {"value": int(data.get("value")), "value_classification": data.get("value_classification")}
+            except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+                # Fall back to alternative.me source if CNN endpoint fails.
+                pass
+        resp = await client.request("GET", FEAR_GREED_FALLBACK_URL, timeout=10.0, retries=2, service_name="fear_greed_fallback")
+        data = resp.json()
+        arr = data.get("data") if isinstance(data, dict) else []
+        if not arr or not isinstance(arr, list):
+            return {"error": "No data"}
+        item = arr[0]
+        value = item.get("value")
+        return {"value": int(value) if value is not None else None, "value_classification": item.get("value_classification")}
 
     try:
         return run_async(_fetch())
@@ -443,37 +467,46 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
     async def _fetch_tracked():
         headers = _polymarket_headers()
         out = []
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for slug in TRACKED_POLYMARKET_SLUGS:
-                try:
-                    resp = await client.get(f"{GAMMA_API_BASE}/events/slug/{slug}", headers=headers)
-                    if resp.status_code != 200:
-                        continue
-                    event = resp.json()
-                    if not isinstance(event, dict):
-                        continue
-                    item = _normalize_polymarket_item(event, slug)
-                    if item and (item.get("probability") or 0) > 0 and _polymarket_end_ok(event):
-                        out.append(item)
-                except Exception:
+        client = get_http_client()
+        for slug in TRACKED_POLYMARKET_SLUGS:
+            try:
+                resp = await client.request(
+                    "GET",
+                    f"{GAMMA_API_BASE}/events/slug/{slug}",
+                    headers=headers,
+                    timeout=15.0,
+                    retries=2,
+                    service_name="polymarket_gamma",
+                )
+                event = resp.json()
+                if not isinstance(event, dict):
                     continue
+                item = _normalize_polymarket_item(event, slug)
+                if item and (item.get("probability") or 0) > 0 and _polymarket_end_ok(event):
+                    out.append(item)
+            except Exception:
+                continue
         return out
 
     async def _fetch_all():
         headers = _polymarket_headers()
         results = []
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            for endpoint in ("events", "markets"):
-                try:
-                    resp = await client.get(
-                        f"{GAMMA_API_BASE}/{endpoint}",
-                        params={"limit": 200, "active": "true", "closed": "false"},
-                        headers=headers,
-                    )
-                    if resp.status_code == 200 and isinstance(resp.json(), list):
-                        results.extend(resp.json())
-                except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
-                    continue
+        client = get_http_client()
+        for endpoint in ("events", "markets"):
+            try:
+                resp = await client.request(
+                    "GET",
+                    f"{GAMMA_API_BASE}/{endpoint}",
+                    params={"limit": 200, "active": "true", "closed": "false"},
+                    headers=headers,
+                    timeout=20.0,
+                    retries=2,
+                    service_name="polymarket_gamma",
+                )
+                if isinstance(resp.json(), list):
+                    results.extend(resp.json())
+            except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError):
+                continue
         return results
 
     try:
@@ -510,14 +543,19 @@ def get_polymarket_conflict_odds(conflict: str) -> List[Dict[str, Any]]:
 def get_metaculus_conflict_questions(conflict: str) -> List[Dict[str, Any]]:
     async def _fetch():
         search_term = (conflict or "").strip() or "geopolitics"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
+        client = get_http_client()
+        try:
+            resp = await client.request(
+                "GET",
                 METACULUS_API_BASE,
                 params={"search": search_term, "status": "open", "limit": 20, "order_by": "-activity"},
+                timeout=15.0,
+                retries=2,
+                service_name="metaculus_api",
             )
-            if resp.status_code != 200:
-                return [{"error": f"Metaculus API {resp.status_code}"}]
             data = resp.json()
+        except httpx.HTTPStatusError as e:
+            return [{"error": f"Metaculus API {e.response.status_code}"}]
         results = data.get("results") if isinstance(data, dict) else (data if isinstance(data, list) else [])
         if not isinstance(results, list):
             return []
@@ -556,14 +594,18 @@ def get_kalshi_conflict_markets(conflict: str) -> List[Dict[str, Any]]:
 
     async def _fetch():
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(
-                    f"{KALSHI_API_BASE.rstrip('/')}/events",
-                    params={"limit": 50, "status": "open"},
-                )
-                if resp.status_code != 200:
-                    return [{"error": f"Kalshi API {resp.status_code}"}]
-                data = resp.json()
+            client = get_http_client()
+            resp = await client.request(
+                "GET",
+                f"{KALSHI_API_BASE.rstrip('/')}/events",
+                params={"limit": 50, "status": "open"},
+                timeout=15.0,
+                retries=2,
+                service_name="kalshi_api",
+            )
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            return [{"error": f"Kalshi API {e.response.status_code}"}]
         except Exception as e:
             return [{"error": str(e)}]
         events = data.get("events") if isinstance(data, dict) else (data if isinstance(data, list) else [])
@@ -625,8 +667,8 @@ async def _fetch_ofac_cached(client: Any, conflict: str) -> Dict[str, Any]:
 
 def get_ofac_sanctions_highlights(conflict: str) -> Dict[str, Any]:
     async def _run() -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            return await _fetch_ofac_cached(client, conflict)
+        client = get_http_client()
+        return await _fetch_ofac_cached(client, conflict)
 
     try:
         return run_async(_run())
@@ -640,31 +682,34 @@ def get_tracked_wallet_positions() -> List[Dict[str, Any]]:
 
     async def _fetch():
         out = []
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for label, address in TRACKED_WALLETS:
-                try:
-                    resp = await client.get(
-                        f"{DATA_API_BASE}/positions",
-                        params={"user": address, "limit": 50, "sortBy": "TOKENS", "sortDirection": "DESC"},
-                        headers=_polymarket_headers(),
+        client = get_http_client()
+        for label, address in TRACKED_WALLETS:
+            try:
+                resp = await client.request(
+                    "GET",
+                    f"{DATA_API_BASE}/positions",
+                    params={"user": address, "limit": 50, "sortBy": "TOKENS", "sortDirection": "DESC"},
+                    headers=_polymarket_headers(),
+                    timeout=15.0,
+                    retries=2,
+                    service_name="polymarket_data_api",
+                )
+                data = resp.json()
+                positions = data if isinstance(data, list) else data.get("data", data.get("positions", []))
+                positions = positions if isinstance(positions, list) else []
+                items = []
+                for p in positions[:20]:
+                    title = p.get("title") or p.get("market") or p.get("question") or ""
+                    size = safe_float(p.get("size") or p.get("tokens") or 0)
+                    avg_price = safe_float(p.get("avgPrice") or p.get("price"))
+                    items.append(
+                        {"title": title[:120] if title else "", "size": round(size, 2) if size else 0, "avgPrice": round(avg_price, 4) if avg_price else None}
                     )
-                    if resp.status_code != 200:
-                        out.append({"wallet": label, "address": address[:10] + "...", "error": resp.status_code})
-                        continue
-                    data = resp.json()
-                    positions = data if isinstance(data, list) else data.get("data", data.get("positions", []))
-                    positions = positions if isinstance(positions, list) else []
-                    items = []
-                    for p in positions[:20]:
-                        title = p.get("title") or p.get("market") or p.get("question") or ""
-                        size = safe_float(p.get("size") or p.get("tokens") or 0)
-                        avg_price = safe_float(p.get("avgPrice") or p.get("price"))
-                        items.append(
-                            {"title": title[:120] if title else "", "size": round(size, 2) if size else 0, "avgPrice": round(avg_price, 4) if avg_price else None}
-                        )
-                    out.append({"wallet": label, "address": address[:10] + "...", "position_count": len(positions), "positions": items})
-                except Exception as e:
-                    out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
+                out.append({"wallet": label, "address": address[:10] + "...", "position_count": len(positions), "positions": items})
+            except httpx.HTTPStatusError as e:
+                out.append({"wallet": label, "address": address[:10] + "...", "error": e.response.status_code})
+            except Exception as e:
+                out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
         return out
 
     try:
@@ -683,26 +728,29 @@ def get_tracked_chain_wallets() -> List[Dict[str, Any]]:
 
     async def _fetch():
         out: List[Dict[str, Any]] = []
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for i, (label, address) in enumerate(addresses):
-                if i > 0:
-                    await asyncio.sleep(ETHERSCAN_RATE_LIMIT_DELAY_SEC)
-                try:
-                    resp = await client.get(
-                        "https://api.etherscan.io/api",
-                        params={"module": "account", "action": "balance", "address": address, "tag": "latest", "apikey": api_key},
-                    )
-                    if resp.status_code != 200:
-                        out.append({"wallet": label, "address": address[:10] + "...", "error": resp.status_code})
-                        continue
-                    data = resp.json()
-                    if data.get("status") != "1" and data.get("message") != "OK":
-                        out.append({"wallet": label, "address": address[:10] + "...", "error": data.get("message", "API error")})
-                        continue
-                    wei = int(data.get("result", 0))
-                    out.append({"wallet": label, "address": address[:10] + "...", "balance_eth": round(wei / 1e18, 4), "balance_wei": str(wei)})
-                except Exception as e:
-                    out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
+        client = get_http_client()
+        for i, (label, address) in enumerate(addresses):
+            if i > 0:
+                await asyncio.sleep(ETHERSCAN_RATE_LIMIT_DELAY_SEC)
+            try:
+                resp = await client.request(
+                    "GET",
+                    "https://api.etherscan.io/api",
+                    params={"module": "account", "action": "balance", "address": address, "tag": "latest", "apikey": api_key},
+                    timeout=15.0,
+                    retries=2,
+                    service_name="etherscan_api",
+                )
+                data = resp.json()
+                if data.get("status") != "1" and data.get("message") != "OK":
+                    out.append({"wallet": label, "address": address[:10] + "...", "error": data.get("message", "API error")})
+                    continue
+                wei = int(data.get("result", 0))
+                out.append({"wallet": label, "address": address[:10] + "...", "balance_eth": round(wei / 1e18, 4), "balance_wei": str(wei)})
+            except httpx.HTTPStatusError as e:
+                out.append({"wallet": label, "address": address[:10] + "...", "error": e.response.status_code})
+            except Exception as e:
+                out.append({"wallet": label, "address": address[:10] + "...", "error": str(e)})
         if out:
             out.append({"_attribution": "Etherscan (etherscan.io)"})
         return out

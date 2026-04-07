@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from services.http_client import CircuitOpenError, HttpClient, get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +94,16 @@ def _scrape_one_sync(url: str, timeout: float = 18.0) -> Dict[str, Any]:
         return {"url": url, "error": str(e)}
 
 
-async def _fetch_hub_and_pages(client: httpx.AsyncClient, hub: str, budget: int, collected: Set[str]) -> List[Dict[str, Any]]:
+async def _fetch_hub_and_pages(client: HttpClient, hub: str, budget: int, collected: Set[str]) -> List[Dict[str, Any]]:
     try:
-        resp = await client.get(hub)
-        resp.raise_for_status()
+        resp = await client.request(
+            "GET",
+            hub,
+            retries=2,
+            timeout=_float_timeout(),
+            service_name="acled_crisis_hub",
+            headers={"User-Agent": USER_AGENT},
+        )
     except Exception as e:
         logger.warning("ACLED crisis hub failed %s: %s", hub, e)
         return []
@@ -109,8 +116,14 @@ async def _fetch_hub_and_pages(client: httpx.AsyncClient, hub: str, budget: int,
         if len(collected) >= budget:
             break
         try:
-            r2 = await client.get(u)
-            r2.raise_for_status()
+            r2 = await client.request(
+                "GET",
+                u,
+                retries=1,
+                timeout=_float_timeout(),
+                service_name="acled_crisis_article",
+                headers={"User-Agent": USER_AGENT},
+            )
             html = r2.text
             title = _extract_title(html)
             excerpt = _extract_text_from_html(html)
@@ -131,18 +144,16 @@ async def fetch_acled_crisis_pages_async(conflict: str) -> List[Dict[str, Any]]:
     budget = _max_pages()
     collected: Set[str] = set()
     all_rows: List[Dict[str, Any]] = []
-    timeout = _float_timeout()
-
-    async with httpx.AsyncClient(
-        timeout=timeout,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        for hub in hubs:
-            if len(collected) >= budget:
-                break
+    client = get_http_client()
+    for hub in hubs:
+        if len(collected) >= budget:
+            break
+        try:
             rows = await _fetch_hub_and_pages(client, hub, budget - len(collected), collected)
             all_rows.extend(rows)
+        except CircuitOpenError:
+            logger.warning("ACLED crisis async fetch skipped for %s: circuit breaker open", hub)
+            continue
 
     return all_rows[:budget]
 

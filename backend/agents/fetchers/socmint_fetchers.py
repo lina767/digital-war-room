@@ -22,6 +22,7 @@ import httpx
 
 from ..config import RELIEFWEB_APPNAME
 from ..utils import run_async
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -391,19 +392,20 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
             return [re.sub(r"<[^>]+>", "", d).strip() for d in og_desc if d.strip()]
         return []
 
-    async def _fetch_channel(client: httpx.AsyncClient, channel: str) -> List[Dict[str, Any]]:
+    async def _fetch_channel(client: Any, channel: str) -> List[Dict[str, Any]]:
         try:
             url = f"https://t.me/s/{channel}"
-            resp = await client.get(
+            resp = await client.request(
+                "GET",
                 url,
                 follow_redirects=True,
+                timeout=10.0,
+                retries=2,
+                service_name="telegram_public",
                 headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 },
             )
-            if resp.status_code != 200:
-                logger.debug("SOCMINT Telegram %s: HTTP %s", channel, resp.status_code)
-                return []
             page_html = resp.text
             blocks = _split_telegram_message_blocks(page_html)
             results: List[Dict[str, Any]] = []
@@ -475,14 +477,14 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
             return []
 
     async def _run():
-        async with httpx.AsyncClient(timeout=10.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
-            tasks = [_fetch_channel(client, ch) for ch in channels]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            posts = []
-            for r in results:
-                if isinstance(r, list):
-                    posts.extend(r)
-            return posts
+        client = get_http_client()
+        tasks = [_fetch_channel(client, ch) for ch in channels]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        posts = []
+        for r in results:
+            if isinstance(r, list):
+                posts.extend(r)
+        return posts
 
     try:
         return run_async(_run())
@@ -521,13 +523,19 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             row["thumbnail_url"] = media_urls[0]
         return row
 
-    async def _fetch_account_html(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
+    async def _fetch_account_html(client: Any, account: str) -> List[Dict[str, Any]]:
         for base in NITTER_INSTANCES:
             try:
                 url = f"{base}/{account}"
-                resp = await client.get(url, follow_redirects=True, timeout=12.0)
-                if resp.status_code != 200:
-                    continue
+                resp = await client.request(
+                    "GET",
+                    url,
+                    follow_redirects=True,
+                    timeout=12.0,
+                    retries=2,
+                    service_name="nitter_html",
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"},
+                )
                 html = resp.text
                 # Collect status permalinks for best-effort provenance.
                 status_urls: List[str] = []
@@ -560,14 +568,20 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                 continue
         return []
 
-    async def _fetch_account_rss(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
+    async def _fetch_account_rss(client: Any, account: str) -> List[Dict[str, Any]]:
         """Fallback: Nitter RSS feed (often more stable than HTML)."""
         for base in NITTER_INSTANCES:
             try:
                 url = f"{base}/{account}/rss"
-                resp = await client.get(url, follow_redirects=True, timeout=12.0)
-                if resp.status_code != 200:
-                    continue
+                resp = await client.request(
+                    "GET",
+                    url,
+                    follow_redirects=True,
+                    timeout=12.0,
+                    retries=2,
+                    service_name="nitter_rss",
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"},
+                )
                 feed = feedparser.parse(resp.text)
                 results = []
                 for entry in (feed.entries or [])[:10]:
@@ -631,33 +645,33 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
         except Exception:
             return []
 
-    async def _fetch_account(client: httpx.AsyncClient, account: str) -> List[Dict[str, Any]]:
+    async def _fetch_account(client: Any, account: str) -> List[Dict[str, Any]]:
         posts = await _fetch_account_html(client, account)
         if not posts:
             posts = await _fetch_account_rss(client, account)
         return posts
 
     async def _run():
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"}) as client:
-            tasks = [_fetch_account(client, acc) for acc in accounts[:6]]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            posts = []
-            for r in results:
-                if isinstance(r, list):
-                    posts.extend(r)
-            if not posts and os.getenv("FIRECRAWL_API_KEY"):
-                for acc in accounts[:3]:
-                    fc_posts = _fetch_account_firecrawl(acc)
-                    posts.extend(fc_posts)
-            # Keep high-signal OSINT accounts (e.g. WarMonitor3) visible before generic sort.
-            posts.sort(
-                key=lambda x: (
-                    1 if x.get("account") in PRIORITY_TWITTER_ACCOUNTS else 0,
-                    x.get("sentiment_score", 0),
-                ),
-                reverse=True,
-            )
-            return posts[:20]
+        client = get_http_client()
+        tasks = [_fetch_account(client, acc) for acc in accounts[:6]]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        posts = []
+        for r in results:
+            if isinstance(r, list):
+                posts.extend(r)
+        if not posts and os.getenv("FIRECRAWL_API_KEY"):
+            for acc in accounts[:3]:
+                fc_posts = _fetch_account_firecrawl(acc)
+                posts.extend(fc_posts)
+        # Keep high-signal OSINT accounts (e.g. WarMonitor3) visible before generic sort.
+        posts.sort(
+            key=lambda x: (
+                1 if x.get("account") in PRIORITY_TWITTER_ACCOUNTS else 0,
+                x.get("sentiment_score", 0),
+            ),
+            reverse=True,
+        )
+        return posts[:20]
 
     try:
         return run_async(_run())
@@ -676,13 +690,20 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
     reddit_headers = {"User-Agent": "DigitalWarRoom/1.0 (conflict analysis research; https://github.com/)"}
 
-    async def _fetch_subreddit_json(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
+    async def _fetch_subreddit_json(client: Any, subreddit: str) -> List[Dict[str, Any]]:
         try:
             url = f"https://www.reddit.com/r/{subreddit}/new.json"
-            resp = await client.get(url, params={"limit": limit})
+            resp = await client.request(
+                "GET",
+                url,
+                params={"limit": limit},
+                timeout=10.0,
+                retries=1,
+                service_name="reddit_json",
+                headers=reddit_headers,
+            )
             if resp.status_code in (403, 429):
                 return []
-            resp.raise_for_status()
             data = resp.json()
             posts = data.get("data", {}).get("children", [])
             results = []
@@ -722,13 +743,18 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
         except Exception:
             return []
 
-    async def _fetch_subreddit_rss(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
+    async def _fetch_subreddit_rss(client: Any, subreddit: str) -> List[Dict[str, Any]]:
         """Fallback: Reddit RSS (often still works when JSON API is restricted)."""
         try:
             url = f"https://www.reddit.com/r/{subreddit}/new.rss"
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return []
+            resp = await client.request(
+                "GET",
+                url,
+                timeout=10.0,
+                retries=2,
+                service_name="reddit_rss",
+                headers=reddit_headers,
+            )
             feed = feedparser.parse(resp.text)
             if getattr(feed, "bozo", False) and not feed.entries:
                 return []
@@ -798,7 +824,7 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
         except Exception:
             return []
 
-    async def _fill_reddit_og_images(client: httpx.AsyncClient, posts: List[Dict[str, Any]]) -> None:
+    async def _fill_reddit_og_images(client: Any, posts: List[Dict[str, Any]]) -> None:
         sem = asyncio.Semaphore(3)
 
         async def _one(row: Dict[str, Any]) -> None:
@@ -809,14 +835,15 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                 return
             async with sem:
                 try:
-                    r = await client.get(
+                    r = await client.request(
+                        "GET",
                         u,
                         follow_redirects=True,
                         timeout=6.0,
+                        retries=1,
+                        service_name="reddit_post_page",
                         headers={"User-Agent": reddit_headers["User-Agent"]},
                     )
-                    if r.status_code != 200:
-                        return
                     img = _extract_og_image_from_html(r.text)
                     if img:
                         row["og_image"] = img
@@ -830,23 +857,23 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
             return
         await asyncio.gather(*[_one(p) for p in need[:8]])
 
-    async def _fetch_subreddit(client: httpx.AsyncClient, subreddit: str) -> List[Dict[str, Any]]:
+    async def _fetch_subreddit(client: Any, subreddit: str) -> List[Dict[str, Any]]:
         results = await _fetch_subreddit_json(client, subreddit)
         if not results:
             results = await _fetch_subreddit_rss(client, subreddit)
         return results
 
     async def _run():
-        async with httpx.AsyncClient(timeout=10.0, headers=reddit_headers) as client:
-            tasks = [_fetch_subreddit(client, sr) for sr in subreddits]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            posts = []
-            for r in results:
-                if isinstance(r, list):
-                    posts.extend(r)
-            await _fill_reddit_og_images(client, posts)
-            posts.sort(key=lambda x: x.get("upvotes", 0), reverse=True)
-            return posts[:20]
+        client = get_http_client()
+        tasks = [_fetch_subreddit(client, sr) for sr in subreddits]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        posts = []
+        for r in results:
+            if isinstance(r, list):
+                posts.extend(r)
+        await _fill_reddit_og_images(client, posts)
+        posts.sort(key=lambda x: x.get("upvotes", 0), reverse=True)
+        return posts[:20]
 
     try:
         return run_async(_run())
@@ -927,38 +954,44 @@ RELIEFWEB_COUNTRY_NAMES = {
 async def _reliefweb_rss_fallback(country_name: str, keywords: List[str]) -> List[Dict[str, Any]]:
     """Fallback: scrape ReliefWeb RSS feed when API returns 403."""
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get("https://reliefweb.int/updates/rss.xml", follow_redirects=True)
-            if resp.status_code != 200:
-                return []
-            feed = feedparser.parse(resp.text)
-            results = []
-            for entry in (getattr(feed, "entries", None) or [])[:40]:
-                title = (entry.get("title") or "").strip()
-                summary = re.sub(r"<[^>]+>", "", entry.get("summary") or entry.get("description") or "")[:200]
-                combined = f"{title} {summary}".lower()
-                if not any(kw in combined for kw in keywords):
-                    continue
-                score = _sentiment(combined)
-                results.append(
-                    {
-                        "title": title[:400],
-                        "date": entry.get("published") or "",
-                        "body_excerpt": summary,
-                        "source": "ReliefWeb (RSS)",
-                        "url": entry.get("link") or "",
-                        "sentiment_score": score,
-                        "sentiment_label": "ESCALATORY"
-                        if score > 0.2
-                        else "DE-ESCALATORY"
-                        if score < -0.2
-                        else "NEUTRAL",
-                        "platform": "reliefweb",
-                    }
-                )
-                if len(results) >= 10:
-                    break
-            return results
+        client = get_http_client()
+        resp = await client.request(
+            "GET",
+            "https://reliefweb.int/updates/rss.xml",
+            follow_redirects=True,
+            timeout=15.0,
+            retries=2,
+            service_name="reliefweb_rss",
+            headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"},
+        )
+        feed = feedparser.parse(resp.text)
+        results = []
+        for entry in (getattr(feed, "entries", None) or [])[:40]:
+            title = (entry.get("title") or "").strip()
+            summary = re.sub(r"<[^>]+>", "", entry.get("summary") or entry.get("description") or "")[:200]
+            combined = f"{title} {summary}".lower()
+            if not any(kw in combined for kw in keywords):
+                continue
+            score = _sentiment(combined)
+            results.append(
+                {
+                    "title": title[:400],
+                    "date": entry.get("published") or "",
+                    "body_excerpt": summary,
+                    "source": "ReliefWeb (RSS)",
+                    "url": entry.get("link") or "",
+                    "sentiment_score": score,
+                    "sentiment_label": "ESCALATORY"
+                    if score > 0.2
+                    else "DE-ESCALATORY"
+                    if score < -0.2
+                    else "NEUTRAL",
+                    "platform": "reliefweb",
+                }
+            )
+            if len(results) >= 10:
+                break
+        return results
     except Exception as e:
         logger.debug("SOCMINT ReliefWeb RSS fallback failed: %s", e)
         return []
@@ -987,16 +1020,24 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
                 "preset": "latest",
                 "fields[include][]": ["title", "date", "body", "source.name", "url"],
             }
-            async with httpx.AsyncClient(timeout=14.0) as client:
-                resp = await client.get(url, params=params)
-                if resp.status_code == 403:
-                    logger.info(
-                        "SOCMINT ReliefWeb: 403 – appname not approved, falling back to RSS. Register at https://apidoc.reliefweb.int/parameters#appname"
-                    )
-                    return await _reliefweb_rss_fallback(country_name, keywords)
-                if resp.status_code != 200:
-                    return []
-                data = resp.json()
+            client = get_http_client()
+            resp = await client.request(
+                "GET",
+                url,
+                params=params,
+                timeout=14.0,
+                retries=2,
+                service_name="reliefweb_api",
+                headers={"User-Agent": "Mozilla/5.0 (compatible; SOCMINT/1.0)"},
+            )
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                logger.info(
+                    "SOCMINT ReliefWeb: 403 – appname not approved, falling back to RSS. Register at https://apidoc.reliefweb.int/parameters#appname"
+                )
+                return await _reliefweb_rss_fallback(country_name, keywords)
+            return []
         except Exception:
             return []
         items = data.get("data", [])

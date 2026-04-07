@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 import httpx
 
 from ..utils import run_async
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +52,18 @@ def _conflict_to_keywords(conflict: str) -> List[str]:
 
 
 async def _stream_download(url: str, connect_s: float = 15, read_s: float = 90) -> str:
-    timeout = httpx.Timeout(connect=connect_s, read=read_s, write=30.0, pool=15.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=_HTTP_HEADERS) as client:
-        async with client.stream("GET", url) as resp:
-            resp.raise_for_status()
-            chunks: list[str] = []
-            async for chunk in resp.aiter_text(chunk_size=65536):
-                chunks.append(chunk)
-            return "".join(chunks)
+    del connect_s  # shared client uses one timeout value per request
+    client = get_http_client()
+    resp = await client.request(
+        "GET",
+        url,
+        timeout=read_s,
+        retries=2,
+        follow_redirects=True,
+        headers=_HTTP_HEADERS,
+        service_name="diplo_download",
+    )
+    return resp.text
 
 
 async def fetch_ofac_sdn(conflict: str) -> Dict[str, Any]:
@@ -128,10 +133,16 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
 
     keywords = _conflict_to_keywords(conflict)
     try:
-        async with httpx.AsyncClient(timeout=15.0, headers=_HTTP_HEADERS) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            feed = feedparser.parse(resp.text)
+        client = get_http_client()
+        resp = await client.request(
+            "GET",
+            url,
+            timeout=15.0,
+            retries=2,
+            headers=_HTTP_HEADERS,
+            service_name="diplo_rss",
+        )
+        feed = feedparser.parse(resp.text)
         entries = []
         for e in getattr(feed, "entries", [])[:20]:
             title = (e.get("title") or "").strip()

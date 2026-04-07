@@ -7,12 +7,14 @@ import logging
 import os
 import base64
 import time
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
 from agents.research_contracts import ResearchBudgetStatus, ResearchRunBudget, ResearchUsage
+from services.http_client import CircuitOpenError, get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -139,14 +141,6 @@ def _gemini_url(api_key: str, model: str) -> str:
     return f"{GEMINI_API_BASE}/models/{model}:generateContent?key={api_key}"
 
 
-def _is_retryable_status(status_code: int) -> bool:
-    return status_code in {429, 500, 502, 503, 504}
-
-
-def _backoff_delay_sec(attempt: int) -> float:
-    return min(GEMINI_RETRY_MAX_DELAY_SEC, GEMINI_RETRY_BASE_DELAY_SEC * (2**attempt))
-
-
 def _model_candidates() -> list[str]:
     models = [GEMINI_MODEL]
     if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
@@ -160,33 +154,41 @@ def _post_with_retries(
     payload: Dict[str, Any],
     call_kind: str,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """POST to Gemini with retry/backoff and optional fallback model."""
+    """POST to Gemini with shared resilient client and optional fallback model."""
     last_error: Optional[str] = None
     for model in _model_candidates():
         url = _gemini_url(api_key, model)
-        for attempt in range(GEMINI_MAX_RETRIES + 1):
+        try:
+            data = asyncio.run(
+                _post_with_shared_client_async(
+                    url=url,
+                    payload=payload,
+                )
+            )
+            if data is not None:
+                return data, None
+            last_error = "invalid_json_response"
+        except RuntimeError:
+            # Fallback path if called inside an already running event loop.
             try:
                 with httpx.Client(timeout=GEMINI_TIMEOUT_SEC) as client:
                     resp = client.post(url, json=payload)
+                if resp.status_code == 200:
+                    try:
+                        return resp.json(), None
+                    except Exception:
+                        return None, "invalid_json_response"
+                body = (resp.text or "")[:240]
+                last_error = f"http_{resp.status_code}:{body}"
             except Exception as exc:
                 last_error = f"request_failed:{type(exc).__name__}"
-                if attempt < GEMINI_MAX_RETRIES:
-                    time.sleep(_backoff_delay_sec(attempt))
-                    continue
-                break
-
-            if resp.status_code == 200:
-                try:
-                    return resp.json(), None
-                except Exception:
-                    return None, "invalid_json_response"
-
-            body = (resp.text or "")[:240]
-            last_error = f"http_{resp.status_code}:{body}"
-            if _is_retryable_status(resp.status_code) and attempt < GEMINI_MAX_RETRIES:
-                time.sleep(_backoff_delay_sec(attempt))
-                continue
-            break
+        except CircuitOpenError:
+            last_error = "request_failed:CircuitOpenError"
+        except httpx.HTTPStatusError as exc:
+            body = (exc.response.text or "")[:240]
+            last_error = f"http_{exc.response.status_code}:{body}"
+        except Exception as exc:
+            last_error = f"request_failed:{type(exc).__name__}"
 
         if model != GEMINI_MODEL:
             logger.info("Gemini %s call used fallback model: %s", call_kind, model)
@@ -194,6 +196,26 @@ def _post_with_retries(
             logger.warning("Gemini %s rate-limited on %s, trying fallback model %s", call_kind, GEMINI_MODEL, GEMINI_FALLBACK_MODEL)
 
     return None, last_error or "request_failed:unknown"
+
+
+async def _post_with_shared_client_async(*, url: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    client = get_http_client()
+    resp = await client.request(
+        "POST",
+        url,
+        json=payload,
+        timeout=GEMINI_TIMEOUT_SEC,
+        retries=GEMINI_MAX_RETRIES,
+        backoff_base=GEMINI_RETRY_BASE_DELAY_SEC,
+        retry_statuses={429, 500, 502, 503, 504},
+        service_name="gemini_api",
+        recovery_timeout_sec=GEMINI_RETRY_MAX_DELAY_SEC,
+    )
+    try:
+        data = resp.json()
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
 def run_gemini_research(prompt: str) -> GeminiResearchResponse:

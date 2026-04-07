@@ -10,6 +10,7 @@ import httpx
 from ..config import USER_AGENT
 from ..utils import run_async
 from ..utils import parse_adsb_response, safe_float
+from services.http_client import get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
 
     async def _fetch():
         results: List[Dict[str, Any]] = []
+        client = get_http_client()
         feeds = [
             "https://feeds.bbci.co.uk/news/world/rss.xml",
             "https://rss.dw.com/rdf/rss-en-world",
@@ -51,30 +53,34 @@ def get_conflict_reports(conflict: str = "Iran") -> List[Dict[str, Any]]:
             "https://www.longwarjournal.org/feed",
             "https://understandingwar.org/rss.xml",
         ]
-        async with httpx.AsyncClient(timeout=12.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
-            for feed_url in feeds:
-                try:
-                    resp = await client.get(feed_url)
-                    if resp.status_code != 200:
+        for feed_url in feeds:
+            try:
+                resp = await client.request(
+                    "GET",
+                    feed_url,
+                    timeout=12.0,
+                    retries=2,
+                    service_name="sigint_conflict_feeds",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                items = re.findall(r"<item>(.*?)</item>", resp.text, re.DOTALL)
+                for item in items[:15]:
+                    title_m = re.search(r"<title>(.*?)</title>", item)
+                    date_m = re.search(r"<pubDate>(.*?)</pubDate>", item)
+                    link_m = re.search(r"<link>(.*?)</link>", item)
+                    title = re.sub(r"<[^>]+>|<!\[CDATA\[|\]\]>", "", title_m.group(1) if title_m else "").strip()
+                    if not title or not any(kw in title.lower() for kw in keywords):
                         continue
-                    items = re.findall(r"<item>(.*?)</item>", resp.text, re.DOTALL)
-                    for item in items[:15]:
-                        title_m = re.search(r"<title>(.*?)</title>", item)
-                        date_m = re.search(r"<pubDate>(.*?)</pubDate>", item)
-                        link_m = re.search(r"<link>(.*?)</link>", item)
-                        title = re.sub(r"<[^>]+>|<!\[CDATA\[|\]\]>", "", title_m.group(1) if title_m else "").strip()
-                        if not title or not any(kw in title.lower() for kw in keywords):
-                            continue
-                        results.append(
-                            {
-                                "title": title,
-                                "date": date_m.group(1) if date_m else "",
-                                "url": link_m.group(1) if link_m else "",
-                                "source": feed_url.split("/")[2],
-                            }
-                        )
-                except Exception:
-                    continue
+                    results.append(
+                        {
+                            "title": title,
+                            "date": date_m.group(1) if date_m else "",
+                            "url": link_m.group(1) if link_m else "",
+                            "source": feed_url.split("/")[2],
+                        }
+                    )
+            except Exception:
+                continue
         return results[:10]
 
     try:
@@ -193,72 +199,94 @@ def _match_target_aircraft(ac: Dict[str, Any], cfg: Dict[str, Any]) -> bool:
     return bool(callsign and any(cs in callsign for cs in regs))
 
 
-async def _fetch_adsbexchange_rapidapi(client: httpx.AsyncClient, *, icao: str | None = None, callsign: str | None = None, lat: float | None = None, lon: float | None = None, dist_nm: int = 100) -> List[Dict[str, Any]]:
+async def _fetch_adsbexchange_rapidapi(client: Any, *, icao: str | None = None, callsign: str | None = None, lat: float | None = None, lon: float | None = None, dist_nm: int = 100) -> List[Dict[str, Any]]:
     if not ADSBEXCHANGE_RAPIDAPI_KEY:
         return []
     base = f"https://{ADSBEXCHANGE_RAPIDAPI_HOST}"
     headers = _adsbexchange_rapidapi_headers()
     try:
         if icao:
-            resp = await client.get(f"{base}/api/aircraft/icao/{icao.strip().upper()}", headers=headers, timeout=15.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
-                return ac if isinstance(ac, list) else ([ac] if isinstance(ac, dict) else [])
+            resp = await client.request("GET", f"{base}/api/aircraft/icao/{icao.strip().upper()}", headers=headers, timeout=15.0, retries=1, service_name="adsbexchange_rapidapi")
+            data = resp.json()
+            ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+            return ac if isinstance(ac, list) else ([ac] if isinstance(ac, dict) else [])
         elif callsign and callsign.strip():
-            resp = await client.get(f"{base}/api/aircraft/call/{callsign.strip().upper()}", headers=headers, timeout=15.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
-                return ac if isinstance(ac, list) else ([ac] if isinstance(ac, dict) else [])
+            resp = await client.request("GET", f"{base}/api/aircraft/call/{callsign.strip().upper()}", headers=headers, timeout=15.0, retries=1, service_name="adsbexchange_rapidapi")
+            data = resp.json()
+            ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+            return ac if isinstance(ac, list) else ([ac] if isinstance(ac, dict) else [])
         elif lat is not None and lon is not None:
-            resp = await client.get(f"{base}/api/aircraft/lat/{lat}/lon/{lon}/dist/{min(100, max(1, int(dist_nm)))}", headers=headers, timeout=15.0)
-            if resp.status_code == 200:
-                return parse_adsb_response(resp.json())
+            resp = await client.request(
+                "GET",
+                f"{base}/api/aircraft/lat/{lat}/lon/{lon}/dist/{min(100, max(1, int(dist_nm)))}",
+                headers=headers,
+                timeout=15.0,
+                retries=1,
+                service_name="adsbexchange_rapidapi",
+            )
+            return parse_adsb_response(resp.json())
     except Exception:
         return []
     return []
 
 
-async def _fetch_adsb_by_registration(client: httpx.AsyncClient, reg: str) -> List[Dict[str, Any]]:
+async def _fetch_adsb_by_registration(client: Any, reg: str) -> List[Dict[str, Any]]:
     reg_clean = (reg or "").replace("-", "").replace(" ", "").strip().upper()
     if not reg_clean:
         return []
     for tpl in ADSB_REGISTRATION_URLS:
         try:
-            resp = await client.get(tpl.format(reg=reg_clean), timeout=12.0)
-            if resp.status_code == 200:
-                ac = parse_adsb_response(resp.json())
-                if ac:
-                    return ac
+            resp = await client.request(
+                "GET",
+                tpl.format(reg=reg_clean),
+                timeout=12.0,
+                retries=1,
+                service_name="adsb_registration",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            ac = parse_adsb_response(resp.json())
+            if ac:
+                return ac
         except Exception:
             continue
     return []
 
 
 def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
-    async def _fetch_mil_global(client: httpx.AsyncClient) -> List[Dict[str, Any]]:
+    async def _fetch_mil_global(client: Any) -> List[Dict[str, Any]]:
         for url in ADSB_MIL_ENDPOINTS:
             try:
-                resp = await client.get(url, timeout=20.0)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    ac = data if isinstance(data, list) else data.get("ac", [])
-                    if isinstance(ac, list) and ac:
-                        return ac
+                resp = await client.request(
+                    "GET",
+                    url,
+                    timeout=20.0,
+                    retries=2,
+                    service_name="adsb_mil",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", [])
+                if isinstance(ac, list) and ac:
+                    return ac
             except Exception:
                 continue
         return []
 
-    async def _fetch_region(client: httpx.AsyncClient, lat: float, lon: float, dist: int) -> List[Dict[str, Any]]:
+    async def _fetch_region(client: Any, lat: float, lon: float, dist: int) -> List[Dict[str, Any]]:
         for tpl in ADSB_ENDPOINTS:
             try:
-                resp = await client.get(tpl.format(lat=lat, lon=lon, dist=dist), timeout=15.0)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
-                    if isinstance(ac, list):
-                        return ac
+                resp = await client.request(
+                    "GET",
+                    tpl.format(lat=lat, lon=lon, dist=dist),
+                    timeout=15.0,
+                    retries=2,
+                    service_name="adsb_region",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                data = resp.json()
+                ac = data if isinstance(data, list) else data.get("ac", data.get("aircraft", []))
+                if isinstance(ac, list):
+                    return ac
             except Exception:
                 continue
         return []
@@ -266,41 +294,41 @@ def get_military_aircraft(region: str = "Middle East") -> List[Dict[str, Any]]:
     async def _run():
         results: List[Dict[str, Any]] = []
         seen_icao: set[str] = set()
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0"}) as client:
-            mil = await _fetch_mil_global(client)
-            for ac in mil:
-                lat = safe_float(ac.get("lat"))
-                lon = safe_float(ac.get("lon"))
-                if lat is None or lon is None or not _in_conflict_zone(lat, lon):
+        client = get_http_client()
+        mil = await _fetch_mil_global(client)
+        for ac in mil:
+            lat = safe_float(ac.get("lat"))
+            lon = safe_float(ac.get("lon"))
+            if lat is None or lon is None or not _in_conflict_zone(lat, lon):
+                continue
+            icao = str(ac.get("hex") or "").upper()
+            if icao in seen_icao:
+                continue
+            seen_icao.add(icao)
+            callsign = str(ac.get("flight") or "").strip()
+            ac_type = str(ac.get("t") or ac.get("type") or "").strip()
+            results.append({"flight": callsign or icao, "type": ac_type, "lat": lat, "lon": lon, "category": _classify_aircraft(callsign, ac_type) or "military", "source": "mil-global"})
+        tasks = [_fetch_region(client, lat, lon, dist) for _, lat, lon, dist in ADSB_REGIONS]
+        all_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for (label, _, _, _), ac_list in zip(ADSB_REGIONS, all_results, strict=True):
+            if not isinstance(ac_list, list):
+                continue
+            for ac in ac_list:
+                callsign = str(ac.get("flight") or "").strip()
+                ac_type = str(ac.get("t") or ac.get("type") or "").strip()
+                reg = str(ac.get("r") or ac.get("reg") or "").strip()
+                cat = _classify_aircraft(callsign, ac_type, reg)
+                if not cat:
                     continue
                 icao = str(ac.get("hex") or "").upper()
                 if icao in seen_icao:
                     continue
-                seen_icao.add(icao)
-                callsign = str(ac.get("flight") or "").strip()
-                ac_type = str(ac.get("t") or ac.get("type") or "").strip()
-                results.append({"flight": callsign or icao, "type": ac_type, "lat": lat, "lon": lon, "category": _classify_aircraft(callsign, ac_type) or "military", "source": "mil-global"})
-            tasks = [_fetch_region(client, lat, lon, dist) for _, lat, lon, dist in ADSB_REGIONS]
-            all_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for (label, _, _, _), ac_list in zip(ADSB_REGIONS, all_results, strict=True):
-                if not isinstance(ac_list, list):
+                lat = safe_float(ac.get("lat"))
+                lon = safe_float(ac.get("lon"))
+                if lat is None or lon is None:
                     continue
-                for ac in ac_list:
-                    callsign = str(ac.get("flight") or "").strip()
-                    ac_type = str(ac.get("t") or ac.get("type") or "").strip()
-                    reg = str(ac.get("r") or ac.get("reg") or "").strip()
-                    cat = _classify_aircraft(callsign, ac_type, reg)
-                    if not cat:
-                        continue
-                    icao = str(ac.get("hex") or "").upper()
-                    if icao in seen_icao:
-                        continue
-                    lat = safe_float(ac.get("lat"))
-                    lon = safe_float(ac.get("lon"))
-                    if lat is None or lon is None:
-                        continue
-                    seen_icao.add(icao)
-                    results.append({"flight": callsign or ac_type or icao, "type": ac_type, "lat": lat, "lon": lon, "category": cat, "region": label, "reg": reg or None})
+                seen_icao.add(icao)
+                results.append({"flight": callsign or ac_type or icao, "type": ac_type, "lat": lat, "lon": lon, "category": cat, "region": label, "reg": reg or None})
         return results
 
     try:
@@ -334,43 +362,47 @@ def get_target_aircraft(target: str = "OE-III") -> Dict[str, Any]:
         latest_adsbx: Dict[str, Any] | None = None
         opensky_hint: Dict[str, Any] | None = None
         fallback_match: Dict[str, Any] | None = None
-        async with httpx.AsyncClient(headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"}) as client:
+        client = get_http_client()
+        for reg in cfg.get("regs") or []:
+            ac_list_reg = await _fetch_adsb_by_registration(client, reg)
+            if ac_list_reg and _match_target_aircraft(ac_list_reg[0], cfg):
+                latest_adsbx = _ac_to_position(ac_list_reg[0], "adsb_registration")
+                break
+            await asyncio.sleep(0.2)
+        if ADSBEXCHANGE_RAPIDAPI_KEY and not latest_adsbx:
             for reg in cfg.get("regs") or []:
-                ac_list_reg = await _fetch_adsb_by_registration(client, reg)
-                if ac_list_reg and _match_target_aircraft(ac_list_reg[0], cfg):
-                    latest_adsbx = _ac_to_position(ac_list_reg[0], "adsb_registration")
+                cs_clean = (reg or "").replace("-", "").replace(" ", "").strip().upper()
+                if not cs_clean:
+                    continue
+                rapid = await _fetch_adsbexchange_rapidapi(client, callsign=cs_clean)
+                cand = [ac for ac in rapid if _match_target_aircraft(ac, cfg)]
+                if cand:
+                    latest_adsbx = _ac_to_position(cand[0], "adsbexchange_rapidapi")
                     break
-                await asyncio.sleep(0.2)
-            if ADSBEXCHANGE_RAPIDAPI_KEY and not latest_adsbx:
-                for reg in cfg.get("regs") or []:
-                    cs_clean = (reg or "").replace("-", "").replace(" ", "").strip().upper()
-                    if not cs_clean:
-                        continue
-                    rapid = await _fetch_adsbexchange_rapidapi(client, callsign=cs_clean)
-                    cand = [ac for ac in rapid if _match_target_aircraft(ac, cfg)]
-                    if cand:
-                        latest_adsbx = _ac_to_position(cand[0], "adsbexchange_rapidapi")
-                        break
-            if OPENSKY_USERNAME and OPENSKY_PASSWORD and (cfg.get("hex") or "").strip():
-                try:
-                    now_ts = int(datetime.now(timezone.utc).timestamp())
-                    resp = await client.get(
-                        "https://opensky-network.org/api/flights/aircraft",
-                        params={"icao24": (cfg.get("hex") or "").lower(), "begin": now_ts - 24 * 3600, "end": now_ts},
-                        auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD),
-                        timeout=20.0,
-                    )
-                    if resp.status_code == 200 and isinstance(resp.json(), list) and resp.json():
-                        last = resp.json()[-1]
-                        opensky_hint = {"last_callsign": last.get("callsign"), "last_origin": last.get("estDepartureAirport"), "last_destination": last.get("estArrivalAirport"), "last_time": last.get("lastSeen") or last.get("firstSeen")}
-                except (httpx.HTTPError, ValueError, TypeError) as exc:
-                    logger.debug("SIGINT: OpenSky lookup failed for %s: %s", target, exc)
-            if not latest_adsbx:
-                mil = get_military_aircraft() or []
-                for ac in mil:
-                    if _match_target_aircraft(ac, cfg):
-                        fallback_match = {"flight": ac.get("flight"), "lat": ac.get("lat"), "lon": ac.get("lon"), "type": ac.get("type"), "category": ac.get("category"), "source": ac.get("source", "mil-global"), "position_source": "adsb"}
-                        break
+        if OPENSKY_USERNAME and OPENSKY_PASSWORD and (cfg.get("hex") or "").strip():
+            try:
+                now_ts = int(datetime.now(timezone.utc).timestamp())
+                resp = await client.request(
+                    "GET",
+                    "https://opensky-network.org/api/flights/aircraft",
+                    params={"icao24": (cfg.get("hex") or "").lower(), "begin": now_ts - 24 * 3600, "end": now_ts},
+                    auth=(OPENSKY_USERNAME, OPENSKY_PASSWORD),
+                    timeout=20.0,
+                    retries=1,
+                    service_name="opensky_aircraft",
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; SIGINT/1.0)"},
+                )
+                if isinstance(resp.json(), list) and resp.json():
+                    last = resp.json()[-1]
+                    opensky_hint = {"last_callsign": last.get("callsign"), "last_origin": last.get("estDepartureAirport"), "last_destination": last.get("estArrivalAirport"), "last_time": last.get("lastSeen") or last.get("firstSeen")}
+            except (httpx.HTTPError, ValueError, TypeError) as exc:
+                logger.debug("SIGINT: OpenSky lookup failed for %s: %s", target, exc)
+        if not latest_adsbx:
+            mil = get_military_aircraft() or []
+            for ac in mil:
+                if _match_target_aircraft(ac, cfg):
+                    fallback_match = {"flight": ac.get("flight"), "lat": ac.get("lat"), "lon": ac.get("lon"), "type": ac.get("type"), "category": ac.get("category"), "source": ac.get("source", "mil-global"), "position_source": "adsb"}
+                    break
         result["adsbx"] = latest_adsbx
         result["opensky"] = opensky_hint
         result["fallback_sigint"] = fallback_match

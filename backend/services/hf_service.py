@@ -16,10 +16,12 @@ import logging
 import math
 import os
 import time
+import asyncio
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+from services.http_client import CircuitOpenError, get_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -108,25 +110,49 @@ async def _hf_post_url(url: str, payload: Dict[str, Any], timeout: int = 0, log_
     """POST to a full HF Inference API URL. Returns parsed JSON or None on failure."""
     t = timeout or HF_API_TIMEOUT
     label = log_name or url.split("/")[-1]
+    client = get_http_client()
     try:
-        async with httpx.AsyncClient(timeout=t) as client:
-            resp = await client.post(url, json=payload, headers=_headers())
-            if resp.status_code == 503:
-                wait = 30
-                try:
-                    body = resp.json()
-                    wait = min(int(body.get("estimated_time", 30)), 60)
-                except Exception:
-                    pass
-                logger.info("[hf] Model %s loading, waiting %ds...", label, wait)
-                import asyncio
-
-                await asyncio.sleep(wait)
-                resp = await client.post(url, json=payload, headers=_headers())
-            if resp.status_code != 200:
-                logger.warning("[hf] %s returned %d: %s", label, resp.status_code, resp.text[:200])
+        resp = await client.request(
+            "POST",
+            url,
+            json=payload,
+            headers=_headers(),
+            timeout=t,
+            retries=2,
+            service_name="huggingface_inference",
+            retry_statuses={429, 500, 502, 503, 504},
+        )
+        return resp.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 503:
+            wait = 30
+            try:
+                body = e.response.json()
+                wait = min(int(body.get("estimated_time", 30)), 60)
+            except Exception:
+                pass
+            logger.info("[hf] Model %s loading, waiting %ds...", label, wait)
+            await asyncio.sleep(wait)
+            try:
+                resp = await client.request(
+                    "POST",
+                    url,
+                    json=payload,
+                    headers=_headers(),
+                    timeout=t,
+                    retries=1,
+                    service_name="huggingface_inference",
+                    retry_statuses={429, 500, 502, 503, 504},
+                )
+                return resp.json()
+            except Exception as retry_exc:
+                logger.warning("[hf] %s retry after loading failed: %s", label, retry_exc)
                 return None
-            return resp.json()
+        logger.warning("[hf] %s returned %d: %s", label, e.response.status_code, e.response.text[:200])
+        return None
+    except CircuitOpenError:
+        logger.warning("[hf] Request blocked by open circuit: %s", label)
+        return None
     except Exception as e:
         logger.error("[hf] Request to %s failed: %s", label, e)
         return None
