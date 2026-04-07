@@ -51,6 +51,8 @@ CONTEXT_CHAR_BUDGET = 12000
 AGENT_CHUNK_MAX_CHARS = int(os.getenv("CHAT_AGENT_CHUNK_MAX_CHARS", "800"))
 # Recency window for changes_since_yesterday (NEWS published_at, SIGINT _meta.fetched_at).
 CHANGES_RECENT_HOURS = int(os.getenv("CHAT_CHANGES_RECENT_HOURS", "36"))
+# Max chars for Layer 4 deterministic diff block inside chat context (rest stays for snapshot excerpts).
+CHAT_DIFF_CONTEXT_MAX_CHARS = int(os.getenv("CHAT_DIFF_CONTEXT_MAX_CHARS", "4500"))
 
 QuestionType = Literal[
     "situation_overview",
@@ -567,7 +569,115 @@ def _question_context_plan(question_type: QuestionType, analysis: Dict[str, Any]
     return {"primary": primary, "secondary": secondary}
 
 
-def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, question_type: QuestionType) -> str:
+def _diff_specific_has_signal(spec: Any) -> bool:
+    if not isinstance(spec, dict) or not spec:
+        return False
+    for _k, v in spec.items():
+        if isinstance(v, int) and v != 0:
+            return True
+        if isinstance(v, float) and v != 0.0:
+            return True
+        if isinstance(v, list) and len(v) > 0:
+            return True
+    return False
+
+
+def _format_diff_for_chat(diff: Dict[str, Any], *, max_chars: int) -> str:
+    """Compact, LLM-friendly text from Layer 4 diff_runs output."""
+    lines: List[str] = []
+    lines.append(f"Compared runs: previous={diff.get('run_id_prev')} current={diff.get('run_id_curr')}")
+    summ = diff.get("summary") or {}
+    lines.append(
+        f"Snapshot summary: {summ.get('agents_changed', 0)} agent block(s) changed of {summ.get('agents_total', 0)} total."
+    )
+    g = diff.get("global") or {}
+    if g.get("escalation_score_delta") is not None:
+        lines.append(
+            f"Escalation (FININT block): {g.get('escalation_score_prev')} -> {g.get('escalation_score_curr')} "
+            f"(delta {g.get('escalation_score_delta')})"
+        )
+    elif g.get("escalation_score_curr") is not None:
+        lines.append(f"Escalation (FININT block) current: {g.get('escalation_score_curr')}")
+    tp, tc = g.get("threat_level_prev"), g.get("threat_level_curr")
+    if tp or tc:
+        lines.append(f"Threat level (FININT block): {tp!s} -> {tc!s}")
+    added = g.get("key_findings_added") or []
+    resolved = g.get("key_findings_resolved") or []
+    if added:
+        lines.append("Key findings added since previous run:")
+        for f in added[:15]:
+            lines.append(f"  + {_short_text(str(f), 300)}")
+    if resolved:
+        lines.append("Key findings no longer present (resolved/dropped vs previous run):")
+        for f in resolved[:10]:
+            lines.append(f"  - {_short_text(str(f), 300)}")
+
+    agents = diff.get("agents") or {}
+    lines.append("Per-agent deltas (deterministic rules):")
+    for name in sorted(agents.keys()):
+        ad = agents[name]
+        if not isinstance(ad, dict):
+            continue
+        gen = ad.get("generic") if isinstance(ad.get("generic"), dict) else {}
+        spec = ad.get("specific") if isinstance(ad.get("specific"), dict) else {}
+        hash_changed = bool(ad.get("content_hash_changed"))
+        sd = gen.get("score_delta")
+        sig = _diff_specific_has_signal(spec)
+        score_moved = isinstance(sd, (int, float)) and abs(float(sd)) >= 0.01
+        if not hash_changed and not score_moved and not sig:
+            continue
+        parts: List[str] = []
+        if hash_changed:
+            parts.append("content_changed")
+        if sd is not None and (score_moved or hash_changed):
+            parts.append(f"score_delta={sd}")
+        if spec:
+            parts.append(f"specific={json.dumps(spec, default=str)[:400]}")
+        lines.append(f"  [{name}] " + "; ".join(parts))
+
+    return _clip_chunk("\n".join(lines), max_chars)
+
+
+def _build_deterministic_changes_context(conflict: str, tenant_id: str) -> str:
+    """
+    Layer 4 diff between the two latest persisted analysis runs (same conflict, same tenant).
+    Empty string if fewer than two runs or diff unavailable.
+    """
+    try:
+        from services.diff_engine import auto_pick_runs_for_diff, diff_runs
+
+        picked = auto_pick_runs_for_diff(conflict=conflict, tenant_id=tenant_id)
+        if not picked:
+            return ""
+        out = diff_runs(
+            conflict=conflict,
+            run_id_prev=picked["run_id_prev"],
+            run_id_curr=picked["run_id_curr"],
+            tenant_id=tenant_id,
+        )
+        if out.get("error"):
+            return ""
+        block = _format_diff_for_chat(out, max_chars=CHAT_DIFF_CONTEXT_MAX_CHARS)
+        if not block.strip():
+            return ""
+        return (
+            "=== DETERMINISTIC RUN-TO-RUN DELTA (Layer 4; use as primary evidence for what changed) ===\n"
+            + block
+            + "\n=== END DELTA ===\n"
+            "=== Current cached snapshot excerpts below (secondary detail) ==="
+        )
+    except Exception as e:
+        _chat_logger.debug("deterministic changes context failed: %s", e)
+        return ""
+
+
+def _build_context_for_type(
+    analysis: Dict[str, Any],
+    fallback_conflict: str,
+    question_type: QuestionType,
+    *,
+    tenant_id: Optional[str] = None,
+) -> str:
     conflict = str(analysis.get("conflict") or fallback_conflict)
     escalation = analysis.get("escalation_score")
     threat = analysis.get("threat_level")
@@ -596,10 +706,17 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
     ]
     header = "\n".join(header_lines).strip()
 
+    diff_prefix = ""
+    if question_type == "changes_since_yesterday" and tenant_id:
+        diff_prefix = _build_deterministic_changes_context(conflict, tenant_id)
+        if diff_prefix:
+            diff_prefix = diff_prefix.strip() + "\n\n"
+
     plan = _question_context_plan(question_type, analysis)
     body_chunks: List[str] = []
     seen_keys: Set[str] = set()
-    remaining = max(CONTEXT_CHAR_BUDGET - len(header) - 2, 0)
+    base_len = len(header) + len(diff_prefix) + 2
+    remaining = max(CONTEXT_CHAR_BUDGET - base_len, 0)
 
     def add_body(text: str) -> None:
         nonlocal remaining
@@ -647,9 +764,11 @@ def _build_context_for_type(analysis: Dict[str, Any], fallback_conflict: str, qu
             continue
         add_body(agent_chunk(key))
 
+    if diff_prefix and not body_chunks:
+        return _clip_chunk(header + "\n\n" + diff_prefix, CONTEXT_CHAR_BUDGET)
     if not body_chunks:
         return _clip_chunk(header, CONTEXT_CHAR_BUDGET)
-    out = header + "\n\n" + "\n\n".join(body_chunks)
+    out = header + "\n\n" + diff_prefix + "\n\n".join(body_chunks)
     return _clip_chunk(out, CONTEXT_CHAR_BUDGET)
 
 
@@ -883,7 +1002,9 @@ async def chat_ask(request: Request, state: StateServiceDep, body: ChatAskReques
     if cached and isinstance(cached.get("result"), dict):
         analysis = cached["result"]
 
-    context = _build_context_for_type(analysis, conflict, question_type) if analysis else ""
+    context = (
+        _build_context_for_type(analysis, conflict, question_type, tenant_id=tenant_id) if analysis else ""
+    )
     sources = _collect_sources(analysis) if analysis else []
 
     MIN_CONTEXT_LEN = 200
