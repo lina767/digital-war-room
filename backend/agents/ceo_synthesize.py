@@ -318,7 +318,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "geoint",
             "satintel",
             "socmint",
-            "mediaint",
             "techint",
             "cyber",
             "energy",
@@ -342,7 +341,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     geoint_result = agent_results.get("geoint") or {}
     satintel_result = agent_results.get("satintel") or {}
     socmint_result = agent_results.get("socmint") or {}
-    mediaint_result = agent_results.get("mediaint") or {}
     techint_result = agent_results.get("techint") or {}
     cyber_result = agent_results.get("cyber") or {}
     energy_result = agent_results.get("energy") or {}
@@ -363,7 +361,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     geoint_score = coerce_float(geoint_result.get("geoint_score"), 0.0)
     satintel_score = coerce_float(satintel_result.get("satintel_score"), 0.0)
     socmint_score = coerce_float(socmint_result.get("socmint_score"), 0.0)
-    mediaint_score = coerce_float(mediaint_result.get("mediaint_score"), 0.0)
     techint_score = coerce_float(techint_result.get("techint_score"), 0.0)
     cyber_score = coerce_float(cyber_result.get("cyber_score"), 0.0)
     energy_score = coerce_float(energy_result.get("energy_score"), 0.0)
@@ -379,7 +376,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "geoint": geoint_score,
         "satintel": satintel_score,
         "socmint": socmint_score,
-        "mediaint": mediaint_score,
         "techint": techint_score,
         "cyber": cyber_score,
         "energy": energy_score,
@@ -398,7 +394,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             "geoint_score" in geoint_result,
             "satintel_score" in satintel_result,
             "socmint_score" in socmint_result,
-            "mediaint_score" in mediaint_result,
             "techint_score" in techint_result,
             "cyber_score" in cyber_result,
             "energy_score" in energy_result,
@@ -460,7 +455,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         "geoint": geoint_score,
         "satintel": satintel_score,
         "socmint": socmint_score,
-        "mediaint": mediaint_score,
         "techint": techint_score,
         "cyber": cyber_score,
         "energy": energy_score,
@@ -522,7 +516,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
         geoint_result,
         satintel_result,
         socmint_result,
-        mediaint_result,
         techint_result,
         cyber_result,
         energy_result,
@@ -650,7 +643,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
             geoint_score,
             satintel_score,
             socmint_score,
-            mediaint_score,
             techint_score,
             cyber_score,
             energy_score,

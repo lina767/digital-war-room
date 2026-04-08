@@ -131,7 +131,7 @@ def _normalize(parsed: Any, requested_findings: List[str]) -> Dict[str, Any]:
 
 
 _STREAMS = {
-    "finint", "sigint", "news", "geoint", "socmint", "mediaint",
+    "finint", "sigint", "news", "geoint", "socmint",
     "techint", "cyber", "energy", "diplo", "proximity", "chokepoint",
     "satintel", "pentagon", "acled",
 }

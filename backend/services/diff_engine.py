@@ -61,7 +61,6 @@ def _extract_agent_score(block: Dict[str, Any]) -> Optional[float]:
         "energy_score",
         "news_score",
         "socmint_score",
-        "mediaint_score",
         "narrative_score",
         "diplo_score",
         "techint_score",

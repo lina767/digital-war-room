@@ -69,7 +69,7 @@ HIERARCHY_WEIGHTS = {
         "financial": {"ceo_weight": 0.18, "agents": {"finint": 0.55, "energy": 0.45}},
         "information": {
             "ceo_weight": 0.22,
-            "agents": {"news": 0.36, "socmint": 0.31, "mediaint": 0.13, "narrative": 0.20},
+            "agents": {"news": 0.42, "socmint": 0.36, "narrative": 0.22},
         },
         "political": {"ceo_weight": 0.14, "agents": {"diplo": 1.0}},
         "technical": {"ceo_weight": 0.16, "agents": {"techint": 0.50, "cyber": 0.50}},
@@ -99,7 +99,6 @@ AGENT_TTLS = {
     "narrative": int(os.getenv("AGENT_TTL_NARRATIVE", "1800")),
     "news": 0,
     "socmint": 0,
-    "mediaint": 0,
     "sigint": 0,
     "chokepoint": 0,
     "finint": 0,

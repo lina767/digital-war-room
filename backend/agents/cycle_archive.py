@@ -32,7 +32,6 @@ TIER1_AGENT_NAMES = [
     "energy",
     "news",
     "socmint",
-    "mediaint",
     "narrative",
     "diplo",
     "techint",

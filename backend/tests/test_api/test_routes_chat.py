@@ -63,7 +63,7 @@ def test_chat_ask_returns_structured_answer(monkeypatch):
     assert body["sources"] == ["https://example.com/report"]
 
 
-def test_chat_ask_passes_chat_model_to_analyst_summary(monkeypatch):
+def test_chat_ask_forces_default_haiku_model(monkeypatch):
     captured: dict = {}
     client = _client()
     client.app.state.state_service.set_cache(
@@ -85,10 +85,9 @@ def test_chat_ask_passes_chat_model_to_analyst_summary(monkeypatch):
         )
 
     monkeypatch.setattr("api.routes_chat.analyst_summary", _fake_analyst_summary)
-    monkeypatch.setattr("api.routes_chat.CHAT_MODEL", "claude-sonnet-4-6")
     r = client.post("/api/chat/ask", json={"question": "What is the current risk level?", "conflict": "Iran"})
     assert r.status_code == 200
-    assert captured.get("model") == "claude-sonnet-4-6"
+    assert captured.get("model") is None
 
 
 def test_chat_feedback_persists(monkeypatch):

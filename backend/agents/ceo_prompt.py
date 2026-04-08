@@ -16,7 +16,6 @@ CEO_SYSTEM_PROMPT = """You are a senior intelligence analyst with access to mult
 - GEOINT: Satellite thermal anomaly detection
 - SATINTEL: Sentinel Hub/Copernicus satellite imagery signal scoring
 - SOCMINT: Social media signals from Telegram, Reddit, and RSS
-- MEDIAINT: EXIF/GPS and perceptual-hash clustering on media URLs from SOCMINT; video keyframes via FFmpeg when available
 - TECHINT: Tech sector indicators, export control news, IODA internet outage events (escalation signal)
 - CYBER: CISA KEV, threat intel reports, OTX pulses (APT/exploit indicators)
 - ENERGY: EU gas storage (AGSI+), commodity prices (Brent, WTI), food commodities (Wheat, Corn, Soy), FAO Food Price Index, fertilizer prices (Urea, DAP), food security risk
@@ -141,20 +140,6 @@ def compact_for_llm(agent_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         dc2 = result.get("data_confidence")
         if dc2 in ("live", "estimated", "degraded"):
             out["data_confidence"] = dc2
-    if agent_name == "mediaint":
-        out["exif_gps_count"] = result.get("exif_gps_count", 0)
-        out["video_keyframes_extracted"] = result.get("video_keyframes_extracted", 0)
-        out["vision_analysis_count"] = result.get("vision_analysis_count", 0)
-        out["near_duplicate_clusters"] = (result.get("near_duplicate_clusters") or [])[:5]
-        out["sample_assets"] = []
-        for a in (result.get("media_assets") or [])[:4]:
-            if not isinstance(a, dict):
-                continue
-            clip = {k: a[k] for k in ("kind", "provenance", "phash") if k in a}
-            va = a.get("vision_analysis")
-            if isinstance(va, str) and va.strip():
-                clip["vision_analysis"] = va.strip()[:1200]
-            out["sample_assets"].append(clip)
     if agent_name == "finint":
         pm = result.get("polymarket")
         if isinstance(pm, list) and pm:
@@ -189,7 +174,6 @@ def build_supervisor_user_payload(
     geoint_result: Dict[str, Any],
     satintel_result: Dict[str, Any],
     socmint_result: Dict[str, Any],
-    mediaint_result: Dict[str, Any],
     techint_result: Dict[str, Any],
     cyber_result: Dict[str, Any],
     energy_result: Dict[str, Any],
@@ -209,7 +193,6 @@ def build_supervisor_user_payload(
     geoint_score = coerce_float(geoint_result.get("geoint_score"), 0.0)
     satintel_score = coerce_float(satintel_result.get("satintel_score"), 0.0)
     socmint_score = coerce_float(socmint_result.get("socmint_score"), 0.0)
-    mediaint_score = coerce_float(mediaint_result.get("mediaint_score"), 0.0)
     techint_score = coerce_float(techint_result.get("techint_score"), 0.0)
     cyber_score = coerce_float(cyber_result.get("cyber_score"), 0.0)
     energy_score = coerce_float(energy_result.get("energy_score"), 0.0)
@@ -238,7 +221,6 @@ def build_supervisor_user_payload(
             "geoint": geoint_score,
             "satintel": satintel_score,
             "socmint": socmint_score,
-            "mediaint": mediaint_score,
             "techint": techint_score,
             "cyber": cyber_score,
             "energy": energy_score,
@@ -253,7 +235,6 @@ def build_supervisor_user_payload(
         "geoint": compact_for_llm("geoint", geoint_result),
         "satintel": compact_for_llm("satintel", satintel_result),
         "socmint": compact_for_llm("socmint", socmint_result),
-        "mediaint": compact_for_llm("mediaint", mediaint_result),
         "techint": compact_for_llm("techint", techint_result),
         "cyber": compact_for_llm("cyber", cyber_result),
         "energy": compact_for_llm("energy", energy_result),
@@ -278,7 +259,6 @@ def build_supervisor_user_payload(
         geoint_result,
         satintel_result,
         socmint_result,
-        mediaint_result,
         techint_result,
         cyber_result,
         energy_result,

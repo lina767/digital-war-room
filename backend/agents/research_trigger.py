@@ -31,7 +31,6 @@ SCORE_KEYS: List[Tuple[str, str]] = [
     ("geoint", "geoint_score"),
     ("satintel", "satintel_score"),
     ("socmint", "socmint_score"),
-    ("mediaint", "mediaint_score"),
     ("techint", "techint_score"),
     ("cyber", "cyber_score"),
     ("energy", "energy_score"),

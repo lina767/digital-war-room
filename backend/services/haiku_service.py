@@ -242,12 +242,17 @@ async def _call_haiku(
     *,
     usage_agent: str = "other",
     model: Optional[str] = None,
+    bypass_per_run_call_limit: bool = False,
 ) -> Optional[str]:
     """
     Low-level Haiku call with budget/limit checks and usage tracking.
     Returns the text response or None on any failure.
+
+    ``bypass_per_run_call_limit`` is used by dashboard chat (`analyst_summary` with
+    ``skip_run_limits=True``) so a long analysis run does not exhaust
+    ``HAIKU_MAX_CALLS_PER_RUN`` and block user-visible Q&A. Monthly budget still applies.
     """
-    if _run_call_count >= HAIKU_MAX_CALLS_PER_RUN:
+    if not bypass_per_run_call_limit and _run_call_count >= HAIKU_MAX_CALLS_PER_RUN:
         logger.warning("[haiku] Run call limit reached (%d)", HAIKU_MAX_CALLS_PER_RUN)
         return None
     if not _check_budget():
@@ -766,7 +771,7 @@ async def analyst_summary(
     """
     Generic analyst-style summary with custom system prompt. Use for GreyNoise, TECHINT,
     CYBER, ENERGY, IAEA, etc. Budget-tracked; separate limit from content summarization.
-    Optional ``model`` overrides ``HAIKU_MODEL`` for this call (e.g. CHAT_MODEL for /chat/ask).
+    Optional ``model`` overrides ``HAIKU_MODEL`` for this call.
     When ``skip_run_limits`` is True the per-run analyst counter and the
     ``_run_haiku_failed`` flag are bypassed (used by the chat endpoint so it is
     not blocked by a concurrent or previous analysis run).  Monthly budget and
@@ -788,6 +793,7 @@ async def analyst_summary(
         max_tokens=max_tokens,
         usage_agent=usage_agent,
         model=model,
+        bypass_per_run_call_limit=skip_run_limits,
     )
     if result:
         _run_analyst_summary_count += 1

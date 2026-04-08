@@ -164,22 +164,6 @@ class SocmintResult(BaseAgentResult):
 
 
 # ---------------------------------------------------------------------------
-# MEDIAINT
-# ---------------------------------------------------------------------------
-
-
-class MediaintResult(BaseAgentResult):
-    schema_version: int = 1
-    mediaint_score: float = 0.0
-    media_assets: List[Dict[str, Any]] = Field(default_factory=list)
-    near_duplicate_clusters: List[Dict[str, Any]] = Field(default_factory=list)
-    exif_gps_count: int = 0
-    video_keyframes_extracted: int = 0
-    vision_analysis_count: int = 0
-    ffmpeg_available: bool = False
-
-
-# ---------------------------------------------------------------------------
 # TECHINT
 # ---------------------------------------------------------------------------
 
@@ -308,7 +292,6 @@ AGENT_RESULT_TYPES: Dict[str, type] = {
     "geoint": GeointResult,
     "satintel": SatintelResult,
     "socmint": SocmintResult,
-    "mediaint": MediaintResult,
     "techint": TechintResult,
     "cyber": CyberResult,
     "diplo": DiploResult,

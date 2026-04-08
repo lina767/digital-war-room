@@ -26,7 +26,7 @@ Formatting:
 - Write in English only (no German or other languages).
 - Use 2–4 short paragraphs separated by a blank line between paragraphs (double newline in plain text).
 - Each paragraph: 2–4 sentences. No bullet lists, no markdown headings, no JSON.
-- Name streams when useful: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, MEDIAINT, TECHINT, CYBER, ENERGY,
+- Name streams when useful: FININT, SIGINT, NEWS, GEOINT, SATINTEL, SOCMINT, TECHINT, CYBER, ENERGY,
   DIPLO, PROXIMITY, CHOKEPOINT, PENTAGON (informal DC venue proxy only), Signal Framework (payload key "narrative") when present.
 - If two signals contradict, say so briefly and which stream is softer evidence.
 - If PAYLOAD_JSON includes "degraded_agents" (non-empty), name those streams and clarify that low scores there reflect missing feeds, not necessarily calm conditions.
@@ -39,7 +39,6 @@ _AGENT_ORDER = (
     "geoint",
     "satintel",
     "socmint",
-    "mediaint",
     "techint",
     "cyber",
     "energy",

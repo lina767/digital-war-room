@@ -122,7 +122,6 @@ def apply_quality_to_all_agents(
         "geoint",
         "satintel",
         "socmint",
-        "mediaint",
         "techint",
         "cyber",
         "energy",

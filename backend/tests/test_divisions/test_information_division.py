@@ -42,19 +42,6 @@ def _mock_narrative_result(score=30):
     }
 
 
-def _mock_mediaint_result(score=25):
-    return {
-        "mediaint_score": score,
-        "media_assets": [],
-        "near_duplicate_clusters": [],
-        "exif_gps_count": 0,
-        "video_keyframes_extracted": 0,
-        "vision_analysis_count": 0,
-        "ffmpeg_available": False,
-        "summary": "MEDIAINT mock",
-    }
-
-
 class TestNERExtract:
     def test_extracts_entities_from_news_and_socmint(self):
         store = ResultStore()
@@ -162,7 +149,6 @@ class TestSummaryNode:
         store = ResultStore()
         store.set("news", _mock_news_result(score=60))
         store.set("socmint", _mock_socmint_result(score=40))
-        store.set("mediaint", _mock_mediaint_result(score=30))
         store.set("narrative", _mock_narrative_result(score=20))
 
         result = div._execute_summary(store)
@@ -170,7 +156,6 @@ class TestSummaryNode:
         assert result.score > 0
         assert "news" in result.agent_scores
         assert "socmint" in result.agent_scores
-        assert "mediaint" in result.agent_scores
         assert "narrative" in result.agent_scores
 
     def test_handles_missing_agent(self):
@@ -178,7 +163,6 @@ class TestSummaryNode:
         store = ResultStore()
         store.set("news", _mock_news_result(score=50))
         store.set("socmint", _mock_socmint_result(score=30))
-        store.set("mediaint", _mock_mediaint_result(score=20))
 
         result = div._execute_summary(store)
         assert "narrative" in result.agents_failed
@@ -189,7 +173,6 @@ class TestSummaryNode:
         store = ResultStore()
         store.set("news", _mock_news_result(score=80))
         store.set("socmint", _mock_socmint_result(score=20))
-        store.set("mediaint", _mock_mediaint_result(score=25))
         store.set("narrative", _mock_narrative_result())
 
         result = div._execute_summary(store)
@@ -201,7 +184,6 @@ class TestSummaryNode:
         store = ResultStore()
         store.set("news", _mock_news_result(score=45))
         store.set("socmint", _mock_socmint_result(score=42))
-        store.set("mediaint", _mock_mediaint_result(score=40))
         store.set("narrative", _mock_narrative_result(score=40))
 
         result = div._execute_summary(store)
@@ -216,7 +198,6 @@ class TestDAGNodes:
         node_ids = {n.id for n in nodes}
         assert "news" in node_ids
         assert "socmint" in node_ids
-        assert "mediaint" in node_ids
         assert "narrative" in node_ids
         assert "ner_extract" in node_ids
         assert "prefilter_summarize" in node_ids
@@ -240,12 +221,7 @@ class TestDAGNodes:
         nodes = {n.id: n for n in div.get_dag_nodes()}
         assert nodes["news"].streamable is True
         assert nodes["socmint"].streamable is True
-        assert nodes["mediaint"].streamable is True
-
-    def test_mediaint_depends_on_socmint(self):
-        div = InformationDivision()
-        nodes = {n.id: n for n in div.get_dag_nodes()}
-        assert "socmint" in nodes["mediaint"].dependencies
+        assert nodes["narrative"].streamable is True
 
     def test_enrichment_not_streamable(self):
         div = InformationDivision()
