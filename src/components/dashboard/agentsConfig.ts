@@ -14,7 +14,6 @@ export const AGENT_NAME_TO_KEY: Record<string, string> = {
   "NEWS": "news",
   "GEOINT": "geoint",
   "SOCMINT": "socmint",
-  "MEDIAINT": "mediaint",
   "TECHINT": "techint",
   "CYBER": "cyber",
   "ENERGY": "energy",
@@ -92,22 +91,6 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
       { name: "Reddit", description: "Subreddits (geopolitics, worldnews, region-specific)" },
       { name: "RSS", description: "CriticalThreats, LongWarJournal, ISW, KyivPost, etc." },
       { name: "ReliefWeb", description: "Conflict reports by country" },
-    ],
-  },
-  {
-    name: "MEDIAINT",
-    fullName: "Media Intelligence (SOCMINT images/video)",
-    sources: [
-      {
-        name: "SOCMINT URLs",
-        description: "Image/video links from Telegram, Twitter/X, and Reddit posts collected by SOCMINT",
-      },
-      { name: "EXIF & hashing", description: "Pillow EXIF (GPS, timestamps), perceptual hash for near-duplicate clustering" },
-      { name: "Video keyframes", description: "FFmpeg extracts frames from short clips (optional local ffmpeg)" },
-      {
-        name: "Vision (Haiku)",
-        description: "Claude Haiku on sampled frames stills (MEDIAINT_VISION_MAX_CALLS cap)",
-      },
     ],
   },
   {
