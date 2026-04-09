@@ -63,12 +63,14 @@ import type { ConflictData } from "@/types/conflict";
 import { filterArticlesBySourceKeys } from "@/lib/headlineSources";
 import { Link } from "react-router-dom";
 import { DOCS_HOW_IT_WORKS_DASHBOARD_GUIDE, DOCS_SOURCE_DIRECTORY } from "@/lib/docLinks";
-import { Target, X, Globe, LayoutGrid, List, Focus } from "lucide-react";
+import { Target, X, Globe, LayoutGrid, List, Focus, Search, RefreshCw } from "lucide-react";
 import { IntelPanelSkeleton } from "@/components/dashboard/IntelPanel";
 import { FindingConfidenceBadge } from "@/components/dashboard/FindingConfidenceBadge";
 import { normalizeFindingConfidence } from "@/components/dashboard/findingConfidence";
 import { formatTimeAgo } from "@/lib/utils";
 import { useSocialWebSocket } from "@/hooks/useSocialWebSocket";
+import { getAgentsMonitoring, postGoogleTrendSnapshot, type GoogleTrendSerpSnapshot } from "@/lib/api";
+import { DEFAULT_CONFLICT } from "@/lib/conflictDefaults";
 
 // ─────────────────────────────────────────────
 // #1  Feed view persistence hook (was inline)
@@ -670,7 +672,33 @@ export function DashboardRightPanel({
   onHeadlineAllowedSourcesChange,
 }: DashboardRightPanelProps) {
   const [feedView, setFeedView] = useFeedView();
+  const [googleSnapshot, setGoogleSnapshot] = useState<GoogleTrendSerpSnapshot | null>(null);
+  const [googleSnapshotLoading, setGoogleSnapshotLoading] = useState(false);
   const socialStream = useSocialWebSocket(activeConflict || displayConflictLabel || "Iran", true);
+  const googleSnapshotConflict = activeConflict || displayConflictLabel || DEFAULT_CONFLICT;
+
+  const loadGoogleSnapshot = useCallback(async () => {
+    const monitoring = await getAgentsMonitoring();
+    setGoogleSnapshot(monitoring?.google_trend_serp ?? null);
+  }, []);
+
+  useEffect(() => {
+    void loadGoogleSnapshot();
+    const interval = window.setInterval(() => {
+      void loadGoogleSnapshot();
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [loadGoogleSnapshot]);
+
+  const refreshGoogleSnapshot = useCallback(async () => {
+    setGoogleSnapshotLoading(true);
+    try {
+      const res = await postGoogleTrendSnapshot(googleSnapshotConflict);
+      setGoogleSnapshot(res);
+    } finally {
+      setGoogleSnapshotLoading(false);
+    }
+  }, [googleSnapshotConflict]);
 
   // Memoize filtered articles (avoids re-filtering every render)
   const rawArticles = useMemo(() => conflictData?.news?.articles ?? [], [conflictData?.news?.articles]);
@@ -830,6 +858,97 @@ export function DashboardRightPanel({
 
       <div className="mb-4">
         <ChatMvpPanel conflict={activeConflict || displayConflictLabel || "Iran"} />
+      </div>
+
+      <div className="mb-4 rounded-xl border border-border/80 bg-black/30 p-4 space-y-3 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-mono text-sm text-foreground tracking-wide flex items-center gap-2">
+              <Search className="h-4 w-4" aria-hidden />
+              GOOGLE SERP SNAPSHOT (CONFLICT QUERY)
+            </p>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              "What does Google show now?" for the same ranking query as cross-encoder ranking (`RANKING_QUERY_*`).
+              One SerpAPI search per refresh; caps: `MONITORING_GOOGLE_SERPAPI_HOURLY_CAP`,
+              {" "}`MONITORING_GOOGLE_SERPAPI_MONTHLY_CAP`.
+            </p>
+          </div>
+        </div>
+
+        {googleSnapshot?.quota && (
+          <p className="text-[11px] text-muted-foreground font-mono">
+            Quota (UTC): {googleSnapshot.quota.hour_count ?? "–"}/{googleSnapshot.quota.hourly_cap ?? "–"} this hour
+            {" · "}
+            {googleSnapshot.quota.month_count ?? "–"}/{googleSnapshot.quota.monthly_cap ?? "–"} this month
+          </p>
+        )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => void refreshGoogleSnapshot()}
+            disabled={googleSnapshotLoading}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background/80 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/70 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Refresh Google snapshot"
+            title="Refresh Google snapshot"
+          >
+            <RefreshCw className={`h-4 w-4 ${googleSnapshotLoading ? "animate-spin" : ""}`} aria-hidden />
+            {googleSnapshotLoading ? "Refreshing..." : "Refresh Google snapshot"}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            Conflict: <span className="font-mono text-foreground">{googleSnapshotConflict}</span>
+          </span>
+        </div>
+
+        {googleSnapshot && !googleSnapshot.ok && (googleSnapshot.message || googleSnapshot.error) && (
+          <p className="text-xs text-destructive">{googleSnapshot.message || googleSnapshot.error}</p>
+        )}
+
+        {googleSnapshot?.ok && googleSnapshot.query && (
+          <p className="text-xs text-muted-foreground">
+            Query: <span className="font-mono">{googleSnapshot.query}</span>
+            {googleSnapshot.fetched_at && (
+              <span className="ml-2">· fetched {formatTimeAgo(googleSnapshot.fetched_at)}</span>
+            )}
+          </p>
+        )}
+
+        {googleSnapshot?.organic && googleSnapshot.organic.length > 0 ? (
+          <ul className="space-y-2 max-h-80 overflow-y-auto border border-border/60 rounded-lg bg-background/60 p-3">
+            {googleSnapshot.organic.map((row, i) => (
+              <li key={row.link || `${row.title}-${i}`} className="border-b border-border/40 pb-2 last:border-0 last:pb-0">
+                <div className="flex items-start gap-2">
+                  <span className="text-[10px] font-mono text-muted-foreground tabular-nums w-5 shrink-0 pt-0.5">
+                    {row.position ?? i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    {row.link ? (
+                      <a
+                        href={row.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-primary hover:underline break-words"
+                      >
+                        {row.title || row.link}
+                      </a>
+                    ) : (
+                      <span className="text-sm font-medium break-words">{row.title || "—"}</span>
+                    )}
+                    {row.snippet ? (
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-snug break-words">{row.snippet}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : googleSnapshot?.ok ? (
+          <p className="text-xs text-muted-foreground">No organic results in the latest snapshot.</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            No snapshot yet for <span className="font-mono">{googleSnapshotConflict}</span>. Press refresh to fetch one.
+          </p>
+        )}
       </div>
 
       {/* Feed content */}
