@@ -38,6 +38,7 @@ SIGNAL_FRAMEWORK_USE_FIRECRAWL = os.getenv("SIGNAL_FRAMEWORK_USE_FIRECRAWL", "")
 SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS = os.getenv("SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS", "true").strip().lower() in ("1", "true", "yes")
 SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS = max(6, min(40, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS", "18"))))
 SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES = max(3, min(20, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES", "8"))))
+SIGNAL_FRAMEWORK_FIRECRAWL_TIMEOUT_SEC = max(3, int(os.getenv("SIGNAL_FRAMEWORK_FIRECRAWL_TIMEOUT_SEC", "12")))
 
 # ── Source groups (theater-dependent narrative comparison) ───────────────────
 
@@ -380,7 +381,19 @@ def _fetch_feed(url: str, source_name: str, state_source_names: set[str]) -> Lis
         time.sleep(0.5)
         items = _do_fetch()
     if not items and SIGNAL_FRAMEWORK_USE_FIRECRAWL and os.getenv("FIRECRAWL_API_KEY"):
-        items = _fetch_via_firecrawl(url, source_name)
+        # Firecrawl SDK calls can occasionally hang; bound fallback latency per source.
+        try:
+            with ThreadPoolExecutor(max_workers=1) as fc_pool:
+                fc_future = fc_pool.submit(_fetch_via_firecrawl, url, source_name)
+                items = fc_future.result(timeout=SIGNAL_FRAMEWORK_FIRECRAWL_TIMEOUT_SEC)
+        except Exception as e:
+            logger.warning(
+                "SignalFramework: Firecrawl fallback timed out/failed for %s after %ss: %s",
+                source_name,
+                SIGNAL_FRAMEWORK_FIRECRAWL_TIMEOUT_SEC,
+                e,
+            )
+            items = []
     if not items and is_state:
         logger.warning("SignalFramework: state source %s returned 0 items (may be geo-restricted).", source_name)
     return items

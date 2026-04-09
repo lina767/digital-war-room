@@ -8,6 +8,7 @@ Owns:
 """
 
 import logging
+import os
 from typing import Any, Callable, Dict, List
 
 from ..dag_scheduler import DAGNode, ResultStore
@@ -22,6 +23,11 @@ class InformationDivision(DivisionHead):
     agent_names = ["news", "socmint", "narrative"]
     enrichment_nodes = ["ner_extract", "prefilter_summarize"]
     weight_map = {"news": 0.42, "socmint": 0.36, "narrative": 0.22}
+    _agent_timeout_overrides = {
+        "news": float(os.getenv("NEWS_AGENT_TIMEOUT_SEC", "120")),
+        "socmint": float(os.getenv("SOCMINT_AGENT_TIMEOUT_SEC", "90")),
+        "narrative": float(os.getenv("NARRATIVE_AGENT_TIMEOUT_SEC", "120")),
+    }
 
     def get_dag_nodes(self) -> List[DAGNode]:
         """Agents plus enrichment for the information division."""
@@ -33,7 +39,7 @@ class InformationDivision(DivisionHead):
                     node_type="agent",
                     owner_division=self.name,
                     streamable=True,
-                    timeout_s=75.0,
+                    timeout_s=self._agent_timeout_overrides.get(agent_name, 75.0),
                 )
             )
         nodes.extend(self._get_enrichment_nodes())

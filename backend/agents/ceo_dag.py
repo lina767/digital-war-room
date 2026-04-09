@@ -24,6 +24,7 @@ from .registry import AgentRegistry, get_agent_registry
 from .utils import get_analysis_run_id, reset_analysis_run_id, set_analysis_run_id
 
 logger = logging.getLogger(__name__)
+CEO_SYNTHESIS_TIMEOUT_SEC = float(os.getenv("CEO_SYNTHESIS_TIMEOUT_SEC", "180"))
 
 
 def _disabled_dag_nodes() -> set[str]:
@@ -202,7 +203,7 @@ def _build_full_dag(divisions: List[DivisionHead]) -> Tuple[List[DAGNode], Dict[
             dependencies=summary_ids + ["compliance_build", "acled_refs", "quality_fusion", "research_enrichment"],
             node_type="synthesis",
             streamable=True,
-            timeout_s=90.0,
+            timeout_s=CEO_SYNTHESIS_TIMEOUT_SEC,
         )
     )
 
