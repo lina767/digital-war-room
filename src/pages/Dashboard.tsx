@@ -183,19 +183,7 @@ const DashboardFooter = memo(function DashboardFooter() {
   );
 });
 
-const Dashboard = () => {
-  return (
-    <>
-      <SEO
-        title="Digital War Room – AI-Powered OSINT Intelligence"
-        description={PINNED_ONE_LINER}
-        path="/app/dashboard"
-        imageAlt="Digital War Room dashboard showing conflict escalation and intelligence streams"
-      />
-      <DashboardContent />
-    </>
-  );
-};
+const Dashboard = () => <DashboardContent />;
 
 function DashboardContent() {
   const [searchParams] = useSearchParams();
@@ -205,10 +193,21 @@ function DashboardContent() {
     () => CONFLICT_OPTIONS.find((opt) => opt.apiValue === selectedConflict)?.label ?? selectedConflict,
     [selectedConflict]
   );
+  const selectedConflictKey = (selectedConflict || "").toLowerCase();
+  const isLebanonTheater = selectedConflictKey.includes("lebanon") || selectedConflictKey.includes("hezbollah");
   const isCoreTheater = useMemo(
     () => CORE_THEATERS.includes(selectedConflict as (typeof CORE_THEATERS)[number]),
     [selectedConflict]
   );
+  const seoTitle = isLebanonTheater
+    ? "Digital War Room – Lebanon Dashboard"
+    : "Digital War Room – AI-Powered OSINT Intelligence";
+  const seoDescription = isLebanonTheater
+    ? "Lebanon dashboard for Blue Line monitoring, cross-border correlation, propaganda checks, and impact heatmapping."
+    : PINNED_ONE_LINER;
+  const seoImageAlt = isLebanonTheater
+    ? "Digital War Room Lebanon dashboard with Blue Line monitoring and cross-border intelligence layers"
+    : "Digital War Room dashboard showing conflict escalation and intelligence streams";
   const [headlineAllowedSources, setHeadlineAllowedSources] = useState<Set<string>>(() => new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const skipHeadlinePersistRef = useRef(false);
@@ -412,6 +411,12 @@ function DashboardContent() {
 
   return (
     <div className="h-screen min-h-0 bg-background flex flex-col overflow-hidden supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
+      <SEO
+        title={seoTitle}
+        description={seoDescription}
+        path="/app/dashboard"
+        imageAlt={seoImageAlt}
+      />
       <DashboardLiveTicker conflictData={conflictData} headlineAllowedSources={headlineAllowedSources} />
       {conflictData?.pattern_flags != null && conflictData.pattern_flags.length > 0 && (
         <PatternFlagsBanner flags={conflictData.pattern_flags} />
@@ -431,6 +436,11 @@ function DashboardContent() {
           <h1 className="font-mono font-bold text-primary text-glow-intense text-xs sm:text-sm tracking-[0.25em] truncate m-0">
             DIGITAL WAR ROOM
           </h1>
+          {isLebanonTheater ? (
+            <Badge variant="outline" className="hidden md:inline-flex font-mono text-[10px] border-primary/50 text-primary">
+              LEBANON THEATER MODE
+            </Badge>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
@@ -498,6 +508,13 @@ function DashboardContent() {
           </Badge>
         </div>
       </header>
+      {isLebanonTheater ? (
+        <div className="border-b border-border bg-primary/5 px-3 md:px-4 py-1.5">
+          <p className="text-[11px] md:text-xs text-muted-foreground font-mono tracking-wide">
+            Focus: Blue Line / UNIFIL · Cross-Border Correlation · Propaganda Check (IDF vs Hezbollah) · Impact + IDP signals
+          </p>
+        </div>
+      ) : null}
 
       {/* Mobile menu dropdown – large tap targets */}
       {mobileMenuOpen && (
