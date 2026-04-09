@@ -9,6 +9,7 @@ import logging
 import os
 import time
 import traceback
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
@@ -357,7 +358,17 @@ async def get_latest_analysis(request: Request, conflict: str = DEFAULT_CONFLICT
     entry = get_cache(request, conflict)
     if not entry:
         return JSONResponse(status_code=404, content={"error": "no_cached_analysis", "conflict": conflict})
-    return AnalysisResult.model_validate(entry["result"])
+    result = entry.get("result") or {}
+    if isinstance(result, dict):
+        assessment = result.get("assessment")
+        # Backward/forward compatibility: some runs store this as JSON text.
+        if isinstance(assessment, str):
+            try:
+                parsed = json.loads(assessment)
+                result["assessment"] = parsed if isinstance(parsed, dict) else {}
+            except (TypeError, ValueError):
+                result["assessment"] = {}
+    return AnalysisResult.model_validate(result)
 
 
 @router.get("/analyze/timeline")
