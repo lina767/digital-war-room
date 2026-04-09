@@ -18,6 +18,11 @@ def _env_true(key: str, default: bool = False) -> bool:
 # the supervisor still receives the same payload and synthesizes as usual.
 USE_RULE_BASED_AGENTS = _env_true("USE_RULE_BASED_AGENTS", default=True)
 
+# When True (default), all agent-level LLM calls (haiku summaries, Gemini enrichment)
+# are skipped and a single Data Analyst call in CEO synthesis replaces the 5 scattered
+# LLM touchpoints (supervisor, assessment, narrative, briefing, finding gate).
+USE_DATA_ANALYST = _env_true("USE_DATA_ANALYST", default=True)
+
 # LLM provider: see agents/llm.py. Use LLM_PROVIDER=openai + OPENAI_API_KEY
 # for cheaper runs (e.g. gpt-4o-mini). Default is anthropic (ANTHROPIC_API_KEY).
 

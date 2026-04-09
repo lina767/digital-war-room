@@ -164,9 +164,42 @@ async def _fetch_diplo_rss(url: str, label: str, conflict: str) -> List[Dict[str
         return [{"title": f"{label} error", "error": str(e)}]
 
 
+_DIPLO_KEYWORD_MAP = {
+    "new_sanction": ["sanction", "designat", "blacklist", "restrict", "penalt", "asset freeze"],
+    "enforcement": ["enforce", "comply", "violat", "seiz", "intercept", "impound"],
+    "statement": ["statement", "condemn", "urge", "call on", "express concern", "deplore"],
+    "legal_proceeding": ["resolution", "court", "ruling", "judgment", "tribunal", "icj", "icc"],
+    "humanitarian": ["humanitarian", "civilian", "refugee", "displaced", "aid", "relief"],
+}
+
+
+def _classify_diplo_rule_based(text: str) -> Dict[str, Any]:
+    """Keyword-based diplo classification (replaces Haiku batch_classify_diplo)."""
+    text_lower = text.lower()
+    for category, keywords in _DIPLO_KEYWORD_MAP.items():
+        if any(kw in text_lower for kw in keywords):
+            return {"category": category, "confidence": 0.7}
+    return {"category": "other", "confidence": 0.5}
+
+
 def _classify_un_icj_news(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not items:
         return items
+
+    from agents.config import USE_DATA_ANALYST
+
+    if USE_DATA_ANALYST:
+        out = []
+        for e in items:
+            text = ((e.get("title") or "") + " " + (e.get("summary") or "")).strip()
+            res = _classify_diplo_rule_based(text)
+            e["diplo_category"] = res["category"]
+            e["diplo_confidence"] = res["confidence"]
+            if e["diplo_category"] == "other" and e["diplo_confidence"] >= 0.7:
+                continue
+            out.append(e)
+        return out if out else items
+
     try:
         from services.haiku_service import batch_classify_diplo
 

@@ -539,26 +539,27 @@ def _merge_news_results(
     for a in top20:
         _tag_chokepoint(a)
 
-    # Replace keyword sentiment with Haiku batch_sentiment when available (budget/limits apply)
-    try:
-        from services.haiku_service import batch_sentiment
+    # Haiku batch_sentiment: skip when Data Analyst is active (keyword sentiment is sufficient)
+    from agents.config import USE_DATA_ANALYST
 
-        texts = [
-            ((a.get("title") or "") + " " + (a.get("summary") or a.get("description") or "")).strip()[:2000]
-            for a in top20
-        ]
-        if texts:
-            haiku_results = run_async(batch_sentiment(texts))
-            if haiku_results and not all(r is None for r in haiku_results):
-                for a, res in zip(top20, haiku_results, strict=True):
-                    if res is not None and isinstance(res, dict):
-                        # For conflict: Haiku "negative" (violence/threat) = escalation = positive score
-                        score = float(res.get("score", 0))
-                        a["sentiment_score"] = -score
-                        a["sentiment_label"] = _label_from_haiku(res.get("label", ""))
-                    # else: keep existing keyword-based sentiment from fetcher
-    except Exception as e:
-        logger.debug("NEWS Haiku batch_sentiment skipped: %s", e)
+    if not USE_DATA_ANALYST:
+        try:
+            from services.haiku_service import batch_sentiment
+
+            texts = [
+                ((a.get("title") or "") + " " + (a.get("summary") or a.get("description") or "")).strip()[:2000]
+                for a in top20
+            ]
+            if texts:
+                haiku_results = run_async(batch_sentiment(texts))
+                if haiku_results and not all(r is None for r in haiku_results):
+                    for a, res in zip(top20, haiku_results, strict=True):
+                        if res is not None and isinstance(res, dict):
+                            score = float(res.get("score", 0))
+                            a["sentiment_score"] = -score
+                            a["sentiment_label"] = _label_from_haiku(res.get("label", ""))
+        except Exception as e:
+            logger.debug("NEWS Haiku batch_sentiment skipped: %s", e)
 
     weighted_sum = 0.0
     weight_sum = 0.0
@@ -1455,7 +1456,7 @@ def _news_manager(
     )
     articles = fusion.get("articles", [])
     escalation_meta = _run_escalation_headline_agent(articles)
-    all_entities = _run_ner_enrichment(articles)
+    all_entities = _run_ner_enrichment(articles) if not USE_DATA_ANALYST else []
     news_score = fusion.get("news_score", 50.0)
     esc_score = escalation_meta.get("escalation_score", 0.0)
     adjusted_news_score = max(0.0, min(100.0, news_score + esc_score * 10.0))

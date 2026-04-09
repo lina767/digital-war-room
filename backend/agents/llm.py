@@ -53,6 +53,8 @@ _MODEL_DEFAULTS = {
         "assessment": ("ASSESSMENT_MODEL", "claude-sonnet-4-6"),
         # Finding confidence scoring (cheap, runs on findings list).
         "confidence_scoring": ("CONFIDENCE_SCORING_MODEL", "claude-haiku-4-5-20251001"),
+        # Data Analyst: single comprehensive synthesis call (replaces supervisor + assessment + narrative).
+        "data_analyst": ("DATA_ANALYST_MODEL", "claude-sonnet-4-6"),
     },
     "openai": {
         "agent": ("OPENAI_AGENT_MODEL", "gpt-4o-mini"),
@@ -61,6 +63,7 @@ _MODEL_DEFAULTS = {
         "supervisor_fallback": ("OPENAI_SUPERVISOR_FALLBACK_MODEL", "gpt-4o"),
         "assessment": ("OPENAI_ASSESSMENT_MODEL", "gpt-4o"),
         "confidence_scoring": ("OPENAI_CONFIDENCE_SCORING_MODEL", "gpt-4o-mini"),
+        "data_analyst": ("OPENAI_DATA_ANALYST_MODEL", "gpt-4o"),
     },
 }
 
@@ -126,6 +129,68 @@ def call_llm(
     except Exception as exc:
         if _is_credit_error(exc):
             logger.error("LLM credit balance exhausted (%s): %s", provider, exc)
+            raise LLMCreditExhaustedError(str(exc)) from exc
+        raise
+
+
+def call_llm_tool_use(
+    system: str,
+    user_content: str,
+    output_schema: type,
+    tool_name: str = "emit_analysis",
+    tool_description: str = "Emit the structured analysis result.",
+    model: Optional[str] = None,
+    temperature: float = 0,
+    max_tokens: int = 8192,
+) -> Dict[str, Any]:
+    """Call Anthropic with tool_use + tool_choice to get guaranteed structured output.
+
+    output_schema must be a Pydantic BaseModel subclass. Its JSON Schema is passed
+    as the tool's input_schema. tool_choice forces the model to call this exact tool,
+    so the response is always in tool_use.input -- no free-text JSON parsing needed.
+
+    Raises LLMCreditExhaustedError on billing issues, ValueError if the response
+    does not contain the expected tool_use block.
+    """
+    from anthropic import Anthropic
+
+    model = model or get_model_name("data_analyst")
+
+    schema = output_schema.model_json_schema()
+    schema.pop("title", None)
+    # Inline $defs references for Anthropic compatibility
+    defs = schema.pop("$defs", None)
+    if defs:
+        schema_str = json.dumps(schema)
+        for def_name, def_schema in defs.items():
+            ref = f'{{"$ref": "#/$defs/{def_name}"}}'
+            schema_str = schema_str.replace(ref, json.dumps(def_schema))
+        schema = json.loads(schema_str)
+
+    try:
+        client = Anthropic()
+        resp = client.messages.create(
+            model=model,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            tools=[
+                {
+                    "name": tool_name,
+                    "description": tool_description,
+                    "input_schema": schema,
+                }
+            ],
+            tool_choice={"type": "tool", "name": tool_name},
+        )
+        for block in resp.content:
+            if block.type == "tool_use" and block.name == tool_name:
+                return block.input
+        raise ValueError(f"No {tool_name} tool_use block in Anthropic response")
+    except Exception as exc:
+        if _is_credit_error(exc):
+            logger.error("LLM credit balance exhausted (anthropic): %s", exc)
             raise LLMCreditExhaustedError(str(exc)) from exc
         raise
 

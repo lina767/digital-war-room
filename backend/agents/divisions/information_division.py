@@ -111,18 +111,50 @@ class InformationDivision(DivisionHead):
         registry.deduplicate()
         return registry
 
+    # Conflict-relevant keywords for rule-based prefiltering
+    _PREFILTER_KEYWORDS = frozenset([
+        "military", "attack", "strike", "missile", "bomb", "drone", "sanction",
+        "escalat", "conflict", "war", "nuclear", "weapon", "threat", "tension",
+        "deploy", "troops", "ceasefire", "casualt", "killed", "wounded",
+        "iran", "israel", "gaza", "hamas", "hezbollah", "houthi", "yemen",
+        "chokepoint", "hormuz", "mandeb", "suez", "tanker", "oil", "energy",
+        "cyber", "hack", "breach", "outage", "diplomatic", "un ", "icj",
+        "refugee", "humanitarian", "crisis", "embargo", "blockade",
+    ])
+
     @staticmethod
     def _exec_prefilter(store: ResultStore) -> Dict[str, Any]:
-        """Pre-filter and summarize NEWS + SOCMINT before LLM synthesis.
-
-        Attempts to use haiku_service for zero-shot classification and
-        summarization. Falls back to pass-through if unavailable.
-        """
+        """Pre-filter NEWS + SOCMINT items: keyword-based when Data Analyst is
+        active, Haiku classify/summarize otherwise."""
         news_result = store.get("news") or {}
         socmint_result = store.get("socmint") or {}
 
         news_data = _as_dict(news_result)
         socmint_data = _as_dict(socmint_result)
+
+        from ..config import USE_DATA_ANALYST
+
+        if USE_DATA_ANALYST:
+            for key, data in [("articles", news_data), ("top_signals", socmint_data)]:
+                items = data.get(key, []) if isinstance(data, dict) else []
+                filtered = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        filtered.append(item)
+                        continue
+                    text = (
+                        (item.get("title", "") or item.get("text", "") or "")
+                        + " "
+                        + (item.get("description", "") or item.get("summary", "") or "")
+                    ).lower()[:500]
+                    if not text.strip():
+                        filtered.append(item)
+                        continue
+                    if any(kw in text for kw in InformationDivision._PREFILTER_KEYWORDS):
+                        filtered.append(item)
+                if isinstance(data, dict):
+                    data[key] = filtered if filtered else items
+            return {"news": news_data, "socmint": socmint_data, "filtered": True}
 
         try:
             from services.haiku_service import classify, is_haiku_failed, summarize

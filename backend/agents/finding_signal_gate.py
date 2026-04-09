@@ -328,7 +328,7 @@ async def score_and_gate_findings(
 
         # Optional Haiku refinement (capped).
         refined = None
-        if llm_used < max_llm and os.getenv("USE_FINDING_SIGNAL_GATE_LLM", "true").strip().lower() in (
+        if llm_used < max_llm and os.getenv("USE_FINDING_SIGNAL_GATE_LLM", "false").strip().lower() in (
             "1",
             "true",
             "yes",

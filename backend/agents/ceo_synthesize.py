@@ -474,8 +474,6 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
 
     threat_level = threat_level_from_score(synthesis_score)
 
-    use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
-
     key_findings: List[str] = []
     key_findings_context: List[str] = []
     key_findings_confidence: List[str] = []
@@ -588,90 +586,92 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     except Exception as e:
         supervisor_payload["finding_signal_gate"] = {"disabled": True, "error": str(e)[:180]}
 
-    if use_rule_based:
-        for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
-            if dr.anomalies:
-                for a in dr.anomalies:
-                    key_findings.append(f"[{name}] {a.description}")
-                    key_findings_confidence.append("medium")
-        # Minimal deterministic action block (keeps output useful without LLM).
-        prov_refs: List[str] = []
-        for ag in agent_results.values():
-            if isinstance(ag, dict):
-                for u in (ag.get("provenance_refs") or [])[:3]:
-                    if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
-                        prov_refs.append(u.strip())
-            if len(prov_refs) >= 10:
-                break
-        prov_refs = list(dict.fromkeys(prov_refs))[:6]
-        next_steps = [
-            {
-                "action": "Verify top escalatory claims against primary/credible sources.",
-                "owner": "analyst",
-                "time_horizon": "now",
-                "why": "Rule-based synthesis: reduce narrative noise and false positives.",
-                "source_refs": prov_refs,
-                "confidence": "medium",
-            },
-            {
-                "action": "Set/confirm alert rules for sudden score jumps (multi-stream corroboration required).",
-                "owner": "ops",
-                "time_horizon": "24h",
-                "why": "Catch real shifts while limiting single-stream spikes.",
-                "source_refs": [],
-                "confidence": "medium",
-            },
-        ]
-        if degraded_agents:
-            next_steps.append(
-                {
-                    "action": f"Repair degraded data feeds and re-run analysis (degraded: {', '.join(degraded_agents[:6])}).",
-                    "owner": "ops",
-                    "time_horizon": "24h",
-                    "why": "Low scores can reflect missing data, not safety.",
-                    "source_refs": [],
-                    "confidence": "high",
-                }
-            )
-        synthesis_meta: Dict[str, Any] = {"mode": "rule_based", "reason": "disabled_by_env"}
-    else:
-        synthesis_meta = {"mode": "rule_based", "reason": "llm_not_attempted"}
-        agent_scores_list = [
-            finint_score,
-            sigint_score,
-            news_score,
-            geoint_score,
-            satintel_score,
-            socmint_score,
-            techint_score,
-            cyber_score,
-            energy_score,
-            diplo_score,
-            proximity_score,
-            chokepoint_score,
-            pentagon_score,
-        ]
-        (
-            key_findings,
-            key_findings_context,
-            key_findings_confidence,
-            next_steps,
-            root_cause_suggestions,
-            scenarios,
-            summary,
-            threat_level,
-            synthesis_meta,
-        ) = run_ceo_llm_synthesis(
-            summary=summary,
-            threat_level=threat_level,
-            key_findings=key_findings,
-            key_findings_context=key_findings_context,
-            key_findings_confidence=key_findings_confidence,
-            root_cause_suggestions=root_cause_suggestions,
-            scenarios=scenarios,
+    # ── Data Analyst: single comprehensive synthesis via tool_use ─────
+    from .config import USE_DATA_ANALYST
+
+    _analyst_narrative: str = ""
+    _analyst_briefing: str = ""
+    _analyst_assessment: Dict[str, Any] = {}
+
+    if USE_DATA_ANALYST:
+        from .data_analyst import run_data_analyst
+
+        analyst_result = run_data_analyst(
+            conflict=conflict,
             supervisor_payload=supervisor_payload,
-            agent_scores_list=agent_scores_list,
+            synthesis_score=synthesis_score,
+            threat_level=threat_level,
+            degraded_agents=degraded_agents,
+            finding_gate=finding_gate,
         )
+        key_findings = analyst_result.get("key_findings") or []
+        key_findings_confidence = analyst_result.get("key_findings_confidence") or []
+        next_steps = analyst_result.get("next_steps") or []
+        root_cause_suggestions = analyst_result.get("root_cause_suggestions") or []
+        scenarios = analyst_result.get("scenarios") or []
+        if analyst_result.get("summary"):
+            summary = analyst_result["summary"]
+        _analyst_narrative = analyst_result.get("narrative_story") or ""
+        _analyst_briefing = analyst_result.get("briefing_interpretation") or ""
+        _analyst_assessment = analyst_result.get("assessment") or {}
+        synthesis_meta: Dict[str, Any] = analyst_result.get("_meta") or {"mode": "data_analyst_tool_use"}
+    else:
+        # Legacy path: scattered LLM calls (kept as fallback when USE_DATA_ANALYST=false)
+        use_rule_based = os.getenv("USE_RULE_BASED_SUPERVISOR", "").strip().lower() in ("1", "true", "yes")
+        if use_rule_based:
+            for name, dr in sorted(division_results.items(), key=lambda x: -x[1].score):
+                if dr.anomalies:
+                    for a in dr.anomalies:
+                        key_findings.append(f"[{name}] {a.description}")
+                        key_findings_confidence.append("medium")
+            prov_refs: List[str] = []
+            for ag in agent_results.values():
+                if isinstance(ag, dict):
+                    for u in (ag.get("provenance_refs") or [])[:3]:
+                        if isinstance(u, str) and u.strip().startswith(("http://", "https://")):
+                            prov_refs.append(u.strip())
+                if len(prov_refs) >= 10:
+                    break
+            prov_refs = list(dict.fromkeys(prov_refs))[:6]
+            next_steps = [
+                {
+                    "action": "Verify top escalatory claims against primary/credible sources.",
+                    "owner": "analyst",
+                    "time_horizon": "now",
+                    "why": "Rule-based synthesis: reduce narrative noise and false positives.",
+                    "source_refs": prov_refs,
+                    "confidence": "medium",
+                },
+            ]
+            synthesis_meta = {"mode": "rule_based", "reason": "disabled_by_env"}
+        else:
+            synthesis_meta = {"mode": "rule_based", "reason": "llm_not_attempted"}
+            (
+                key_findings,
+                key_findings_context,
+                key_findings_confidence,
+                next_steps,
+                root_cause_suggestions,
+                scenarios,
+                summary,
+                threat_level,
+                synthesis_meta,
+            ) = run_ceo_llm_synthesis(
+                summary=summary,
+                threat_level=threat_level,
+                key_findings=key_findings,
+                key_findings_context=key_findings_context,
+                key_findings_confidence=key_findings_confidence,
+                root_cause_suggestions=root_cause_suggestions,
+                scenarios=scenarios,
+                supervisor_payload=supervisor_payload,
+                agent_scores_list=[
+                    finint_score, sigint_score, news_score, geoint_score,
+                    satintel_score, socmint_score, techint_score, cyber_score,
+                    energy_score, diplo_score, proximity_score, chokepoint_score,
+                    pentagon_score,
+                ],
+            )
 
     key_findings_confidence = align_key_findings_confidence(key_findings, key_findings_confidence)
     next_steps = normalize_next_steps(next_steps)
@@ -779,13 +779,16 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
                 {"finding": f.get("finding") or "", "confidence": 0.65, "dimensions": {}, "rationale": ""}
             )
 
-    assessment = run_ceo_assessment(
-        conflict=conflict,
-        supervisor_payload=supervisor_payload,
-        high_conf_findings=high_conf_findings,
-        summary=summary,
-        stakeholder_context=stakeholder_context,
-    )
+    if _analyst_assessment:
+        assessment = _analyst_assessment
+    else:
+        assessment = run_ceo_assessment(
+            conflict=conflict,
+            supervisor_payload=supervisor_payload,
+            high_conf_findings=high_conf_findings,
+            summary=summary,
+            stakeholder_context=stakeholder_context,
+        )
 
     # Implications-first analysis blocks (fallback-first, additive)
     trends = _build_trends_summary(temporal_context)
@@ -822,35 +825,40 @@ def _ceo_synthesize(conflict: str, divisions: List[DivisionHead], store: ResultS
     compliance = comp_result.get("compliance", {}) if isinstance(comp_result, dict) else {}
     alerts = comp_result.get("alerts", []) if isinstance(comp_result, dict) else []
 
-    try:
-        from .narrative_synthesis import synthesize_narrative
+    if _analyst_narrative:
+        narrative_story = _analyst_narrative
+        briefing_interpretation = _analyst_briefing
+        briefing_interpretation_meta: Dict[str, Any] = {"mode": "data_analyst"}
+    else:
+        try:
+            from .narrative_synthesis import synthesize_narrative
 
-        narrative_story = synthesize_narrative(supervisor_payload)
-    except Exception:
-        narrative_story = ""
+            narrative_story = synthesize_narrative(supervisor_payload)
+        except Exception:
+            narrative_story = ""
 
-    briefing_interpretation = ""
-    briefing_interpretation_meta: Dict[str, Any] = {}
-    try:
-        from .narrative_synthesis import synthesize_briefing_interpretation
-
-        briefing_interpretation, briefing_interpretation_meta = synthesize_briefing_interpretation(
-            conflict=conflict,
-            summary=summary or "",
-            threat_level=threat_level or "",
-            escalation_score=float(synthesis_score),
-            key_findings=key_findings,
-            scenarios=scenarios,
-            implications=implications,
-            trends=trends,
-            anomalies_rollup=anomalies_rollup,
-            narrative_story=narrative_story or "",
-            assessment=assessment if isinstance(assessment, dict) else {},
-            degraded_agents=degraded_agents,
-        )
-    except Exception:
         briefing_interpretation = ""
-        briefing_interpretation_meta = {"mode": "error", "model": None}
+        briefing_interpretation_meta = {}
+        try:
+            from .narrative_synthesis import synthesize_briefing_interpretation
+
+            briefing_interpretation, briefing_interpretation_meta = synthesize_briefing_interpretation(
+                conflict=conflict,
+                summary=summary or "",
+                threat_level=threat_level or "",
+                escalation_score=float(synthesis_score),
+                key_findings=key_findings,
+                scenarios=scenarios,
+                implications=implications,
+                trends=trends,
+                anomalies_rollup=anomalies_rollup,
+                narrative_story=narrative_story or "",
+                assessment=assessment if isinstance(assessment, dict) else {},
+                degraded_agents=degraded_agents,
+            )
+        except Exception:
+            briefing_interpretation = ""
+            briefing_interpretation_meta = {"mode": "error", "model": None}
 
     provenance_index = build_provenance_index(agent_results)
 
