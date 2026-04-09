@@ -147,12 +147,34 @@ export function useConflictWebSocket({ conflict, enabled = true }: UseConflictWe
               setAnalysisError(backendUnreachableText());
               setInitialLoadPending(false);
             } else if (!statusRes.cached) {
-              setAnalysisError("First analysis still running – data will appear automatically shortly.");
+              const tryStartInBackground = async () => {
+                let running = Boolean(statusRes.running);
+                if (!running && retryCount === 0) {
+                  try {
+                    const trigger = await triggerRefreshAnalysis(conflictRef.current);
+                    running = trigger.status === "started" || trigger.status === "already_running";
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    setAnalysisError(`No cached analysis yet. Auto-start failed: ${msg}`);
+                    return false;
+                  }
+                }
+
+                setAnalysisError(
+                  running
+                    ? "First analysis is running - data will appear automatically shortly."
+                    : "No cached analysis yet. Start one with \"Run analysis\".",
+                );
+                return true;
+              };
               setInitialLoadPending(false);
-              if (retryCount < 12) {
-                const delay = Math.min(10_000, 3_000 + retryCount * 1_000);
-                retryTimer = setTimeout(() => attempt(retryCount + 1), delay);
-              }
+              void tryStartInBackground().then((ok) => {
+                if (!ok || cancelled) return;
+                if (retryCount < 24) {
+                  const delay = Math.min(10_000, 3_000 + retryCount * 1_000);
+                  retryTimer = setTimeout(() => attempt(retryCount + 1), delay);
+                }
+              });
             } else {
               setInitialLoadPending(false);
             }

@@ -26,6 +26,7 @@ from agents.supervisor import analyze_conflict, run_analysis_streaming
 from middleware.rate_limit import limiter
 from models.analysis import AnalysisResult
 from services.analysis_side_effects import persist_analysis_side_effects
+from settings import settings
 from services.tenant_constants import get_default_tenant_id
 from utils.sanitize import CONFLICT_MAX_LEN, sanitize_conflict
 
@@ -99,7 +100,26 @@ class AnalyzeRequest(BaseModel):
 
 
 # Max wall-clock time for a single analysis run (e.g. OFAC + 11 agents + LLM).
-ANALYZE_TIMEOUT_SEC = 300  # 5 minutes
+# Keep manual/API-triggered runs aligned with scheduler timeout.
+ANALYZE_TIMEOUT_SEC = max(60, int(os.getenv("ANALYZE_TIMEOUT_SEC", str(settings.auto_analyze_timeout_sec))))
+ANALYZE_INFLIGHT_STALE_SEC = max(
+    ANALYZE_TIMEOUT_SEC + 60,
+    int(os.getenv("ANALYZE_INFLIGHT_STALE_SEC", str(ANALYZE_TIMEOUT_SEC + 120))),
+)
+
+
+def _auto_analyze_interval_hint() -> str:
+    sec = max(1, int(settings.auto_analyze_interval_sec))
+    if sec % 86400 == 0:
+        days = sec // 86400
+        return f"every {days} day{'s' if days != 1 else ''}"
+    if sec % 3600 == 0:
+        hours = sec // 3600
+        return f"every {hours} hour{'s' if hours != 1 else ''}"
+    if sec % 60 == 0:
+        mins = sec // 60
+        return f"every {mins} minute{'s' if mins != 1 else ''}"
+    return f"every {sec} seconds"
 
 
 def _inflight_key(conflict: str, tenant_id: uuid.UUID | None) -> str:
@@ -117,6 +137,12 @@ def _ensure_inflight_registry(app_state: Any) -> dict[str, float]:
 
 def _try_mark_inflight(app_state: Any, key: str) -> bool:
     registry = _ensure_inflight_registry(app_state)
+    existing_started_at = registry.get(key)
+    if isinstance(existing_started_at, (int, float)):
+        age_sec = time.time() - float(existing_started_at)
+        if age_sec > ANALYZE_INFLIGHT_STALE_SEC:
+            logger.warning("Clearing stale inflight analysis lock for %s (age=%.1fs)", key, age_sec)
+            registry.pop(key, None)
     if key in registry:
         return False
     registry[key] = time.time()
@@ -287,8 +313,12 @@ async def analyze_status(request: Request, conflict: str = DEFAULT_CONFLICT) -> 
     req_ctx = get_request_ctx(request)
     run_key = _inflight_key(conflict, req_ctx.tenant_id)
     inflight = _ensure_inflight_registry(request.app.state)
+    started_at = inflight.get(run_key)
+    if isinstance(started_at, (int, float)) and (time.time() - float(started_at)) > ANALYZE_INFLIGHT_STALE_SEC:
+        inflight.pop(run_key, None)
+        started_at = None
     out = {"cached": bool(entry), "conflict": conflict}
-    out["running"] = run_key in inflight
+    out["running"] = isinstance(started_at, (int, float))
     if entry:
         out["at"] = entry.get("at")
     if last_err:
@@ -472,9 +502,9 @@ async def materialize_daily_snapshot_route(request: Request, conflict: str = DEF
 @limiter.limit("10/minute")
 async def analyze(request: Request, body: AnalyzeRequest) -> Any:
     """
-    POST /analyze – startet KEINE neue Analyse.
-    Gibt nur die gecachte Analyse zurück (wie GET /analyze/latest).
-    Analysen laufen stündlich im Hintergrund.
+    POST /analyze – starts no new analysis.
+    Returns only cached analysis (same as GET /analyze/latest).
+    Background analyses are scheduled automatically.
     """
     try:
         conflict = sanitize_conflict(body.conflict)
@@ -482,10 +512,11 @@ async def analyze(request: Request, body: AnalyzeRequest) -> Any:
         return conflict_bad_request(e)
     entry = get_cache(request, conflict)
     if not entry:
+        interval_hint = _auto_analyze_interval_hint()
         return JSONResponse(
             status_code=503,
             content={
-                "error": "No cached analysis yet. Analysis runs automatically every 6 hours.",
+                "error": f"No cached analysis yet. Analysis runs automatically {interval_hint}.",
                 "conflict": conflict,
             },
         )

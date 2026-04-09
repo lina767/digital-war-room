@@ -141,6 +141,7 @@ export interface TriggerRefreshResponse {
   status: string;
   conflict: string;
   message?: string;
+  error?: string;
 }
 
 /** POST /api/analyze/refresh – trigger a background analysis. Returns body on success; throws on network error or non-2xx. */
@@ -155,7 +156,7 @@ export async function triggerRefreshAnalysis(conflict: string): Promise<TriggerR
       const msg = body?.error ?? `HTTP ${res.status}`;
       throw new Error(msg);
     }
-    if (body?.status !== "started" && body?.status !== "ok") {
+    if (body?.status !== "started" && body?.status !== "ok" && body?.status !== "already_running") {
       throw new Error(body?.error ?? "Analysis did not start");
     }
     return body;

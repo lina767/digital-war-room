@@ -1,6 +1,7 @@
 """FastAPI endpoint tests for analyze routes."""
 
 from collections import deque
+import time
 
 import pytest
 from fastapi import FastAPI
@@ -57,6 +58,32 @@ def test_analyze_latest_returns_cached_result(client: TestClient):
     assert body["summary"] == "cached"
 
 
+def test_analyze_latest_rehydrates_from_agent_snapshots(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    def _fake_list_recent_runs(*, conflict: str, tenant_id=None, limit: int = 20):
+        assert conflict == "Iran"
+        return [{"run_id": "11111111-1111-4111-8111-111111111111"}]
+
+    def _fake_load_agent_blocks_for_run(*, run_id: str, conflict: str, tenant_id=None):
+        assert run_id == "11111111-1111-4111-8111-111111111111"
+        assert conflict == "Iran"
+        return {
+            "news": {"output": {"summary": "snapshot news summary", "_meta": {"sources": ["snapshot"]}}},
+            "finint": {"output": {"summary": "snapshot finint summary"}},
+        }
+
+    monkeypatch.setattr("services.agent_snapshot_store.list_recent_runs", _fake_list_recent_runs)
+    monkeypatch.setattr("services.agent_snapshot_store.load_agent_blocks_for_run", _fake_load_agent_blocks_for_run)
+
+    response = client.get("/api/analyze/latest", params={"conflict": "Iran"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["conflict"] == "Iran"
+    assert body["analysis_run_id"] == "11111111-1111-4111-8111-111111111111"
+    assert body["summary"] == "Recovered from persisted snapshots after cache miss."
+    assert body["news"]["summary"] == "snapshot news summary"
+    assert body["finint"]["summary"] == "snapshot finint summary"
+
+
 def test_agents_monitoring_returns_shape(client: TestClient):
     response = client.get("/api/agents/monitoring")
     assert response.status_code == 200
@@ -82,7 +109,7 @@ def test_google_trend_snapshot_without_serpapi_key(client: TestClient, monkeypat
 
 def test_refresh_returns_already_running_when_inflight(client: TestClient):
     # Same scope format as production: "<tenant_id>\\n<conflict>"
-    client.app.state.analysis_inflight = {"00000000-0000-4000-8000-000000000001\nIran": 1.0}
+    client.app.state.analysis_inflight = {"00000000-0000-4000-8000-000000000001\nIran": time.time()}
     response = client.post("/api/analyze/refresh", params={"conflict": "Iran"})
     assert response.status_code == 200
     body = response.json()

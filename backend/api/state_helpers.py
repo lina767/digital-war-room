@@ -4,6 +4,7 @@ Used by routes_analyze and by main.py (push_* for recording analysis results).
 """
 
 import os
+import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -45,7 +46,39 @@ def get_cache(request: Request, conflict: Optional[str] = None) -> Any:
     state = _state_from_request(request)
     if state:
         if conflict is not None:
-            return state.get_cache(conflict, tenant_id=tid)
+            entry = state.get_cache(conflict, tenant_id=tid)
+            if entry:
+                return entry
+
+            # On cold starts/restarts, in-memory cache can be empty while Layer-3
+            # agent snapshots already exist. Rehydrate lazily from latest run.
+            try:
+                from services.agent_snapshot_store import list_recent_runs, load_agent_blocks_for_run
+
+                runs = list_recent_runs(conflict=conflict, tenant_id=tid, limit=1)
+                if runs:
+                    run_id = str(runs[0].get("run_id") or "")
+                    if run_id:
+                        blocks = load_agent_blocks_for_run(run_id=run_id, conflict=conflict, tenant_id=tid)
+                        if blocks:
+                            recovered: Dict[str, Any] = {
+                                "analysis_result_schema_version": 2,
+                                "analysis_run_id": run_id,
+                                "conflict": conflict,
+                                "summary": "Recovered from persisted snapshots after cache miss.",
+                            }
+                            for agent_name, payload in blocks.items():
+                                if not isinstance(payload, dict):
+                                    continue
+                                output = payload.get("output")
+                                if isinstance(output, dict):
+                                    recovered[str(agent_name)] = output
+                            state.set_cache(conflict, recovered, time.time(), tenant_id=tid)
+                            return state.get_cache(conflict, tenant_id=tid)
+            except Exception:
+                # Never block API reads due to snapshot fallback issues.
+                pass
+            return None
         return state.get_cache_all(tenant_id=tid)
     cache = request.app.state.analysis_cache
     if conflict is not None:
