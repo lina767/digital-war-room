@@ -143,25 +143,20 @@ def run_energy_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> D
             wb_country=wb_country if wb_country else None,
         )
 
-        from .config import USE_DATA_ANALYST
-
-        if USE_DATA_ANALYST:
+        try:
+            llm_summary = await _generate_haiku_summary_energy(
+                conflict,
+                oil_commodities,
+                food_commodities,
+                fao_fpi,
+                energy_score,
+                food_risk,
+                wb_country if wb_country else None,
+            )
+            summary = llm_summary if llm_summary else rule_summary
+        except Exception as e:
+            logger.debug("ENERGY: Haiku summary failed, using rule-based: %s", e)
             summary = rule_summary
-        else:
-            try:
-                llm_summary = await _generate_haiku_summary_energy(
-                    conflict,
-                    oil_commodities,
-                    food_commodities,
-                    fao_fpi,
-                    energy_score,
-                    food_risk,
-                    wb_country if wb_country else None,
-                )
-                summary = llm_summary if llm_summary else rule_summary
-            except Exception as e:
-                logger.debug("ENERGY: Haiku summary failed, using rule-based: %s", e)
-                summary = rule_summary
 
         inflation_cpi_pct, inflation_date_label = _extract_inflation_cpi(wb_country if wb_country else None)
         return {

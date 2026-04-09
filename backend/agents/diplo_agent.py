@@ -73,13 +73,8 @@ def run_diplo_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Di
         )
         diplo_score = compute_diplo_score(ofac, eu, news)
         rule_summary = _build_summary(ofac, eu, news, diplo_score)
-        from .config import USE_DATA_ANALYST
-
-        if USE_DATA_ANALYST:
-            summary = rule_summary
-        else:
-            llm_summary = await _generate_haiku_summary_diplo(conflict, ofac, eu, news, diplo_score)
-            summary = llm_summary if llm_summary else rule_summary
+        llm_summary = await _generate_haiku_summary_diplo(conflict, ofac, eu, news, diplo_score)
+        summary = llm_summary if llm_summary else rule_summary
         return {
             "diplo_score": round(diplo_score, 1),
             "ofac_sdn": ofac,

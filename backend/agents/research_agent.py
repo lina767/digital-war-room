@@ -130,9 +130,7 @@ def run_research_enrichment(
         budget_status=budget_status,
         publish_decision="auto_publish",
     )
-    from agents.config import USE_DATA_ANALYST
-
-    if USE_DATA_ANALYST or not trigger_decision.triggered or not budget_status.allowed:
+    if not trigger_decision.triggered or not budget_status.allowed:
         return {
             **result.model_dump(mode="json"),
             "required_field_coverage_before": {

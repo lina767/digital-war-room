@@ -788,21 +788,16 @@ def run_cyber_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) -> Di
         )
         cyber_score = _compute_cyber_score(kev, threat_reports, otx_pulses, greynoise, internet_db)
         rule_summary = _build_summary(kev, threat_reports, otx_pulses, greynoise, internet_db, cyber_score)
-        from .config import USE_DATA_ANALYST
-
-        if USE_DATA_ANALYST:
-            summary = rule_summary
-        else:
-            llm_summary = await _generate_haiku_summary_cyber(
-                conflict,
-                kev,
-                threat_reports,
-                otx_pulses,
-                greynoise,
-                internet_db,
-                cyber_score,
-            )
-            summary = llm_summary if llm_summary else rule_summary
+        llm_summary = await _generate_haiku_summary_cyber(
+            conflict,
+            kev,
+            threat_reports,
+            otx_pulses,
+            greynoise,
+            internet_db,
+            cyber_score,
+        )
+        summary = llm_summary if llm_summary else rule_summary
         return CyberAgentResult(
             cyber_score=round(cyber_score, 1),
             cisa_kev=kev,

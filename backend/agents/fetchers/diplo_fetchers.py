@@ -186,20 +186,6 @@ def _classify_un_icj_news(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not items:
         return items
 
-    from agents.config import USE_DATA_ANALYST
-
-    if USE_DATA_ANALYST:
-        out = []
-        for e in items:
-            text = ((e.get("title") or "") + " " + (e.get("summary") or "")).strip()
-            res = _classify_diplo_rule_based(text)
-            e["diplo_category"] = res["category"]
-            e["diplo_confidence"] = res["confidence"]
-            if e["diplo_category"] == "other" and e["diplo_confidence"] >= 0.7:
-                continue
-            out.append(e)
-        return out if out else items
-
     try:
         from services.haiku_service import batch_classify_diplo
 

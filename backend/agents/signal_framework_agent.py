@@ -35,7 +35,7 @@ FEED_REQUEST_TIMEOUT = 18
 # State feeds: longer timeout and optional retry; Firecrawl fallback when direct fetch fails
 FEED_REQUEST_TIMEOUT_STATE = int(os.getenv("SIGNAL_FRAMEWORK_STATE_TIMEOUT", "25"))
 SIGNAL_FRAMEWORK_USE_FIRECRAWL = os.getenv("SIGNAL_FRAMEWORK_USE_FIRECRAWL", "").strip().lower() in ("1", "true", "yes")
-SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS = os.getenv("SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS", "false").strip().lower() in ("1", "true", "yes")
+SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS = os.getenv("SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS", "true").strip().lower() in ("1", "true", "yes")
 SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS = max(6, min(40, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS", "18"))))
 SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES = max(3, min(20, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES", "8"))))
 

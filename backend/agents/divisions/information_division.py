@@ -132,30 +132,6 @@ class InformationDivision(DivisionHead):
         news_data = _as_dict(news_result)
         socmint_data = _as_dict(socmint_result)
 
-        from ..config import USE_DATA_ANALYST
-
-        if USE_DATA_ANALYST:
-            for key, data in [("articles", news_data), ("top_signals", socmint_data)]:
-                items = data.get(key, []) if isinstance(data, dict) else []
-                filtered = []
-                for item in items:
-                    if not isinstance(item, dict):
-                        filtered.append(item)
-                        continue
-                    text = (
-                        (item.get("title", "") or item.get("text", "") or "")
-                        + " "
-                        + (item.get("description", "") or item.get("summary", "") or "")
-                    ).lower()[:500]
-                    if not text.strip():
-                        filtered.append(item)
-                        continue
-                    if any(kw in text for kw in InformationDivision._PREFILTER_KEYWORDS):
-                        filtered.append(item)
-                if isinstance(data, dict):
-                    data[key] = filtered if filtered else items
-            return {"news": news_data, "socmint": socmint_data, "filtered": True}
-
         try:
             from services.haiku_service import classify, is_haiku_failed, summarize
 

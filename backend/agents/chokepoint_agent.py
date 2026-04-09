@@ -873,13 +873,8 @@ def run_chokepoint_agent(conflict: str, peers: Optional[Dict[str, Any]] = None) 
                 f"{cp['tanker_count']} tankers [{cp['data_quality']}])"
             )
         rule_summary = "CHOKEPOINT: " + "; ".join(parts)
-        from .config import USE_DATA_ANALYST
-
-        if USE_DATA_ANALYST:
-            summary = rule_summary
-        else:
-            llm_summary = await _generate_haiku_summary_chokepoint(conflict, chokepoints, chokepoint_score)
-            summary = llm_summary if llm_summary else rule_summary
+        llm_summary = await _generate_haiku_summary_chokepoint(conflict, chokepoints, chokepoint_score)
+        summary = llm_summary if llm_summary else rule_summary
 
         live_ais_n = sum(1 for cp in chokepoints if cp.get("data_quality") == "live_ais")
         eia_block = eia_data if isinstance(eia_data, dict) else {}

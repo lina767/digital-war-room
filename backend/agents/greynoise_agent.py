@@ -996,13 +996,8 @@ async def _run_greynoise_pipeline(conflict: str) -> GreynoiseResult:
             top_tags_inbound=top_tags_in[:10],
         )
 
-        from .config import USE_DATA_ANALYST
-
-        if USE_DATA_ANALYST:
-            result.summary = _rule_based_summary(result)
-        else:
-            llm_summary = await _generate_llm_summary(conflict, result)
-            result.summary = llm_summary if llm_summary else _rule_based_summary(result)
+        llm_summary = await _generate_llm_summary(conflict, result)
+        result.summary = llm_summary if llm_summary else _rule_based_summary(result)
 
         # Persist GNQL IP results for detail view (greynoise_ips table)
         _save_gnql_ips(conflict, "outbound", outbound_ips, result.fetched_at)
