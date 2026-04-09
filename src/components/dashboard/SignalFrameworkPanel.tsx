@@ -25,6 +25,20 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
   const sourceReliability = narrative?.source_reliability_tier;
   const verificationState = narrative?.verification_state;
   const claimConflicts = narrative?.claim_conflicts ?? [];
+
+  const conflictSeverity = (line: string): "high" | "medium" | "low" => {
+    const l = line.toLowerCase();
+    if (l.includes("loss claim mismatch")) return "high";
+    if (l.includes("denial") || l.includes("conflicts")) return "medium";
+    return "low";
+  };
+
+  const severityClass = (s: "high" | "medium" | "low"): string =>
+    s === "high"
+      ? "bg-destructive/20 text-destructive border-destructive/50"
+      : s === "medium"
+        ? "bg-amber-500/20 text-amber-300 border-amber-500/45"
+        : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40";
   const stateCount = narrative?.state_item_count ?? 0;
   const exileCount = narrative?.exile_item_count ?? 0;
   const hasData = table.length > 0 || synthesisText || (stateCount > 0 && exileCount > 0);
@@ -87,10 +101,15 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
       {claimConflicts.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Claim conflicts detected</p>
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {claimConflicts.slice(0, 4).map((line, idx) => (
-              <li key={idx} className="text-xs text-foreground/90 leading-relaxed">
-                - {line}
+              <li key={idx} className="text-xs text-foreground/90 leading-relaxed flex items-start gap-2">
+                <span
+                  className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wide ${severityClass(conflictSeverity(line))}`}
+                >
+                  {conflictSeverity(line)}
+                </span>
+                <span className="min-w-0">{line}</span>
               </li>
             ))}
           </ul>

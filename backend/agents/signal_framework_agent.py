@@ -18,7 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import feedparser
 import httpx
@@ -47,16 +47,16 @@ SOURCE_PROFILES: Dict[str, Dict[str, Any]] = {
         "camp_b_label": "Exile / Independent",
         "english_camp_b_source": "Iran International",
         "camp_a_sources": [
-            {"name": "IRNA", "url": "https://www.irna.ir/en/rss.aspx?kind=-1"},
-            {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss"},
-            {"name": "Fars News (alt)", "url": "https://www.farsnews.ir/en"},  # fallback when RSS is blocked/unavailable
-            {"name": "Tasnim", "url": "https://www.tasnimnews.ir/en/rss"},
-            {"name": "Press TV", "url": "https://www.presstv.ir/"},
+            {"name": "IRNA", "url": "https://www.irna.ir/en/rss.aspx?kind=-1", "allowed_domains": ["irna.ir"]},
+            {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss", "allowed_domains": ["farsnews.ir"]},
+            {"name": "Fars News (alt)", "url": "https://www.farsnews.ir/en", "allowed_domains": ["farsnews.ir"]},  # fallback when RSS is blocked/unavailable
+            {"name": "Tasnim", "url": "https://www.tasnimnews.ir/en/rss", "allowed_domains": ["tasnimnews.com", "tasnimnews.ir"]},
+            {"name": "Press TV", "url": "https://www.presstv.ir/", "allowed_domains": ["presstv.ir"]},
         ],
         "camp_b_sources": [
-            {"name": "Iran International", "url": "https://www.iranintl.com/en"},
-            {"name": "Radio Farda", "url": "https://www.radiofarda.com/"},
-            {"name": "BBC Persian", "url": "https://www.bbc.com/persian/index.xml"},
+            {"name": "Iran International", "url": "https://www.iranintl.com/en", "allowed_domains": ["iranintl.com"]},
+            {"name": "Radio Farda", "url": "https://www.radiofarda.com/", "allowed_domains": ["radiofarda.com", "rferl.org"]},
+            {"name": "BBC Persian", "url": "https://www.bbc.com/persian/index.xml", "allowed_domains": ["bbc.com", "bbci.co.uk"]},
         ],
     },
     "lebanon": {
@@ -64,14 +64,14 @@ SOURCE_PROFILES: Dict[str, Dict[str, Any]] = {
         "camp_b_label": "Counter / Independent",
         "english_camp_b_source": "L'Orient Today",
         "camp_a_sources": [
-            {"name": "IDF", "url": "https://www.idf.il/en/"},
-            {"name": "Israel MFA", "url": "https://www.gov.il/en/pages/mfa-news-and-articles"},
-            {"name": "Al-Manar", "url": "https://english.almanar.com.lb/"},
+            {"name": "IDF", "url": "https://www.idf.il/en/", "allowed_domains": ["idf.il"]},
+            {"name": "Israel MFA", "url": "https://www.gov.il/en/pages/mfa-news-and-articles", "allowed_domains": ["gov.il"]},
+            {"name": "Al-Manar", "url": "https://english.almanar.com.lb/", "allowed_domains": ["almanar.com.lb"]},
         ],
         "camp_b_sources": [
-            {"name": "L'Orient Today", "url": "https://today.lorientlejour.com/rss"},
-            {"name": "The New Arab", "url": "https://www.newarab.com/rss.xml"},
-            {"name": "Middle East Eye", "url": "https://www.middleeasteye.net/rss"},
+            {"name": "L'Orient Today", "url": "https://today.lorientlejour.com/rss", "allowed_domains": ["lorientlejour.com"]},
+            {"name": "The New Arab", "url": "https://www.newarab.com/rss.xml", "allowed_domains": ["newarab.com"]},
+            {"name": "Middle East Eye", "url": "https://www.middleeasteye.net/rss", "allowed_domains": ["middleeasteye.net"]},
         ],
     },
 }
@@ -456,6 +456,85 @@ def _prioritize_war_items(items: List[Dict[str, Any]], max_items: int = 40) -> L
     return ranked[:max_items]
 
 
+def _domain_allowed(link: str, allowed_domains: List[str]) -> bool:
+    if not link or not allowed_domains:
+        return True
+    try:
+        host = (urlparse(link).hostname or "").lower()
+    except Exception:
+        return False
+    if not host:
+        return False
+    return any(host == d or host.endswith("." + d) for d in [x.lower() for x in allowed_domains if x])
+
+
+def _apply_source_whitelist(items: List[Dict[str, Any]], allowed_domains: List[str]) -> List[Dict[str, Any]]:
+    if not items:
+        return []
+    if not allowed_domains:
+        return items
+    out: List[Dict[str, Any]] = []
+    for row in items:
+        link = str(row.get("link") or "").strip()
+        # Scraped headline rows can have no permalink; keep them but only with reduced confidence downstream.
+        if not link or _domain_allowed(link, allowed_domains):
+            out.append(row)
+    return out
+
+
+_LOSS_WORDS = r"(killed|dead|wounded|injured|casualties|losses)"
+_IDF_WORDS = r"(idf|israel(?:i)?(?:\s+army|\s+forces|\s+troops|\s+soldiers?)?)"
+_HEZB_WORDS = r"(hezbollah|hizbullah|hezb(?:\s+fighters?)?)"
+
+
+def _extract_loss_claims(text: str) -> List[Tuple[str, str, int]]:
+    """
+    Extract (actor, metric, value) tuples from claim text.
+    actor in {idf, hezbollah}, metric in {killed,wounded,casualties,losses}.
+    """
+    if not text:
+        return []
+    t = text.lower()
+    claims: List[Tuple[str, str, int]] = []
+    patterns = [
+        rf"(\d{{1,4}})\s+{_LOSS_WORDS}\s+(?:among\s+)?{_IDF_WORDS}",
+        rf"{_IDF_WORDS}[^.:\n]{{0,45}}?(\d{{1,4}})\s+{_LOSS_WORDS}",
+        rf"(\d{{1,4}})\s+{_LOSS_WORDS}\s+(?:among\s+)?{_HEZB_WORDS}",
+        rf"{_HEZB_WORDS}[^.:\n]{{0,45}}?(\d{{1,4}})\s+{_LOSS_WORDS}",
+    ]
+    for idx, pattern in enumerate(patterns):
+        for m in re.finditer(pattern, t, flags=re.IGNORECASE):
+            groups = [g for g in m.groups() if g]
+            if not groups:
+                continue
+            num = None
+            metric = "casualties"
+            actor = "idf" if idx < 2 else "hezbollah"
+            for g in groups:
+                g_l = str(g).lower()
+                if g_l.isdigit():
+                    num = int(g_l)
+                elif g_l in ("killed", "dead", "wounded", "injured", "casualties", "losses"):
+                    metric = "killed" if g_l == "dead" else ("wounded" if g_l == "injured" else g_l)
+            if num is not None and 0 <= num <= 5000:
+                claims.append((actor, metric, num))
+    return claims
+
+
+def _camp_claim_digest(items: List[Dict[str, Any]]) -> Dict[Tuple[str, str], int]:
+    acc: Dict[Tuple[str, str], int] = {}
+    for it in items[:20]:
+        text = f"{it.get('title') or ''} {it.get('text') or ''}".strip()
+        for actor, metric, value in _extract_loss_claims(text):
+            key = (actor, metric)
+            if key not in acc:
+                acc[key] = value
+            else:
+                # Keep higher claimed value for conservative mismatch detection.
+                acc[key] = max(acc[key], value)
+    return acc
+
+
 def _first_mention_ts(items: List[Dict[str, Any]]) -> Optional[float]:
     """Earliest published_ts in list (for latency signal)."""
     timestamps = [it["published_ts"] for it in items if it.get("published_ts") is not None]
@@ -801,6 +880,7 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             for s, fut in zip(camp_a_sources, state_futures, strict=True):
                 try:
                     items = fut.result(timeout=20) or []
+                    items = _apply_source_whitelist(items, list(s.get("allowed_domains") or []))
                     state_items.extend(items)
                     source_results.append(
                         SourceResult(
@@ -822,6 +902,7 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             for s, fut in zip(camp_b_sources, exile_futures, strict=True):
                 try:
                     items = fut.result(timeout=20) or []
+                    items = _apply_source_whitelist(items, list(s.get("allowed_domains") or []))
                     exile_items.extend(items)
                     source_results.append(
                         SourceResult(
@@ -908,6 +989,23 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             "denied" in exile_l and ("confirmed" in state_l or "claimed" in state_l)
         ):
             claim_conflicts.append("One camp denial conflicts with confirmation language from the other.")
+
+        # Stricter claim matching: compare numeric loss claims for IDF/Hezbollah across camps.
+        camp_a_claims = _camp_claim_digest(state_items)
+        camp_b_claims = _camp_claim_digest(exile_items)
+        for key, a_val in camp_a_claims.items():
+            if key not in camp_b_claims:
+                continue
+            b_val = camp_b_claims[key]
+            diff = abs(a_val - b_val)
+            # Strong mismatch threshold: both relative and absolute gap.
+            if diff >= 5 and diff >= max(3, int(0.35 * max(a_val, b_val))):
+                actor, metric = key
+                claim_conflicts.append(
+                    f"Loss claim mismatch for {actor.upper()} {metric}: camp A reports {a_val}, camp B reports {b_val}."
+                )
+        if claim_conflicts:
+            verification_state = "contested"
 
         table = [
             SourceComparisonRow(
