@@ -30,8 +30,10 @@ class HttpClient:
         limits = httpx.Limits(max_connections=max_connections, max_keepalive_connections=max_per_host)
         self._client = httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True)
         self._semaphores: Dict[str, asyncio.Semaphore] = {}
+        self._service_semaphores: Dict[str, asyncio.Semaphore] = {}
         self._circuits: Dict[str, CircuitBreakerState] = {}
         self._max_per_host = max_per_host
+        self._max_per_service = max(1, int(os.getenv("HTTP_MAX_PER_SERVICE", "3")))
         self._default_failure_threshold = max(1, int(os.getenv("HTTP_CIRCUIT_FAILURE_THRESHOLD", "5")))
         self._default_recovery_timeout_sec = max(1.0, float(os.getenv("HTTP_CIRCUIT_RECOVERY_TIMEOUT_SEC", "30")))
         self._default_backoff_jitter_ratio = min(
@@ -43,6 +45,11 @@ class HttpClient:
         if host not in self._semaphores:
             self._semaphores[host] = asyncio.Semaphore(self._max_per_host)
         return self._semaphores[host]
+
+    def _get_service_semaphore(self, service_key: str) -> asyncio.Semaphore:
+        if service_key not in self._service_semaphores:
+            self._service_semaphores[service_key] = asyncio.Semaphore(self._max_per_service)
+        return self._service_semaphores[service_key]
 
     def _is_circuit_open(self, circuit_key: str) -> bool:
         state = self._circuits.get(circuit_key)
@@ -85,8 +92,9 @@ class HttpClient:
     ) -> httpx.Response:
         parsed = urlparse(url)
         host = parsed.netloc or "default"
-        sem = self._get_semaphore(host)
         circuit_key = (service_name or parsed.hostname or host or "default").lower()
+        host_sem = self._get_semaphore(host)
+        service_sem = self._get_service_semaphore(circuit_key)
         retryable_statuses = retry_statuses or {429, 500, 502, 503, 504}
         threshold = failure_threshold if failure_threshold is not None else self._default_failure_threshold
         recovery = recovery_timeout_sec if recovery_timeout_sec is not None else self._default_recovery_timeout_sec
@@ -100,63 +108,64 @@ class HttpClient:
                 safe_url = redact_url(url)
                 logger.warning("Circuit open for %s - skipping %s %s", circuit_key, method.upper(), safe_url)
                 raise CircuitOpenError(f"circuit_open:{circuit_key}")
-            async with sem:
-                start = time.time()
-                try:
-                    resp = await self._client.request(method, url, **kwargs)
-                    duration_ms = (time.time() - start) * 1000
-                    safe_url = redact_url(url)
-                    logger.info("HTTP %s %s -> %s in %.1fms", method.upper(), safe_url, resp.status_code, duration_ms)
-                    resp.raise_for_status()
-                    if circuit_breaker_enabled:
-                        self._record_success(circuit_key)
-                    return resp
-                except httpx.HTTPStatusError as e:
-                    status = e.response.status_code
-                    safe_url = redact_url(url)
-                    parsed_host = (parsed.hostname or "").lower()
-                    # Retry only on 5xx, everything andere sofort durchreichen
-                    should_retry = status in retryable_statuses and attempt <= retries
-                    if not should_retry:
-                        if status == 404 and parsed_host == "internetdb.shodan.io":
-                            # InternetDB returns 404 for IPs without data; this is expected.
-                            logger.debug("HTTP expected 404 %s %s", method.upper(), safe_url)
-                        else:
-                            logger.warning("HTTP error %s %s: %s", method.upper(), safe_url, e)
-                        if circuit_breaker_enabled and not (status == 404 and parsed_host == "internetdb.shodan.io"):
-                            self._record_failure(
-                                circuit_key,
-                                failure_threshold=threshold,
-                                recovery_timeout_sec=recovery,
-                            )
-                        raise
-                    logger.warning(
-                        "HTTP %s %s -> %s, retrying (attempt %s/%s)",
-                        method.upper(),
-                        safe_url,
-                        status,
-                        attempt,
-                        retries,
-                    )
-                except httpx.RequestError as e:
-                    safe_url = redact_url(url)
-                    if attempt > retries:
-                        logger.error("HTTP request failed %s %s: %s", method.upper(), safe_url, e)
+            async with service_sem:
+                async with host_sem:
+                    start = time.time()
+                    try:
+                        resp = await self._client.request(method, url, **kwargs)
+                        duration_ms = (time.time() - start) * 1000
+                        safe_url = redact_url(url)
+                        logger.info("HTTP %s %s -> %s in %.1fms", method.upper(), safe_url, resp.status_code, duration_ms)
+                        resp.raise_for_status()
                         if circuit_breaker_enabled:
-                            self._record_failure(
-                                circuit_key,
-                                failure_threshold=threshold,
-                                recovery_timeout_sec=recovery,
-                            )
-                        raise
-                    logger.warning(
-                        "HTTP request error %s %s (%s), retrying (attempt %s/%s)",
-                        method.upper(),
-                        safe_url,
-                        e,
-                        attempt,
-                        retries,
-                    )
+                            self._record_success(circuit_key)
+                        return resp
+                    except httpx.HTTPStatusError as e:
+                        status = e.response.status_code
+                        safe_url = redact_url(url)
+                        parsed_host = (parsed.hostname or "").lower()
+                        # Retry only on 5xx, everything andere sofort durchreichen
+                        should_retry = status in retryable_statuses and attempt <= retries
+                        if not should_retry:
+                            if status == 404 and parsed_host == "internetdb.shodan.io":
+                                # InternetDB returns 404 for IPs without data; this is expected.
+                                logger.debug("HTTP expected 404 %s %s", method.upper(), safe_url)
+                            else:
+                                logger.warning("HTTP error %s %s: %s", method.upper(), safe_url, e)
+                            if circuit_breaker_enabled and not (status == 404 and parsed_host == "internetdb.shodan.io"):
+                                self._record_failure(
+                                    circuit_key,
+                                    failure_threshold=threshold,
+                                    recovery_timeout_sec=recovery,
+                                )
+                            raise
+                        logger.warning(
+                            "HTTP %s %s -> %s, retrying (attempt %s/%s)",
+                            method.upper(),
+                            safe_url,
+                            status,
+                            attempt,
+                            retries,
+                        )
+                    except httpx.RequestError as e:
+                        safe_url = redact_url(url)
+                        if attempt > retries:
+                            logger.error("HTTP request failed %s %s: %s", method.upper(), safe_url, e)
+                            if circuit_breaker_enabled:
+                                self._record_failure(
+                                    circuit_key,
+                                    failure_threshold=threshold,
+                                    recovery_timeout_sec=recovery,
+                                )
+                            raise
+                        logger.warning(
+                            "HTTP request error %s %s (%s), retrying (attempt %s/%s)",
+                            method.upper(),
+                            safe_url,
+                            e,
+                            attempt,
+                            retries,
+                        )
             jitter_max = max(0.0, backoff * self._default_backoff_jitter_ratio)
             await asyncio.sleep(backoff + random.uniform(0.0, jitter_max))
             backoff *= 2

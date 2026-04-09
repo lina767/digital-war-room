@@ -6,8 +6,9 @@ Data collection and parsing live in fetchers/socmint_fetchers.py.
 
 import json
 import logging
+import os
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, wait
 from typing import Any, Dict, List, Optional
 
 from .config import USE_RULE_BASED_AGENTS
@@ -25,23 +26,49 @@ from .llm import run_tool_agent
 from .utils import SourceResult, build_agent_meta, cap_reference_urls, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
+SOCMINT_SOURCE_TIMEOUT_SEC = max(5, int(os.getenv("SOCMINT_SOURCE_TIMEOUT_SEC", "20")))
 
 
 def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
     start = time.perf_counter()
     fetched_at = utc_now_iso()
     try:
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            fut_telegram = executor.submit(scrape_telegram_channels, conflict=conflict)
-            fut_twitter = executor.submit(scrape_twitter_nitter, conflict=conflict)
-            fut_reddit = executor.submit(search_reddit, conflict=conflict)
-            fut_rss = executor.submit(fetch_rss_feeds, conflict=conflict)
-            fut_reliefweb = executor.submit(fetch_reliefweb_reports, conflict=conflict)
-            telegram = [p for p in (fut_telegram.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
-            twitter = [p for p in (fut_twitter.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
-            reddit = [p for p in (fut_reddit.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
-            rss = [p for p in (fut_rss.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
-            reliefweb = [p for p in (fut_reliefweb.result(timeout=45) or []) if isinstance(p, dict) and "error" not in p]
+        executor = ThreadPoolExecutor(max_workers=5)
+        fut_by_name = {
+            "telegram": executor.submit(scrape_telegram_channels, conflict=conflict),
+            "twitter": executor.submit(scrape_twitter_nitter, conflict=conflict),
+            "reddit": executor.submit(search_reddit, conflict=conflict),
+            "rss": executor.submit(fetch_rss_feeds, conflict=conflict),
+            "reliefweb": executor.submit(fetch_reliefweb_reports, conflict=conflict),
+        }
+        done, _ = wait(set(fut_by_name.values()), timeout=SOCMINT_SOURCE_TIMEOUT_SEC)
+        rows: Dict[str, List[Dict[str, Any]]] = {
+            "telegram": [],
+            "twitter": [],
+            "reddit": [],
+            "rss": [],
+            "reliefweb": [],
+        }
+        for name, fut in fut_by_name.items():
+            if fut not in done:
+                logger.info("SOCMINT source timed out: %s (budget=%ss)", name, SOCMINT_SOURCE_TIMEOUT_SEC)
+                continue
+            try:
+                data = fut.result(timeout=0)
+            except TimeoutError:
+                logger.info("SOCMINT source timed out at result(): %s", name)
+                continue
+            except Exception as exc:
+                logger.info("SOCMINT source failed: %s (%s)", name, exc)
+                continue
+            rows[name] = [p for p in (data or []) if isinstance(p, dict) and "error" not in p]
+        # Do not block on stragglers; keep run latency bounded.
+        executor.shutdown(wait=False, cancel_futures=True)
+        telegram = rows["telegram"]
+        twitter = rows["twitter"]
+        reddit = rows["reddit"]
+        rss = rows["rss"]
+        reliefweb = rows["reliefweb"]
 
         all_posts = telegram + twitter + reddit + rss + reliefweb
 

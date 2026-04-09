@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
+import math
 from collections import deque
 from typing import Any, Dict, List, Optional
 
@@ -155,6 +156,7 @@ def get_ops_snapshot() -> Dict[str, Any]:
                 "last_successful_run": _last_successful(name),
                 "error_rate_24h": err_24h,
                 "runs_24h_sample": _run_count_24h(name),
+                "duration_stats_24h": _duration_stats_for_agent(name, 86400.0),
                 "quota": {
                     "haiku_month_tokens": month_by.get(name),
                     "haiku_last_run_tokens": last_run_haiku.get(name),
@@ -178,3 +180,37 @@ def get_ops_snapshot() -> Dict[str, Any]:
 
 def _run_count_24h(agent: str) -> int:
     return len([1 for (_, e) in _events_in_window(86400.0) if e.get("agent") == agent])
+
+
+def _percentile(values: List[float], p: float) -> Optional[float]:
+    if not values:
+        return None
+    vals = sorted(float(v) for v in values)
+    if len(vals) == 1:
+        return vals[0]
+    rank = (max(0.0, min(100.0, p)) / 100.0) * (len(vals) - 1)
+    lo = int(math.floor(rank))
+    hi = int(math.ceil(rank))
+    if lo == hi:
+        return vals[lo]
+    weight = rank - lo
+    return vals[lo] * (1.0 - weight) + vals[hi] * weight
+
+
+def _duration_stats_for_agent(agent: str, window_sec: float = 86400.0) -> Dict[str, Any]:
+    rows = [e for _, e in _events_in_window(window_sec) if e.get("agent") == agent]
+    durations = []
+    for e in rows:
+        try:
+            durations.append(float(e.get("duration_ms")))
+        except (TypeError, ValueError):
+            continue
+    p50 = _percentile(durations, 50.0)
+    p95 = _percentile(durations, 95.0)
+    return {
+        "window_sec": int(window_sec),
+        "samples": len(durations),
+        "p50_ms": round(p50, 2) if p50 is not None else None,
+        "p95_ms": round(p95, 2) if p95 is not None else None,
+        "max_ms": round(max(durations), 2) if durations else None,
+    }
