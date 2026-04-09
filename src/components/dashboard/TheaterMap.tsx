@@ -105,6 +105,13 @@ export interface TheaterMapProps {
   sigintAircraft?: SigintAircraft[];
   sigintShips?: SigintShip[];
   chokepointStatuses?: ChokePointStatus[];
+  idpSignals?: Array<{
+    name: string;
+    lat: number;
+    lon: number;
+    intensity: number;
+    description?: string;
+  }>;
   /** When set with onStrikeTimeRangeChange, strike time window is controlled by parent (e.g. timeline bar). */
   strikeTimeRange?: StrikeTimeRange;
   onStrikeTimeRangeChange?: (range: StrikeTimeRange) => void;
@@ -116,6 +123,7 @@ function TheaterMapInner({
   sigintAircraft = [],
   sigintShips = [],
   chokepointStatuses = [],
+  idpSignals = [],
   strikeTimeRange: strikeTimeRangeProp,
   onStrikeTimeRangeChange,
 }: TheaterMapProps) {
@@ -277,6 +285,60 @@ function TheaterMapInner({
     [theaterEvents, strikeTimeRange],
   );
 
+  const villageImpactPoints = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        name: string;
+        latSum: number;
+        lonSum: number;
+        n: number;
+        fatalities: number;
+        launches: number;
+        responses: number;
+      }
+    >();
+    for (const evt of filteredTheaterEvents) {
+      const name = (evt.admin1 || evt.country || "Unknown area").trim();
+      const key = `${name}|${evt.country || ""}`;
+      const existing = groups.get(key) || {
+        name,
+        latSum: 0,
+        lonSum: 0,
+        n: 0,
+        fatalities: 0,
+        launches: 0,
+        responses: 0,
+      };
+      existing.latSum += evt.lat;
+      existing.lonSum += evt.lon;
+      existing.n += 1;
+      existing.fatalities += Number(evt.fatalities || 0);
+      const actorText = `${evt.actor1 || ""} ${evt.actor2 || ""} ${evt.notes || ""}`.toLowerCase();
+      if (actorText.includes("hezbollah") || actorText.includes("hizbullah")) existing.launches += 1;
+      if (actorText.includes("idf") || actorText.includes("israel")) existing.responses += 1;
+      groups.set(key, existing);
+    }
+    return Array.from(groups.values())
+      .map((g) => {
+        const baseScore = Math.min(100, g.n * 7 + g.fatalities * 1.8);
+        const balance = g.launches + g.responses > 0 ? Math.min(g.launches, g.responses) / Math.max(g.launches, g.responses) : 0;
+        const correlation = Number(balance.toFixed(2));
+        const score = Number(Math.min(100, baseScore + correlation * 15).toFixed(1));
+        return {
+          name: g.name,
+          lat: g.latSum / g.n,
+          lon: g.lonSum / g.n,
+          score,
+          correlation,
+          launches: g.launches,
+          responses: g.responses,
+        };
+      })
+      .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lon) && x.score > 10)
+      .slice(0, 120);
+  }, [filteredTheaterEvents]);
+
   const validHeatmapEvents = useMemo(
     () =>
       heatmapEvents.filter(
@@ -399,6 +461,8 @@ function TheaterMapInner({
         sigintAircraft: validSigintAircraft,
         sigintShips: validSigintShips,
         chokepointStatuses,
+        villageImpactPoints,
+        idpSignals,
       }),
     [
       zoom,
@@ -411,6 +475,8 @@ function TheaterMapInner({
       validSigintAircraft,
       validSigintShips,
       chokepointStatuses,
+      villageImpactPoints,
+      idpSignals,
     ],
   );
 

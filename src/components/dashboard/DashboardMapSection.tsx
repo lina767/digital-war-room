@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ConflictData } from "@/types/conflict";
 import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/types/theaterMap";
 import { TheaterMap } from "@/components/dashboard/TheaterMap";
+import { CrossBorderCorrelationPanel } from "@/components/dashboard/CrossBorderCorrelationPanel";
 import { VisualEscalationTimeline } from "@/components/dashboard/VisualEscalationTimeline";
 import { Radio, Rss } from "lucide-react";
 import { getEscalationTimeline, type EscalationTimelinePoint } from "@/lib/api";
@@ -60,6 +61,33 @@ export function DashboardMapSection({
     }),
   );
 
+  const idpSignals = (() => {
+    const reports = asArray<{ title?: string; body_excerpt?: string; country?: string }>(conflictData?.geoint?.reliefweb_reports);
+    const text = reports
+      .map((r) => `${r.title || ""} ${r.body_excerpt || ""} ${r.country || ""}`.toLowerCase())
+      .join(" ");
+    const displacementHits = (text.match(/\bidp|displaced|displacement|refugee|evacuat/g) || []).length;
+    const hubs = [
+      { name: "Beirut", lat: 33.8938, lon: 35.5018, key: "beirut" },
+      { name: "Tyre", lat: 33.2704, lon: 35.2038, key: "tyre" },
+      { name: "Nabatieh", lat: 33.3789, lon: 35.4836, key: "nabatieh" },
+      { name: "Masnaa Crossing", lat: 33.7059, lon: 35.9153, key: "masnaa" },
+    ] as const;
+    return hubs
+      .map((hub) => {
+        const placeHits = (text.match(new RegExp(hub.key, "g")) || []).length;
+        const intensity = Math.max(0, Math.min(100, displacementHits * 8 + placeHits * 14));
+        return {
+          name: hub.name,
+          lat: hub.lat,
+          lon: hub.lon,
+          intensity,
+          description: intensity > 0 ? "Humanitarian movement signal from ReliefWeb/HDX references" : "Baseline monitor",
+        };
+      })
+      .filter((x) => x.intensity > 0);
+  })();
+
   return (
     <main className="flex-[0_1_50%] min-h-0 min-w-0 relative overflow-hidden flex flex-col" aria-label="Theater map and escalation timeline">
       <div className="absolute inset-0 grid-overlay opacity-30 pointer-events-none" />
@@ -71,10 +99,15 @@ export function DashboardMapSection({
           sigintAircraft={sigintAircraft as SigintAircraft[]}
           sigintShips={sigintShips as SigintShip[]}
           chokepointStatuses={chokepointStatuses}
+          idpSignals={idpSignals}
           strikeTimeRange={strikeTimeRange}
           onStrikeTimeRangeChange={setStrikeTimeRange}
         />
       </div>
+
+      {(activeConflict || "").toLowerCase().includes("lebanon") && (
+        <CrossBorderCorrelationPanel conflictData={conflictData} />
+      )}
 
       {/* Mobile floating panel toggles – 44px tap targets */}
       <div className="absolute top-3 left-3 flex gap-2 lg:hidden z-10">

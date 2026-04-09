@@ -173,6 +173,40 @@ export function LayerControls({
             />
             NUC
           </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("blueLine")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="UN Blue Line monitoring layer"
+            aria-label={layers.blueLine ? "Hide Blue Line layer" : "Show Blue Line layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-sm border"
+              style={
+                layers.blueLine
+                  ? { borderColor: "hsl(214 90% 67%)", background: "hsl(214 90% 67% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            BLUE
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("unifilPosts")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="UNIFIL posts overlay"
+            aria-label={layers.unifilPosts ? "Hide UNIFIL posts layer" : "Show UNIFIL posts layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full border"
+              style={
+                layers.unifilPosts
+                  ? { borderColor: "hsl(214 90% 67%)", background: "hsl(214 90% 67% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            UNIFIL
+          </button>
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 border-l border-border/50 pl-2">
@@ -245,6 +279,40 @@ export function LayerControls({
               <path d="M -1.1 0.25 L -0.6 0.5 L 1 0.5 L 1.2 0.2 L 0.8 -0.1 L -0.9 -0.05 Z" fill="currentColor" stroke="currentColor" strokeWidth="0.1" />
             </svg>
             SIGINT
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("villageImpact")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="Village impact correlation layer"
+            aria-label={layers.villageImpact ? "Hide village impact layer" : "Show village impact layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full border"
+              style={
+                layers.villageImpact
+                  ? { borderColor: "hsl(0 84% 60%)", background: "hsl(0 84% 60% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            IMPACT
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleLayer("idpOverlay")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground transition-colors touch-manipulation flex-shrink-0"
+            title="IDP movement signals"
+            aria-label={layers.idpOverlay ? "Hide IDP overlay layer" : "Show IDP overlay layer"}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full border"
+              style={
+                layers.idpOverlay
+                  ? { borderColor: "hsl(270 95% 65%)", background: "hsl(270 95% 65% / 0.25)" }
+                  : { borderColor: "hsl(var(--border))" }
+              }
+            />
+            IDP
           </button>
         </div>
         {(layers.airRoutes || layers.seaLanes) && (

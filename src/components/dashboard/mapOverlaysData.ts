@@ -27,6 +27,12 @@ export interface StrategicSite {
   coordinates: [number, number];
 }
 
+export interface MapPoint {
+  id: string;
+  name: string;
+  coordinates: [number, number];
+}
+
 /** SAM positions (illustrative; replace with OSINT/vordefinierte Daten). Iran/Gulf region. */
 export const SAM_RINGS: SamRing[] = [
   { id: "sam-tehran", name: "Tehran area", center: [51.4, 35.7], radius_km: 150 },
@@ -161,6 +167,36 @@ export const NUCLEAR_FACILITIES: StrategicSite[] = [
   { id: "nf-fordow", name: "Fordow (DAMAGED)", country: "Iran", coordinates: [50.992, 34.885] },
   { id: "nf-isfahan", name: "Isfahan", country: "Iran", coordinates: [51.654, 32.648] },
   { id: "nf-bushehr", name: "Bushehr", country: "Iran", coordinates: [50.887, 28.829] },
+];
+
+/** UN Blue Line (approximate polyline segments for South Lebanon monitoring). */
+export const BLUE_LINE_PATHS: MapPolyline[] = [
+  {
+    id: "blue-line-west-east",
+    name: "UN Blue Line",
+    coordinates: [
+      [35.095, 33.105],
+      [35.15, 33.13],
+      [35.23, 33.16],
+      [35.31, 33.18],
+      [35.42, 33.17],
+      [35.53, 33.21],
+      [35.62, 33.24],
+      [35.73, 33.26],
+      [35.84, 33.28],
+      [35.98, 33.30],
+      [36.12, 33.31],
+      [36.26, 33.31],
+    ],
+  },
+];
+
+/** UNIFIL post markers (illustrative, replace with validated geodata in production). */
+export const UNIFIL_POSTS: MapPoint[] = [
+  { id: "unifil-naqoura", name: "UNIFIL HQ Naqoura", coordinates: [35.114, 33.119] },
+  { id: "unifil-bint-jbeil", name: "UNIFIL Bint Jbeil Sector", coordinates: [35.428, 33.119] },
+  { id: "unifil-marjayoun", name: "UNIFIL Marjayoun Sector", coordinates: [35.593, 33.363] },
+  { id: "unifil-khiam", name: "UNIFIL Khiam Vicinity", coordinates: [35.632, 33.346] },
 ];
 
 /** Generate polygon points for a circle (WGS84 approx). Returns [lon, lat][] closed ring. */

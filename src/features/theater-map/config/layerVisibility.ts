@@ -9,6 +9,10 @@ export interface LayerVisibility {
   chokepoints: boolean;
   militaryBases: boolean;
   nuclearFacilities: boolean;
+  blueLine: boolean;
+  unifilPosts: boolean;
+  villageImpact: boolean;
+  idpOverlay: boolean;
 }
 
 export type LayerAction =
@@ -26,6 +30,10 @@ export const INITIAL_LAYERS: LayerVisibility = {
   chokepoints: true,
   militaryBases: true,
   nuclearFacilities: true,
+  blueLine: false,
+  unifilPosts: false,
+  villageImpact: false,
+  idpOverlay: false,
 };
 
 export function layerReducer(state: LayerVisibility, action: LayerAction): LayerVisibility {

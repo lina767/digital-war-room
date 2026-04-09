@@ -435,6 +435,7 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
                         if score < -0.2
                         else "NEUTRAL",
                         "platform": "telegram",
+                        "source_reliability_tier": "html-scrape",
                     }
                     if media_urls:
                         row["media_urls"] = media_urls
@@ -469,6 +470,7 @@ def scrape_telegram_channels(conflict: str) -> List[Dict[str, Any]]:
                         if score < -0.2
                         else "NEUTRAL",
                         "platform": "telegram",
+                        "source_reliability_tier": "html-scrape",
                     }
                 )
             return results
@@ -507,6 +509,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
         media_urls: Optional[List[str]] = None,
         *,
         url: Optional[str] = None,
+        source_reliability_tier: str = "html-scrape",
     ) -> Dict[str, Any]:
         score = _sentiment(text)
         row: Dict[str, Any] = {
@@ -517,6 +520,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
             "platform": "twitter",
             "account": account,
+            "source_reliability_tier": source_reliability_tier,
         }
         if media_urls:
             row["media_urls"] = media_urls
@@ -562,7 +566,7 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                         if not any(kw in text.lower() for kw in keywords):
                             continue
                         permalink = status_urls[i] if i < len(status_urls) else f"{base}/{account}"
-                        results.append(_make_post(account, text, url=permalink))
+                        results.append(_make_post(account, text, url=permalink, source_reliability_tier="html-scrape"))
                     return results
             except Exception:
                 continue
@@ -617,7 +621,15 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
                     if media_urls:
                         seen_m: set = set()
                         media_urls = [u for u in media_urls if not (u in seen_m or seen_m.add(u))]
-                    results.append(_make_post(account, text, media_urls=media_urls or None, url=permalink))
+                    results.append(
+                        _make_post(
+                            account,
+                            text,
+                            media_urls=media_urls or None,
+                            url=permalink,
+                            source_reliability_tier="rss",
+                        )
+                    )
                 if results:
                     return results
             except Exception:
@@ -640,7 +652,14 @@ def scrape_twitter_nitter(conflict: str) -> List[Dict[str, Any]]:
             for line in lines[:15]:
                 if not any(kw in line.lower() for kw in keywords):
                     continue
-                posts.append(_make_post(account, line[:300], url=f"https://x.com/{account}"))
+                posts.append(
+                    _make_post(
+                        account,
+                        line[:300],
+                        url=f"https://x.com/{account}",
+                        source_reliability_tier="html-scrape",
+                    )
+                )
             return posts
         except Exception:
             return []
@@ -733,6 +752,7 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                     else "NEUTRAL",
                     "platform": "reddit",
                     "published_at": created.isoformat(),
+                    "source_reliability_tier": "api",
                 }
                 if og_image:
                     row["og_image"] = og_image
@@ -814,6 +834,7 @@ def search_reddit(conflict: str, limit: int = 20) -> List[Dict[str, Any]]:
                     else "NEUTRAL",
                     "platform": "reddit",
                     "published_at": published.isoformat() if published else "",
+                    "source_reliability_tier": "rss",
                 }
                 if og_image:
                     row["og_image"] = og_image
@@ -929,6 +950,7 @@ def fetch_rss_feeds(conflict: str) -> List[Dict[str, Any]]:
                         else "NEUTRAL",
                         "platform": "rss",
                         "published_at": published.isoformat() if published else "",
+                        "source_reliability_tier": "rss",
                     }
                 )
         except Exception:
@@ -987,6 +1009,7 @@ async def _reliefweb_rss_fallback(country_name: str, keywords: List[str]) -> Lis
                     if score < -0.2
                     else "NEUTRAL",
                     "platform": "reliefweb",
+                    "source_reliability_tier": "rss",
                 }
             )
             if len(results) >= 10:
@@ -1078,6 +1101,7 @@ def fetch_reliefweb_reports(conflict: str) -> List[Dict[str, Any]]:
                     "sentiment_score": score,
                     "sentiment_label": "ESCALATORY" if score > 0.2 else "DE-ESCALATORY" if score < -0.2 else "NEUTRAL",
                     "platform": "reliefweb",
+                    "source_reliability_tier": "api",
                 }
             )
         return results[:15]

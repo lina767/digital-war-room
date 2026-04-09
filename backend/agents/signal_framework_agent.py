@@ -39,23 +39,53 @@ SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS = os.getenv("SIGNAL_FRAMEWORK_GEMINI_DEEP_
 SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS = max(6, min(40, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS", "18"))))
 SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES = max(3, min(20, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES", "8"))))
 
-# ── Source groups (Iran narrative comparison) ────────────────────────────────
+# ── Source groups (theater-dependent narrative comparison) ───────────────────
 
-STATE_SOURCES: List[Dict[str, str]] = [
-    {"name": "IRNA", "url": "https://www.irna.ir/en/rss.aspx?kind=-1"},
-    {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss"},
-    {"name": "Fars News (alt)", "url": "https://www.farsnews.ir/en"},  # fallback when RSS is blocked/unavailable
-    {"name": "Tasnim", "url": "https://www.tasnimnews.ir/en/rss"},
-    {"name": "Press TV", "url": "https://www.presstv.ir/"},
-]
+SOURCE_PROFILES: Dict[str, Dict[str, Any]] = {
+    "iran": {
+        "camp_a_label": "State / Official",
+        "camp_b_label": "Exile / Independent",
+        "english_camp_b_source": "Iran International",
+        "camp_a_sources": [
+            {"name": "IRNA", "url": "https://www.irna.ir/en/rss.aspx?kind=-1"},
+            {"name": "Fars News", "url": "https://www.farsnews.ir/en/rss"},
+            {"name": "Fars News (alt)", "url": "https://www.farsnews.ir/en"},  # fallback when RSS is blocked/unavailable
+            {"name": "Tasnim", "url": "https://www.tasnimnews.ir/en/rss"},
+            {"name": "Press TV", "url": "https://www.presstv.ir/"},
+        ],
+        "camp_b_sources": [
+            {"name": "Iran International", "url": "https://www.iranintl.com/en"},
+            {"name": "Radio Farda", "url": "https://www.radiofarda.com/"},
+            {"name": "BBC Persian", "url": "https://www.bbc.com/persian/index.xml"},
+        ],
+    },
+    "lebanon": {
+        "camp_a_label": "Official / Aligned",
+        "camp_b_label": "Counter / Independent",
+        "english_camp_b_source": "L'Orient Today",
+        "camp_a_sources": [
+            {"name": "IDF", "url": "https://www.idf.il/en/"},
+            {"name": "Israel MFA", "url": "https://www.gov.il/en/pages/mfa-news-and-articles"},
+            {"name": "Al-Manar", "url": "https://english.almanar.com.lb/"},
+        ],
+        "camp_b_sources": [
+            {"name": "L'Orient Today", "url": "https://today.lorientlejour.com/rss"},
+            {"name": "The New Arab", "url": "https://www.newarab.com/rss.xml"},
+            {"name": "Middle East Eye", "url": "https://www.middleeasteye.net/rss"},
+        ],
+    },
+}
 
-EXILE_SOURCES: List[Dict[str, str]] = [
-    {"name": "Iran International", "url": "https://www.iranintl.com/en"},
-    {"name": "Radio Farda", "url": "https://www.radiofarda.com/"},
-    {"name": "BBC Persian", "url": "https://www.bbc.com/persian/index.xml"},
-]
 
-STATE_SOURCE_NAMES = {s["name"] for s in STATE_SOURCES}
+def _source_profile_for_conflict(conflict: str) -> Optional[Dict[str, Any]]:
+    cl = (conflict or "").strip().lower()
+    if "iran" in cl:
+        return SOURCE_PROFILES["iran"]
+    if "lebanon" in cl or "hezbollah" in cl:
+        return SOURCE_PROFILES["lebanon"]
+    if "middle east" in cl:
+        return SOURCE_PROFILES["lebanon"]
+    return None
 
 # Lexical framing: terms often used by state vs exile (for comparison hints)
 STATE_FRAMING_TERMS = [
@@ -292,11 +322,11 @@ def _extract_headlines_from_html(html: str, base_url: str, source_name: str) -> 
     return out
 
 
-def _fetch_feed(url: str, source_name: str) -> List[Dict[str, Any]]:
+def _fetch_feed(url: str, source_name: str, state_source_names: set[str]) -> List[Dict[str, Any]]:
     """Fetch RSS via httpx (timeout, browser UA). On state failure: retry once, then Firecrawl fallback if enabled."""
     items: List[Dict[str, Any]] = []
     fallback_ts = time.time()
-    is_state = source_name in STATE_SOURCE_NAMES
+    is_state = source_name in state_source_names
     timeout = FEED_REQUEST_TIMEOUT_STATE if is_state else FEED_REQUEST_TIMEOUT
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/115.0"}
 
@@ -483,6 +513,8 @@ class SourceComparisonRow(BaseModel):
     exile_narrative: str
     state_narrative_en: Optional[str] = None  # English; state feeds are usually EN
     exile_narrative_en: Optional[str] = None  # English; from Iran International or translated
+    source_reliability_tier: Optional[str] = None
+    verification_state: Optional[str] = None
 
 
 class SignalAssessment(BaseModel):
@@ -508,6 +540,11 @@ class SignalFrameworkReport(BaseModel):
     signals: Optional[SignalSummary] = None  # explicit 4-signal breakdown for UI
     synthesis_probability: float = 0.0
     synthesis_text: str = ""
+    camp_a_label: str = "State / Official"
+    camp_b_label: str = "Exile / Independent"
+    source_reliability_tier: Optional[str] = None
+    verification_state: Optional[str] = None
+    claim_conflicts: List[str] = Field(default_factory=list)
     anomalies: List[str] = Field(default_factory=list)
     lexical_state_terms: List[str] = Field(default_factory=list)
     lexical_exile_terms: List[str] = Field(default_factory=list)
@@ -736,22 +773,32 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
     Run the Signal Framework: compare state vs exile/independent sources,
     compute lexical, latency, discrepancy, and reaction signals; return structured report in English.
     """
-    cl = (conflict or "").lower()
-    if "iran" not in cl:
+    profile = _source_profile_for_conflict(conflict)
+    if not profile:
         return SignalFrameworkReport(
             conflict=conflict,
-            synthesis_text="Signal Framework is configured for Iran narrative comparison. No analysis run.",
+            synthesis_text="Signal Framework is configured for Iran and Lebanon narrative comparison. No analysis run.",
             error="conflict_not_supported",
         ).model_dump(mode="json")
+    camp_a_label = profile.get("camp_a_label") or "State / Official"
+    camp_b_label = profile.get("camp_b_label") or "Exile / Independent"
+    camp_a_sources = list(profile.get("camp_a_sources") or [])
+    camp_b_sources = list(profile.get("camp_b_sources") or [])
+    english_camp_b_source = profile.get("english_camp_b_source") or ENGLISH_EXILE_SOURCE
+    camp_a_source_names = {s["name"] for s in camp_a_sources}
 
     try:
         with ThreadPoolExecutor(max_workers=8) as executor:
-            state_futures = [executor.submit(_fetch_feed, s["url"], s["name"]) for s in STATE_SOURCES]
-            exile_futures = [executor.submit(_fetch_feed, s["url"], s["name"]) for s in EXILE_SOURCES]
+            state_futures = [
+                executor.submit(_fetch_feed, s["url"], s["name"], camp_a_source_names) for s in camp_a_sources
+            ]
+            exile_futures = [
+                executor.submit(_fetch_feed, s["url"], s["name"], camp_a_source_names) for s in camp_b_sources
+            ]
 
             source_results: List[SourceResult] = []
             state_items: List[Dict[str, Any]] = []
-            for s, fut in zip(STATE_SOURCES, state_futures, strict=True):
+            for s, fut in zip(camp_a_sources, state_futures, strict=True):
                 try:
                     items = fut.result(timeout=20) or []
                     state_items.extend(items)
@@ -761,6 +808,8 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                             status="ok" if items else "degraded",
                             record_count=len(items),
                             fetched_at=utc_now_iso(),
+                            reference_urls=[s["url"]],
+                            endpoint_kind="rss" if "rss" in s["url"].lower() or "xml" in s["url"].lower() else "html",
                         )
                     )
                 except Exception as e:
@@ -770,7 +819,7 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                     )
 
             exile_items: List[Dict[str, Any]] = []
-            for s, fut in zip(EXILE_SOURCES, exile_futures, strict=True):
+            for s, fut in zip(camp_b_sources, exile_futures, strict=True):
                 try:
                     items = fut.result(timeout=20) or []
                     exile_items.extend(items)
@@ -780,6 +829,8 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                             status="ok" if items else "degraded",
                             record_count=len(items),
                             fetched_at=utc_now_iso(),
+                            reference_urls=[s["url"]],
+                            endpoint_kind="rss" if "rss" in s["url"].lower() or "xml" in s["url"].lower() else "html",
                         )
                     )
                 except Exception as e:
@@ -800,9 +851,9 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
         # Prefer English exile source (Iran International) for display so UI can show English first
         exile_items_sorted = sorted(
             exile_items,
-            key=lambda x: (0 if x.get("source_name") == ENGLISH_EXILE_SOURCE else 1, -(x.get("published_ts") or 0)),
+            key=lambda x: (0 if x.get("source_name") == english_camp_b_source else 1, -(x.get("published_ts") or 0)),
         )
-        english_exile_items = [i for i in exile_items if i.get("source_name") == ENGLISH_EXILE_SOURCE]
+        english_exile_items = [i for i in exile_items if i.get("source_name") == english_camp_b_source]
 
         # Lexical signal
         state_terms = _extract_key_terms(state_items)
@@ -830,6 +881,34 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
         key_state_display = state_terms_str if state_terms_str != "—" else None
         key_exile_display = exile_terms_en_str or None
 
+        source_reliability_tier = "api"
+        endpoint_kinds = {str(s.endpoint_kind or "").lower() for s in source_results}
+        if "html" in endpoint_kinds:
+            source_reliability_tier = "html-scrape"
+        elif "rss" in endpoint_kinds:
+            source_reliability_tier = "rss"
+        if not source_results:
+            source_reliability_tier = "inferred"
+        verification_state = (
+            "confirmed"
+            if state_items and exile_items and source_reliability_tier in {"api", "rss"}
+            else "partially_confirmed"
+            if (state_items or exile_items)
+            else "contested"
+        )
+
+        claim_conflicts: List[str] = []
+        state_l = (main_state or "").lower()
+        exile_l = (main_exile or "").lower()
+        if ("civilian" in state_l and "military" in exile_l) or ("military" in state_l and "civilian" in exile_l):
+            claim_conflicts.append("Target-type framing differs (civilian vs military).")
+        if ("south lebanon" in state_l and "beirut" in exile_l) or ("south lebanon" in exile_l and "beirut" in state_l):
+            claim_conflicts.append("Primary location framing differs (South Lebanon vs Beirut area).")
+        if ("denied" in state_l and ("confirmed" in exile_l or "claimed" in exile_l)) or (
+            "denied" in exile_l and ("confirmed" in state_l or "claimed" in state_l)
+        ):
+            claim_conflicts.append("One camp denial conflicts with confirmation language from the other.")
+
         table = [
             SourceComparisonRow(
                 point="Main claim",
@@ -837,6 +916,8 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                 exile_narrative=main_exile or "No exile/independent coverage retrieved.",
                 state_narrative_en=main_state_display,
                 exile_narrative_en=main_exile_display,
+                source_reliability_tier=source_reliability_tier,
+                verification_state=verification_state,
             ),
             SourceComparisonRow(
                 point="Key terms",
@@ -844,6 +925,8 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                 exile_narrative=exile_terms_str,
                 state_narrative_en=key_state_display,
                 exile_narrative_en=key_exile_display,
+                source_reliability_tier=source_reliability_tier,
+                verification_state=verification_state,
             ),
         ]
 
@@ -915,6 +998,11 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             signals=signals,
             synthesis_probability=prob,
             synthesis_text=synth_text,
+            camp_a_label=camp_a_label,
+            camp_b_label=camp_b_label,
+            source_reliability_tier=source_reliability_tier,
+            verification_state=verification_state,
+            claim_conflicts=claim_conflicts,
             anomalies=anomalies,
             lexical_state_terms=state_terms[:15],
             lexical_exile_terms=exile_terms[:15],

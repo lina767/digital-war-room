@@ -20,6 +20,11 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
   const quotedPassages = narrative?.quoted_passages ?? [];
   const negotiationNarrativeScore = narrative?.negotiation_narrative_score;
   const methodNotes = narrative?.method_notes ?? [];
+  const campALabel = (narrative?.camp_a_label || "State / Official").trim();
+  const campBLabel = (narrative?.camp_b_label || "Exile / Independent").trim();
+  const sourceReliability = narrative?.source_reliability_tier;
+  const verificationState = narrative?.verification_state;
+  const claimConflicts = narrative?.claim_conflicts ?? [];
   const stateCount = narrative?.state_item_count ?? 0;
   const exileCount = narrative?.exile_item_count ?? 0;
   const hasData = table.length > 0 || synthesisText || (stateCount > 0 && exileCount > 0);
@@ -61,6 +66,34 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
               <span className="text-muted-foreground">Credibility gaps:</span> {assessment.credibility_gaps}
             </p>
           )}
+        </div>
+      )}
+
+      {(sourceReliability || verificationState) && (
+        <div className="rounded border border-border bg-muted/20 p-2 space-y-1">
+          {sourceReliability ? (
+            <p className="text-xs">
+              <span className="text-muted-foreground">Source tier:</span> {sourceReliability}
+            </p>
+          ) : null}
+          {verificationState ? (
+            <p className="text-xs">
+              <span className="text-muted-foreground">Verification:</span> {verificationState}
+            </p>
+          ) : null}
+        </div>
+      )}
+
+      {claimConflicts.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider">Claim conflicts detected</p>
+          <ul className="space-y-1">
+            {claimConflicts.slice(0, 4).map((line, idx) => (
+              <li key={idx} className="text-xs text-foreground/90 leading-relaxed">
+                - {line}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -120,7 +153,7 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
 
       {table.length > 0 && (
         <div>
-          <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">State vs. Exile</p>
+          <p className="text-[11px] font-mono text-muted-foreground uppercase tracking-wider mb-2">{campALabel} vs. {campBLabel}</p>
           <div className="space-y-3">
             {table.map((row, i) => {
               const point = row.point ?? `Point ${i + 1}`;
@@ -131,16 +164,16 @@ export function SignalFrameworkPanel({ data, activeConflict, embedded = false }:
                   <p className="text-[11px] font-medium text-foreground">{point}</p>
                   <div className="grid gap-2 text-xs">
                     <div className="flex gap-2">
-                      <span className="flex-shrink-0 flex items-center gap-1 text-muted-foreground" title="State / official">
+                      <span className="flex-shrink-0 flex items-center gap-1 text-muted-foreground" title={campALabel}>
                         <Building2 className="h-3 w-3" />
-                        State
+                        {campALabel}
                       </span>
                       <p className="leading-relaxed text-foreground/90 min-w-0">{stateText.slice(0, 280)}{stateText.length > 280 ? "…" : ""}</p>
                     </div>
                     <div className="flex gap-2">
-                      <span className="flex-shrink-0 flex items-center gap-1 text-muted-foreground" title="Exile / independent">
+                      <span className="flex-shrink-0 flex items-center gap-1 text-muted-foreground" title={campBLabel}>
                         <Radio className="h-3 w-3" />
-                        Exile
+                        {campBLabel}
                       </span>
                       <p className="leading-relaxed text-foreground/90 min-w-0">{exileText.slice(0, 280)}{exileText.length > 280 ? "…" : ""}</p>
                     </div>

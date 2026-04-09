@@ -11,10 +11,12 @@ import {
 import type { GeointAnomaly, SigintAircraft, SigintShip } from "@/types/theaterMap";
 import {
   AIR_ROUTES,
+  BLUE_LINE_PATHS,
   CHOKEPOINT_ZONES,
   MILITARY_BASES,
   NUCLEAR_FACILITIES,
   SEA_LANES,
+  UNIFIL_POSTS,
   type ChokePointZone,
 } from "./mapOverlaysData";
 import type { TheaterDisplayItem } from "./theaterMapCluster";
@@ -65,6 +67,22 @@ export interface TheaterDeckLayersInput {
   sigintAircraft: SigintAircraft[];
   sigintShips: SigintShip[];
   chokepointStatuses: ChokepointStatusInput[];
+  villageImpactPoints?: Array<{
+    name: string;
+    lat: number;
+    lon: number;
+    score: number;
+    correlation: number;
+    launches: number;
+    responses: number;
+  }>;
+  idpSignals?: Array<{
+    name: string;
+    lat: number;
+    lon: number;
+    intensity: number;
+    description?: string;
+  }>;
 }
 
 function chokepointZoneData(
@@ -140,6 +158,8 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
     sigintAircraft,
     sigintShips,
     chokepointStatuses,
+    villageImpactPoints = [],
+    idpSignals = [],
   } = input;
 
   const s = markerScale(zoom);
@@ -193,6 +213,24 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         capRounded: true,
         extensions: [pathDashExt],
         getDashArray: [3, 2],
+        pickable: false,
+      }),
+    );
+  }
+
+  if (lv.blueLine && overlayOk) {
+    layers.push(
+      new PathLayer({
+        id: "blue-line",
+        data: BLUE_LINE_PATHS,
+        getPath: (d) => d.coordinates,
+        getColor: [96, 165, 250, 220],
+        getWidth: 2.2,
+        widthUnits: "pixels",
+        capRounded: true,
+        jointRounded: true,
+        extensions: [pathDashExt],
+        getDashArray: [6, 3],
         pickable: false,
       }),
     );
@@ -289,6 +327,27 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
     );
   }
 
+  if (lv.unifilPosts && overlayOk) {
+    layers.push(
+      new ScatterplotLayer({
+        id: "unifil-posts",
+        data: UNIFIL_POSTS.map((p) => ({ ...p, tooltip: `${p.name} · UNIFIL post` })),
+        getPosition: (d) => [...d.coordinates] as [number, number],
+        getRadius: 6 * s,
+        radiusUnits: "pixels",
+        getFillColor: [147, 197, 253, 220],
+        getLineColor: [37, 99, 235, 255],
+        lineWidthUnits: "pixels",
+        getLineWidth: 1.1,
+        stroked: true,
+        pickable: true,
+        radiusMinPixels: 5,
+        radiusMaxPixels: 26,
+        billboard: true,
+      }),
+    );
+  }
+
   const theaterEvents = theaterDisplayItems.filter((i) => i.type === "event");
 
   if (lv.theaterEvents && theaterEvents.length > 0) {
@@ -373,6 +432,55 @@ export function buildTheaterDeckLayers(input: TheaterDeckLayersInput): Layer[] {
         }),
       );
     }
+  }
+
+  if (lv.villageImpact && villageImpactPoints.length > 0) {
+    layers.push(
+      new ScatterplotLayer({
+        id: "village-impact",
+        data: villageImpactPoints.map((d) => ({
+          ...d,
+          tooltip: `${d.name} · Impact ${Math.round(d.score)} · Corr ${d.correlation.toFixed(2)} · launches ${d.launches} / responses ${d.responses}`,
+        })),
+        getPosition: (d) => [d.lon, d.lat] as [number, number],
+        getRadius: (d) => Math.max(4, Math.min(12, 3 + d.score / 18)) * s,
+        radiusUnits: "pixels",
+        getFillColor: (d) =>
+          d.score >= 75
+            ? [220, 38, 38, 220]
+            : d.score >= 45
+              ? [234, 179, 8, 210]
+              : [16, 185, 129, 205],
+        getLineColor: [255, 255, 255, 220],
+        lineWidthUnits: "pixels",
+        getLineWidth: 1,
+        stroked: true,
+        pickable: true,
+        billboard: true,
+      }),
+    );
+  }
+
+  if (lv.idpOverlay && idpSignals.length > 0) {
+    layers.push(
+      new ScatterplotLayer({
+        id: "idp-overlay",
+        data: idpSignals.map((d) => ({
+          ...d,
+          tooltip: `${d.name} · IDP signal ${Math.round(d.intensity)}${d.description ? ` · ${d.description}` : ""}`,
+        })),
+        getPosition: (d) => [d.lon, d.lat] as [number, number],
+        getRadius: (d) => Math.max(4, Math.min(11, 2 + d.intensity / 20)) * s,
+        radiusUnits: "pixels",
+        getFillColor: [168, 85, 247, 210],
+        getLineColor: [126, 34, 206, 255],
+        lineWidthUnits: "pixels",
+        getLineWidth: 1,
+        stroked: true,
+        pickable: true,
+        billboard: true,
+      }),
+    );
   }
 
   if (lv.sigint) {

@@ -71,6 +71,10 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
         reliefweb = rows["reliefweb"]
 
         all_posts = telegram + twitter + reddit + rss + reliefweb
+        reliability_counts: Dict[str, int] = {}
+        for p in all_posts:
+            tier = str(p.get("source_reliability_tier") or "inferred")
+            reliability_counts[tier] = reliability_counts.get(tier, 0) + 1
 
         try:
             from services.hf_service import deduplicate_items
@@ -196,6 +200,7 @@ def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:
             "socmint_score": round(score, 1),
             "top_signals": top_signals,
             "entities": entities,
+            "source_reliability_breakdown": reliability_counts,
             "summary": f"SOCMINT (rule-based): {len(all_posts)} signals ({escalatory} escalatory, {de_esc} de-escalatory). Score {score:.0f}.",
             "_meta": build_agent_meta(
                 "socmint",

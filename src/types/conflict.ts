@@ -206,6 +206,11 @@ type NarrativeBlock = GeneratedNarrativeResult & {
   method_notes?: string[];
   fetched_at?: string;
   error?: string;
+  camp_a_label?: string;
+  camp_b_label?: string;
+  source_reliability_tier?: "api" | "rss" | "html-scrape" | "inferred" | string;
+  verification_state?: "confirmed" | "partially_confirmed" | "contested" | string;
+  claim_conflicts?: string[];
   _meta?: AgentMeta;
 };
 
