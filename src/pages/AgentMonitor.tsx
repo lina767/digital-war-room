@@ -1211,7 +1211,7 @@ function AgentMonitorContent() {
               Research enrichment KPIs
             </CardTitle>
             <p className="text-xs text-muted-foreground font-normal">
-              Triggered Gemini research runs with strict source-citation policy and publish gating.
+              Triggered LLM research runs with strict source-citation policy and publish gating.
             </p>
           </CardHeader>
           <CardContent>

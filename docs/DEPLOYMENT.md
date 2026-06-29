@@ -23,9 +23,15 @@ Schritte, um das Projekt live zu schalten (Frontend auf Vercel, Backend auf Rail
     `RESEND_API_KEY`, `NEWSLETTER_FROM`, `FRONTEND_URL` (for confirm/unsubscribe links). Daily job defaults to **10:00 Europe/Berlin** (`NEWSLETTER_SEND_TIMEZONE` / `NEWSLETTER_SEND_HOUR` / `NEWSLETTER_SEND_MINUTE`), or legacy `NEWSLETTER_SEND_UTC_HOUR` for a fixed UTC hour. Optional: `NEWSLETTER_CRON_SECRET` if calling `POST /api/newsletter/send-daily` from external cron. See [docs/NEWSLETTER-SPEC.md](NEWSLETTER-SPEC.md) and [docs/API-KEYS.md](API-KEYS.md#newsletter-daily-briefing-by-email).
   - **Observability (Tracing):** **OpenTelemetry (OTEL):** Setze `OTEL_EXPORTER_OTLP_ENDPOINT` (z. B. `http://localhost:4317` für Jaeger gRPC). Optional: `OTEL_SERVICE_NAME=digital-war-room`. Traces (LLM-, Agent-, Tool-Spans) gehen an den konfigurierten OTLP-Endpoint (z. B. **Jaeger**). Jaeger lokal: `docker run -d --name jaeger -p 16686:16686 -p 4317:4317 -p 4318:4318 jaegertracing/all-in-one:latest` – UI unter `http://localhost:16686`.
   - **Incident-only Overrides:** `SOURCE_STATUS_OVERRIDES` nur kurzfristig bei echten Feed-Störungen setzen. Dauerhafte Overrides führen zu systematisch pessimistischer Datenqualität und oft dünneren CEO-Key-Findings.
-- **Kosten senken (LLM-API):**
+- **Idle-Modus (Kosten ~0, App bleibt online):**
+  - **Hintergrund-Analyse ist standardmäßig AUS** (`AUTO_ANALYZE_ENABLED=false`). Der Backend-Container läuft nahezu im Leerlauf und liefert die zuletzt gecachte Analyse (Rehydrierung aus persistierten Snapshots). Es werden **keine** geplanten LLM/HF/externen API-Calls ausgelöst.
+  - **On-demand auslösen:** `POST /api/analyze/trigger?conflict=...` (optional `ANALYZE_TRIGGER_SECRET`).
+  - **Periodische Läufe aktivieren:** `AUTO_ANALYZE_ENABLED=true` (plus optional `AUTO_ANALYZE_INTERVAL_SEC`).
+  - **Daily Snapshot** läuft standardmäßig nicht mehr in-process (`DAILY_SNAPSHOT_IN_PROCESS_SCHEDULER=false`); bei Bedarf true setzen oder externen Cron nutzen.
+  - **Wirklich 0 Kosten:** Railway-Service im Dashboard pausieren; das Frontend auf Vercel (Hobby) bleibt kostenlos. Neustart ist günstig, da Analyse standardmäßig aus ist.
+- **Kosten senken (LLM-API), wenn Läufe aktiv sind:**
   - **OpenAI statt Claude:** `LLM_PROVIDER=openai`, `OPENAI_API_KEY=sk-…`. Agents und Supervisor nutzen dann z. B. `gpt-4o-mini` (Standard); optional `OPENAI_AGENT_MODEL` / `OPENAI_SUPERVISOR_MODEL` setzen.
-  - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 21600 = alle 6 Stunden; z. B. 3600 = stündlich, 600 = alle 10 Min).
+  - `AUTO_ANALYZE_INTERVAL_SEC` (Standard: 86400 = täglich, nur wenn `AUTO_ANALYZE_ENABLED=true`; z. B. 3600 = stündlich, 600 = alle 10 Min).
   - **Supervisor standardmäßig nur Haiku:** Default ist `SUPERVISOR_MODEL=claude-haiku-4-5-20251001` und **`USE_SUPERVISOR_FALLBACK_MODEL=false`** (kein Sonnet-Fallback). Optional: `USE_SUPERVISOR_FALLBACK_MODEL=true` setzen – dann wird bei stark auseinanderliegenden Agent-Scores (Spannweite ≥ 50) Sonnet genutzt. Schwellwert: `SUPERVISOR_CONTRADICTION_RANGE_THRESHOLD=50` (default).
   - **`USE_RULE_BASED_AGENTS`** – Standard ist `true`: FININT, GEOINT, NEWS, SOCMINT, SIGINT laufen mit fester Tool-Kette (siehe `docs/AGENT-TOOL-CHAIN.md`), kein LLM in den Agents. Nur der Supervisor nutzt ein LLM. Zum Aktivieren von LLM pro Agent: `USE_RULE_BASED_AGENTS=false`.
   - **`USE_RULE_BASED_SUPERVISOR=true`** – Zusätzlich Supervisor ohne LLM: nur gewichteter Score, Threat-Stufen, Key Findings aus Agent-Daten. Kein LLM-Aufruf im Supervisor (minimale Kosten).

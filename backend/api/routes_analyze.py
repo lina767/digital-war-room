@@ -50,14 +50,32 @@ REFRESH_DEPRECATION_HEADERS = {
 
 
 def _run_analyze_in_context(ctx: Any, conflict: str) -> Any:
-    """Run sync analyze_conflict with RequestContext (needed for executor threads)."""
+    """Run sync analyze_conflict with RequestContext (needed for executor threads).
+
+    Resets Haiku per-run counters/token attribution before the run and logs run
+    stats afterwards, mirroring the periodic scheduler so manual API-triggered
+    runs don't accumulate counters across runs.
+    """
     from services.request_context import reset_request_context, set_request_context
+
+    try:
+        from services.haiku_service import reset_run_counters
+
+        reset_run_counters()
+    except Exception:
+        pass
 
     token = set_request_context(ctx)
     try:
         return analyze_conflict(conflict)
     finally:
         reset_request_context(token)
+        try:
+            from services.haiku_service import log_run_stats
+
+            log_run_stats()
+        except Exception:
+            pass
 
 
 async def _persist_analysis_result(

@@ -4,8 +4,8 @@ Shared by api routes and PROXIMITY agent. Used for IRGC tunnel vs. civilian infr
 
 V2 upgrades:
 - geometry-aware distance for OSM ways/relations (Shapely with robust fallback),
-- semantic event parsing from description (Gemini),
-- optional visual verification via Google Static + Gemini vision,
+- semantic event parsing from description (LLM shim),
+- optional visual verification via OSM/Esri static imagery + Claude vision,
 - dynamic risk synthesis while preserving legacy risk labels/fields.
 """
 

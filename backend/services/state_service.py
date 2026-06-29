@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 RUN_HISTORY_MAX = int(os.getenv("DWR_RUN_HISTORY_MAX", "50"))
 ESCALATION_TIMELINE_MAX_POINTS = int(os.getenv("ESCALATION_TIMELINE_MAX_POINTS", "24"))
+# Max distinct conflicts kept per tenant for cache/last-error/timeline (LRU eviction).
+STATE_MAX_CONFLICTS_PER_TENANT = int(os.getenv("STATE_MAX_CONFLICTS_PER_TENANT", "100"))
 
 
 def _tid(tenant_id: Optional[uuid.UUID]) -> str:
@@ -35,6 +37,20 @@ def _scope_key(tenant_id: Optional[uuid.UUID], conflict: str) -> str:
     return f"{_tid(tenant_id)}\n{conflict}"
 
 
+def _evict_over_cap(store: Dict[str, Any], tenant_id: Optional[uuid.UUID]) -> None:
+    """Evict oldest entries for a tenant once its conflict count exceeds the cap.
+
+    Relies on dict insertion order (Python 3.7+); callers should re-insert the
+    just-written key so it is treated as most-recently-used.
+    """
+    if STATE_MAX_CONFLICTS_PER_TENANT <= 0:
+        return
+    prefix = _tid(tenant_id) + "\n"
+    keys = [k for k in store if k.startswith(prefix)]
+    while len(keys) > STATE_MAX_CONFLICTS_PER_TENANT:
+        store.pop(keys.pop(0), None)
+
+
 class StateService:
     """
     Single interface for analysis cache, last error, escalation timeline,
@@ -45,6 +61,8 @@ class StateService:
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._last_error: Dict[str, str] = {}
         self._timeline: Dict[str, List[Dict[str, Any]]] = {}
+        # Bounded by agent count per tenant; only unbounded in tenant count.
+        # Cap tenants here only if multi-tenancy grows large (low priority).
         self._agent_status: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._run_history: deque = deque(maxlen=RUN_HISTORY_MAX)
 
@@ -56,7 +74,11 @@ class StateService:
 
     def set_cache(self, conflict: str, result: Dict[str, Any], at: float, tenant_id: Optional[uuid.UUID] = None) -> None:
         """Store analysis result."""
-        self._cache[_scope_key(tenant_id, conflict)] = {"result": result, "at": at}
+        key = _scope_key(tenant_id, conflict)
+        # Re-insert so the just-written conflict is most-recently-used for LRU eviction.
+        self._cache.pop(key, None)
+        self._cache[key] = {"result": result, "at": at}
+        _evict_over_cap(self._cache, tenant_id)
 
     def get_cache_all(self, tenant_id: Optional[uuid.UUID] = None) -> Dict[str, Dict[str, Any]]:
         """Return cached entries for one tenant (conflict -> entry)."""
@@ -74,7 +96,10 @@ class StateService:
         return self._last_error.get(_scope_key(tenant_id, conflict))
 
     def set_last_error(self, conflict: str, message: str, tenant_id: Optional[uuid.UUID] = None) -> None:
-        self._last_error[_scope_key(tenant_id, conflict)] = message
+        key = _scope_key(tenant_id, conflict)
+        self._last_error.pop(key, None)
+        self._last_error[key] = message
+        _evict_over_cap(self._last_error, tenant_id)
 
     def pop_last_error(self, conflict: str, tenant_id: Optional[uuid.UUID] = None) -> None:
         self._last_error.pop(_scope_key(tenant_id, conflict), None)
@@ -93,10 +118,10 @@ class StateService:
     ) -> None:
         sk = _scope_key(tenant_id, conflict)
         point = {"at": at, "escalation_score": round(escalation_score, 1)}
-        if sk not in self._timeline:
-            self._timeline[sk] = []
-        self._timeline[sk].append(point)
-        self._timeline[sk] = self._timeline[sk][-ESCALATION_TIMELINE_MAX_POINTS:]
+        existing = self._timeline.pop(sk, [])
+        existing.append(point)
+        self._timeline[sk] = existing[-ESCALATION_TIMELINE_MAX_POINTS:]
+        _evict_over_cap(self._timeline, tenant_id)
 
     def get_escalation_timeline_all(self, tenant_id: Optional[uuid.UUID] = None) -> Dict[str, List[Dict[str, Any]]]:
         prefix = _tid(tenant_id) + "\n"

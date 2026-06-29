@@ -115,8 +115,8 @@ Per-agent description: inputs, data sources, main output fields, and typical use
 
 - **Input:** `conflict`.
 - **Role:** State vs. exile media comparison and narrative/signal assessment.
-- **Outputs:** `synthesis_text`, `synthesis_probability`, `source_comparison_table`, `signal_assessment`, `anomalies`, plus optional Gemini deep-analysis fields: `theme_clusters`, `quoted_passages`, `negotiation_narrative_score`, `method_notes`.
-- **Feature flags:** `SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS`, `SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS`, `SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES`.
+- **Outputs:** `synthesis_text`, `synthesis_probability`, `source_comparison_table`, `signal_assessment`, `anomalies`, plus optional LLM deep-analysis fields (Anthropic/OpenAI): `theme_clusters`, `quoted_passages`, `negotiation_narrative_score`, `method_notes`.
+- **Feature flags:** `SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS`, `SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS`, `SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES` (env names kept for backwards-compat; backend now uses Anthropic/OpenAI since Gemini was removed for cost reasons).
 - **Use:** Post-processing layer over agent outputs; compares sources and highlights anomalies.
 
 ---

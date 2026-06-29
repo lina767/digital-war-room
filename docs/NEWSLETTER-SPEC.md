@@ -142,7 +142,7 @@ The backend uses the **Resend Contacts API** (`POST /contacts`, `PATCH /contacts
 
 1. **BLUF** — 2–3 short sentences (executive lead).
 2. **Primary CTA** — Opens the live dashboard in the right conflict context (`utm_content=bluf_primary_cta`).
-3. **Infographic** — One inline image (base64) when Gemini generation succeeds; alt text and spacing fixed for clients; on failure or oversize, a compact text block replaces the image without breaking the table layout.
+3. **Infographic** — One inline image (base64) when an image-generation provider is configured (`NEWSLETTER_INFOGRAPHIC_PROVIDER`); the former Gemini backend was removed to reduce Google API cost. Today this block renders as a compact text-only summary by default; alt text and spacing are fixed for email clients so the table layout stays intact on failure or oversize.
 4. **Key developments** — 3–5 blocks; each has its own **dashboard** deep-link (`utm_content=finding_1` … `finding_5`) with `conflict` and optional `nl_agent` (inferred from finding text) so the app can open the agents panel on the matching row. A **public** tracked link to `/daily-briefing` is provided for cold/unauthenticated readers.
 5. **Footer** — Preferences / unsubscribe unchanged; other links use the same UTM scheme where applicable.
 

@@ -25,7 +25,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .health_registry import get_health_registry
-from .utils import SourceResult, utc_now_iso
+from .utils import SourceResult, build_agent_meta, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,9 @@ SIGNAL_FRAMEWORK_GEMINI_DEEP_ANALYSIS = os.getenv("SIGNAL_FRAMEWORK_GEMINI_DEEP_
 SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS = max(6, min(40, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_ITEMS", "18"))))
 SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES = max(3, min(20, int(os.getenv("SIGNAL_FRAMEWORK_GEMINI_MAX_QUOTES", "8"))))
 SIGNAL_FRAMEWORK_FIRECRAWL_TIMEOUT_SEC = max(3, int(os.getenv("SIGNAL_FRAMEWORK_FIRECRAWL_TIMEOUT_SEC", "12")))
+SIGNAL_FRAMEWORK_SOURCE_RESULT_TIMEOUT_SEC = max(
+    5, int(os.getenv("SIGNAL_FRAMEWORK_SOURCE_RESULT_TIMEOUT_SEC", "12"))
+)
 
 # ── Source groups (theater-dependent narrative comparison) ───────────────────
 
@@ -865,13 +868,28 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
     Run the Signal Framework: compare state vs exile/independent sources,
     compute lexical, latency, discrepancy, and reaction signals; return structured report in English.
     """
+    start = time.perf_counter()
+    fetched_at = utc_now_iso()
+    source_results: List[SourceResult] = []
     profile = _source_profile_for_conflict(conflict)
     if not profile:
-        return SignalFrameworkReport(
+        payload = SignalFrameworkReport(
             conflict=conflict,
             synthesis_text="Signal Framework is configured for Iran and Lebanon narrative comparison. No analysis run.",
             error="conflict_not_supported",
         ).model_dump(mode="json")
+        payload["summary"] = payload.get("synthesis_text") or "Narrative comparison unavailable for this conflict."
+        payload["narrative_score"] = 0.0
+        payload["_meta"] = build_agent_meta(
+            "narrative",
+            fetched_at,
+            int((time.perf_counter() - start) * 1000),
+            [],
+            fallback_used=True,
+            error_summary="conflict_not_supported",
+            has_any_data=False,
+        )
+        return payload
     camp_a_label = profile.get("camp_a_label") or "State / Official"
     camp_b_label = profile.get("camp_b_label") or "Exile / Independent"
     camp_a_sources = list(profile.get("camp_a_sources") or [])
@@ -888,11 +906,10 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
                 executor.submit(_fetch_feed, s["url"], s["name"], camp_a_source_names) for s in camp_b_sources
             ]
 
-            source_results: List[SourceResult] = []
             state_items: List[Dict[str, Any]] = []
             for s, fut in zip(camp_a_sources, state_futures, strict=True):
                 try:
-                    items = fut.result(timeout=20) or []
+                    items = fut.result(timeout=SIGNAL_FRAMEWORK_SOURCE_RESULT_TIMEOUT_SEC) or []
                     items = _apply_source_whitelist(items, list(s.get("allowed_domains") or []))
                     state_items.extend(items)
                     source_results.append(
@@ -914,7 +931,7 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
             exile_items: List[Dict[str, Any]] = []
             for s, fut in zip(camp_b_sources, exile_futures, strict=True):
                 try:
-                    items = fut.result(timeout=20) or []
+                    items = fut.result(timeout=SIGNAL_FRAMEWORK_SOURCE_RESULT_TIMEOUT_SEC) or []
                     items = _apply_source_whitelist(items, list(s.get("allowed_domains") or []))
                     exile_items.extend(items)
                     source_results.append(
@@ -1128,11 +1145,43 @@ def run_signal_framework_agent(conflict: str, peers: Optional[Dict[str, Any]] = 
         report.method_notes.append(
             "State/exile rows are war-prioritized to suppress culture/soft-news drift in conflict analysis."
         )
-        return report.model_dump(mode="json")
+        payload = report.model_dump(mode="json")
+        score_raw = payload.get("negotiation_narrative_score")
+        try:
+            narrative_score = float(score_raw) if score_raw is not None else round(float(prob) * 100.0, 1)
+        except Exception:
+            narrative_score = round(float(prob) * 100.0, 1)
+        payload["narrative_score"] = max(0.0, min(100.0, narrative_score))
+        payload["summary"] = (
+            payload.get("synthesis_text")
+            or "Narrative comparison completed; review signal assessment for context."
+        )
+        payload["_meta"] = build_agent_meta(
+            "narrative",
+            fetched_at,
+            int((time.perf_counter() - start) * 1000),
+            source_results,
+            fallback_used=False,
+            error_summary=payload.get("error"),
+            has_any_data=bool(state_items or exile_items),
+        )
+        return payload
     except Exception as e:
         logger.exception("SignalFramework: run failed for conflict '%s': %s", conflict, e)
-        return SignalFrameworkReport(
+        payload = SignalFrameworkReport(
             conflict=conflict,
             error=str(e),
             synthesis_text="Signal Framework analysis failed.",
         ).model_dump(mode="json")
+        payload["summary"] = payload.get("synthesis_text") or "Signal Framework analysis failed."
+        payload["narrative_score"] = 0.0
+        payload["_meta"] = build_agent_meta(
+            "narrative",
+            fetched_at,
+            int((time.perf_counter() - start) * 1000),
+            source_results,
+            fallback_used=True,
+            error_summary=str(e),
+            has_any_data=False,
+        )
+        return payload

@@ -312,7 +312,7 @@ export function FlightRadar({ sigint }: FlightRadarProps) {
         <div className="pt-1 border-t border-border/40 space-y-1">
           <div className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/90">
             <Sparkles className="h-3 w-3 shrink-0 text-amber-400/90" aria-hidden />
-            <span>Gemini · Brief assessment</span>
+            <span>LLM · Brief assessment</span>
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed pl-0.5">{haikuAnalysis}</p>
         </div>

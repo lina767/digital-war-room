@@ -1,4 +1,8 @@
-"""Gemini-powered research enrichment for conflict analysis."""
+"""LLM-powered research enrichment for conflict analysis.
+
+Historically routed through Gemini; now delegates to Anthropic/OpenAI via the
+shim in ``services.gemini_service`` (kept for call-site stability).
+"""
 
 from __future__ import annotations
 
@@ -205,5 +209,5 @@ def run_research_enrichment(
         "total_required_fields": len(after_status),
     }
     if gem.error:
-        out["gemini_error"] = gem.error
+        out["research_llm_error"] = gem.error
     return out

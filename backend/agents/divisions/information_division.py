@@ -25,8 +25,8 @@ class InformationDivision(DivisionHead):
     weight_map = {"news": 0.42, "socmint": 0.36, "narrative": 0.22}
     _agent_timeout_overrides = {
         "news": float(os.getenv("NEWS_AGENT_TIMEOUT_SEC", "120")),
-        "socmint": float(os.getenv("SOCMINT_AGENT_TIMEOUT_SEC", "90")),
-        "narrative": float(os.getenv("NARRATIVE_AGENT_TIMEOUT_SEC", "120")),
+        "socmint": float(os.getenv("SOCMINT_AGENT_TIMEOUT_SEC", "120")),
+        "narrative": float(os.getenv("NARRATIVE_AGENT_TIMEOUT_SEC", "180")),
     }
 
     def get_dag_nodes(self) -> List[DAGNode]:

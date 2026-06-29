@@ -34,7 +34,7 @@ HF_INFERENCE_API = os.getenv("HF_INFERENCE_API", "https://router.huggingface.co/
 # If set, NER/QA still POST to {HF_API_BASE}/{model}. Prefer HF_INFERENCE_API for new deployments.
 HF_API_BASE = os.getenv("HF_API_BASE", "").rstrip("/")
 HF_API_TIMEOUT = int(os.getenv("HF_API_TIMEOUT", "45"))
-HF_CACHE_MAX_SIZE = int(os.getenv("HF_CACHE_MAX_SIZE", "10000"))
+HF_CACHE_MAX_SIZE = int(os.getenv("HF_CACHE_MAX_SIZE", "100"))
 
 # Models
 EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")

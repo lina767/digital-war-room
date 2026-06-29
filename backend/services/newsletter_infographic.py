@@ -1,5 +1,5 @@
 """
-Newsletter infographic: compress Gemini inline images for email size limits (Gmail clipping).
+Newsletter infographic: compress inline images for email size limits (Gmail clipping).
 """
 
 from __future__ import annotations

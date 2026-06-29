@@ -1,5 +1,5 @@
 """
-Contracts for Gemini research enrichment.
+Contracts for LLM-powered research enrichment.
 
 The contract is intentionally strict:
 - every accepted enrichment MUST carry a valid source URL

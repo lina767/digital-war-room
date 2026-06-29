@@ -2,7 +2,7 @@ import json
 from typing import Any, Dict
 
 from services.gemini_service import run_gemini_vision_json
-from services.google_static_imagery import fetch_static_satellite_image
+from services.static_imagery import fetch_static_satellite_image
 
 
 async def verify_facility_visual(
@@ -13,6 +13,13 @@ async def verify_facility_visual(
 ) -> Dict[str, Any]:
     """Verify if OSM tag plausibly matches visible structure in satellite imagery."""
     img_bytes, mime_type = await fetch_static_satellite_image(facility_lat, facility_lon)
+    if not img_bytes:
+        return {
+            "supports_tag": None,
+            "alternative_class": "",
+            "confidence": 0.0,
+            "notes": "static_imagery_unavailable",
+        }
     prompt_schema = {
         "supports_tag": "boolean",
         "alternative_class": "string",

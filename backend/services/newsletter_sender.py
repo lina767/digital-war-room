@@ -27,7 +27,6 @@ from services.newsletter_content_templates import (
     finding_display_order,
 )
 from services.newsletter_infographic import (
-    compress_data_uri_for_email,
     max_html_bytes,
     should_strip_infographic_from_html,
 )
@@ -59,11 +58,11 @@ _NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY = max(
     0, min(6, int(os.getenv("NEWSLETTER_WEEKLY_INFOGRAPHIC_WEEKDAY", "0")))
 )
 _NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED = (
-    (os.getenv("NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED", "true") or "").strip().lower() not in ("0", "false", "no")
+    (os.getenv("NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED", "false") or "").strip().lower() not in ("0", "false", "no")
 )
-_NEWSLETTER_INFOGRAPHIC_MODEL = (
-    os.getenv("NEWSLETTER_INFOGRAPHIC_MODEL") or "gemini-3.1-flash-image-preview"
-).strip()
+# Image-generation provider (currently only "none" is wired up after removing Gemini).
+# Set to "openai" to re-enable with DALL-E once OPENAI_API_KEY + explicit opt-in is in place.
+_NEWSLETTER_INFOGRAPHIC_PROVIDER = (os.getenv("NEWSLETTER_INFOGRAPHIC_PROVIDER") or "none").strip().lower()
 _NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC = float(os.getenv("NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC", "45"))
 
 
@@ -132,49 +131,23 @@ def _build_daily_infographic_prompt(conflict: str, date_str: str, briefing_data:
 async def _generate_daily_infographic_data_uri(
     *, conflict: str, date_str: str, briefing_data: Dict[str, Any]
 ) -> Optional[str]:
+    """Generate a data-URI infographic for the newsletter.
+
+    The original Gemini image backend has been removed (Google API cost
+    reduction). Image generation is therefore disabled unless a different
+    provider is explicitly wired up via ``NEWSLETTER_INFOGRAPHIC_PROVIDER``.
+    """
     if not _NEWSLETTER_INFOGRAPHIC_IMAGE_ENABLED:
         return None
-    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-    if not api_key:
+    if _NEWSLETTER_INFOGRAPHIC_PROVIDER == "none":
         return None
-    api_base = (os.getenv("GEMINI_API_BASE") or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
-    url = f"{api_base}/models/{_NEWSLETTER_INFOGRAPHIC_MODEL}:generateContent?key={api_key}"
-    prompt = _build_daily_infographic_prompt(conflict, date_str, briefing_data)
-    payload: Dict[str, Any] = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.35},
-    }
-    try:
-        timeout = httpx.Timeout(_NEWSLETTER_INFOGRAPHIC_TIMEOUT_SEC)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception as exc:
-        logger.warning("Newsletter daily infographic generation failed: %s", exc)
-        return None
-
-    candidates = data.get("candidates")
-    if not isinstance(candidates, list) or not candidates:
-        return None
-    first = candidates[0] if isinstance(candidates[0], dict) else {}
-    content = first.get("content") if isinstance(first, dict) else {}
-    parts = content.get("parts") if isinstance(content, dict) else []
-    if not isinstance(parts, list):
-        return None
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        inline = part.get("inlineData") if isinstance(part.get("inlineData"), dict) else part.get("inline_data")
-        if not isinstance(inline, dict):
-            continue
-        raw = inline.get("data")
-        if not isinstance(raw, str) or not raw.strip():
-            continue
-        mime = inline.get("mimeType") or inline.get("mime_type") or "image/png"
-        data_uri = f"data:{mime};base64,{raw}"
-        compressed = compress_data_uri_for_email(data_uri)
-        return compressed or data_uri
+    # Future: implement OpenAI image generation here when needed. We keep the
+    # prompt builder and the in-process cache wiring untouched so the feature
+    # can be re-enabled by adding a provider branch without touching callers.
+    logger.debug(
+        "Infographic provider '%s' not implemented; skipping generation.",
+        _NEWSLETTER_INFOGRAPHIC_PROVIDER,
+    )
     return None
 
 

@@ -191,10 +191,10 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
   },
   {
     name: "RESEARCH",
-    fullName: "Research Enrichment (Gemini)",
+    fullName: "Research Enrichment (LLM)",
     sources: [
       {
-        name: "Gemini Developer API",
+        name: "Anthropic / OpenAI API",
         description: "Selective web-style enrichment only when trigger gate detects gaps, staleness, conflicts, or uncertainty",
       },
       {
@@ -213,7 +213,7 @@ export const AGENTS_WITH_SOURCES: AgentConfig[] = [
     sources: [
       { name: "IRNA / Fars", description: "State-aligned Persian sources (RSS)" },
       { name: "Iran International / Radio Farda", description: "Exile/independent (RSS)" },
-      { name: "Gemini Deep Analysis", description: "Theme clustering + quoted passage extraction for negotiation narratives (feature-flagged)" },
+      { name: "LLM Deep Analysis", description: "Theme clustering + quoted passage extraction for negotiation narratives (feature-flagged, Anthropic/OpenAI)" },
       { name: "Comparison", description: "Synthesis, latency, credibility gaps (Iran conflict)" },
     ],
   },

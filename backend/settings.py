@@ -16,6 +16,13 @@ except Exception:  # pragma: no cover - fallback when pydantic-settings is unava
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # Default OFF: the deployed app is cheap by default (no scheduled LLM/HF/API runs).
+    # Set AUTO_ANALYZE_ENABLED=true to run periodic analysis.
+    auto_analyze_enabled: bool = (os.getenv("AUTO_ANALYZE_ENABLED", "false") or "").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
     auto_analyze_conflict: str = os.getenv("AUTO_ANALYZE_CONFLICT", DEFAULT_CONFLICT)
     auto_analyze_interval_sec: int = int(os.getenv("AUTO_ANALYZE_INTERVAL_SEC", "86400"))
     auto_analyze_timeout_sec: int = int(os.getenv("AUTO_ANALYZE_TIMEOUT_SEC", "300"))
@@ -37,8 +44,9 @@ class AppSettings(BaseSettings):
         "no",
     )
     retention_interval_sec: int = max(3600, int(os.getenv("RETENTION_INTERVAL_SEC", "86400")))
+    # Default OFF (cheap by default); enable explicitly or use external cron.
     daily_snapshot_in_process_scheduler: bool = (
-        (os.getenv("DAILY_SNAPSHOT_IN_PROCESS_SCHEDULER", "true") or "").strip().lower() not in ("0", "false", "no")
+        (os.getenv("DAILY_SNAPSHOT_IN_PROCESS_SCHEDULER", "false") or "").strip().lower() not in ("0", "false", "no")
     )
     daily_snapshot_send_hour_utc: int = max(0, min(23, int(os.getenv("DAILY_SNAPSHOT_SEND_HOUR_UTC", "2"))))
     daily_snapshot_send_minute_utc: int = max(0, min(59, int(os.getenv("DAILY_SNAPSHOT_SEND_MINUTE_UTC", "0"))))

@@ -26,7 +26,7 @@ from .llm import run_tool_agent
 from .utils import SourceResult, build_agent_meta, cap_reference_urls, run_async, utc_now_iso
 
 logger = logging.getLogger(__name__)
-SOCMINT_SOURCE_TIMEOUT_SEC = max(5, int(os.getenv("SOCMINT_SOURCE_TIMEOUT_SEC", "20")))
+SOCMINT_SOURCE_TIMEOUT_SEC = max(5, int(os.getenv("SOCMINT_SOURCE_TIMEOUT_SEC", "30")))
 
 
 def _run_rule_based_socmint(conflict: str) -> Dict[str, Any]:

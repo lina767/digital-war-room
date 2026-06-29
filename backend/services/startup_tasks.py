@@ -290,13 +290,24 @@ def _create_daily_snapshot_task(logger: logging.Logger) -> asyncio.Task[Any] | N
 
 def start_startup_tasks(app: Any, logger: logging.Logger) -> StartupTasks:
     acled_task = _create_acled_task(logger)
-    analysis_task = create_periodic_analysis_task(
-        app,
-        conflict=settings.auto_analyze_conflict,
-        interval_sec=settings.auto_analyze_interval_sec,
-        timeout_sec=settings.auto_analyze_timeout_sec,
-        logger=logger,
-    )
+    if settings.auto_analyze_enabled:
+        analysis_task = create_periodic_analysis_task(
+            app,
+            conflict=settings.auto_analyze_conflict,
+            interval_sec=settings.auto_analyze_interval_sec,
+            timeout_sec=settings.auto_analyze_timeout_sec,
+            logger=logger,
+        )
+    else:
+        logger.info(
+            "Periodic analysis disabled (AUTO_ANALYZE_ENABLED=false). "
+            "Serving last cached analysis; trigger on demand via POST /api/analyze/trigger."
+        )
+
+        async def _noop() -> None:
+            return None
+
+        analysis_task = asyncio.create_task(_noop())
     worker_task = asyncio.create_task(app.state.job_queue.worker())
     greynoise_task, greynoise_discovery_task = _create_greynoise_tasks(logger)
     retention_task = _create_retention_task(logger)
