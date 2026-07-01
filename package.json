@@ -30,7 +30,7 @@
     "@deck.gl/widgets": "^9.2.11",
     "@radix-ui/react-collapsible": "^1.1.11",
     "@radix-ui/react-slot": "^1.2.3",
-    "@radix-ui/react-tooltip": "^1.2.7",
+    "@radix-ui/react-tooltip": "^1.2.8",
     "@react-pdf/renderer": "^4.3.2",
     "@supabase/supabase-js": "^2.100.0",
     "@turf/distance": "^7.3.4",
