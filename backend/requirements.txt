@@ -58,7 +58,7 @@ PyJWT==2.11.0
 pyparsing==3.3.2
 pyroaring==1.0.3
 python-dateutil==2.9.0.post0
-python-dotenv==1.2.1
+python-dotenv==1.2.2
 rapidfuzz>=3.0.0
 slowapi>=0.1.9
 PyYAML==6.0.3
