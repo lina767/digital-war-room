@@ -85,7 +85,7 @@ urllib3==2.6.3
 uuid_utils==0.14.1
 uvicorn==0.41.0
 websocket-client==1.9.0
-websockets==15.0.1
+websockets==16.0
 xxhash==3.6.0
 yarl==1.22.0
 zstandard==0.25.0
